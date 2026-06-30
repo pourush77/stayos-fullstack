@@ -1,0 +1,28 @@
+{
+  "name": "@stayos/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start --port 3000",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@stayos/config": "file:../../packages/config",
+    "@stayos/theme": "file:../../packages/theme",
+    "@stayos/types": "file:../../packages/types",
+    "@stayos/ui": "file:../../packages/ui",
+    "@stayos/utils": "file:../../packages/utils",
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "tailwindcss": "latest"
+  }
+}

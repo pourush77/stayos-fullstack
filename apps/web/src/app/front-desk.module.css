@@ -1,0 +1,15 @@
+.queueCard {
+  border-left: 3px solid transparent;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease,
+    background 160ms ease;
+}
+
+.queueCard:hover {
+  background: var(--queue-hover-bg);
+  border-left-color: var(--queue-accent);
+  box-shadow: var(--queue-hover-shadow);
+  transform: translateY(-1px);
+}

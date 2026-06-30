@@ -1,0 +1,55 @@
+.timelineRail,
+.assistantRail {
+  position: sticky;
+  top: 24px;
+}
+
+.stayCard {
+  transition:
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.timelineItem {
+  border-radius: 8px;
+  padding: 6px;
+  text-align: left;
+  transition: background 160ms ease;
+}
+
+.timelineItem:hover {
+  background: var(--timeline-hover);
+}
+
+.stayCard:hover {
+  box-shadow: var(--stay-card-shadow);
+  transform: translateY(-1px);
+}
+
+.actionDock {
+  backdrop-filter: blur(16px);
+  background: var(--dock-background);
+  border: 1px solid var(--dock-border);
+  border-radius: var(--dock-radius);
+  bottom: 24px;
+  box-shadow: var(--dock-shadow);
+  left: 50%;
+  max-width: min(920px, calc(100vw - 48px));
+  padding: 12px;
+  position: fixed;
+  transform: translateX(-50%);
+  width: fit-content;
+  z-index: 130;
+}
+
+@media (max-width: 62em) {
+  .timelineRail,
+  .assistantRail {
+    position: static;
+  }
+
+  .actionDock {
+    bottom: 76px;
+    width: calc(100vw - 32px);
+  }
+}

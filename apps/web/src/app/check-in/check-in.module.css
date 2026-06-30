@@ -1,0 +1,27 @@
+.methodCard,
+.roomCard,
+.stepCard {
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.methodCard:hover,
+.roomCard:hover,
+.stepCard:hover {
+  border-color: var(--stayos-accent);
+  box-shadow: var(--stayos-hover-shadow);
+  transform: translateY(-1px);
+}
+
+.stepRail {
+  position: sticky;
+  top: 24px;
+}
+
+@media (max-width: 62em) {
+  .stepRail {
+    position: static;
+  }
+}
