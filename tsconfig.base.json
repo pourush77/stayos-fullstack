@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "@stayos/config": ["packages/config/src/index.ts"],
+      "@stayos/theme": ["packages/theme/src/index.ts"],
+      "@stayos/types": ["packages/types/src/index.ts"],
+      "@stayos/ui": ["packages/ui/src/index.ts"],
+      "@stayos/utils": ["packages/utils/src/index.ts"]
+    }
+  }
+}
