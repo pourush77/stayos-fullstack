@@ -400,7 +400,14 @@ function ReservationDrawer({
             <Title order={2} style={typography.styles.h2}>
               {reservation.guest}
             </Title>
-            <Button component="a" href="/guests/ananya-rao" mt={spacing[3]} size="xs" variant="light" color="stayosBrand">
+            <Button
+              component="a"
+              href="/guests/ananya-rao"
+              mt={spacing[3]}
+              size="xs"
+              variant="light"
+              color="stayosBrand"
+            >
               Open Guest 360
             </Button>
             <Text c={colors.text.muted} mt={spacing[1]} style={typography.styles.small}>
@@ -482,7 +489,11 @@ function ReservationDrawer({
               component={reservation.status === 'Checked-in' ? 'a' : 'button'}
               href={reservation.status === 'Checked-in' ? '/guest-stay/ST1842' : undefined}
               leftSection={
-                reservation.status === 'Checked-in' ? <DoorOpen size={16} /> : <KeyRound size={16} />
+                reservation.status === 'Checked-in' ? (
+                  <DoorOpen size={16} />
+                ) : (
+                  <KeyRound size={16} />
+                )
               }
               color="stayosBrand"
             >

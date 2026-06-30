@@ -55,7 +55,7 @@ type AlertItem = {
   level: 'High' | 'Medium';
 };
 
-const propertyName = 'Bloom Residency';
+const propertyName = 'Hillston Resort & Club';
 const receptionistName = 'Aarav';
 
 const todayOperations: OperationMetric[] = [

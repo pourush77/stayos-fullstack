@@ -27,9 +27,11 @@ import {
   Wrench,
 } from 'lucide-react';
 import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { brandPalettes, colors, radius, shadows, spacing, typography } from '@stayos/theme';
 import { StayOSOperationsCard } from '@stayos/ui';
 import type { StayOSStatusTone } from '@stayos/ui';
+import { getProperties, getPropertyRooms, type InventoryRoomDto } from '../lib/inventory-api';
 import styles from './front-desk.module.css';
 
 type QueueItem = {
@@ -192,6 +194,83 @@ const roomStatuses: RoomStatus[] = [
   },
 ];
 
+const loadingRoomStatuses = roomStatuses.map((status) => ({ ...status, value: '0' }));
+
+type FrontDeskInventoryState = {
+  propertyName: string;
+  roomStatuses: RoomStatus[];
+};
+
+function getString(record: Record<string, unknown> | undefined, keys: string[], fallback = '') {
+  if (!record) return fallback;
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number') return String(value);
+  }
+
+  return fallback;
+}
+
+function isActiveRecord(record: Record<string, unknown>) {
+  return getString(record, ['status'], 'ACTIVE').toUpperCase() === 'ACTIVE';
+}
+
+function operationalStatus(room: InventoryRoomDto) {
+  return getString(room, ['operationalStatus', 'operational_status'], 'READY').toUpperCase();
+}
+
+function useFrontDeskInventory(): FrontDeskInventoryState {
+  const [state, setState] = useState<FrontDeskInventoryState>({
+    propertyName: 'Hillston Resort & Club',
+    roomStatuses: loadingRoomStatuses,
+  });
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadInventory() {
+      try {
+        const properties = await getProperties(controller.signal);
+        const activeProperty = properties.find(isActiveRecord);
+        const propertyId = getString(activeProperty, ['id']);
+
+        if (!activeProperty || !propertyId) return;
+
+        const rooms = (await getPropertyRooms(propertyId, controller.signal)).filter(isActiveRecord);
+        const ready = rooms.filter((room) => operationalStatus(room) === 'READY').length;
+        const occupied = rooms.filter((room) => operationalStatus(room) === 'OCCUPIED').length;
+        const cleaning = rooms.filter((room) => ['DIRTY', 'NEEDS_CLEANING', 'CLEANING'].includes(operationalStatus(room))).length;
+        const maintenance = rooms.filter((room) => ['MAINTENANCE', 'OOO', 'OOS', 'OUT_OF_ORDER', 'OUT_OF_SERVICE'].includes(operationalStatus(room))).length;
+
+        setState({
+          propertyName: getString(activeProperty, ['name'], 'Hillston Resort & Club'),
+          roomStatuses: [
+            { ...roomStatuses[0], value: String(ready) },
+            { ...roomStatuses[1], value: String(occupied) },
+            { ...roomStatuses[2], value: '0' },
+            { ...roomStatuses[3], value: String(cleaning) },
+            { ...roomStatuses[4], value: String(maintenance) },
+          ],
+        });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setState({
+          propertyName: 'Hillston Resort & Club',
+          roomStatuses,
+        });
+      }
+    }
+
+    void loadInventory();
+
+    return () => controller.abort();
+  }, []);
+
+  return state;
+}
+
 const timeline = [
   {
     time: '09:30',
@@ -250,7 +329,7 @@ function StatusChip({ children, tone }: { children: ReactNode; tone: string }) {
   );
 }
 
-function FrontDeskHero() {
+function FrontDeskHero({ propertyName }: { propertyName: string }) {
   const currentDate = new Intl.DateTimeFormat('en-IN', {
     weekday: 'long',
     day: '2-digit',
@@ -309,7 +388,7 @@ function FrontDeskHero() {
           Everything is under control.
         </Title>
         <Text c={colors.text.body} style={typography.styles.body}>
-          {currentDate} - Bloom Residency
+          {currentDate} - {propertyName}
         </Text>
         <Text c={colors.text.muted} style={typography.styles.small}>
           Morning Shift - 07:00 AM - 03:00 PM
@@ -462,7 +541,7 @@ function ReceptionQueue() {
   );
 }
 
-function RoomStatusPanel() {
+function RoomStatusPanel({ roomStatuses }: { roomStatuses: RoomStatus[] }) {
   return (
     <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
       <Title order={2} style={typography.styles.h3}>
@@ -581,9 +660,11 @@ function FloatingShortcuts() {
 }
 
 export default function HomePage() {
+  const inventory = useFrontDeskInventory();
+
   return (
     <Stack gap={spacing[6]}>
-      <FrontDeskHero />
+      <FrontDeskHero propertyName={inventory.propertyName} />
       <OperationsStrip />
 
       <SimpleGrid cols={{ base: 1, lg: 12 }} spacing={spacing[5]}>
@@ -591,7 +672,7 @@ export default function HomePage() {
           <ReceptionQueue />
         </Box>
         <Box style={{ gridColumn: 'span 4' }}>
-          <RoomStatusPanel />
+          <RoomStatusPanel roomStatuses={inventory.roomStatuses} />
         </Box>
       </SimpleGrid>
 

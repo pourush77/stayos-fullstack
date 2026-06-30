@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
   ActionIcon,
   AppShell as MantineAppShell,
@@ -49,8 +51,60 @@ type StayOSAppShellProps = {
   children: ReactNode;
 };
 
-const propertyName = 'Bloom Residency';
+const fallbackPropertyName = 'Hillston Resort & Club';
 const userName = 'Aarav Mehta';
+
+function getPropertyName(record: unknown) {
+  if (!record || typeof record !== 'object') return '';
+  const value = (record as Record<string, unknown>).name;
+  return typeof value === 'string' ? value : '';
+}
+
+function getPropertyStatus(record: unknown) {
+  if (!record || typeof record !== 'object') return '';
+  const value = (record as Record<string, unknown>).status;
+  return typeof value === 'string' ? value : '';
+}
+
+function getPropertyList(response: unknown) {
+  if (Array.isArray(response)) return response;
+  if (response && typeof response === 'object') {
+    const data = (response as Record<string, unknown>).data;
+    if (Array.isArray(data)) return data;
+  }
+
+  return [];
+}
+
+function useActivePropertyName() {
+  const [propertyName, setPropertyName] = useState(fallbackPropertyName);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api/v1';
+
+    fetch(`${apiBaseUrl}/properties`, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error('Unable to load active property.');
+        return response.json() as Promise<unknown>;
+      })
+      .then((response) => {
+        const activeProperty = getPropertyList(response).find((property) => getPropertyStatus(property) === 'ACTIVE');
+        const name = getPropertyName(activeProperty);
+        if (name) setPropertyName(name);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  return propertyName;
+}
 
 function BrandMark({ collapsed = false }: { collapsed?: boolean }) {
   return (
@@ -80,7 +134,7 @@ function BrandMark({ collapsed = false }: { collapsed?: boolean }) {
   );
 }
 
-function PropertySelector({ collapsed = false }: { collapsed?: boolean }) {
+function PropertySelector({ collapsed = false, propertyName }: { collapsed?: boolean; propertyName: string }) {
   if (collapsed) {
     return (
       <Tooltip label={propertyName} position="right">
@@ -131,11 +185,7 @@ function PropertySelector({ collapsed = false }: { collapsed?: boolean }) {
 }
 
 function NavigationList({ collapsed = false }: { collapsed?: boolean }) {
-  const [pathname, setPathname] = useState('/');
-
-  useEffect(() => {
-    setPathname(window.location.pathname);
-  }, []);
+  const pathname = usePathname();
 
   return (
     <Stack gap={spacing[1]}>
@@ -147,7 +197,7 @@ function NavigationList({ collapsed = false }: { collapsed?: boolean }) {
           <Tooltip key={item.label} label={item.label} position="right" disabled={!collapsed}>
             <NavLink
               aria-label={item.label}
-              component="a"
+              component={Link}
               href={item.href}
               label={collapsed ? null : item.label}
               leftSection={<item.icon size={18} />}
@@ -249,7 +299,7 @@ function GlobalSearch() {
           {results.map((result) => (
             <UnstyledButton
               key={result.title}
-              component="a"
+              component={Link}
               href={result.href}
               style={{
                 borderRadius: radius.md,
@@ -293,9 +343,11 @@ function GlobalSearch() {
 function Sidebar({
   collapsed,
   onToggleCollapse,
+  propertyName,
 }: {
   collapsed: boolean;
   onToggleCollapse: () => void;
+  propertyName: string;
 }) {
   return (
     <Stack h="100%" gap={spacing[5]} p={collapsed ? spacing[3] : spacing[5]}>
@@ -328,7 +380,7 @@ function Sidebar({
         </Tooltip>
       ) : null}
 
-      <PropertySelector collapsed={collapsed} />
+      <PropertySelector collapsed={collapsed} propertyName={propertyName} />
       {!collapsed ? (
         <SearchInput aria-label="Search navigation" placeholder="Search StayOS" />
       ) : null}
@@ -346,10 +398,12 @@ function Sidebar({
 
 function TopHeader({
   onOpenMobileMenu,
+  propertyName,
   utilityPanelOpen,
   onToggleUtilityPanel,
 }: {
   onOpenMobileMenu: () => void;
+  propertyName: string;
   utilityPanelOpen: boolean;
   onToggleUtilityPanel: () => void;
 }) {
@@ -419,11 +473,7 @@ function TopHeader({
 }
 
 function UtilityPanel() {
-  const [pathname, setPathname] = useState('/');
-
-  useEffect(() => {
-    setPathname(window.location.pathname);
-  }, []);
+  const pathname = usePathname();
 
   const tasks = getTasksForPath(pathname);
   const topTask = tasks[0];
@@ -466,7 +516,7 @@ function UtilityPanel() {
   );
 }
 
-function MobileDrawer({ opened, onClose }: { opened: boolean; onClose: () => void }) {
+function MobileDrawer({ opened, onClose, propertyName }: { opened: boolean; onClose: () => void; propertyName: string }) {
   return (
     <Drawer
       opened={opened}
@@ -475,17 +525,13 @@ function MobileDrawer({ opened, onClose }: { opened: boolean; onClose: () => voi
       size="min(90vw, 340px)"
       zIndex={zIndex.drawer}
     >
-      <Sidebar collapsed={false} onToggleCollapse={onClose} />
+      <Sidebar collapsed={false} onToggleCollapse={onClose} propertyName={propertyName} />
     </Drawer>
   );
 }
 
 function MobileBottomNav({ onOpen }: { onOpen: () => void }) {
-  const [pathname, setPathname] = useState('/');
-
-  useEffect(() => {
-    setPathname(window.location.pathname);
-  }, []);
+  const pathname = usePathname();
 
   return (
     <Group
@@ -502,7 +548,7 @@ function MobileBottomNav({ onOpen }: { onOpen: () => void }) {
     >
       {mobileNavigation.map((item) => (
         <ActionIcon
-          component="a"
+          component={Link}
           href={item.href}
           key={item.label}
           aria-label={item.label}
@@ -530,6 +576,7 @@ export function StayOSAppShell({ children }: StayOSAppShellProps) {
   const [mobileMenuOpened, { open: openMobileMenu, close: closeMobileMenu }] = useDisclosure(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [utilityPanelOpen, setUtilityPanelOpen] = useState(true);
+  const propertyName = useActivePropertyName();
   const sidebarWidth = sidebarCollapsed ? 84 : 292;
 
   return (
@@ -552,6 +599,7 @@ export function StayOSAppShell({ children }: StayOSAppShellProps) {
         <MantineAppShell.Header bg={colors.surface.base} bd={`1px solid ${colors.border.subtle}`}>
           <TopHeader
             onOpenMobileMenu={openMobileMenu}
+            propertyName={propertyName}
             utilityPanelOpen={utilityPanelOpen}
             onToggleUtilityPanel={() => setUtilityPanelOpen((value) => !value)}
           />
@@ -568,6 +616,7 @@ export function StayOSAppShell({ children }: StayOSAppShellProps) {
           <Sidebar
             collapsed={sidebarCollapsed}
             onToggleCollapse={() => setSidebarCollapsed((value) => !value)}
+            propertyName={propertyName}
           />
         </MantineAppShell.Navbar>
 
@@ -586,7 +635,7 @@ export function StayOSAppShell({ children }: StayOSAppShellProps) {
         </MantineAppShell.Aside>
       </MantineAppShell>
 
-      <MobileDrawer opened={mobileMenuOpened} onClose={closeMobileMenu} />
+      <MobileDrawer opened={mobileMenuOpened} onClose={closeMobileMenu} propertyName={propertyName} />
       <MobileBottomNav onOpen={openMobileMenu} />
     </>
   );

@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  Alert,
   Badge,
   Box,
   Button,
@@ -41,14 +42,32 @@ import {
   Wrench,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { brandPalettes, colors, radius, spacing, typography } from '@stayos/theme';
 import {
   OperationalTaskCard,
   StayOSOperationsCard,
   getOpenOperationalTasks,
+  showToast,
 } from '@stayos/ui';
 import type { StayOSStatusTone } from '@stayos/ui';
+import {
+  blockRoom,
+  getProperties,
+  getPropertyFloors,
+  getPropertyRoomTypes,
+  getPropertyRooms,
+  markRoomCleaning,
+  markRoomInspection,
+  markRoomMaintenance,
+  markRoomOutOfOrder,
+  markRoomOutOfService,
+  markRoomReady,
+  type InventoryFloorDto,
+  type InventoryPropertyDto,
+  type InventoryRoomDto,
+  type InventoryRoomTypeDto,
+} from '../../lib/inventory-api';
 
 type RoomStatus =
   | 'ready'
@@ -61,9 +80,10 @@ type RoomStatus =
   | 'waiting-guest'
   | 'vip-arrival';
 
-type FloorName = 'Ground Floor' | 'First Floor' | 'Second Floor' | 'Third Floor' | 'Fourth Floor';
+type FloorName = string;
 
 type Room = {
+  id?: string;
   number: string;
   type: string;
   floor: FloorName;
@@ -116,9 +136,10 @@ type Room = {
   flags: string[];
 };
 
-const floorNames: FloorName[] = ['Ground Floor', 'First Floor', 'Second Floor', 'Third Floor', 'Fourth Floor'];
+const defaultFloorNames: FloorName[] = ['Ground Floor', 'First Floor', 'Second Floor', 'Third Floor', 'Fourth Floor'];
+const liveGuestFloorNames = new Set(['Second Floor', 'Third Floor']);
 
-const rooms: Room[] = [
+const mockRooms: Room[] = [
   {
     number: '005',
     type: 'Accessible Queen',
@@ -603,6 +624,299 @@ const rooms: Room[] = [
   },
 ];
 
+type InventoryState = {
+  activePropertyName?: string;
+  error?: string;
+  floors: FloorName[];
+  isFallback: boolean;
+  isLoading: boolean;
+  propertyId?: string;
+  rooms: Room[];
+};
+
+type RoomStatusAction =
+  | 'mark-ready'
+  | 'mark-cleaning'
+  | 'mark-inspection'
+  | 'block'
+  | 'out-of-service'
+  | 'out-of-order'
+  | 'maintenance';
+
+function getString(record: Record<string, unknown> | undefined, keys: string[], fallback = '') {
+  if (!record) return fallback;
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number') return String(value);
+  }
+
+  return fallback;
+}
+
+function getNumber(record: Record<string, unknown> | undefined, keys: string[]) {
+  if (!record) return undefined;
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string' && value.trim() && !Number.isNaN(Number(value))) return Number(value);
+  }
+
+  return undefined;
+}
+
+function getBoolean(record: Record<string, unknown> | undefined, keys: string[]) {
+  if (!record) return false;
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return ['true', 'yes', '1'].includes(value.toLowerCase());
+  }
+
+  return false;
+}
+
+function getRecord(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  }
+
+  return undefined;
+}
+
+function getStringArray(record: Record<string, unknown>, keys: string[], fallback: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      return value
+        .map((item) => (typeof item === 'string' ? item : getString(item as Record<string, unknown>, ['name', 'label', 'title'])))
+        .filter(Boolean);
+    }
+  }
+
+  return fallback;
+}
+
+function mapStatus(value: string): RoomStatus {
+  const normalized = value.toLowerCase().replace(/_/g, '-').replace(/\s+/g, '-');
+
+  if (['active', 'available', 'clean', 'vacant-ready', 'ready'].includes(normalized)) return 'ready';
+  if (['occupied', 'in-house', 'guest-staying'].includes(normalized)) return 'occupied';
+  if (['dirty', 'needs-cleaning', 'cleaning', 'checkout-dirty'].includes(normalized)) return 'needs-cleaning';
+  if (['inspection', 'inspect', 'pending-inspection'].includes(normalized)) return 'inspection';
+  if (['out-of-service', 'oos', 'blocked'].includes(normalized)) return 'out-of-service';
+  if (['out-of-order', 'ooo'].includes(normalized)) return 'out-of-order';
+  if (['maintenance', 'under-maintenance', 'repair'].includes(normalized)) return 'maintenance';
+  if (['waiting-guest', 'guest-waiting'].includes(normalized)) return 'waiting-guest';
+  if (['vip-arrival', 'vip'].includes(normalized)) return 'vip-arrival';
+
+  return 'ready';
+}
+
+function createLookup<T extends Record<string, unknown>>(items: T[]) {
+  return new Map(
+    items
+      .map((item) => [getString(item, ['id', '_id', 'uuid', 'floorId', 'roomTypeId']), item] as const)
+      .filter(([id]) => id),
+  );
+}
+
+function mapInventoryRooms({
+  floors,
+  rooms,
+  roomTypes,
+}: {
+  floors: InventoryFloorDto[];
+  rooms: InventoryRoomDto[];
+  roomTypes: InventoryRoomTypeDto[];
+}) {
+  const floorLookup = createLookup(floors);
+  const roomTypeLookup = createLookup(roomTypes);
+
+  return rooms
+    .slice()
+    .sort((roomA, roomB) => getString(roomA, ['roomNumber', 'number']).localeCompare(getString(roomB, ['roomNumber', 'number']), undefined, { numeric: true }))
+    .map((room, index): Room => {
+    const floorRecord =
+      getRecord(room, ['floor']) ?? floorLookup.get(getString(room, ['floorId', 'floor_id', 'floorID']));
+    const roomTypeRecord =
+      getRecord(room, ['roomType', 'type']) ?? roomTypeLookup.get(getString(room, ['roomTypeId', 'room_type_id', 'typeId']));
+    const roomNumber = getString(room, ['number', 'roomNumber', 'room_number', 'name', 'code'], String(index + 1));
+    const roomType = getString(roomTypeRecord, ['name', 'label', 'title'], getString(room, ['roomTypeName', 'typeName'], 'Room'));
+    const floor = getString(floorRecord, ['name', 'label', 'title'], getString(room, ['floorName', 'floor'], 'Unassigned Floor'));
+    const status = mapStatus(getString(room, ['operationalStatus', 'operational_status'], 'ready'));
+    const maxOccupancy =
+      getNumber(room, ['capacity', 'maxOccupancy', 'max_occupancy']) ??
+      getNumber(roomTypeRecord, ['capacity', 'maxOccupancy', 'max_occupancy']);
+    const size =
+      getString(room, ['size', 'area', 'squareFeet', 'square_feet', 'sizeSqFt']) ||
+      getString(roomTypeRecord, ['size', 'area', 'squareFeet', 'square_feet', 'sizeSqFt'], 'Not specified');
+    const bedType = getString(room, ['bedType', 'bed_type'], getString(roomTypeRecord, ['bedType', 'bed_type'], 'Not specified'));
+    const guestName = getString(getRecord(room, ['guest', 'currentGuest']), ['name', 'fullName', 'displayName']);
+    const nextArrival = getString(room, ['nextArrival', 'next_arrival']);
+    const accessible = getBoolean(room, ['accessible', 'isAccessible']) || getBoolean(roomTypeRecord, ['accessible', 'isAccessible']);
+    const connecting = getBoolean(room, ['connecting', 'isConnecting']);
+    const isVip = getBoolean(room, ['vip', 'isVip']) || status === 'vip-arrival';
+    const amenities = getStringArray(room, ['amenities'], getStringArray(roomTypeRecord ?? {}, ['amenities'], ['WiFi', 'Smart TV']));
+    const condition = getString(room, ['condition', 'description'], statusLabels[status]);
+    const housekeepingStatus = getString(room, ['housekeepingStatus', 'housekeeping_status'], statusLabels[status]);
+    const maintenanceStatus = getString(room, ['maintenanceStatus', 'maintenance_status'], 'No active issues');
+
+    return {
+      id: getString(room, ['id', '_id', 'uuid']),
+      number: roomNumber,
+      type: roomType,
+      floor,
+      status,
+      condition,
+      capacity: maxOccupancy ? `${maxOccupancy} guests` : 'Not specified',
+      guest: guestName || undefined,
+      bookingId: getString(room, ['bookingId', 'reservationCode', 'reservationId']) || undefined,
+      nextArrival: nextArrival || undefined,
+      housekeeper: getString(room, ['housekeeper', 'assignedHousekeeper'], 'Unassigned'),
+      imageLabel: `${roomType} ${floor.toLowerCase()}`,
+      size: typeof size === 'string' && /^\d+$/.test(size) ? `${size} sq ft` : size,
+      bedType,
+      smoking: getBoolean(room, ['smoking', 'isSmoking']) ? 'Smoking' : 'Non-smoking',
+      connecting,
+      accessible,
+      view: getString(room, ['view', 'viewType'], 'Not specified'),
+      description: getString(room, ['description'], `${roomType} on ${floor}.`),
+      amenities,
+      housekeeping: {
+        lastCleaned: getString(room, ['lastCleaned', 'last_cleaned'], 'Not recorded'),
+        cleanedBy: getString(room, ['cleanedBy', 'cleaned_by'], 'Unassigned'),
+        inspectionStatus: getString(room, ['inspectionStatus', 'inspection_status'], housekeepingStatus),
+        lastDeepClean: getString(room, ['lastDeepClean', 'last_deep_clean'], 'Not recorded'),
+        currentTask: getString(room, ['currentHousekeepingTask', 'currentTask'], housekeepingStatus),
+        timeline: getStringArray(room, ['housekeepingTimeline'], [housekeepingStatus]),
+      },
+      maintenance: {
+        lastMaintenance: getString(room, ['lastMaintenance', 'last_maintenance'], 'Not recorded'),
+        upcomingMaintenance: getString(room, ['upcomingMaintenance', 'upcoming_maintenance'], 'None scheduled'),
+        openIssues: getString(room, ['openIssues', 'open_issues', 'maintenanceIssue'], maintenanceStatus),
+        pastRepairs: getStringArray(room, ['pastRepairs', 'repairs'], []),
+        condition: getString(room, ['maintenanceCondition'], condition),
+        timeline: getStringArray(room, ['maintenanceTimeline'], [maintenanceStatus]),
+      },
+      occupancy: {
+        currentGuest: guestName || 'None',
+        nextReservation: nextArrival || 'No arrival today',
+        futureReservations: getString(room, ['futureReservations'], 'Not connected'),
+        daysOccupied: getString(room, ['daysOccupied'], 'Not connected'),
+        occupancyRate: getString(room, ['occupancyRate'], 'Not connected'),
+        averageRate: getString(room, ['averageRate'], 'Not connected'),
+        revenue: 'Not connected',
+      },
+      roomTimeline: getStringArray(room, ['timeline', 'roomTimeline'], [`Room ${roomNumber} loaded from inventory`]),
+      insights: [
+        'Live inventory record from backend.',
+        `${statusLabels[status]} status for Room ${roomNumber}.`,
+        `${accessible ? 'Accessible room.' : 'Standard accessibility.'}`,
+      ],
+      flags: [accessible ? 'accessible' : '', connecting ? 'connecting' : '', isVip ? 'vip' : ''].filter(Boolean),
+    };
+  });
+}
+
+function getPropertyId(property: InventoryPropertyDto) {
+  return getString(property, ['id', '_id', 'uuid', 'propertyId']);
+}
+
+function getPropertyName(property: InventoryPropertyDto) {
+  return getString(property, ['name', 'title', 'displayName']);
+}
+
+function isActiveRecord(record: Record<string, unknown>) {
+  return getString(record, ['status'], 'ACTIVE').toUpperCase() === 'ACTIVE';
+}
+
+function getActiveProperty(properties: InventoryPropertyDto[]) {
+  return properties.find(isActiveRecord);
+}
+
+function getFloorNames(floors: InventoryFloorDto[], mappedRooms: Room[]) {
+  const apiFloors = floors
+    .filter(isActiveRecord)
+    .slice()
+    .sort((floorA, floorB) => (getNumber(floorA, ['displayOrder', 'floorNumber']) ?? 0) - (getNumber(floorB, ['displayOrder', 'floorNumber']) ?? 0))
+    .map((floor) => getString(floor, ['name', 'label', 'title']))
+    .filter((floorName) => liveGuestFloorNames.has(floorName))
+    .filter(Boolean);
+  const roomFloors = mappedRooms.map((room) => room.floor).filter((floorName) => liveGuestFloorNames.has(floorName));
+
+  return Array.from(new Set([...apiFloors, ...roomFloors]));
+}
+
+function useRoomInventory(): InventoryState & { refreshInventory: () => Promise<void> } {
+  const [state, setState] = useState<InventoryState>({
+    floors: [],
+    isFallback: false,
+    isLoading: true,
+    rooms: [],
+  });
+
+  const loadInventory = useCallback(async (signal?: AbortSignal) => {
+    try {
+        const properties = await getProperties(signal);
+        const activeProperty = getActiveProperty(properties);
+        const propertyId = activeProperty ? getPropertyId(activeProperty) : '';
+
+        if (!activeProperty || !propertyId) {
+          throw new Error('No active property returned from inventory API.');
+        }
+
+        const [allFloors, allRoomTypes, allInventoryRooms] = await Promise.all([
+          getPropertyFloors(propertyId, signal),
+          getPropertyRoomTypes(propertyId, signal),
+          getPropertyRooms(propertyId, signal),
+        ]);
+        const floors = allFloors.filter((floor) => isActiveRecord(floor) && liveGuestFloorNames.has(getString(floor, ['name'])));
+        const floorIds = new Set(floors.map((floor) => getPropertyId(floor)).filter(Boolean));
+        const roomTypes = allRoomTypes.filter(isActiveRecord);
+        const inventoryRooms = allInventoryRooms.filter(
+          (room) => isActiveRecord(room) && floorIds.has(getString(room, ['floorId', 'floor_id', 'floorID'])),
+        );
+        const mappedRooms = mapInventoryRooms({ floors, roomTypes, rooms: inventoryRooms });
+
+        setState({
+          activePropertyName: getPropertyName(activeProperty),
+          floors: getFloorNames(floors, mappedRooms),
+          isFallback: false,
+          isLoading: false,
+          propertyId,
+          rooms: mappedRooms,
+        });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+
+        setState({
+          error: error instanceof Error ? error.message : 'Inventory API is unavailable.',
+          floors: defaultFloorNames,
+          isFallback: true,
+          isLoading: false,
+          rooms: mockRooms,
+        });
+      }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    void loadInventory(controller.signal);
+
+    return () => controller.abort();
+  }, [loadInventory]);
+
+  const refreshInventory = useCallback(() => loadInventory(), [loadInventory]);
+
+  return { ...state, refreshInventory };
+}
+
 const filters = [
   { value: 'all', label: 'All' },
   { value: 'ready', label: 'Ready' },
@@ -627,6 +941,36 @@ const statusLabels: Record<RoomStatus, string> = {
   'waiting-guest': 'Waiting Guest',
   'vip-arrival': 'VIP Arrival',
 };
+
+const roomActionLabels: Record<RoomStatusAction, string> = {
+  'mark-ready': 'marked Ready',
+  'mark-cleaning': 'marked Needs Cleaning',
+  'mark-inspection': 'sent to Inspection',
+  block: 'blocked',
+  'out-of-service': 'marked Out of Service',
+  'out-of-order': 'marked Out of Order',
+  maintenance: 'sent to Maintenance',
+};
+
+async function runRoomStatusAction(action: RoomStatusAction, propertyId: string, roomId: string) {
+  if (action === 'mark-ready') return markRoomReady(propertyId, roomId);
+  if (action === 'mark-cleaning') return markRoomCleaning(propertyId, roomId);
+  if (action === 'mark-inspection') return markRoomInspection(propertyId, roomId);
+  if (action === 'block') return blockRoom(propertyId, roomId);
+  if (action === 'out-of-service') return markRoomOutOfService(propertyId, roomId);
+  if (action === 'out-of-order') return markRoomOutOfOrder(propertyId, roomId);
+  return markRoomMaintenance(propertyId, roomId);
+}
+
+function statusForAction(action: RoomStatusAction): RoomStatus {
+  if (action === 'mark-ready') return 'ready';
+  if (action === 'mark-cleaning') return 'needs-cleaning';
+  if (action === 'mark-inspection') return 'inspection';
+  if (action === 'block') return 'out-of-service';
+  if (action === 'out-of-service') return 'out-of-service';
+  if (action === 'out-of-order') return 'out-of-order';
+  return 'maintenance';
+}
 
 function statusTone(status: RoomStatus) {
   if (status === 'ready') return colors.semantic.success;
@@ -684,10 +1028,14 @@ function SummaryCard({
 
 function FloorRail({
   activeFloor,
+  floorNames,
   onSelect,
+  rooms,
 }: {
   activeFloor: FloorName;
+  floorNames: FloorName[];
   onSelect: (floor: FloorName) => void;
+  rooms: Room[];
 }) {
   return (
     <Card p={spacing[4]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
@@ -1036,15 +1384,26 @@ function RoomProfileDrawer({
   );
 }
 
-function InsightsAndActions({ room }: { room: Room }) {
+function InsightsAndActions({
+  loadingAction,
+  onRoomAction,
+  room,
+}: {
+  loadingAction?: string;
+  onRoomAction: (room: Room, action: RoomStatusAction) => void;
+  room: Room;
+}) {
   const actions = [
     { label: 'View Current Guest', href: room.stayHref, disabled: !room.guest },
     { label: 'Open Guest Profile', href: room.guestHref, disabled: !room.guestHref },
     { label: 'View Reservation', href: room.reservationHref, disabled: !room.reservationHref && !room.bookingId },
-    { label: 'Mark Ready', disabled: room.status === 'ready' || room.status === 'occupied' },
-    { label: 'Report Maintenance' },
-    { label: 'Assign Housekeeping', disabled: room.status === 'ready' },
-    { label: 'Block Room', disabled: room.status === 'occupied' },
+    { label: 'Mark Ready', action: 'mark-ready' as const, disabled: room.status === 'ready' || room.status === 'occupied' },
+    { label: 'Mark Cleaning', action: 'mark-cleaning' as const, disabled: room.status === 'occupied' },
+    { label: 'Mark Inspection', action: 'mark-inspection' as const, disabled: room.status === 'occupied' },
+    { label: 'Report Maintenance', action: 'maintenance' as const, disabled: room.status === 'occupied' },
+    { label: 'Block Room', action: 'block' as const, disabled: room.status === 'occupied' },
+    { label: 'Out of Service', action: 'out-of-service' as const, disabled: room.status === 'occupied' },
+    { label: 'Out of Order', action: 'out-of-order' as const, disabled: room.status === 'occupied' },
     { label: 'Move Guest', disabled: !room.guest },
   ];
 
@@ -1076,7 +1435,9 @@ function InsightsAndActions({ room }: { room: Room }) {
               key={action.label}
               component={action.href ? 'a' : 'button'}
               href={action.href}
-              disabled={action.disabled}
+              disabled={action.disabled || (action.action ? loadingAction === `${room.id}:${action.action}` : false)}
+              loading={action.action ? loadingAction === `${room.id}:${action.action}` : false}
+              onClick={action.action ? () => onRoomAction(room, action.action) : undefined}
               color={action.label === 'Mark Ready' ? 'stayosBrand' : 'gray'}
               variant={action.label === 'Mark Ready' ? 'filled' : 'light'}
             >
@@ -1105,16 +1466,46 @@ function InsightsAndActions({ room }: { room: Room }) {
 }
 
 export default function RoomsPage() {
+  const inventory = useRoomInventory();
+  const displayRooms = inventory.rooms;
+  const displayFloors = inventory.floors.length > 0 ? inventory.floors : defaultFloorNames;
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
-  const [activeFloor, setActiveFloor] = useState<FloorName>('Third Floor');
-  const [selectedRoom, setSelectedRoom] = useState<Room | null>(rooms.find((room) => room.number === '302') ?? null);
+  const [activeFloor, setActiveFloor] = useState<FloorName>(defaultFloorNames[0]);
+  const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
+  const [loadingAction, setLoadingAction] = useState<string>();
   const [drawerOpened, { open: openDrawer, close: closeDrawer }] = useDisclosure(false);
+
+  useEffect(() => {
+    if (displayFloors.length > 0 && !displayFloors.includes(activeFloor)) {
+      setActiveFloor(displayFloors[0]);
+    }
+  }, [activeFloor, displayFloors]);
+
+  useEffect(() => {
+    if (displayRooms.length === 0) {
+      setSelectedRoom(null);
+      return;
+    }
+
+    const refreshedSelectedRoom = selectedRoom
+      ? displayRooms.find((room) => room.number === selectedRoom.number)
+      : undefined;
+
+    if (refreshedSelectedRoom && refreshedSelectedRoom !== selectedRoom) {
+      setSelectedRoom(refreshedSelectedRoom);
+      return;
+    }
+
+    if (!refreshedSelectedRoom) {
+      setSelectedRoom(displayRooms.find((room) => room.number === '302') ?? displayRooms[0]);
+    }
+  }, [displayRooms, selectedRoom]);
 
   const filteredRooms = useMemo(() => {
     const normalized = query.trim().toLowerCase();
 
-    return rooms.filter((room) => {
+    return displayRooms.filter((room) => {
       const matchesFloor = room.floor === activeFloor;
       const matchesFilter = roomMatchesFilter(room, filter);
       const searchText = [
@@ -1132,40 +1523,40 @@ export default function RoomsPage() {
 
       return matchesFloor && matchesFilter && matchesSearch;
     });
-  }, [activeFloor, filter, query]);
+  }, [activeFloor, displayRooms, filter, query]);
 
   const summary = [
     {
       title: 'Ready',
-      value: rooms.filter((room) => room.status === 'ready').length,
+      value: displayRooms.filter((room) => room.status === 'ready').length,
       detail: 'Can be assigned now.',
       tone: 'success' as const,
       icon: <CheckCircle2 size={17} />,
     },
     {
       title: 'Occupied',
-      value: rooms.filter((room) => room.status === 'occupied').length,
+      value: displayRooms.filter((room) => room.status === 'occupied').length,
       detail: 'Guests currently in house.',
       tone: 'info' as const,
       icon: <UserRound size={17} />,
     },
     {
       title: 'Needs Cleaning',
-      value: rooms.filter((room) => room.status === 'needs-cleaning' || room.status === 'waiting-guest').length,
+      value: displayRooms.filter((room) => room.status === 'needs-cleaning' || room.status === 'waiting-guest').length,
       detail: 'Housekeeping required.',
       tone: 'attention' as const,
       icon: <Brush size={17} />,
     },
     {
       title: 'Maintenance',
-      value: rooms.filter((room) => room.status === 'maintenance' || room.status === 'out-of-order').length,
+      value: displayRooms.filter((room) => room.status === 'maintenance' || room.status === 'out-of-order').length,
       detail: 'Engineering attention.',
       tone: 'danger' as const,
       icon: <Thermometer size={17} />,
     },
     {
       title: 'VIP',
-      value: rooms.filter((room) => room.flags.includes('vip') || room.status === 'vip-arrival').length,
+      value: displayRooms.filter((room) => room.flags.includes('vip') || room.status === 'vip-arrival').length,
       detail: 'High-touch rooms.',
       tone: 'premium' as const,
       icon: <Sparkles size={17} />,
@@ -1175,6 +1566,46 @@ export default function RoomsPage() {
   const openRoom = (room: Room) => {
     setSelectedRoom(room);
     openDrawer();
+  };
+
+  const handleRoomAction = async (room: Room, action: RoomStatusAction) => {
+    if (!inventory.propertyId || !room.id || inventory.isFallback) {
+      showToast({
+        color: 'red',
+        message: 'Live room inventory is unavailable. Action was not sent.',
+        title: 'Room action failed',
+      });
+      return;
+    }
+
+    const actionKey = `${room.id}:${action}`;
+    setLoadingAction(actionKey);
+
+    try {
+      await runRoomStatusAction(action, inventory.propertyId, room.id);
+      const nextStatus = statusForAction(action);
+      const updatedRoom = {
+        ...room,
+        condition: statusLabels[nextStatus],
+        status: nextStatus,
+      };
+
+      setSelectedRoom(updatedRoom);
+      showToast({
+        color: 'green',
+        message: `Room ${room.number} ${roomActionLabels[action]}`,
+        title: 'Room updated',
+      });
+      await inventory.refreshInventory();
+    } catch (error) {
+      showToast({
+        color: 'red',
+        message: error instanceof Error ? error.message : 'Unable to update room status.',
+        title: 'Room action failed',
+      });
+    } finally {
+      setLoadingAction(undefined);
+    }
   };
 
   return (
@@ -1201,11 +1632,40 @@ export default function RoomsPage() {
         ))}
       </SimpleGrid>
 
+      {inventory.isLoading ? (
+        <Alert color="blue" variant="light" icon={<Hotel size={17} />} radius={radius.lg}>
+          Loading live Hillston room inventory...
+        </Alert>
+      ) : null}
+
+      {inventory.isFallback && inventory.error ? (
+        <Alert color="yellow" variant="light" icon={<AlertCircle size={17} />} radius={radius.lg}>
+          Backend inventory is unavailable, so Rooms is showing mock inventory. {inventory.error}
+        </Alert>
+      ) : null}
+
+      {!inventory.isFallback && inventory.activePropertyName ? (
+        <Alert color="green" variant="light" icon={<CheckCircle2 size={17} />} radius={radius.lg}>
+          Showing live inventory for {inventory.activePropertyName}.
+        </Alert>
+      ) : null}
+
       <Grid gap={spacing[5]}>
         <Grid.Col span={{ base: 12, lg: 3 }}>
           <Stack gap={spacing[5]}>
-            <FloorRail activeFloor={activeFloor} onSelect={setActiveFloor} />
-            {selectedRoom ? <InsightsAndActions room={selectedRoom} /> : null}
+            <FloorRail
+              activeFloor={activeFloor}
+              floorNames={displayFloors}
+              onSelect={setActiveFloor}
+              rooms={displayRooms}
+            />
+            {selectedRoom ? (
+              <InsightsAndActions
+                loadingAction={loadingAction}
+                onRoomAction={handleRoomAction}
+                room={selectedRoom}
+              />
+            ) : null}
           </Stack>
         </Grid.Col>
 
@@ -1250,7 +1710,19 @@ export default function RoomsPage() {
               ))}
             </SimpleGrid>
 
-            {filteredRooms.length === 0 ? (
+            {displayRooms.length === 0 ? (
+              <Card p={spacing[6]} radius={radius.lg} shadow="xs" style={{ border: 'none', textAlign: 'center' }}>
+                <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={44} mx="auto">
+                  <Hotel size={20} />
+                </ThemeIcon>
+                <Title order={3} c={colors.text.strong} mt={spacing[4]} style={typography.styles.h3}>
+                  No rooms returned
+                </Title>
+                <Text c={colors.text.muted} mt={spacing[2]} style={typography.styles.body}>
+                  The active property has no room inventory yet.
+                </Text>
+              </Card>
+            ) : filteredRooms.length === 0 ? (
               <Card p={spacing[6]} radius={radius.lg} shadow="xs" style={{ border: 'none', textAlign: 'center' }}>
                 <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={44} mx="auto">
                   <Search size={20} />
