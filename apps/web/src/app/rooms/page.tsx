@@ -47,8 +47,13 @@ import { brandPalettes, colors, radius, spacing, typography } from '@stayos/them
 import {
   OperationalTaskCard,
   StayOSOperationsCard,
+  BackendUnavailable,
+  EmptyData,
+  GenericError,
+  ServerStarting,
   getOpenOperationalTasks,
   showToast,
+  useBackendStatus,
 } from '@stayos/ui';
 import type { StayOSStatusTone } from '@stayos/ui';
 import {
@@ -634,6 +639,11 @@ type InventoryState = {
   rooms: Room[];
 };
 
+type UseRoomInventoryOptions = {
+  allowMockFallback: boolean;
+  enabled: boolean;
+};
+
 type RoomStatusAction =
   | 'mark-ready'
   | 'mark-cleaning'
@@ -852,7 +862,10 @@ function getFloorNames(floors: InventoryFloorDto[], mappedRooms: Room[]) {
   return Array.from(new Set([...apiFloors, ...roomFloors]));
 }
 
-function useRoomInventory(): InventoryState & { refreshInventory: () => Promise<void> } {
+function useRoomInventory({
+  allowMockFallback,
+  enabled,
+}: UseRoomInventoryOptions): InventoryState & { refreshInventory: () => Promise<void> } {
   const [state, setState] = useState<InventoryState>({
     floors: [],
     isFallback: false,
@@ -861,6 +874,23 @@ function useRoomInventory(): InventoryState & { refreshInventory: () => Promise<
   });
 
   const loadInventory = useCallback(async (signal?: AbortSignal) => {
+    if (!enabled) {
+      setState((currentState) => ({
+        ...currentState,
+        error: undefined,
+        isFallback: false,
+        isLoading: false,
+        rooms: [],
+      }));
+      return;
+    }
+
+    setState((currentState) => ({
+      ...currentState,
+      error: undefined,
+      isLoading: currentState.rooms.length === 0,
+    }));
+
     try {
         const properties = await getProperties(signal);
         const activeProperty = getActiveProperty(properties);
@@ -894,15 +924,26 @@ function useRoomInventory(): InventoryState & { refreshInventory: () => Promise<
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') return;
 
+        if (allowMockFallback) {
+          setState({
+            error: error instanceof Error ? error.message : 'Inventory API is unavailable.',
+            floors: defaultFloorNames,
+            isFallback: true,
+            isLoading: false,
+            rooms: mockRooms,
+          });
+          return;
+        }
+
         setState({
-          error: error instanceof Error ? error.message : 'Inventory API is unavailable.',
-          floors: defaultFloorNames,
-          isFallback: true,
+          error: 'Room inventory is temporarily unavailable.',
+          floors: [],
+          isFallback: false,
           isLoading: false,
-          rooms: mockRooms,
+          rooms: [],
         });
       }
-  }, []);
+  }, [allowMockFallback, enabled]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -952,6 +993,20 @@ const roomActionLabels: Record<RoomStatusAction, string> = {
   maintenance: 'sent to Maintenance',
 };
 
+const roomStatusActions: Array<{
+  action: RoomStatusAction;
+  color: string;
+  label: string;
+  status: RoomStatus;
+}> = [
+  { action: 'mark-ready', color: 'stayosBrand', label: 'Mark Ready', status: 'ready' },
+  { action: 'mark-cleaning', color: 'yellow', label: 'Needs Cleaning', status: 'needs-cleaning' },
+  { action: 'mark-inspection', color: 'yellow', label: 'Send to Inspection', status: 'inspection' },
+  { action: 'maintenance', color: 'orange', label: 'Mark Maintenance', status: 'maintenance' },
+  { action: 'out-of-service', color: 'gray', label: 'Out of Service', status: 'out-of-service' },
+  { action: 'out-of-order', color: 'red', label: 'Out of Order', status: 'out-of-order' },
+];
+
 async function runRoomStatusAction(action: RoomStatusAction, propertyId: string, roomId: string) {
   if (action === 'mark-ready') return markRoomReady(propertyId, roomId);
   if (action === 'mark-cleaning') return markRoomCleaning(propertyId, roomId);
@@ -970,6 +1025,16 @@ function statusForAction(action: RoomStatusAction): RoomStatus {
   if (action === 'out-of-service') return 'out-of-service';
   if (action === 'out-of-order') return 'out-of-order';
   return 'maintenance';
+}
+
+function roomActionKey(room: Room, action: RoomStatusAction) {
+  return `${room.id}:${action}`;
+}
+
+function isRoomStatusActionDisabled(room: Room, action: RoomStatusAction) {
+  if (!room.id) return true;
+  if (room.status === 'occupied') return true;
+  return room.status === statusForAction(action);
 }
 
 function statusTone(status: RoomStatus) {
@@ -1224,10 +1289,14 @@ function ProfileSection({
 }
 
 function RoomProfileDrawer({
+  loadingAction,
+  onRoomAction,
   room,
   opened,
   onClose,
 }: {
+  loadingAction?: string;
+  onRoomAction: (room: Room, action: RoomStatusAction) => void;
   room: Room | null;
   opened: boolean;
   onClose: () => void;
@@ -1295,6 +1364,23 @@ function RoomProfileDrawer({
                 <DetailTile label="Today's housekeeper" value={room.housekeeper} icon={<Brush size={15} />} />
               </SimpleGrid>
             </Card>
+
+            <ProfileSection title="Quick Actions" subtitle="Update this room's live operational status." icon={<ShieldCheck size={17} />}>
+              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+                {roomStatusActions.map((item) => (
+                  <Button
+                    key={item.action}
+                    color={item.color}
+                    disabled={isRoomStatusActionDisabled(room, item.action)}
+                    loading={loadingAction === roomActionKey(room, item.action)}
+                    onClick={() => onRoomAction(room, item.action)}
+                    variant={item.status === room.status ? 'filled' : 'light'}
+                  >
+                    {item.label}
+                  </Button>
+                ))}
+              </SimpleGrid>
+            </ProfileSection>
 
             <ProfileSection title="Room Details" subtitle="Physical room profile." icon={<BedDouble size={17} />}>
               <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
@@ -1397,13 +1483,13 @@ function InsightsAndActions({
     { label: 'View Current Guest', href: room.stayHref, disabled: !room.guest },
     { label: 'Open Guest Profile', href: room.guestHref, disabled: !room.guestHref },
     { label: 'View Reservation', href: room.reservationHref, disabled: !room.reservationHref && !room.bookingId },
-    { label: 'Mark Ready', action: 'mark-ready' as const, disabled: room.status === 'ready' || room.status === 'occupied' },
-    { label: 'Mark Cleaning', action: 'mark-cleaning' as const, disabled: room.status === 'occupied' },
-    { label: 'Mark Inspection', action: 'mark-inspection' as const, disabled: room.status === 'occupied' },
-    { label: 'Report Maintenance', action: 'maintenance' as const, disabled: room.status === 'occupied' },
+    { label: 'Mark Ready', action: 'mark-ready' as const },
+    { label: 'Mark Cleaning', action: 'mark-cleaning' as const },
+    { label: 'Mark Inspection', action: 'mark-inspection' as const },
+    { label: 'Report Maintenance', action: 'maintenance' as const },
     { label: 'Block Room', action: 'block' as const, disabled: room.status === 'occupied' },
-    { label: 'Out of Service', action: 'out-of-service' as const, disabled: room.status === 'occupied' },
-    { label: 'Out of Order', action: 'out-of-order' as const, disabled: room.status === 'occupied' },
+    { label: 'Out of Service', action: 'out-of-service' as const },
+    { label: 'Out of Order', action: 'out-of-order' as const },
     { label: 'Move Guest', disabled: !room.guest },
   ];
 
@@ -1435,8 +1521,8 @@ function InsightsAndActions({
               key={action.label}
               component={action.href ? 'a' : 'button'}
               href={action.href}
-              disabled={action.disabled || (action.action ? loadingAction === `${room.id}:${action.action}` : false)}
-              loading={action.action ? loadingAction === `${room.id}:${action.action}` : false}
+              disabled={action.disabled || (action.action ? isRoomStatusActionDisabled(room, action.action) : false)}
+              loading={action.action ? loadingAction === roomActionKey(room, action.action) : false}
               onClick={action.action ? () => onRoomAction(room, action.action) : undefined}
               color={action.label === 'Mark Ready' ? 'stayosBrand' : 'gray'}
               variant={action.label === 'Mark Ready' ? 'filled' : 'light'}
@@ -1466,7 +1552,12 @@ function InsightsAndActions({
 }
 
 export default function RoomsPage() {
-  const inventory = useRoomInventory();
+  const backend = useBackendStatus();
+  const allowMockFallback = process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
+  const inventory = useRoomInventory({
+    allowMockFallback,
+    enabled: backend.isOnline,
+  });
   const displayRooms = inventory.rooms;
   const displayFloors = inventory.floors.length > 0 ? inventory.floors : defaultFloorNames;
   const [filter, setFilter] = useState('all');
@@ -1568,6 +1659,14 @@ export default function RoomsPage() {
     openDrawer();
   };
 
+  const retryBackend = () => {
+    void backend.retry();
+  };
+
+  const checkBackendStatus = () => {
+    void backend.checkHealth();
+  };
+
   const handleRoomAction = async (room: Room, action: RoomStatusAction) => {
     if (!inventory.propertyId || !room.id || inventory.isFallback) {
       showToast({
@@ -1578,7 +1677,7 @@ export default function RoomsPage() {
       return;
     }
 
-    const actionKey = `${room.id}:${action}`;
+    const actionKey = roomActionKey(room, action);
     setLoadingAction(actionKey);
 
     try {
@@ -1608,8 +1707,7 @@ export default function RoomsPage() {
     }
   };
 
-  return (
-    <Stack gap={spacing[6]}>
+  const pageHeader = (
       <Group justify="space-between" align="flex-start" gap={spacing[4]}>
         <Group gap={spacing[3]}>
           <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={42}>
@@ -1625,6 +1723,52 @@ export default function RoomsPage() {
           </Box>
         </Group>
       </Group>
+  );
+
+  if (!allowMockFallback && backend.status === 'SERVER_STARTING') {
+    return (
+      <Stack gap={spacing[6]}>
+        {pageHeader}
+        <ServerStarting onAction={retryBackend} onCheckStatus={checkBackendStatus} />
+      </Stack>
+    );
+  }
+
+  if (!allowMockFallback && !backend.isOnline && backend.status !== 'CONNECTING') {
+    return (
+      <Stack gap={spacing[6]}>
+        {pageHeader}
+        <BackendUnavailable onAction={retryBackend} onCheckStatus={checkBackendStatus} />
+      </Stack>
+    );
+  }
+
+  if (!allowMockFallback && backend.status === 'CONNECTING' && displayRooms.length === 0) {
+    return (
+      <Stack gap={spacing[6]}>
+        {pageHeader}
+        <ServerStarting
+          title="Connecting to StayOS"
+          detail="We are checking the hotel server before loading live room operations."
+          onAction={retryBackend}
+          onCheckStatus={checkBackendStatus}
+        />
+      </Stack>
+    );
+  }
+
+  if (!allowMockFallback && inventory.error && !inventory.isLoading && displayRooms.length === 0) {
+    return (
+      <Stack gap={spacing[6]}>
+        {pageHeader}
+        <GenericError onAction={() => void inventory.refreshInventory()} onCheckStatus={checkBackendStatus} />
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack gap={spacing[6]}>
+      {pageHeader}
 
       <SimpleGrid cols={{ base: 1, xs: 2, md: 5 }} spacing={spacing[3]}>
         {summary.map((item) => (
@@ -1640,7 +1784,7 @@ export default function RoomsPage() {
 
       {inventory.isFallback && inventory.error ? (
         <Alert color="yellow" variant="light" icon={<AlertCircle size={17} />} radius={radius.lg}>
-          Backend inventory is unavailable, so Rooms is showing mock inventory. {inventory.error}
+          Demo fallback is enabled, so Rooms is showing mock inventory while the backend is unavailable.
         </Alert>
       ) : null}
 
@@ -1710,19 +1854,12 @@ export default function RoomsPage() {
               ))}
             </SimpleGrid>
 
-            {displayRooms.length === 0 ? (
-              <Card p={spacing[6]} radius={radius.lg} shadow="xs" style={{ border: 'none', textAlign: 'center' }}>
-                <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={44} mx="auto">
-                  <Hotel size={20} />
-                </ThemeIcon>
-                <Title order={3} c={colors.text.strong} mt={spacing[4]} style={typography.styles.h3}>
-                  No rooms returned
-                </Title>
-                <Text c={colors.text.muted} mt={spacing[2]} style={typography.styles.body}>
-                  The active property has no room inventory yet.
-                </Text>
-              </Card>
-            ) : filteredRooms.length === 0 ? (
+            {!inventory.isLoading && displayRooms.length === 0 ? (
+              <EmptyData
+                title="No rooms returned"
+                detail="The active property has no live room inventory yet."
+              />
+            ) : !inventory.isLoading && filteredRooms.length === 0 ? (
               <Card p={spacing[6]} radius={radius.lg} shadow="xs" style={{ border: 'none', textAlign: 'center' }}>
                 <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={44} mx="auto">
                   <Search size={20} />
@@ -1739,7 +1876,13 @@ export default function RoomsPage() {
         </Grid.Col>
       </Grid>
 
-      <RoomProfileDrawer room={selectedRoom} opened={drawerOpened} onClose={closeDrawer} />
+      <RoomProfileDrawer
+        loadingAction={loadingAction}
+        onRoomAction={handleRoomAction}
+        room={selectedRoom}
+        opened={drawerOpened}
+        onClose={closeDrawer}
+      />
     </Stack>
   );
 }

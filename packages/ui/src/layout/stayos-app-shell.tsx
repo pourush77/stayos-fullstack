@@ -40,8 +40,9 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { animations, colors, radius, shadows, spacing, typography, zIndex } from '@stayos/theme';
+import { animations, brandPalettes, colors, radius, shadows, spacing, typography, zIndex } from '@stayos/theme';
 import { OperationalTaskCard } from '../components/operational-task-card';
+import { useBackendStatus, type BackendConnectionStatus } from '../connectivity/backend-connectivity';
 import { getTasksForPath } from '../operations/task-engine';
 import { SearchInput } from '../components/search-input';
 import { mobileNavigation, primaryNavigation } from './navigation';
@@ -407,6 +408,7 @@ function TopHeader({
   utilityPanelOpen: boolean;
   onToggleUtilityPanel: () => void;
 }) {
+  const { status } = useBackendStatus();
   const currentDate = useMemo(
     () =>
       new Intl.DateTimeFormat('en-IN', {
@@ -440,6 +442,7 @@ function TopHeader({
       <GlobalSearch />
 
       <Group gap={spacing[2]} wrap="nowrap">
+        <ConnectionIndicator status={status} />
         <Button
           visibleFrom="sm"
           leftSection={<Plus size={16} />}
@@ -468,6 +471,58 @@ function TopHeader({
           AM
         </Avatar>
       </Group>
+    </Group>
+  );
+}
+
+function connectionIndicatorMeta(status: BackendConnectionStatus) {
+  if (status === 'ONLINE') {
+    return { background: colors.brand[50], color: colors.semantic.success, label: 'StayOS Connected' };
+  }
+
+  if (status === 'CONNECTING') {
+    return { background: brandPalettes.gold[50], color: colors.semantic.warning, label: 'Connecting...' };
+  }
+
+  if (status === 'SERVER_STARTING') {
+    return { background: colors.surface.subtle, color: colors.text.muted, label: 'Server Starting' };
+  }
+
+  return {
+    background: `color-mix(in srgb, ${colors.semantic.danger} 9%, ${colors.surface.base})`,
+    color: colors.semantic.danger,
+    label: 'StayOS Offline',
+  };
+}
+
+function ConnectionIndicator({ status }: { status: BackendConnectionStatus }) {
+  const meta = connectionIndicatorMeta(status);
+
+  return (
+    <Group
+      visibleFrom="sm"
+      gap={spacing[2]}
+      px={spacing[3]}
+      h={34}
+      style={{
+        background: meta.background,
+        border: `1px solid ${colors.border.subtle}`,
+        borderRadius: radius.full,
+      }}
+      wrap="nowrap"
+    >
+      <Box
+        aria-hidden
+        style={{
+          background: meta.color,
+          borderRadius: radius.full,
+          height: 9,
+          width: 9,
+        }}
+      />
+      <Text c={colors.text.strong} style={typography.styles.caption}>
+        {meta.label}
+      </Text>
     </Group>
   );
 }
