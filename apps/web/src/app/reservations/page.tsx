@@ -1,7 +1,9 @@
 'use client';
 
+import Link from 'next/link';
 import {
   ActionIcon,
+  Alert,
   Badge,
   Box,
   Button,
@@ -42,187 +44,24 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { colors, radius, spacing, typography } from '@stayos/theme';
-import { StayOSOperationsCard, StayOSStatusBadge } from '@stayos/ui';
+import {
+  BackendUnavailable,
+  EmptyData,
+  GenericError,
+  ServerStarting,
+  StayOSOperationsCard,
+  StayOSStatusBadge,
+  useBackendStatus,
+} from '@stayos/ui';
 import type { StayOSStatusTone } from '@stayos/ui';
-
-type BookingStatus =
-  'Confirmed' | 'Checked-in' | 'Checked-out' | 'Pending' | 'Cancelled' | 'No-show';
-type PaymentStatus = 'Paid' | 'Payment Due' | 'Partially Paid';
-
-type Reservation = {
-  id: string;
-  guest: string;
-  phone: string;
-  email: string;
-  stayDates: string;
-  nights: number;
-  room: string;
-  roomType: string;
-  source: string;
-  payment: PaymentStatus;
-  amount: string;
-  status: BookingStatus;
-  nextAction: string;
-  notes: string;
-  requests: string[];
-  timeline: string[];
-};
-
-const reservations: Reservation[] = [
-  {
-    id: 'ST1842',
-    guest: 'Ananya Rao',
-    phone: '+91 98765 22110',
-    email: 'ananya.rao@example.com',
-    stayDates: '28 Jun - 30 Jun',
-    nights: 2,
-    room: 'Suite 402',
-    roomType: 'Suite',
-    source: 'Direct',
-    payment: 'Partially Paid',
-    amount: 'INR 18,400',
-    status: 'Confirmed',
-    nextAction: 'Prepare early check-in',
-    notes: 'Prefers a quiet floor and early tea service.',
-    requests: ['Quiet floor', 'Early check-in', 'Airport pickup'],
-    timeline: ['Booking created by Neha', 'Advance payment collected', 'Room 402 assigned'],
-  },
-  {
-    id: 'ST1849',
-    guest: 'Jaipur Textiles Group',
-    phone: '+91 99887 43000',
-    email: 'travel@jaipurtextiles.example',
-    stayDates: '27 Jun - 28 Jun',
-    nights: 1,
-    room: '5 Rooms',
-    roomType: 'Deluxe',
-    source: 'Corporate',
-    payment: 'Payment Due',
-    amount: 'INR 42,000',
-    status: 'Pending',
-    nextAction: 'Collect payment before checkout',
-    notes: 'Group checkout expected around 10:00 AM.',
-    requests: ['GST invoice', 'Luggage assistance'],
-    timeline: ['Group booking imported', 'Rooms assigned', 'Invoice pending'],
-  },
-  {
-    id: 'ST1851',
-    guest: 'Mr Kapoor',
-    phone: '+91 90000 88221',
-    email: 'kapoor@example.com',
-    stayDates: '28 Jun - 01 Jul',
-    nights: 3,
-    room: 'Suite 501',
-    roomType: 'Presidential Suite',
-    source: 'Website',
-    payment: 'Paid',
-    amount: 'INR 76,500',
-    status: 'Confirmed',
-    nextAction: 'Confirm airport pickup',
-    notes: 'VIP guest. Keep manager informed before arrival.',
-    requests: ['Airport pickup', 'Fruit platter', 'Late checkout'],
-    timeline: ['VIP flag added', 'Payment completed', 'Pickup pending'],
-  },
-  {
-    id: 'ST1856',
-    guest: 'Rhea Malhotra',
-    phone: '+91 98220 44551',
-    email: 'rhea.m@example.com',
-    stayDates: '29 Jun - 02 Jul',
-    nights: 3,
-    room: 'Unassigned',
-    roomType: 'Premium King',
-    source: 'OTA',
-    payment: 'Payment Due',
-    amount: 'INR 24,800',
-    status: 'Confirmed',
-    nextAction: 'Assign room',
-    notes: 'Arrives tomorrow evening.',
-    requests: ['High floor'],
-    timeline: ['Booking received from OTA', 'Payment pending', 'Room not assigned'],
-  },
-  {
-    id: 'ST1838',
-    guest: 'Dev Sharma',
-    phone: '+91 98111 30444',
-    email: 'dev.sharma@example.com',
-    stayDates: '28 Jun - 29 Jun',
-    nights: 1,
-    room: 'Room 118',
-    roomType: 'Standard',
-    source: 'Walk-in',
-    payment: 'Paid',
-    amount: 'INR 6,200',
-    status: 'Checked-in',
-    nextAction: 'No action needed',
-    notes: 'Checked in at 08:40 AM.',
-    requests: ['Extra towel'],
-    timeline: ['Walk-in booking created', 'Payment collected', 'Guest checked in'],
-  },
-  {
-    id: 'ST1820',
-    guest: 'Nikhil Arora',
-    phone: '+91 97000 11122',
-    email: 'nikhil@example.com',
-    stayDates: '28 Jun - 30 Jun',
-    nights: 2,
-    room: 'Cancelled',
-    roomType: 'Deluxe Twin',
-    source: 'OTA',
-    payment: 'Partially Paid',
-    amount: 'INR 4,000 refund',
-    status: 'Cancelled',
-    nextAction: 'Review refund',
-    notes: 'Cancelled this morning due to travel change.',
-    requests: ['Refund confirmation'],
-    timeline: ['Booking cancelled', 'Refund review required'],
-  },
-];
-
-const summary = [
-  {
-    label: "Today's Arrivals",
-    value: 12,
-    detail: '6 ready now',
-    tone: 'success',
-    icon: <DoorOpen size={17} />,
-  },
-  {
-    label: 'Tomorrow Arrivals',
-    value: 18,
-    detail: '9 rooms assigned',
-    tone: 'info',
-    icon: <CalendarDays size={17} />,
-  },
-  {
-    label: 'Pending Payments',
-    value: 5,
-    detail: 'INR 38,400 due',
-    tone: 'danger',
-    icon: <Wallet size={17} />,
-  },
-  {
-    label: 'Unassigned Rooms',
-    value: 4,
-    detail: 'Needs attention',
-    tone: 'attention',
-    icon: <BedDouble size={17} />,
-  },
-  {
-    label: 'Cancelled',
-    value: 2,
-    detail: '1 refund review',
-    tone: 'muted',
-    icon: <XCircle size={17} />,
-  },
-  {
-    label: 'VIP Bookings',
-    value: 2,
-    detail: 'Pickup required',
-    tone: 'premium',
-    icon: <UserCheck size={17} />,
-  },
-];
+import {
+  type BookingStatus,
+  type PaymentStatus,
+  type Reservation,
+  type ReservationSummary,
+  useReservationDetails,
+  useReservations,
+} from '../../lib/reservation-hooks';
 
 const statusOptions = ['All', 'Confirmed', 'Checked-in', 'Pending', 'Cancelled', 'No-show'];
 const sourceOptions = ['All', 'Direct', 'Website', 'OTA', 'Corporate', 'Walk-in'];
@@ -255,32 +94,94 @@ function CountUp({ value }: { value: number }) {
 }
 
 function paymentMeta(status: PaymentStatus) {
-  if (status === 'Paid') return { label: 'Paid', icon: '●', tone: colors.semantic.success };
+  if (status === 'Paid') return { label: 'Paid', icon: '●', tone: 'success' as StayOSStatusTone };
   if (status === 'Partially Paid')
-    return { label: 'Partial', icon: '●', tone: colors.semantic.warning };
-  return { label: 'Due', icon: '●', tone: colors.semantic.danger };
+    return { label: 'Partial', icon: '●', tone: 'attention' as StayOSStatusTone };
+  return { label: 'Due', icon: '●', tone: 'danger' as StayOSStatusTone };
 }
 
 function statusMeta(status: BookingStatus) {
   if (status === 'Confirmed')
-    return { label: 'Confirmed', icon: '✓', tone: colors.semantic.success };
+    return { label: 'Confirmed', icon: '✓', tone: 'success' as StayOSStatusTone };
   if (status === 'Checked-in')
-    return { label: 'Checked-in', icon: '⌂', tone: colors.semantic.success };
-  if (status === 'Checked-out') return { label: 'Checked-out', icon: '↗', tone: colors.text.muted };
+    return { label: 'Checked-in', icon: '⌂', tone: 'info' as StayOSStatusTone };
+  if (status === 'Checked-out')
+    return { label: 'Checked-out', icon: '↗', tone: 'muted' as StayOSStatusTone };
   if (status === 'Cancelled')
-    return { label: 'Cancelled', icon: '×', tone: colors.semantic.danger };
-  if (status === 'No-show') return { label: 'No-show', icon: '!', tone: colors.semantic.danger };
-  return { label: 'Pending', icon: '●', tone: colors.semantic.warning };
+    return { label: 'Cancelled', icon: '×', tone: 'danger' as StayOSStatusTone };
+  if (status === 'No-show')
+    return { label: 'No-show', icon: '!', tone: 'danger' as StayOSStatusTone };
+  return { label: 'Pending', icon: '●', tone: 'attention' as StayOSStatusTone };
 }
 
-function TokenBadge({ label }: { label: string; icon: string; tone: string }) {
-  return <StayOSStatusBadge>{label}</StayOSStatusBadge>;
+function TokenBadge({
+  label,
+  icon,
+  tone,
+}: {
+  label: string;
+  icon: string;
+  tone: StayOSStatusTone;
+}) {
+  return <StayOSStatusBadge tone={tone}>{`${icon} ${label}`}</StayOSStatusBadge>;
 }
 
-function SummaryStrip() {
+function SummaryStrip({ summary }: { summary: ReservationSummary }) {
+  const items = [
+    {
+      label: "Today's Arrivals",
+      value: summary.todayArrivals,
+      detail: 'Confirmed and pending arrivals today',
+      tone: 'success',
+      icon: <DoorOpen size={17} />,
+    },
+    {
+      label: 'Tomorrow Arrivals',
+      value: summary.tomorrowArrivals,
+      detail: 'Confirmed and pending arrivals tomorrow',
+      tone: 'info',
+      icon: <CalendarDays size={17} />,
+    },
+    {
+      label: 'Pending Payments',
+      value: summary.pendingPayments,
+      detail: 'Payment due or partial balance',
+      tone: 'danger',
+      icon: <Wallet size={17} />,
+    },
+    {
+      label: 'Unassigned Rooms',
+      value: summary.unassignedRooms,
+      detail: 'Bookings without a room assigned',
+      tone: 'attention',
+      icon: <BedDouble size={17} />,
+    },
+    {
+      label: 'Today’s Departures',
+      value: summary.departuresToday ?? 0,
+      detail: 'Departures scheduled for today',
+      tone: 'muted',
+      icon: <XCircle size={17} />,
+    },
+    {
+      label: 'Checked-in Today',
+      value: summary.checkedInToday ?? 0,
+      detail: 'Guests checked in today',
+      tone: 'info',
+      icon: <UserCheck size={17} />,
+    },
+    {
+      label: 'VIP Bookings',
+      value: summary.vipBookings,
+      detail: 'VIP guests only',
+      tone: 'premium',
+      icon: <UserCheck size={17} />,
+    },
+  ];
+
   return (
     <SimpleGrid cols={{ base: 1, xs: 2, md: 3, xl: 6 }} spacing={spacing[3]}>
-      {summary.map((item) => (
+      {items.map((item) => (
         <StayOSOperationsCard
           key={item.label}
           title={item.label}
@@ -300,7 +201,7 @@ function Filters({ query, setQuery }: { query: string; setQuery: (value: string)
       <Group gap={spacing[3]} align="center">
         <TextInput
           leftSection={<Search size={16} />}
-          placeholder="Search guest, booking ID, phone or room..."
+          placeholder="Search booking ID, guest, phone or company..."
           value={query}
           onChange={(event) => setQuery(event.currentTarget.value)}
           style={{ flex: 1, minWidth: 280 }}
@@ -355,11 +256,19 @@ function ReservationActions({ reservation }: { reservation: Reservation }) {
       </Menu.Target>
       <Menu.Dropdown onClick={(event) => event.stopPropagation()}>
         <Menu.Item leftSection={<FileText size={14} />}>View Booking</Menu.Item>
-        <Menu.Item component="a" href="/guests/ananya-rao" leftSection={<UserCheck size={14} />}>
+        <Menu.Item
+          component={Link}
+          href={reservation.guestHref ?? '/guests'}
+          leftSection={<UserCheck size={14} />}
+        >
           Open Guest 360
         </Menu.Item>
-        {reservation.status === 'Checked-in' ? (
-          <Menu.Item component="a" href="/guest-stay/ST1842" leftSection={<DoorOpen size={14} />}>
+        {reservation.stayHref ? (
+          <Menu.Item
+            component={Link}
+            href={reservation.stayHref}
+            leftSection={<DoorOpen size={14} />}
+          >
             Open Stay Workspace
           </Menu.Item>
         ) : (
@@ -392,7 +301,7 @@ function ReservationDrawer({
       onClose={onClose}
       position="right"
       size="min(92vw, 520px)"
-      title="Reservation details"
+      title="Booking details"
     >
       {reservation ? (
         <Stack gap={spacing[5]}>
@@ -400,9 +309,14 @@ function ReservationDrawer({
             <Title order={2} style={typography.styles.h2}>
               {reservation.guest}
             </Title>
+            {reservation.isVip ? (
+              <Badge color="stayosBrand" variant="light" mt={spacing[2]}>
+                VIP
+              </Badge>
+            ) : null}
             <Button
-              component="a"
-              href="/guests/ananya-rao"
+              component={Link}
+              href={reservation.guestHref ?? '/guests'}
               mt={spacing[3]}
               size="xs"
               variant="light"
@@ -485,20 +399,20 @@ function ReservationDrawer({
           <Divider />
 
           <SimpleGrid cols={{ base: 1, xs: 2 }} spacing={spacing[3]}>
-            <Button
-              component={reservation.status === 'Checked-in' ? 'a' : 'button'}
-              href={reservation.status === 'Checked-in' ? '/guest-stay/ST1842' : undefined}
-              leftSection={
-                reservation.status === 'Checked-in' ? (
-                  <DoorOpen size={16} />
-                ) : (
-                  <KeyRound size={16} />
-                )
-              }
-              color="stayosBrand"
-            >
-              {reservation.status === 'Checked-in' ? 'Open Stay Workspace' : 'Check-in'}
-            </Button>
+            {reservation.stayHref ? (
+              <Button
+                component={Link}
+                href={reservation.stayHref}
+                leftSection={<DoorOpen size={16} />}
+                color="stayosBrand"
+              >
+                Open Stay Workspace
+              </Button>
+            ) : (
+              <Button leftSection={<KeyRound size={16} />} color="stayosBrand">
+                Check-in
+              </Button>
+            )}
             <Button leftSection={<Edit3 size={16} />} variant="light" color="stayosBrand">
               Edit Booking
             </Button>
@@ -519,9 +433,25 @@ function ReservationDrawer({
 }
 
 export default function ReservationsPage() {
+  const backend = useBackendStatus();
+  const allowMockFallback = process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
+  const canLoadReservations =
+    backend.isOnline ||
+    (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
+  const reservationsState = useReservations({
+    allowMockFallback,
+    enabled: canLoadReservations,
+  });
+  const reservations = reservationsState.reservations;
   const [query, setQuery] = useState('');
   const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
   const [opened, { open, close }] = useDisclosure(false);
+  const reservationDetails = useReservationDetails({
+    allowMockFallback,
+    enabled: canLoadReservations && opened,
+    reservationId: selectedReservation?.backendId,
+  });
+  const drawerReservation = reservationDetails.reservation ?? selectedReservation;
 
   const filteredReservations = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -540,43 +470,128 @@ export default function ReservationsPage() {
         .toLowerCase()
         .includes(normalized),
     );
-  }, [query]);
+  }, [query, reservations]);
 
   const openReservation = (reservation: Reservation) => {
     setSelectedReservation(reservation);
     open();
   };
 
+  const retryBackend = () => {
+    void backend.retry();
+  };
+
+  const checkBackendStatus = () => {
+    void backend.checkHealth();
+  };
+
+  const pageHeader = (
+    <Group justify="space-between" align="flex-start" gap={spacing[4]}>
+      <Box>
+        <Title order={1} style={typography.styles.h1}>
+          Bookings
+        </Title>
+        <Text mt={spacing[1]} c={colors.text.body} style={typography.styles.body}>
+          Manage upcoming stays, arrivals and bookings.
+        </Text>
+        <Text mt={spacing[3]} c={colors.text.strong} style={typography.styles.label}>
+          {reservations.length} bookings · {reservationsState.summary.pendingPayments} pending
+          payments · {reservationsState.summary.vipBookings} VIP
+        </Text>
+      </Box>
+      <Button
+        component={Link}
+        href="/reservations/availability"
+        leftSection={<Plus size={16} />}
+        color="stayosBrand"
+        size="md"
+      >
+        New Booking
+      </Button>
+    </Group>
+  );
+
+  if (!allowMockFallback && backend.status === 'SERVER_STARTING') {
+    return (
+      <Stack gap={spacing[5]}>
+        {pageHeader}
+        <ServerStarting onAction={retryBackend} onCheckStatus={checkBackendStatus} />
+      </Stack>
+    );
+  }
+
+  if (!allowMockFallback && !backend.isOnline && backend.status !== 'CONNECTING') {
+    return (
+      <Stack gap={spacing[5]}>
+        {pageHeader}
+        <BackendUnavailable onAction={retryBackend} onCheckStatus={checkBackendStatus} />
+      </Stack>
+    );
+  }
+
+  if (
+    !allowMockFallback &&
+    backend.status === 'CONNECTING' &&
+    backend.lastSuccessfulConnection === null &&
+    reservations.length === 0
+  ) {
+    return (
+      <Stack gap={spacing[5]}>
+        {pageHeader}
+        <ServerStarting
+          title="Connecting to StayOS"
+          detail="We are checking the hotel server before loading live reservations."
+          onAction={retryBackend}
+          onCheckStatus={checkBackendStatus}
+        />
+      </Stack>
+    );
+  }
+
+  if (
+    !allowMockFallback &&
+    reservationsState.error &&
+    !reservationsState.isLoading &&
+    reservations.length === 0
+  ) {
+    return (
+      <Stack gap={spacing[5]}>
+        {pageHeader}
+        <GenericError
+          onAction={() => void reservationsState.refreshReservations()}
+          onCheckStatus={checkBackendStatus}
+        />
+      </Stack>
+    );
+  }
+
   return (
     <Stack gap={spacing[5]}>
-      <Group justify="space-between" align="flex-start" gap={spacing[4]}>
-        <Box>
-          <Title order={1} style={typography.styles.h1}>
-            Reservations
-          </Title>
-          <Text mt={spacing[1]} c={colors.text.body} style={typography.styles.body}>
-            Manage upcoming stays, arrivals and bookings.
-          </Text>
-          <Text mt={spacing[3]} c={colors.text.strong} style={typography.styles.label}>
-            12 Arrivals · 18 Tomorrow · 5 Pending Payments · 2 VIP
-          </Text>
-        </Box>
-        <Button
-          component="a"
-          href="/reservations/availability"
-          leftSection={<Plus size={16} />}
-          color="stayosBrand"
-          size="md"
-        >
-          New Booking
-        </Button>
-      </Group>
+      {pageHeader}
 
-      <SummaryStrip />
+      <SummaryStrip summary={reservationsState.summary} />
+
+      {reservationsState.isLoading ? (
+        <Alert color="blue" variant="light" icon={<CalendarDays size={17} />} radius={radius.lg}>
+          Loading live reservations...
+        </Alert>
+      ) : null}
+
+      {reservationsState.isFallback && reservationsState.error ? (
+        <Alert color="yellow" variant="light" icon={<CalendarDays size={17} />} radius={radius.lg}>
+          Demo fallback is enabled, so Bookings is showing mock data while the backend is
+          unavailable.
+        </Alert>
+      ) : null}
       <Filters query={query} setQuery={setQuery} />
 
       <Skeleton visible={false} radius={radius.lg}>
-        {filteredReservations.length > 0 ? (
+        {reservations.length === 0 && !reservationsState.isLoading ? (
+          <EmptyData
+            title="No bookings yet"
+            detail="The active property has no bookings to show yet."
+          />
+        ) : filteredReservations.length > 0 ? (
           <>
             <Card
               visibleFrom="md"
@@ -594,7 +609,7 @@ export default function ReservationsPage() {
                     <Table.Th>Source</Table.Th>
                     <Table.Th>Payment</Table.Th>
                     <Table.Th>Status</Table.Th>
-                    <Table.Th>Next Action</Table.Th>
+                    <Table.Th>Next action</Table.Th>
                     <Table.Th />
                   </Table.Tr>
                 </Table.Thead>
@@ -612,28 +627,44 @@ export default function ReservationsPage() {
                     >
                       <Table.Td>
                         <Text
-                          component="a"
-                          href="/guests/ananya-rao"
+                          component={Link}
+                          href={reservation.guestHref ?? '/guests'}
                           onClick={(event) => event.stopPropagation()}
                           c={colors.text.strong}
                           style={{ ...typography.styles.h3, textDecoration: 'none' }}
                         >
                           {reservation.guest}
                         </Text>
+                        {reservation.isVip ? (
+                          <Badge color="stayosBrand" variant="light" mt={spacing[1]}>
+                            VIP
+                          </Badge>
+                        ) : null}
                         <Text c={colors.text.body} mt={spacing[1]} style={typography.styles.small}>
                           {reservation.room}
+                        </Text>
+                        <Text
+                          c={colors.text.muted}
+                          mt={spacing[1]}
+                          style={typography.styles.caption}
+                        >
+                          {reservation.occupancy}
                         </Text>
                       </Table.Td>
                       <Table.Td>
                         <Text style={typography.styles.label}>{reservation.stayDates}</Text>
                         <Text c={colors.text.muted} style={typography.styles.caption}>
-                          {reservation.nights} night{reservation.nights > 1 ? 's' : ''}
+                          {reservation.nights} Nights
                         </Text>
                       </Table.Td>
                       <Table.Td>
                         <Text style={typography.styles.label}>{reservation.id}</Text>
-                        <Text c={colors.text.muted} style={typography.styles.caption}>
-                          {reservation.phone}
+                        <Text
+                          c={colors.text.muted}
+                          mt={spacing[1]}
+                          style={typography.styles.caption}
+                        >
+                          📞 {reservation.phone}
                         </Text>
                       </Table.Td>
                       <Table.Td>{reservation.source}</Table.Td>
@@ -644,10 +675,10 @@ export default function ReservationsPage() {
                         <TokenBadge {...statusMeta(reservation.status)} />
                       </Table.Td>
                       <Table.Td>
-                        {reservation.status === 'Checked-in' ? (
+                        {reservation.stayHref ? (
                           <Button
-                            component="a"
-                            href="/guest-stay/ST1842"
+                            component={Link}
+                            href={reservation.stayHref}
                             size="xs"
                             variant="light"
                             color="stayosBrand"
@@ -678,14 +709,19 @@ export default function ReservationsPage() {
                     <Group justify="space-between" align="flex-start">
                       <Box>
                         <Text
-                          component="a"
-                          href="/guests/ananya-rao"
+                          component={Link}
+                          href={reservation.guestHref ?? '/guests'}
                           onClick={(event) => event.stopPropagation()}
                           c={colors.text.strong}
                           style={{ ...typography.styles.h3, textDecoration: 'none' }}
                         >
                           {reservation.guest}
                         </Text>
+                        {reservation.isVip ? (
+                          <Badge color="stayosBrand" variant="light" mt={spacing[1]}>
+                            VIP
+                          </Badge>
+                        ) : null}
                         <Text
                           c={colors.text.muted}
                           mt={spacing[1]}
@@ -702,10 +738,10 @@ export default function ReservationsPage() {
                       </Text>
                       <TokenBadge {...paymentMeta(reservation.payment)} />
                     </Group>
-                    {reservation.status === 'Checked-in' ? (
+                    {reservation.stayHref ? (
                       <Button
-                        component="a"
-                        href="/guest-stay/ST1842"
+                        component={Link}
+                        href={reservation.stayHref}
                         mt={spacing[3]}
                         size="xs"
                         variant="light"
@@ -735,7 +771,7 @@ export default function ReservationsPage() {
           >
             <UserCheck size={34} color={colors.brand[500]} />
             <Title order={2} mt={spacing[4]} style={typography.styles.h2}>
-              No reservations found
+              No bookings found
             </Title>
             <Text mt={spacing[2]} c={colors.text.body} style={typography.styles.body}>
               Try a different guest name, date, booking ID, or room filter.
@@ -744,7 +780,7 @@ export default function ReservationsPage() {
         )}
       </Skeleton>
 
-      <ReservationDrawer reservation={selectedReservation} opened={opened} onClose={close} />
+      <ReservationDrawer reservation={drawerReservation} opened={opened} onClose={close} />
     </Stack>
   );
 }

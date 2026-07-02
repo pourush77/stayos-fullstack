@@ -1,0 +1,73 @@
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api/v1';
+
+type ApiResponse<T> = T | { data?: T } | { items?: T } | { results?: T };
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    cache: 'no-store',
+    headers: {
+      Accept: 'application/json',
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...options.headers,
+    },
+  });
+
+  const payload = (await response.json().catch(() => undefined)) as ApiResponse<T> | { message?: unknown } | undefined;
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string'
+        ? payload.message
+        : `Reservation API request failed: ${response.status} ${response.statusText}`;
+    throw new Error(message);
+  }
+
+  return unwrapResponse<T>(payload as ApiResponse<T>);
+}
+
+function unwrapResponse<T>(response: ApiResponse<T>): T {
+  if (response && typeof response === 'object') {
+    if ('data' in response && response.data !== undefined) return response.data;
+    if ('items' in response && response.items !== undefined) return response.items;
+    if ('results' in response && response.results !== undefined) return response.results;
+  }
+
+  return response as T;
+}
+
+export type ReservationPropertyDto = Record<string, unknown>;
+export type ReservationDto = Record<string, unknown>;
+
+export function getProperties(signal?: AbortSignal) {
+  return request<ReservationPropertyDto[]>('/properties', { signal });
+}
+
+export function getPropertyReservations(propertyId: string, signal?: AbortSignal) {
+  return request<ReservationDto[]>(`/properties/${propertyId}/reservations`, { signal });
+}
+
+export function getPropertyReservation(propertyId: string, reservationId: string, signal?: AbortSignal) {
+  return request<ReservationDto>(`/properties/${propertyId}/reservations/${reservationId}`, { signal });
+}
+
+export function createPropertyReservation(propertyId: string, payload: Record<string, unknown>, signal?: AbortSignal) {
+  return request<ReservationDto>(`/properties/${propertyId}/reservations`, {
+    body: JSON.stringify(payload),
+    method: 'POST',
+    signal,
+  });
+}
+
+export function updatePropertyReservation(
+  propertyId: string,
+  reservationId: string,
+  payload: Record<string, unknown>,
+  signal?: AbortSignal,
+) {
+  return request<ReservationDto>(`/properties/${propertyId}/reservations/${reservationId}`, {
+    body: JSON.stringify(payload),
+    method: 'PATCH',
+    signal,
+  });
+}

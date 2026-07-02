@@ -1,7 +1,9 @@
 'use client';
 
+import Link from 'next/link';
 import {
   ActionIcon,
+  Alert,
   Avatar,
   Badge,
   Box,
@@ -20,7 +22,9 @@ import {
   Tooltip,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
+import { useParams } from 'next/navigation';
 import {
+  AlertCircle,
   BadgeCheck,
   CalendarDays,
   ChevronLeft,
@@ -40,110 +44,35 @@ import {
   Star,
   UserRound,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { colors, radius, spacing, typography } from '@stayos/theme';
+import { BackendUnavailable, GenericError, ServerStarting, useBackendStatus } from '@stayos/ui';
+import { type Guest, useGuestDetails } from '../../../lib/guest-hooks';
 
 type DocumentStatus = 'Verified' | 'Needs Update' | 'Expired' | 'Missing';
 type RequestStatus = 'Open' | 'Resolved' | 'Follow-up';
 
-const guest = {
-  id: 'ananya-rao',
-  name: 'Ananya Rao',
-  mobile: '+91 98765 44220',
-  email: 'ananya.rao@example.com',
-  initials: 'AR',
-  badges: ['VIP', 'Returning Guest', 'Corporate'],
-  lastStay: 'March 2026',
-  totalStays: '5 stays',
-  lifetimeSpend: 'INR 1,42,800',
-  preferredRoom: 'Suite / high floor',
-  note: 'Welcome back. Ananya has stayed with us 5 times and prefers a quiet high-floor room.',
-  snapshot: [
-    ['Contact details', '+91 98765 44220 - ananya.rao@example.com'],
-    ['Nationality', 'Indian'],
-    ['DOB', '14 August'],
-    ['Anniversary', '22 November'],
-    ['Preferred language', 'English and Hindi'],
-    ['Company', 'Jaipur Textiles Pvt Ltd'],
-    ['GST details', 'GST invoice preferred'],
-  ],
-  documents: [
-    ['Aadhaar', 'ID Verified', 'Verified'],
-    ['Passport', 'Passport Expiring Soon', 'Needs Update'],
-    ['Driving Licence', 'Not collected', 'Missing'],
-    ['Visa / FRRO', 'Not required for this guest', 'Verified'],
-  ] as [string, string, DocumentStatus][],
-  stays: [
-    {
-      month: 'March 2026',
-      room: 'Suite 402',
-      nights: '3 nights',
-      source: 'Corporate',
-      amount: 'INR 18,500',
-      feedback: 'Rated 5/5',
-      note: 'Requested late checkout and vegetarian breakfast.',
-    },
-    {
-      month: 'December 2025',
-      room: 'Deluxe King 308',
-      nights: '2 nights',
-      source: 'Website',
-      amount: 'INR 11,200',
-      feedback: 'Appreciated front desk support',
-      note: 'Prefers a room away from elevator.',
-    },
-    {
-      month: 'August 2025',
-      room: 'Suite 405',
-      nights: '4 nights',
-      source: 'Phone',
-      amount: 'INR 24,400',
-      feedback: 'Requested airport pickup',
-      note: 'Family stay. Extra pillow was appreciated.',
-    },
-  ],
-  requests: [
-    ['Today', 'Extra towels', 'Open', 'Assigned to housekeeping.'],
-    ['Mar 2026', 'Late checkout', 'Resolved', 'Resolved well. Guest appreciated support.'],
-    ['Dec 2025', 'AC not cooling', 'Follow-up', 'Needs follow-up before next stay.'],
-  ] as [string, string, RequestStatus, string][],
-  financial: [
-    ['Lifetime spend', 'INR 1,42,800'],
-    ['Average booking value', 'INR 16,900'],
-    ['Last payment method', 'Corporate credit'],
-    ['Corporate billing', 'Enabled'],
-    ['Outstanding balance', 'None'],
-    ['GST invoice preference', 'Required'],
-  ],
-  timeline: [
-    ['Today 09:15', 'Reservation opened by front desk'],
-    ['Today 09:18', 'Guest preference reviewed'],
-    ['Mar 2026', 'Payment received'],
-    ['Mar 2026', 'Complaint resolved'],
-    ['Mar 2026', 'Feedback received'],
-    ['Dec 2025', 'Checked out'],
-  ],
-  insights: [
-    'Returning guest. Prefers high floor.',
-    'Birthday is next month.',
-    'Usually requests late checkout.',
-    'Corporate billing enabled.',
-    'Passport expires soon.',
-  ],
-};
+const placeholderDocuments = [
+  ['Identity documents', 'Documents API not wired yet', 'Missing'],
+  ['GST documents', 'Billing documents API not wired yet', 'Missing'],
+] as [string, string, DocumentStatus][];
 
-const initialPreferences = [
-  'High Floor',
-  'Quiet Room',
-  'King Bed',
-  'Vegetarian Breakfast',
-  'Extra Pillow',
-  'No Smoking',
-  'Airport Pickup',
-  'Late Checkout',
-  'South Indian Breakfast',
-  'Hindi Speaking Staff',
-];
+const placeholderRequests = [
+  ['Not connected', 'Requests API not wired yet', 'Open', 'Service history will appear here later.'],
+] as [string, string, RequestStatus, string][];
+
+const placeholderFinancial = [
+  ['Lifetime spend', 'Not connected'],
+  ['Average booking value', 'Not connected'],
+  ['Last payment method', 'Not connected'],
+  ['Corporate billing', 'Not connected'],
+  ['Outstanding balance', 'Not connected'],
+  ['GST invoice preference', 'Not connected'],
+] as [string, string][];
+
+const placeholderTimeline = [
+  ['Not connected', 'Guest timeline API not wired yet'],
+] as [string, string][];
 
 function statusColor(status: DocumentStatus | RequestStatus) {
   if (status === 'Verified' || status === 'Resolved') return 'green';
@@ -183,7 +112,7 @@ function SectionCard({
   );
 }
 
-function Hero() {
+function Hero({ guest }: { guest: Guest }) {
   return (
     <Card p={spacing[6]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
       <Group justify="space-between" align="flex-start" gap={spacing[5]}>
@@ -193,19 +122,19 @@ function Hero() {
           </Avatar>
           <Stack gap={spacing[3]}>
             <Button
-              component="a"
-              href="/reservations"
+              component={Link}
+              href="/guests"
               variant="subtle"
               color="gray"
               leftSection={<ChevronLeft size={16} />}
               px={0}
               w="fit-content"
             >
-              Back to Reservations
+              Back to Guests
             </Button>
             <Group gap={spacing[2]}>
               {guest.badges.map((badge) => (
-                <Badge key={badge} color="stayosBrand" variant="light" radius={radius.full}>
+                <Badge key={badge} color={badge === 'VIP' ? 'stayosBrand' : 'gray'} variant="light" radius={radius.full}>
                   {badge}
                 </Badge>
               ))}
@@ -254,7 +183,7 @@ function Hero() {
   );
 }
 
-function ProfileSnapshot() {
+function ProfileSnapshot({ guest }: { guest: Guest }) {
   return (
     <SectionCard title="Profile Snapshot" subtitle="Readable guest details, not a long form." icon={<UserRound size={19} />}>
       <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
@@ -275,9 +204,9 @@ function ProfileSnapshot() {
 
 function IdentityDocuments() {
   return (
-    <SectionCard title="Identity Documents" subtitle="Status only. Document images stay private." icon={<IdCard size={19} />}>
+    <SectionCard title="Identity Documents" subtitle="Placeholder state. Documents API is not wired yet." icon={<IdCard size={19} />}>
       <Stack gap={spacing[3]}>
-        {guest.documents.map(([document, label, status]) => (
+        {placeholderDocuments.map(([document, label, status]) => (
           <Paper key={document} p={spacing[4]} radius={radius.md} bg={colors.surface.subtle}>
             <Group justify="space-between" gap={spacing[3]}>
               <Box>
@@ -295,13 +224,13 @@ function IdentityDocuments() {
           </Paper>
         ))}
         <Group gap={spacing[2]}>
-          <Button variant="light" color="stayosBrand" leftSection={<FileText size={16} />}>
+          <Button variant="light" color="stayosBrand" leftSection={<FileText size={16} />} disabled>
             View Documents
           </Button>
-          <Button variant="subtle" color="gray" leftSection={<Pencil size={16} />}>
+          <Button variant="subtle" color="gray" leftSection={<Pencil size={16} />} disabled>
             Update ID
           </Button>
-          <Button variant="subtle" color="gray" leftSection={<Send size={16} />}>
+          <Button variant="subtle" color="gray" leftSection={<Send size={16} />} disabled>
             Request from Guest
           </Button>
         </Group>
@@ -312,35 +241,26 @@ function IdentityDocuments() {
 
 function StayHistory() {
   return (
-    <SectionCard title="Stay History" subtitle="Past stays with the details staff actually remember." icon={<History size={19} />}>
-      <SimpleGrid cols={{ base: 1, md: 3 }} spacing={spacing[3]}>
-        {guest.stays.map((stay) => (
-          <Paper key={`${stay.month}-${stay.room}`} p={spacing[4]} radius={radius.lg} bg={colors.surface.subtle}>
-            <Text c={colors.brand[600]} style={typography.styles.label}>
-              {stay.month}
-            </Text>
-            <Title order={3} c={colors.text.strong} mt={spacing[2]} style={typography.styles.h3}>
-              {stay.room}
-            </Title>
-            <Text c={colors.text.muted} mt={spacing[1]} style={typography.styles.small}>
-              {stay.nights} - {stay.source} - {stay.amount}
-            </Text>
-            <Text c={colors.text.body} mt={spacing[3]} style={typography.styles.small}>
-              {stay.feedback}
-            </Text>
-            <Text c={colors.text.strong} mt={spacing[2]} style={typography.styles.small}>
-              {stay.note}
-            </Text>
-          </Paper>
-        ))}
-      </SimpleGrid>
+    <SectionCard title="Stay History" subtitle="Placeholder state. Stays and reservations are not wired yet." icon={<History size={19} />}>
+      <Paper p={spacing[4]} radius={radius.lg} bg={colors.surface.subtle}>
+        <Text c={colors.text.strong} style={typography.styles.label}>
+          Stay history not connected
+        </Text>
+        <Text c={colors.text.muted} mt={spacing[1]} style={typography.styles.small}>
+          Past stays, rooms, spend, and feedback will appear here after stay history APIs are wired.
+        </Text>
+      </Paper>
     </SectionCard>
   );
 }
 
-function Preferences() {
-  const [preferences, setPreferences] = useState(initialPreferences);
+function Preferences({ guest }: { guest: Guest }) {
+  const [preferences, setPreferences] = useState(guest.preferences);
   const [detailsOpened, { open, close }] = useDisclosure(false);
+
+  useEffect(() => {
+    setPreferences(guest.preferences);
+  }, [guest.preferences]);
 
   const removePreference = (preference: string) => {
     setPreferences((current) => current.filter((item) => item !== preference));
@@ -388,7 +308,7 @@ function Preferences() {
       <Drawer opened={detailsOpened} onClose={close} position="right" title="Preference details" size="min(92vw, 460px)">
         <Stack gap={spacing[4]}>
           <Text c={colors.text.body} style={typography.styles.body}>
-            This drawer will later show who added each preference, when it was last used, and whether it applies to every property.
+            Preference updates are local only until the guest preference write API is available.
           </Text>
           {preferences.map((preference) => (
             <Paper key={preference} p={spacing[4]} radius={radius.md} bg={colors.surface.subtle}>
@@ -396,7 +316,7 @@ function Preferences() {
                 {preference}
               </Text>
               <Text c={colors.text.muted} mt={spacing[1]} style={typography.styles.small}>
-                Mock preference. No backend update has been made.
+                Loaded from backend guest details when available.
               </Text>
             </Paper>
           ))}
@@ -408,9 +328,9 @@ function Preferences() {
 
 function RequestsAndComplaints() {
   return (
-    <SectionCard title="Requests and Complaints" subtitle="Only service history that helps the next conversation." icon={<HeartHandshake size={19} />}>
+    <SectionCard title="Requests and Complaints" subtitle="Placeholder state. Requests API is not wired yet." icon={<HeartHandshake size={19} />}>
       <Stack gap={spacing[3]}>
-        {guest.requests.map(([date, title, status, note]) => (
+        {placeholderRequests.map(([date, title, status, note]) => (
           <Paper key={`${date}-${title}`} p={spacing[4]} radius={radius.md} bg={colors.surface.subtle}>
             <Group justify="space-between" align="flex-start" gap={spacing[3]}>
               <Box>
@@ -434,9 +354,9 @@ function RequestsAndComplaints() {
 
 function FinancialSummary() {
   return (
-    <SectionCard title="Financial Summary" subtitle="Simple billing context without accounting complexity." icon={<IndianRupee size={19} />}>
+    <SectionCard title="Financial Summary" subtitle="Placeholder state. Billing is not wired yet." icon={<IndianRupee size={19} />}>
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing={spacing[3]}>
-        {guest.financial.map(([label, value]) => (
+        {placeholderFinancial.map(([label, value]) => (
           <Paper key={label} p={spacing[4]} radius={radius.md} bg={colors.surface.subtle}>
             <Text c={colors.text.muted} style={typography.styles.caption}>
               {label}
@@ -453,9 +373,9 @@ function FinancialSummary() {
 
 function GuestTimeline() {
   return (
-    <SectionCard title="Guest Timeline" subtitle="The CRM activity history for this guest." icon={<CalendarDays size={19} />}>
-      <Timeline active={guest.timeline.length - 1} bulletSize={26} lineWidth={2} color="stayosBrand">
-        {guest.timeline.map(([time, event]) => (
+    <SectionCard title="Guest Timeline" subtitle="Placeholder state. Timeline API is not wired yet." icon={<CalendarDays size={19} />}>
+      <Timeline active={placeholderTimeline.length - 1} bulletSize={26} lineWidth={2} color="stayosBrand">
+        {placeholderTimeline.map(([time, event]) => (
           <Timeline.Item key={`${time}-${event}`} bullet={<BadgeCheck size={14} />}>
             <Text c={colors.text.strong} style={typography.styles.label}>
               {event}
@@ -470,7 +390,7 @@ function GuestTimeline() {
   );
 }
 
-function InsightPanel() {
+function InsightPanel({ guest }: { guest: Guest }) {
   return (
     <Stack gap={spacing[4]}>
       <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
@@ -504,22 +424,22 @@ function InsightPanel() {
         </Text>
         <Divider my={spacing[3]} color={colors.border.subtle} />
         <Stack gap={spacing[2]}>
-          <Button component="a" href="/reservations/availability" color="stayosBrand" leftSection={<Plus size={16} />}>
+          <Button component={Link} href="/reservations/availability" color="stayosBrand" leftSection={<Plus size={16} />}>
             Create Reservation
           </Button>
-          <Button component="a" href="/check-in" variant="light" color="stayosBrand" leftSection={<BadgeCheck size={16} />}>
+          <Button component={Link} href="/check-in" variant="light" color="stayosBrand" leftSection={<BadgeCheck size={16} />}>
             Start Check-in
           </Button>
-          <Button component="a" href="/guest-stay/ST1842" variant="light" color="stayosBrand" leftSection={<ReceiptText size={16} />}>
+          <Button variant="light" color="stayosBrand" leftSection={<ReceiptText size={16} />} disabled>
             View Current Stay
           </Button>
-          <Button component="a" href="/requests" variant="subtle" color="gray" leftSection={<MessageSquare size={16} />}>
+          <Button component={Link} href="/requests" variant="subtle" color="gray" leftSection={<MessageSquare size={16} />}>
             Add Request
           </Button>
           <Button variant="subtle" color="gray" leftSection={<Sparkles size={16} />}>
             Update Preferences
           </Button>
-          <Button component="a" href="/guest-stay/ST1842" variant="subtle" color="gray" leftSection={<IndianRupee size={16} />}>
+          <Button variant="subtle" color="gray" leftSection={<IndianRupee size={16} />} disabled>
             View Folio
           </Button>
           <Button variant="subtle" color="gray" leftSection={<Send size={16} />}>
@@ -532,21 +452,77 @@ function InsightPanel() {
 }
 
 export default function GuestProfilePage() {
+  const params = useParams<{ guestId: string }>();
+  const backend = useBackendStatus();
+  const allowMockFallback = process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
+  const canLoadGuest = backend.isOnline || (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
+  const guestState = useGuestDetails({
+    allowMockFallback,
+    enabled: canLoadGuest,
+    guestId: params.guestId,
+  });
+
+  const retryBackend = () => {
+    void backend.retry();
+  };
+
+  const checkBackendStatus = () => {
+    void backend.checkHealth();
+  };
+
+  if (!allowMockFallback && backend.status === 'SERVER_STARTING') {
+    return <ServerStarting onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
+  }
+
+  if (!allowMockFallback && !backend.isOnline && backend.status !== 'CONNECTING') {
+    return <BackendUnavailable onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
+  }
+
+  if (!allowMockFallback && backend.status === 'CONNECTING' && backend.lastSuccessfulConnection === null && !guestState.guest) {
+    return (
+      <ServerStarting
+        title="Connecting to StayOS"
+        detail="We are checking the hotel server before loading this guest profile."
+        onAction={retryBackend}
+        onCheckStatus={checkBackendStatus}
+      />
+    );
+  }
+
+  if (!allowMockFallback && guestState.error && !guestState.isLoading && !guestState.guest) {
+    return <GenericError onAction={() => void guestState.refreshGuest()} onCheckStatus={checkBackendStatus} />;
+  }
+
+  if (!guestState.guest) {
+    return (
+      <Alert color="blue" variant="light" icon={<UserRound size={17} />} radius={radius.lg}>
+        Loading guest profile from the active property...
+      </Alert>
+    );
+  }
+
+  const guest = guestState.guest;
+
   return (
     <Stack gap={spacing[5]}>
-      <Hero />
+      {guestState.isFallback && guestState.error ? (
+        <Alert color="yellow" variant="light" icon={<AlertCircle size={17} />} radius={radius.lg}>
+          Demo fallback is enabled, so Guest 360 is showing a mock profile while the backend is unavailable.
+        </Alert>
+      ) : null}
+      <Hero guest={guest} />
       <SimpleGrid cols={{ base: 1, lg: 12 }} spacing={spacing[5]}>
         <Stack gap={spacing[5]} style={{ gridColumn: 'span 8' }}>
-          <ProfileSnapshot />
+          <ProfileSnapshot guest={guest} />
           <IdentityDocuments />
           <StayHistory />
-          <Preferences />
+          <Preferences guest={guest} />
           <RequestsAndComplaints />
           <FinancialSummary />
           <GuestTimeline />
         </Stack>
         <Box style={{ gridColumn: 'span 4' }}>
-          <InsightPanel />
+          <InsightPanel guest={guest} />
         </Box>
       </SimpleGrid>
     </Stack>

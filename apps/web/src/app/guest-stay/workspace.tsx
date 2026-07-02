@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import {
   Badge,
   Box,
@@ -352,7 +353,7 @@ function Hero() {
       <Group justify="space-between" align="flex-start" gap={spacing[5]}>
         <Stack gap={spacing[3]}>
           <Button
-            component="a"
+            component={Link}
             href="/"
             variant="subtle"
             color="gray"
@@ -368,7 +369,7 @@ function Hero() {
             <SoftBadge tone="info">Loyalty Gold</SoftBadge>
           </Group>
           <Button
-            component="a"
+            component={Link}
             href="/guests/ananya-rao"
             variant="light"
             color="stayosBrand"
@@ -1173,7 +1174,7 @@ function ActionDock({
             </Menu.Target>
             <Menu.Dropdown>
               <Menu.Item>Send Message</Menu.Item>
-              <Menu.Item component="a" href="/guests/ananya-rao">
+              <Menu.Item component={Link} href="/guests/ananya-rao">
                 Open Guest Profile
               </Menu.Item>
               <Menu.Item>Audit Stay</Menu.Item>

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Badge, Box, Card, Group, Text, ThemeIcon } from '@mantine/core';
 import type { ReactNode } from 'react';
 import { brandPalettes, colors, radius, shadows, spacing, typography } from '@stayos/theme';
@@ -164,26 +165,24 @@ export function StayOSOperationsCard({
   href?: string;
 }) {
   const tokens = getStatusTokens(tone);
-
-  return (
-    <Card
-      component={href ? 'a' : 'div'}
-      href={href}
-      p={spacing[4]}
-      radius={radius.lg}
-      shadow="xs"
-      style={{
-        background: tokens.background,
-        border: 'none',
-        borderTop: `4px solid ${tokens.color}`,
-        boxShadow: shadows.xs,
-        color: 'inherit',
-        cursor: href ? 'pointer' : 'default',
-        minHeight: 124,
-        textDecoration: 'none',
-        transition: 'transform 160ms ease, box-shadow 160ms ease',
-      }}
-    >
+  const cardProps = {
+    p: spacing[4],
+    radius: radius.lg,
+    shadow: 'xs',
+    style: {
+      background: tokens.background,
+      border: 'none',
+      borderTop: `4px solid ${tokens.color}`,
+      boxShadow: shadows.xs,
+      color: 'inherit',
+      cursor: href ? 'pointer' : 'default',
+      minHeight: 124,
+      textDecoration: 'none',
+      transition: 'transform 160ms ease, box-shadow 160ms ease',
+    },
+  };
+  const content = (
+    <>
       <Group justify="space-between" align="flex-start" wrap="nowrap">
         <Box>
           <Text c={colors.text.body} style={typography.styles.label}>
@@ -202,6 +201,28 @@ export function StayOSOperationsCard({
           {detail}
         </Text>
       ) : null}
+    </>
+  );
+
+  if (href?.startsWith('/')) {
+    return (
+      <Card component={Link} href={href} {...cardProps}>
+        {content}
+      </Card>
+    );
+  }
+
+  if (href) {
+    return (
+      <Card component="a" href={href} {...cardProps}>
+        {content}
+      </Card>
+    );
+  }
+
+  return (
+    <Card {...cardProps}>
+      {content}
     </Card>
   );
 }

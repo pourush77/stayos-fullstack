@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Badge, Box, Button, Group, Paper, Stack, Text } from '@mantine/core';
 import { colors, radius, spacing, typography } from '@stayos/theme';
 import type { OperationalPriority, OperationalTask } from '../operations/task-engine';
@@ -19,6 +20,20 @@ export function OperationalTaskCard({
   task: OperationalTask;
   compact?: boolean;
 }) {
+  const actionButton = task.href?.startsWith('/') ? (
+    <Button component={Link} href={task.href} size="xs" color="stayosBrand" variant="light">
+      {task.primaryAction}
+    </Button>
+  ) : task.href ? (
+    <Button component="a" href={task.href} size="xs" color="stayosBrand" variant="light">
+      {task.primaryAction}
+    </Button>
+  ) : (
+    <Button size="xs" color="stayosBrand" variant="light">
+      {task.primaryAction}
+    </Button>
+  );
+
   return (
     <Paper
       radius={radius.md}
@@ -61,15 +76,7 @@ export function OperationalTaskCard({
           <Text c={colors.text.muted} style={typography.styles.caption}>
             {task.timestamp} - {task.source}
           </Text>
-          <Button
-            component={task.href ? 'a' : 'button'}
-            href={task.href}
-            size="xs"
-            color="stayosBrand"
-            variant="light"
-          >
-            {task.primaryAction}
-          </Button>
+          {actionButton}
         </Group>
       </Stack>
     </Paper>

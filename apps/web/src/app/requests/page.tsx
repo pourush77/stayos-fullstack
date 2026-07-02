@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import {
   Box,
   Button,
@@ -206,7 +207,7 @@ function RequestCard({ request }: { request: GuestRequest }) {
             </Text>
             <Text c={colors.text.muted} mt={spacing[1]} style={typography.styles.small}>
               <Text
-                component="a"
+                component={Link}
                 href="/guests/ananya-rao"
                 c={colors.brand[600]}
                 style={{ ...typography.styles.small, textDecoration: 'none' }}

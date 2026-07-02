@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import {
   Badge,
   Box,
@@ -790,7 +791,7 @@ export default function CheckInPage() {
               {guest.bookingId} - {guest.roomType}
             </Text>
             <SoftBadge tone={colors.brand[600]}>{guest.room}</SoftBadge>
-            <Button component="a" href="/guests/ananya-rao" size="xs" variant="light" color="stayosBrand">
+            <Button component={Link} href="/guests/ananya-rao" size="xs" variant="light" color="stayosBrand">
               Open Guest 360
             </Button>
           </Stack>

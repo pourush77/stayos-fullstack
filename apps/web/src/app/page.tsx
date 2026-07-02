@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import {
   Badge,
   Box,
@@ -501,18 +502,19 @@ function QueueCard({ item }: { item: QueueItem }) {
         </Group>
         <Group gap={spacing[2]} wrap="nowrap">
           {item.stayHref ? (
-            <Button component="a" href={item.stayHref} variant="light" color="stayosBrand">
+            <Button component={Link} href={item.stayHref} variant="light" color="stayosBrand">
               View Stay
             </Button>
           ) : null}
-          <Button
-            color="stayosBrand"
-            component={actionHref ? 'a' : 'button'}
-            href={actionHref}
-            leftSection={<KeyRound size={16} />}
-          >
-            {item.nextAction}
-          </Button>
+          {actionHref ? (
+            <Button color="stayosBrand" component={Link} href={actionHref} leftSection={<KeyRound size={16} />}>
+              {item.nextAction}
+            </Button>
+          ) : (
+            <Button color="stayosBrand" leftSection={<KeyRound size={16} />}>
+              {item.nextAction}
+            </Button>
+          )}
         </Group>
       </Group>
     </Paper>
@@ -643,16 +645,17 @@ function FloatingShortcuts() {
           </Button>
         </Menu.Target>
         <Menu.Dropdown>
-          {actions.map((action) => (
-            <Menu.Item
-              key={action.label}
-              component={action.href ? 'a' : 'button'}
-              href={action.href}
-              leftSection={action.icon}
-            >
-              {action.label}
-            </Menu.Item>
-          ))}
+          {actions.map((action) =>
+            action.href ? (
+              <Menu.Item key={action.label} component={Link} href={action.href} leftSection={action.icon}>
+                {action.label}
+              </Menu.Item>
+            ) : (
+              <Menu.Item key={action.label} leftSection={action.icon}>
+                {action.label}
+              </Menu.Item>
+            ),
+          )}
         </Menu.Dropdown>
       </Menu>
     </Card>

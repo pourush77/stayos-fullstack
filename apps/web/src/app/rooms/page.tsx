@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import {
   Alert,
   Badge,
@@ -1516,20 +1517,31 @@ function InsightsAndActions({
         </Text>
         <Divider my={spacing[3]} color={colors.border.subtle} />
         <Stack gap={spacing[2]}>
-          {actions.map((action) => (
-            <Button
-              key={action.label}
-              component={action.href ? 'a' : 'button'}
-              href={action.href}
-              disabled={action.disabled || (action.action ? isRoomStatusActionDisabled(room, action.action) : false)}
-              loading={action.action ? loadingAction === roomActionKey(room, action.action) : false}
-              onClick={action.action ? () => onRoomAction(room, action.action) : undefined}
-              color={action.label === 'Mark Ready' ? 'stayosBrand' : 'gray'}
-              variant={action.label === 'Mark Ready' ? 'filled' : 'light'}
-            >
-              {action.label}
-            </Button>
-          ))}
+          {actions.map((action) =>
+            action.href ? (
+              <Button
+                key={action.label}
+                component={Link}
+                href={action.href}
+                disabled={action.disabled}
+                color={action.label === 'Mark Ready' ? 'stayosBrand' : 'gray'}
+                variant={action.label === 'Mark Ready' ? 'filled' : 'light'}
+              >
+                {action.label}
+              </Button>
+            ) : (
+              <Button
+                key={action.label}
+                disabled={action.disabled || (action.action ? isRoomStatusActionDisabled(room, action.action) : false)}
+                loading={action.action ? loadingAction === roomActionKey(room, action.action) : false}
+                onClick={action.action ? () => onRoomAction(room, action.action) : undefined}
+                color={action.label === 'Mark Ready' ? 'stayosBrand' : 'gray'}
+                variant={action.label === 'Mark Ready' ? 'filled' : 'light'}
+              >
+                {action.label}
+              </Button>
+            ),
+          )}
         </Stack>
       </Card>
 
