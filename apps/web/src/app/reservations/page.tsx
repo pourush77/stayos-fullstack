@@ -42,6 +42,7 @@ import {
   Wallet,
   XCircle,
 } from 'lucide-react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { colors, radius, spacing, typography } from '@stayos/theme';
 import {
@@ -49,11 +50,8 @@ import {
   EmptyData,
   GenericError,
   ServerStarting,
-  StayOSOperationsCard,
-  StayOSStatusBadge,
   useBackendStatus,
 } from '@stayos/ui';
-import type { StayOSStatusTone } from '@stayos/ui';
 import {
   type BookingStatus,
   type PaymentStatus,
@@ -73,6 +71,12 @@ const roomTypeOptions = [
   'Suite',
   'Presidential Suite',
 ];
+
+const cardStyle: CSSProperties = {
+  background: '#ffffff',
+  border: '1px solid rgba(226, 232, 240, 0.9)',
+  boxShadow: '0 8px 24px rgba(15, 23, 42, 0.035)',
+};
 
 function CountUp({ value }: { value: number }) {
   const [count, setCount] = useState(0);
@@ -94,102 +98,157 @@ function CountUp({ value }: { value: number }) {
 }
 
 function paymentMeta(status: PaymentStatus) {
-  if (status === 'Paid') return { label: 'Paid', icon: '●', tone: 'success' as StayOSStatusTone };
-  if (status === 'Partially Paid')
-    return { label: 'Partial', icon: '●', tone: 'attention' as StayOSStatusTone };
-  return { label: 'Due', icon: '●', tone: 'danger' as StayOSStatusTone };
+  if (status === 'Paid') return { label: 'Paid', color: '#16a34a', background: '#f0fdf4' };
+  if (status === 'Partially Paid') {
+    return { label: 'Partial', color: '#d97706', background: '#fffbeb' };
+  }
+  return { label: 'Due', color: '#dc2626', background: '#fef2f2' };
 }
 
 function statusMeta(status: BookingStatus) {
-  if (status === 'Confirmed')
-    return { label: 'Confirmed', icon: '✓', tone: 'success' as StayOSStatusTone };
-  if (status === 'Checked-in')
-    return { label: 'Checked-in', icon: '⌂', tone: 'info' as StayOSStatusTone };
-  if (status === 'Checked-out')
-    return { label: 'Checked-out', icon: '↗', tone: 'muted' as StayOSStatusTone };
-  if (status === 'Cancelled')
-    return { label: 'Cancelled', icon: '×', tone: 'danger' as StayOSStatusTone };
-  if (status === 'No-show')
-    return { label: 'No-show', icon: '!', tone: 'danger' as StayOSStatusTone };
-  return { label: 'Pending', icon: '●', tone: 'attention' as StayOSStatusTone };
+  if (status === 'Confirmed') {
+    return { label: 'Confirmed', color: '#16a34a', background: '#f0fdf4' };
+  }
+  if (status === 'Checked-in') {
+    return { label: 'Checked-in', color: '#2563eb', background: '#eff6ff' };
+  }
+  if (status === 'Checked-out') {
+    return { label: 'Checked-out', color: '#64748b', background: '#f8fafc' };
+  }
+  if (status === 'Cancelled') {
+    return { label: 'Cancelled', color: '#dc2626', background: '#fef2f2' };
+  }
+  if (status === 'No-show') {
+    return { label: 'No-show', color: '#dc2626', background: '#fef2f2' };
+  }
+  return { label: 'Pending', color: '#d97706', background: '#fffbeb' };
 }
 
 function TokenBadge({
+  background,
+  color,
   label,
-  icon,
-  tone,
 }: {
+  background: string;
+  color: string;
   label: string;
-  icon: string;
-  tone: StayOSStatusTone;
 }) {
-  return <StayOSStatusBadge tone={tone}>{`${icon} ${label}`}</StayOSStatusBadge>;
+  return (
+    <Badge
+      radius={radius.full}
+      style={{
+        background,
+        border: '1px solid rgba(226, 232, 240, 0.9)',
+        color,
+        fontSize: 11,
+        fontWeight: 600,
+        height: 24,
+        paddingInline: 10,
+        textTransform: 'none',
+      }}
+    >
+      {label}
+    </Badge>
+  );
 }
 
-function SummaryStrip({ summary }: { summary: ReservationSummary }) {
+function SummaryCard({
+  detail,
+  icon,
+  label,
+  tone,
+  value,
+}: {
+  detail: string;
+  icon: ReactNode;
+  label: string;
+  tone: string;
+  value: number;
+}) {
+  return (
+    <Paper radius={radius.lg} p={15} style={{ ...cardStyle, minHeight: 84 }}>
+      <Group justify="space-between" align="flex-start" wrap="nowrap">
+        <Box>
+          <Text c="#334155" style={{ fontSize: 12, fontWeight: 600, lineHeight: '15px' }}>
+            {label}
+          </Text>
+          <Text c="#111827" mt={4} style={{ fontSize: 22, fontWeight: 700, lineHeight: '26px' }}>
+            <CountUp value={value} />
+          </Text>
+          <Text c="#64748b" mt={2} style={{ fontSize: 12, fontWeight: 500, lineHeight: '15px' }}>
+            {detail}
+          </Text>
+        </Box>
+        <Box
+          aria-hidden
+          style={{
+            alignItems: 'center',
+            background: `${tone}12`,
+            borderRadius: radius.full,
+            color: tone,
+            display: 'flex',
+            flex: '0 0 34px',
+            height: 34,
+            justifyContent: 'center',
+            width: 34,
+          }}
+        >
+          {icon}
+        </Box>
+      </Group>
+    </Paper>
+  );
+}
+
+function SummaryStrip({
+  reservationCount,
+  summary,
+}: {
+  reservationCount: number;
+  summary: ReservationSummary;
+}) {
   const items = [
     {
       label: "Today's Arrivals",
       value: summary.todayArrivals,
-      detail: 'Confirmed and pending arrivals today',
-      tone: 'success',
+      detail: 'Expected check-ins today',
+      tone: '#2563eb',
       icon: <DoorOpen size={17} />,
     },
     {
-      label: 'Tomorrow Arrivals',
-      value: summary.tomorrowArrivals,
-      detail: 'Confirmed and pending arrivals tomorrow',
-      tone: 'info',
-      icon: <CalendarDays size={17} />,
+      label: "Today's Departures",
+      value: summary.departuresToday ?? 0,
+      detail: 'Scheduled check-outs today',
+      tone: '#64748b',
+      icon: <XCircle size={17} />,
     },
     {
       label: 'Pending Payments',
       value: summary.pendingPayments,
-      detail: 'Payment due or partial balance',
-      tone: 'danger',
+      detail: 'Due or partial balances',
+      tone: '#dc2626',
       icon: <Wallet size={17} />,
     },
     {
       label: 'Unassigned Rooms',
       value: summary.unassignedRooms,
-      detail: 'Bookings without a room assigned',
-      tone: 'attention',
+      detail: 'Bookings need assignment',
+      tone: '#d97706',
       icon: <BedDouble size={17} />,
     },
     {
-      label: 'Today’s Departures',
-      value: summary.departuresToday ?? 0,
-      detail: 'Departures scheduled for today',
-      tone: 'muted',
-      icon: <XCircle size={17} />,
-    },
-    {
-      label: 'Checked-in Today',
-      value: summary.checkedInToday ?? 0,
-      detail: 'Guests checked in today',
-      tone: 'info',
-      icon: <UserCheck size={17} />,
-    },
-    {
-      label: 'VIP Bookings',
-      value: summary.vipBookings,
-      detail: 'VIP guests only',
-      tone: 'premium',
-      icon: <UserCheck size={17} />,
+      label: 'Total Bookings',
+      value: reservationCount,
+      detail: 'Bookings in this view',
+      tone: '#6d5dfc',
+      icon: <CalendarDays size={17} />,
     },
   ];
 
   return (
-    <SimpleGrid cols={{ base: 1, xs: 2, md: 3, xl: 6 }} spacing={spacing[3]}>
+    <SimpleGrid cols={{ base: 1, xs: 2, md: 3, xl: 5 }} spacing={spacing[3]}>
       {items.map((item) => (
-        <StayOSOperationsCard
-          key={item.label}
-          title={item.label}
-          value={<CountUp value={item.value} />}
-          detail={item.detail}
-          icon={item.icon}
-          tone={item.tone as StayOSStatusTone}
-        />
+        <SummaryCard key={item.label} {...item} />
       ))}
     </SimpleGrid>
   );
@@ -197,29 +256,45 @@ function SummaryStrip({ summary }: { summary: ReservationSummary }) {
 
 function Filters({ query, setQuery }: { query: string; setQuery: (value: string) => void }) {
   return (
-    <Card p={spacing[4]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
-      <Group gap={spacing[3]} align="center">
+    <Card radius={radius.lg} p={12} style={cardStyle}>
+      <Group gap={spacing[2]} align="center">
         <TextInput
-          leftSection={<Search size={16} />}
-          placeholder="Search booking ID, guest, phone or company..."
+          leftSection={<Search size={15} />}
+          placeholder="Search guest, booking ID, phone or company..."
           value={query}
           onChange={(event) => setQuery(event.currentTarget.value)}
           style={{ flex: 1, minWidth: 280 }}
-          styles={{ input: { minHeight: 44 } }}
+          styles={{
+            input: {
+              borderColor: '#dbe3ef',
+              borderRadius: 12,
+              fontSize: 13,
+              fontWeight: 400,
+              minHeight: 38,
+            },
+          }}
         />
-        <Select w={{ base: 150, md: 180 }} data={statusOptions} defaultValue="All" />
+        <Select
+          w={{ base: 140, md: 164 }}
+          data={statusOptions}
+          defaultValue="All"
+          styles={{ input: { borderColor: '#dbe3ef', borderRadius: 12, minHeight: 38 } }}
+        />
         <DatePickerInput
-          w={{ base: 190, md: 230 }}
+          w={{ base: 180, md: 220 }}
           type="range"
           placeholder="Date range"
-          leftSection={<CalendarDays size={16} />}
+          leftSection={<CalendarDays size={15} />}
+          styles={{ input: { borderColor: '#dbe3ef', borderRadius: 12, minHeight: 38 } }}
         />
         <Popover width={300} position="bottom-end" shadow="md">
           <Popover.Target>
             <Button
               variant="light"
               color="stayosBrand"
-              leftSection={<SlidersHorizontal size={16} />}
+              size="compact-md"
+              leftSection={<SlidersHorizontal size={15} />}
+              style={{ fontWeight: 600, height: 38 }}
             >
               More filters
             </Button>
@@ -306,11 +381,11 @@ function ReservationDrawer({
       {reservation ? (
         <Stack gap={spacing[5]}>
           <Box>
-            <Title order={2} style={typography.styles.h2}>
+            <Title order={2} style={{ fontSize: 28, fontWeight: 700, lineHeight: '36px' }}>
               {reservation.guest}
             </Title>
             {reservation.isVip ? (
-              <Badge color="stayosBrand" variant="light" mt={spacing[2]}>
+              <Badge color="stayosBrand" variant="light" mt={spacing[2]} style={{ fontWeight: 600 }}>
                 VIP
               </Badge>
             ) : null}
@@ -321,11 +396,12 @@ function ReservationDrawer({
               size="xs"
               variant="light"
               color="stayosBrand"
+              style={{ fontWeight: 600 }}
             >
               Open Guest 360
             </Button>
-            <Text c={colors.text.muted} mt={spacing[1]} style={typography.styles.small}>
-              {reservation.id} · {reservation.phone}
+            <Text c={colors.text.muted} mt={spacing[1]} style={{ fontSize: 13, fontWeight: 500 }}>
+              {reservation.id} - {reservation.phone}
             </Text>
           </Box>
 
@@ -343,7 +419,7 @@ function ReservationDrawer({
                 Room
               </Text>
               <Text mt={spacing[1]} style={typography.styles.label}>
-                {reservation.room} · {reservation.roomType}
+                {reservation.room} - {reservation.roomType}
               </Text>
             </Paper>
             <Paper p={spacing[4]} radius={radius.md} bg={colors.surface.subtle}>
@@ -375,7 +451,7 @@ function ReservationDrawer({
             <Text style={typography.styles.label}>Special requests</Text>
             <Group mt={spacing[2]} gap={spacing[2]}>
               {reservation.requests.map((request) => (
-                <Badge key={request} color="stayosBrand" variant="light">
+                <Badge key={request} color="stayosBrand" variant="light" style={{ fontWeight: 600 }}>
                   {request}
                 </Badge>
               ))}
@@ -429,6 +505,37 @@ function ReservationDrawer({
         </Stack>
       ) : null}
     </Drawer>
+  );
+}
+
+function PrimaryAction({ reservation }: { reservation: Reservation }) {
+  if (reservation.stayHref) {
+    return (
+      <Button
+        component={Link}
+        href={reservation.stayHref}
+        size="compact-sm"
+        variant="light"
+        color="stayosBrand"
+        leftSection={<DoorOpen size={14} />}
+        onClick={(event) => event.stopPropagation()}
+        style={{ fontWeight: 600 }}
+      >
+        View Stay
+      </Button>
+    );
+  }
+
+  return (
+    <Button
+      size="compact-sm"
+      variant="light"
+      color="stayosBrand"
+      onClick={(event) => event.stopPropagation()}
+      style={{ fontWeight: 600 }}
+    >
+      {reservation.nextAction}
+    </Button>
   );
 }
 
@@ -488,15 +595,14 @@ export default function ReservationsPage() {
   const pageHeader = (
     <Group justify="space-between" align="flex-start" gap={spacing[4]}>
       <Box>
-        <Title order={1} style={typography.styles.h1}>
+        <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 700, lineHeight: '38px' }}>
           Bookings
         </Title>
-        <Text mt={spacing[1]} c={colors.text.body} style={typography.styles.body}>
-          Manage upcoming stays, arrivals and bookings.
+        <Text mt={spacing[1]} c="#64748b" style={{ fontSize: 14, fontWeight: 400, lineHeight: '22px' }}>
+          Manage arrivals, stays, payments and room assignments.
         </Text>
-        <Text mt={spacing[3]} c={colors.text.strong} style={typography.styles.label}>
-          {reservations.length} bookings · {reservationsState.summary.pendingPayments} pending
-          payments · {reservationsState.summary.vipBookings} VIP
+        <Text mt={spacing[2]} c="#334155" style={{ fontSize: 13, fontWeight: 500, lineHeight: '18px' }}>
+          {reservations.length} bookings - {reservationsState.summary.pendingPayments} pending payments
         </Text>
       </Box>
       <Button
@@ -505,6 +611,7 @@ export default function ReservationsPage() {
         leftSection={<Plus size={16} />}
         color="stayosBrand"
         size="md"
+        style={{ fontWeight: 600 }}
       >
         New Booking
       </Button>
@@ -513,7 +620,7 @@ export default function ReservationsPage() {
 
   if (!allowMockFallback && backend.status === 'SERVER_STARTING') {
     return (
-      <Stack gap={spacing[5]}>
+      <Stack gap={spacing[4]}>
         {pageHeader}
         <ServerStarting onAction={retryBackend} onCheckStatus={checkBackendStatus} />
       </Stack>
@@ -522,7 +629,7 @@ export default function ReservationsPage() {
 
   if (!allowMockFallback && !backend.isOnline && backend.status !== 'CONNECTING') {
     return (
-      <Stack gap={spacing[5]}>
+      <Stack gap={spacing[4]}>
         {pageHeader}
         <BackendUnavailable onAction={retryBackend} onCheckStatus={checkBackendStatus} />
       </Stack>
@@ -536,7 +643,7 @@ export default function ReservationsPage() {
     reservations.length === 0
   ) {
     return (
-      <Stack gap={spacing[5]}>
+      <Stack gap={spacing[4]}>
         {pageHeader}
         <ServerStarting
           title="Connecting to StayOS"
@@ -555,7 +662,7 @@ export default function ReservationsPage() {
     reservations.length === 0
   ) {
     return (
-      <Stack gap={spacing[5]}>
+      <Stack gap={spacing[4]}>
         {pageHeader}
         <GenericError
           onAction={() => void reservationsState.refreshReservations()}
@@ -566,10 +673,10 @@ export default function ReservationsPage() {
   }
 
   return (
-    <Stack gap={spacing[5]}>
+    <Stack gap={spacing[3]}>
       {pageHeader}
 
-      <SummaryStrip summary={reservationsState.summary} />
+      <SummaryStrip reservationCount={reservations.length} summary={reservationsState.summary} />
 
       {reservationsState.isLoading ? (
         <Alert color="blue" variant="light" icon={<CalendarDays size={17} />} radius={radius.lg}>
@@ -579,10 +686,10 @@ export default function ReservationsPage() {
 
       {reservationsState.isFallback && reservationsState.error ? (
         <Alert color="yellow" variant="light" icon={<CalendarDays size={17} />} radius={radius.lg}>
-          Demo fallback is enabled, so Bookings is showing mock data while the backend is
-          unavailable.
+          Demo fallback is enabled, so Bookings is showing mock data while the backend is unavailable.
         </Alert>
       ) : null}
+
       <Filters query={query} setQuery={setQuery} />
 
       <Skeleton visible={false} radius={radius.lg}>
@@ -593,24 +700,27 @@ export default function ReservationsPage() {
           />
         ) : filteredReservations.length > 0 ? (
           <>
-            <Card
-              visibleFrom="md"
-              p={0}
-              radius={radius.lg}
-              shadow="xs"
-              style={{ border: 'none', overflow: 'hidden' }}
-            >
-              <Table verticalSpacing={spacing[5]} horizontalSpacing={spacing[5]} highlightOnHover>
-                <Table.Thead bg={colors.surface.subtle}>
+            <Card visibleFrom="md" p={0} radius={radius.lg} style={{ ...cardStyle, overflow: 'hidden' }}>
+              <Table verticalSpacing={13} horizontalSpacing={18} highlightOnHover={false}>
+                <Table.Thead bg="#f8fafc">
                   <Table.Tr>
-                    <Table.Th>Guest</Table.Th>
-                    <Table.Th>Stay Dates</Table.Th>
-                    <Table.Th>Booking</Table.Th>
-                    <Table.Th>Source</Table.Th>
-                    <Table.Th>Payment</Table.Th>
-                    <Table.Th>Status</Table.Th>
-                    <Table.Th>Next action</Table.Th>
-                    <Table.Th />
+                    {['Guest', 'Stay Dates', 'Booking', 'Source', 'Payment', 'Status', 'Next Action', ''].map(
+                      (header) => (
+                        <Table.Th
+                          key={header}
+                          style={{
+                            borderBottom: '1px solid #e2e8f0',
+                            color: '#64748b',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            letterSpacing: 0,
+                            textTransform: 'none',
+                          }}
+                        >
+                          {header}
+                        </Table.Th>
+                      ),
+                    )}
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
@@ -618,11 +728,17 @@ export default function ReservationsPage() {
                     <Table.Tr
                       key={reservation.id}
                       onClick={() => openReservation(reservation)}
+                      onMouseEnter={(event) => {
+                        event.currentTarget.style.background = '#fbfdff';
+                      }}
+                      onMouseLeave={(event) => {
+                        event.currentTarget.style.background = '#ffffff';
+                      }}
                       style={{
-                        borderLeft: `3px solid ${colors.brand[500]}`,
+                        background: '#ffffff',
+                        borderBottom: '1px solid #edf2f7',
                         cursor: 'pointer',
-                        transition:
-                          'box-shadow 200ms ease, transform 200ms ease, background 200ms ease',
+                        transition: 'background 160ms ease',
                       }}
                     >
                       <Table.Td>
@@ -630,44 +746,49 @@ export default function ReservationsPage() {
                           component={Link}
                           href={reservation.guestHref ?? '/guests'}
                           onClick={(event) => event.stopPropagation()}
-                          c={colors.text.strong}
-                          style={{ ...typography.styles.h3, textDecoration: 'none' }}
+                          c="#101828"
+                          style={{
+                            fontSize: 14,
+                            fontWeight: 700,
+                            lineHeight: '18px',
+                            textDecoration: 'none',
+                          }}
                         >
                           {reservation.guest}
                         </Text>
                         {reservation.isVip ? (
-                          <Badge color="stayosBrand" variant="light" mt={spacing[1]}>
+                          <Badge color="stayosBrand" variant="light" mt={6} style={{ fontWeight: 600 }}>
                             VIP
                           </Badge>
                         ) : null}
-                        <Text c={colors.text.body} mt={spacing[1]} style={typography.styles.small}>
+                        <Text c="#526383" mt={6} style={{ fontSize: 12, fontWeight: 500, lineHeight: '15px' }}>
                           {reservation.room}
                         </Text>
-                        <Text
-                          c={colors.text.muted}
-                          mt={spacing[1]}
-                          style={typography.styles.caption}
-                        >
+                        <Text c="#64748b" mt={2} style={{ fontSize: 12, fontWeight: 400, lineHeight: '15px' }}>
                           {reservation.occupancy}
                         </Text>
                       </Table.Td>
                       <Table.Td>
-                        <Text style={typography.styles.label}>{reservation.stayDates}</Text>
-                        <Text c={colors.text.muted} style={typography.styles.caption}>
-                          {reservation.nights} Nights
+                        <Text c="#182230" style={{ fontSize: 13, fontWeight: 600, lineHeight: '17px' }}>
+                          {reservation.stayDates}
+                        </Text>
+                        <Text c="#64748b" mt={2} style={{ fontSize: 12, fontWeight: 500, lineHeight: '15px' }}>
+                          {reservation.nights} nights
                         </Text>
                       </Table.Td>
                       <Table.Td>
-                        <Text style={typography.styles.label}>{reservation.id}</Text>
-                        <Text
-                          c={colors.text.muted}
-                          mt={spacing[1]}
-                          style={typography.styles.caption}
-                        >
-                          📞 {reservation.phone}
+                        <Text c="#182230" style={{ fontSize: 13, fontWeight: 600, lineHeight: '17px' }}>
+                          {reservation.id}
+                        </Text>
+                        <Text c="#64748b" mt={2} style={{ fontSize: 12, fontWeight: 500, lineHeight: '15px' }}>
+                          {reservation.phone}
                         </Text>
                       </Table.Td>
-                      <Table.Td>{reservation.source}</Table.Td>
+                      <Table.Td>
+                        <Text c="#334155" style={{ fontSize: 13, fontWeight: 500, lineHeight: '17px' }}>
+                          {reservation.source}
+                        </Text>
+                      </Table.Td>
                       <Table.Td>
                         <TokenBadge {...paymentMeta(reservation.payment)} />
                       </Table.Td>
@@ -675,23 +796,7 @@ export default function ReservationsPage() {
                         <TokenBadge {...statusMeta(reservation.status)} />
                       </Table.Td>
                       <Table.Td>
-                        {reservation.stayHref ? (
-                          <Button
-                            component={Link}
-                            href={reservation.stayHref}
-                            size="xs"
-                            variant="light"
-                            color="stayosBrand"
-                            leftSection={<DoorOpen size={14} />}
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            View Stay
-                          </Button>
-                        ) : (
-                          <Text c={colors.text.strong} style={typography.styles.label}>
-                            {reservation.nextAction}
-                          </Text>
-                        )}
+                        <PrimaryAction reservation={reservation} />
                       </Table.Td>
                       <Table.Td>
                         <ReservationActions reservation={reservation} />
@@ -705,75 +810,50 @@ export default function ReservationsPage() {
             <Stack hiddenFrom="md" gap={spacing[3]}>
               {filteredReservations.map((reservation) => (
                 <UnstyledButton key={reservation.id} onClick={() => openReservation(reservation)}>
-                  <Card p={spacing[4]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
+                  <Card p={spacing[4]} radius={radius.lg} style={cardStyle}>
                     <Group justify="space-between" align="flex-start">
                       <Box>
                         <Text
                           component={Link}
                           href={reservation.guestHref ?? '/guests'}
                           onClick={(event) => event.stopPropagation()}
-                          c={colors.text.strong}
-                          style={{ ...typography.styles.h3, textDecoration: 'none' }}
+                          c="#101828"
+                          style={{ fontSize: 16, fontWeight: 700, lineHeight: '22px', textDecoration: 'none' }}
                         >
                           {reservation.guest}
                         </Text>
                         {reservation.isVip ? (
-                          <Badge color="stayosBrand" variant="light" mt={spacing[1]}>
+                          <Badge color="stayosBrand" variant="light" mt={spacing[1]} style={{ fontWeight: 600 }}>
                             VIP
                           </Badge>
                         ) : null}
-                        <Text
-                          c={colors.text.muted}
-                          mt={spacing[1]}
-                          style={typography.styles.caption}
-                        >
-                          {reservation.id} · {reservation.stayDates}
+                        <Text c="#64748b" mt={spacing[1]} style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}>
+                          {reservation.id} - {reservation.stayDates}
                         </Text>
                       </Box>
                       <TokenBadge {...statusMeta(reservation.status)} />
                     </Group>
                     <Group mt={spacing[4]} justify="space-between">
-                      <Text c={colors.text.body} style={typography.styles.small}>
-                        {reservation.room} · {reservation.roomType}
+                      <Text c="#526383" style={{ fontSize: 13, fontWeight: 400, lineHeight: '18px' }}>
+                        {reservation.room} - {reservation.roomType}
                       </Text>
                       <TokenBadge {...paymentMeta(reservation.payment)} />
                     </Group>
-                    {reservation.stayHref ? (
-                      <Button
-                        component={Link}
-                        href={reservation.stayHref}
-                        mt={spacing[3]}
-                        size="xs"
-                        variant="light"
-                        color="stayosBrand"
-                        leftSection={<DoorOpen size={14} />}
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        View Stay
-                      </Button>
-                    ) : (
-                      <Text mt={spacing[3]} c={colors.text.strong} style={typography.styles.label}>
-                        Next: {reservation.nextAction}
-                      </Text>
-                    )}
+                    <Box mt={spacing[3]}>
+                      <PrimaryAction reservation={reservation} />
+                    </Box>
                   </Card>
                 </UnstyledButton>
               ))}
             </Stack>
           </>
         ) : (
-          <Card
-            p={spacing[12]}
-            ta="center"
-            radius={radius.lg}
-            shadow="xs"
-            style={{ border: 'none' }}
-          >
-            <UserCheck size={34} color={colors.brand[500]} />
-            <Title order={2} mt={spacing[4]} style={typography.styles.h2}>
+          <Card p={spacing[8]} ta="center" radius={radius.lg} style={cardStyle}>
+            <UserCheck size={30} color={colors.brand[500]} />
+            <Title order={2} mt={spacing[4]} style={{ fontSize: 24, fontWeight: 700, lineHeight: '30px' }}>
               No bookings found
             </Title>
-            <Text mt={spacing[2]} c={colors.text.body} style={typography.styles.body}>
+            <Text mt={spacing[2]} c="#64748b" style={{ fontSize: 14, fontWeight: 400, lineHeight: '22px' }}>
               Try a different guest name, date, booking ID, or room filter.
             </Text>
           </Card>

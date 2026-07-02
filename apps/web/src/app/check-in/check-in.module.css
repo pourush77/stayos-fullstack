@@ -11,7 +11,7 @@
 .roomCard:hover,
 .stepCard:hover {
   border-color: var(--stayos-accent);
-  box-shadow: var(--stayos-hover-shadow);
+  box-shadow: var(--stayos-hover-shadow, 0 8px 24px rgba(15, 23, 42, 0.055));
   transform: translateY(-1px);
 }
 

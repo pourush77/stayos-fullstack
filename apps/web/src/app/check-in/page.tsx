@@ -36,7 +36,7 @@ import {
 } from 'lucide-react';
 import type { CSSProperties, ReactNode } from 'react';
 import { useMemo, useState } from 'react';
-import { brandPalettes, colors, radius, shadows, spacing, typography } from '@stayos/theme';
+import { colors, radius, spacing, typography } from '@stayos/theme';
 import { getOpenOperationalTasks, OperationalTaskCard } from '@stayos/ui';
 import styles from './check-in.module.css';
 
@@ -59,12 +59,12 @@ type CheckInState = {
 };
 
 const steps: Step[] = [
-  { key: 'welcome', label: 'Welcome Guest', helper: 'Confirm the guest and stay.' },
-  { key: 'identity', label: 'Verify Identity', helper: 'Required before keys.' },
-  { key: 'photo', label: 'Capture Guest Photo', helper: 'Based on property rules.' },
-  { key: 'room', label: 'Choose Room', helper: 'Select one ready room.' },
-  { key: 'payment', label: 'Receive Payment', helper: 'Clear payment blockers.' },
-  { key: 'keys', label: 'Issue Keys', helper: 'Final arrival checklist.' },
+  { key: 'welcome', label: 'Welcome', helper: 'Confirm guest and stay.' },
+  { key: 'identity', label: 'Identity', helper: 'Required before keys.' },
+  { key: 'photo', label: 'Photo', helper: 'Capture or skip by policy.' },
+  { key: 'room', label: 'Room', helper: 'Confirm ready room.' },
+  { key: 'payment', label: 'Payment', helper: 'Clear blockers.' },
+  { key: 'keys', label: 'Keys', helper: 'Final checklist.' },
   { key: 'complete', label: 'Complete', helper: 'Guest has arrived.' },
 ];
 
@@ -80,11 +80,17 @@ const guest = {
   readiness: 92,
 };
 
+const cardStyle: CSSProperties = {
+  background: '#ffffff',
+  border: '1px solid rgba(226, 232, 240, 0.9)',
+  boxShadow: '0 8px 24px rgba(15, 23, 42, 0.035)',
+};
+
 const documentMethods = [
-  { title: 'Scan using Mobile', detail: 'Show QR code for secure guest upload.', icon: QrCode },
-  { title: 'Capture using Webcam', detail: 'Use the reception counter camera.', icon: Camera },
-  { title: 'Scanner or MFP', detail: 'Import from the connected scanner.', icon: ScanLine },
-  { title: 'Upload Image or PDF', detail: 'Use an existing scan or file.', icon: FileImage },
+  { title: 'Scan Mobile', detail: 'Secure guest upload.', icon: QrCode },
+  { title: 'Webcam', detail: 'Reception camera.', icon: Camera },
+  { title: 'Scanner', detail: 'Connected scanner.', icon: ScanLine },
+  { title: 'Upload', detail: 'Image or PDF.', icon: FileImage },
 ];
 
 const extractedFields = [
@@ -97,9 +103,9 @@ const extractedFields = [
 ];
 
 const roomSuggestions = [
-  { room: '402', type: 'Premium Suite', status: 'Ready Now', note: 'High floor, garden view' },
-  { room: '407', type: 'Premium Suite', status: 'Ready in 20 min', note: 'Near elevator' },
-  { room: '501', type: 'Suite', status: 'Held for VIP', note: 'Airport pickup arrival' },
+  { room: '402', type: 'Premium Suite', status: 'Ready', note: 'High floor, garden view' },
+  { room: '407', type: 'Premium Suite', status: 'Cleaning', note: 'Near elevator' },
+  { room: '501', type: 'Suite', status: 'Held', note: 'Airport pickup arrival' },
 ];
 
 const readinessSummary = [
@@ -110,9 +116,11 @@ const readinessSummary = [
 ];
 
 function toneBackground(tone: string) {
-  if (tone === colors.semantic.warning) return brandPalettes.gold[50];
-  if (tone === colors.semantic.info) return brandPalettes.blue[50];
-  return colors.brand[50];
+  if (tone === colors.semantic.warning) return '#fffbeb';
+  if (tone === colors.semantic.info) return '#eff6ff';
+  if (tone === colors.semantic.success) return '#f0fdf4';
+  if (tone === colors.semantic.danger) return '#fef2f2';
+  return '#f5f3ff';
 }
 
 function SoftBadge({ children, tone }: { children: ReactNode; tone?: string }) {
@@ -124,7 +132,9 @@ function SoftBadge({ children, tone }: { children: ReactNode; tone?: string }) {
         root: {
           background: toneBackground(tone ?? colors.brand[500]),
           color: tone ?? colors.brand[600],
-          fontWeight: typography.weights.semibold,
+          fontWeight: 600,
+          height: 24,
+          paddingInline: 10,
           textTransform: 'none',
         },
       }}
@@ -144,29 +154,11 @@ function StepHeader({ title, helper, icon }: { title: string; helper: string; ic
         <Title order={1} c={colors.text.strong} style={typography.styles.h2}>
           {title}
         </Title>
-        <Text c={colors.text.muted} mt={spacing[1]} style={typography.styles.body}>
+        <Text c={colors.text.muted} mt={spacing[1]} style={{ fontSize: 14, fontWeight: 400, lineHeight: '22px' }}>
           {helper}
         </Text>
       </Box>
     </Group>
-  );
-}
-
-function MoreDetails({ children }: { children: ReactNode }) {
-  return (
-    <details style={{ marginTop: spacing[4] }}>
-      <summary
-        style={{
-          color: colors.brand[600],
-          cursor: 'pointer',
-          fontSize: typography.styles.label.fontSize,
-          fontWeight: typography.weights.semibold,
-        }}
-      >
-        More details
-      </summary>
-      <Box mt={spacing[3]}>{children}</Box>
-    </details>
   );
 }
 
@@ -190,7 +182,7 @@ function ProgressSidebar({
   };
 
   return (
-    <Card className={styles.stepRail} p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
+    <Card className={styles.stepRail} p={16} radius={radius.lg} style={cardStyle}>
       <Button
         component="a"
         href="/"
@@ -198,20 +190,22 @@ function ProgressSidebar({
         color="gray"
         leftSection={<ChevronLeft size={16} />}
         px={0}
-        mb={spacing[4]}
+        mb={spacing[3]}
+        style={{ fontWeight: 600 }}
       >
         Back to Front Desk
       </Button>
-      <Text c={colors.text.strong} style={typography.styles.label}>
+      <Text c="#101828" style={{ fontSize: 14, fontWeight: 700, lineHeight: '20px' }}>
         Check-in Progress
       </Text>
       <Progress
-        mt={spacing[3]}
+        mt={10}
         value={(Object.values(completeByStep).filter(Boolean).length / steps.length) * 100}
         color="stayosBrand"
         radius={radius.full}
+        size={7}
       />
-      <Stack mt={spacing[5]} gap={spacing[2]}>
+      <Stack mt={spacing[4]} gap={6}>
         {steps.map((step, index) => {
           const isActive = currentStep === index;
           const isComplete = completeByStep[step.key];
@@ -221,27 +215,31 @@ function ProgressSidebar({
               key={step.key}
               onClick={() => onSelect(index)}
               style={{
-                background: isActive ? colors.brand[50] : colors.surface.base,
-                border: `1px solid ${isActive ? colors.brand[200] : colors.border.subtle}`,
+                background: isActive ? '#f5f3ff' : 'transparent',
+                border: '1px solid transparent',
                 borderRadius: radius.md,
-                padding: spacing[3],
+                padding: '9px 10px',
                 width: '100%',
               }}
             >
-              <Group gap={spacing[3]} align="flex-start" wrap="nowrap">
+              <Group gap={10} align="center" wrap="nowrap">
                 <ThemeIcon
                   color={isComplete || isActive ? 'stayosBrand' : 'gray'}
                   radius={radius.full}
-                  size={28}
+                  size={26}
                   variant={isComplete || isActive ? 'light' : 'subtle'}
                 >
-                  {isComplete ? <Check size={15} /> : <Text style={typography.styles.caption}>{index + 1}</Text>}
+                  {isComplete ? (
+                    <Check size={14} />
+                  ) : (
+                    <Text style={{ fontSize: 11, fontWeight: 600 }}>{index + 1}</Text>
+                  )}
                 </ThemeIcon>
-                <Box>
-                  <Text c={colors.text.strong} style={typography.styles.label}>
+                <Box style={{ minWidth: 0 }}>
+                  <Text c="#182230" style={{ fontSize: 13, fontWeight: 600, lineHeight: '17px' }}>
                     {step.label}
                   </Text>
-                  <Text c={colors.text.muted} mt={2} style={typography.styles.caption}>
+                  <Text c="#64748b" mt={1} lineClamp={1} style={{ fontSize: 11, fontWeight: 500, lineHeight: '15px' }}>
                     {step.helper}
                   </Text>
                 </Box>
@@ -258,14 +256,14 @@ function AssistantPanel() {
   const tasks = getOpenOperationalTasks({ reservation: 'ST1842', limit: 3 });
 
   return (
-    <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
-      <Text c={colors.text.strong} style={typography.styles.label}>
-        Task Engine
+    <Card p={16} radius={radius.lg} style={cardStyle}>
+      <Text c="#101828" style={{ fontSize: 15, fontWeight: 700, lineHeight: '21px' }}>
+        Check-in Tasks
       </Text>
-      <Text c={colors.text.muted} mt={spacing[1]} style={typography.styles.caption}>
+      <Text c="#64748b" mt={2} style={{ fontSize: 12, fontWeight: 400, lineHeight: '16px' }}>
         Contextual tasks for this guest.
       </Text>
-      <Stack mt={spacing[4]} gap={spacing[3]}>
+      <Stack mt={12} gap={spacing[3]}>
         {tasks.map((task) => (
           <OperationalTaskCard key={task.id} task={task} compact />
         ))}
@@ -295,27 +293,27 @@ function WelcomeStep({ onStart }: { onStart: () => void }) {
           ['Stay Dates', guest.stayDates],
           ['Guests', `${guest.adults} adults, ${guest.children} child`],
         ].map(([label, value]) => (
-          <Paper key={label} p={spacing[4]} radius={radius.lg} bg={colors.surface.subtle}>
-            <Text c={colors.text.muted} style={typography.styles.caption}>
+          <Paper key={label} p={14} radius={radius.lg} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
+            <Text c="#64748b" style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}>
               {label}
             </Text>
-            <Text c={colors.text.strong} mt={spacing[1]} style={typography.styles.label}>
+            <Text c="#182230" mt={4} style={{ fontSize: 13, fontWeight: 600, lineHeight: '18px' }}>
               {value}
             </Text>
           </Paper>
         ))}
       </SimpleGrid>
-      <Paper p={spacing[4]} radius={radius.lg} bg={colors.brand[50]}>
+      <Paper p={14} radius={radius.lg} style={{ background: '#fbfdff', border: '1px solid #e2e8f0' }}>
         <Group justify="space-between">
           <Box>
-            <Text c={colors.text.strong} style={typography.styles.label}>
+            <Text c="#101828" style={{ fontSize: 13, fontWeight: 600, lineHeight: '18px' }}>
               Check-in readiness summary
             </Text>
-            <Text c={colors.text.muted} mt={spacing[1]} style={typography.styles.small}>
+            <Text c="#64748b" mt={4} style={{ fontSize: 12, fontWeight: 400, lineHeight: '17px' }}>
               {guest.readiness}% ready. Identity verification is the only blocker.
             </Text>
           </Box>
-          <Text c={colors.brand[600]} style={typography.styles.h2}>
+          <Text c={colors.brand[600]} style={{ fontSize: 22, fontWeight: 700, lineHeight: '28px' }}>
             {guest.readiness}%
           </Text>
         </Group>
@@ -328,7 +326,7 @@ function WelcomeStep({ onStart }: { onStart: () => void }) {
         </Group>
       </Paper>
       <Group justify="flex-end">
-        <Button color="stayosBrand" size="md" onClick={onStart}>
+        <Button color="stayosBrand" size="md" onClick={onStart} style={{ fontWeight: 600 }}>
           Start Check-in
         </Button>
       </Group>
@@ -349,31 +347,25 @@ function IdentityStep({ onConfirm }: { onConfirm: () => void }) {
           <Paper
             key={method.title}
             className={styles.methodCard}
-            p={spacing[4]}
+            p={14}
             radius={radius.lg}
-            withBorder
-            style={
-              {
-                '--stayos-accent': colors.brand[500],
-                '--stayos-hover-shadow': shadows.sm,
-              } as CSSProperties
-            }
+            style={{ ...cardStyle, '--stayos-accent': colors.brand[500] } as CSSProperties}
           >
             <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={38}>
               <method.icon size={18} />
             </ThemeIcon>
-            <Text mt={spacing[3]} c={colors.text.strong} style={typography.styles.label}>
+            <Text mt={spacing[3]} c="#101828" style={{ fontSize: 13, fontWeight: 600, lineHeight: '18px' }}>
               {method.title}
             </Text>
-            <Text mt={spacing[1]} c={colors.text.muted} style={typography.styles.small}>
+            <Text mt={4} c="#64748b" style={{ fontSize: 12, fontWeight: 400, lineHeight: '17px' }}>
               {method.detail}
             </Text>
           </Paper>
         ))}
       </SimpleGrid>
-      <Paper p={spacing[4]} radius={radius.lg} bg={colors.surface.subtle}>
+      <Paper p={14} radius={radius.lg} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
         <Group justify="space-between">
-          <Text c={colors.text.strong} style={typography.styles.label}>
+          <Text c="#101828" style={{ fontSize: 13, fontWeight: 600, lineHeight: '18px' }}>
             OCR extracted details preview
           </Text>
           <SoftBadge tone={colors.semantic.warning}>Needs confirmation</SoftBadge>
@@ -381,23 +373,18 @@ function IdentityStep({ onConfirm }: { onConfirm: () => void }) {
         <SimpleGrid mt={spacing[4]} cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
           {extractedFields.map(([label, value]) => (
             <Box key={label}>
-              <Text c={colors.text.muted} style={typography.styles.caption}>
+              <Text c="#64748b" style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}>
                 {label}
               </Text>
-              <Text c={colors.text.strong} mt={spacing[1]} style={typography.styles.label}>
+              <Text c="#182230" mt={4} style={{ fontSize: 13, fontWeight: 600, lineHeight: '18px' }}>
                 {value}
               </Text>
             </Box>
           ))}
         </SimpleGrid>
       </Paper>
-      <MoreDetails>
-        <Text c={colors.text.body} style={typography.styles.small}>
-          Family guest verification and foreign guest FRRO fields will appear here when required.
-        </Text>
-      </MoreDetails>
       <Group justify="flex-end">
-        <Button color="stayosBrand" onClick={onConfirm}>
+        <Button color="stayosBrand" onClick={onConfirm} style={{ fontWeight: 600 }}>
           Confirm Identity
         </Button>
       </Group>
@@ -419,17 +406,17 @@ function PhotoStep({
         helper="Use the fastest available option. This is simulated for now."
         icon={<Camera size={20} />}
       />
-      <Paper p={spacing[5]} radius={radius.lg} bg={colors.surface.subtle}>
+      <Paper p={16} radius={radius.lg} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
         <Group justify="space-between" align="center">
           <Group gap={spacing[3]}>
             <ThemeIcon color="stayosBrand" variant="light" radius={radius.full} size={46}>
               <Laptop size={20} />
             </ThemeIcon>
             <Box>
-              <Text c={colors.text.strong} style={typography.styles.label}>
+              <Text c="#101828" style={{ fontSize: 13, fontWeight: 600, lineHeight: '18px' }}>
                 Webcam Ready
               </Text>
-              <Text c={colors.text.muted} mt={spacing[1]} style={typography.styles.small}>
+              <Text c="#64748b" mt={4} style={{ fontSize: 12, fontWeight: 400, lineHeight: '17px' }}>
                 Reception counter camera detected.
               </Text>
             </Box>
@@ -438,24 +425,19 @@ function PhotoStep({
         </Group>
       </Paper>
       <Group gap={spacing[3]}>
-        <Button color="stayosBrand" leftSection={<Camera size={16} />} onClick={onCapture}>
+        <Button color="stayosBrand" leftSection={<Camera size={16} />} onClick={onCapture} style={{ fontWeight: 600 }}>
           Capture Photo
         </Button>
-        <Button variant="light" color="stayosBrand">
-          Retake
-        </Button>
         <Button variant="subtle" color="gray" leftSection={<QrCode size={16} />}>
-          Use Mobile Camera
+          Use Mobile
         </Button>
         <Button variant="subtle" color="gray" leftSection={<FileImage size={16} />}>
-          Upload Photo
+          Upload
+        </Button>
+        <Button variant="subtle" color="gray" onClick={onSkip}>
+          Mark Not Required
         </Button>
       </Group>
-      <MoreDetails>
-        <Button variant="subtle" color="gray" onClick={onSkip}>
-          Mark as Not Required
-        </Button>
-      </MoreDetails>
     </Stack>
   );
 }
@@ -468,17 +450,17 @@ function RoomStep({ onChoose }: { onChoose: () => void }) {
         helper="Show only the assigned room and three useful suggestions."
         icon={<BedDouble size={20} />}
       />
-      <Paper p={spacing[4]} radius={radius.lg} bg={colors.brand[50]}>
+      <Paper p={14} radius={radius.lg} style={{ background: '#fbfdff', border: '1px solid #e2e8f0' }}>
         <Group justify="space-between">
           <Box>
-            <Text c={colors.text.strong} style={typography.styles.label}>
-              Assigned Room
+            <Text c="#101828" style={{ fontSize: 13, fontWeight: 600, lineHeight: '18px' }}>
+              Room 402
             </Text>
-            <Text c={colors.text.body} mt={spacing[1]} style={typography.styles.small}>
-              Suite 402 is clean, inspected, and ready for arrival.
+            <Text c="#64748b" mt={4} style={{ fontSize: 12, fontWeight: 400, lineHeight: '17px' }}>
+              Premium Suite. Clean, inspected, and ready for arrival.
             </Text>
           </Box>
-          <SoftBadge tone={colors.semantic.success}>Ready Now</SoftBadge>
+          <SoftBadge tone={colors.semantic.success}>Ready</SoftBadge>
         </Group>
       </Paper>
       <SimpleGrid cols={{ base: 1, md: 3 }} spacing={spacing[3]}>
@@ -486,24 +468,23 @@ function RoomStep({ onChoose }: { onChoose: () => void }) {
           <Paper
             key={room.room}
             className={styles.roomCard}
-            p={spacing[4]}
+            p={14}
             radius={radius.lg}
-            withBorder
             style={
               {
+                ...cardStyle,
                 '--stayos-accent': colors.brand[500],
-                '--stayos-hover-shadow': shadows.sm,
                 borderColor: index === 0 ? colors.brand[500] : colors.border.subtle,
               } as CSSProperties
             }
           >
-            <Text c={colors.text.strong} style={typography.styles.h3}>
+            <Text c="#101828" style={{ fontSize: 16, fontWeight: 700, lineHeight: '22px' }}>
               Room {room.room}
             </Text>
-            <Text c={colors.text.muted} mt={spacing[1]} style={typography.styles.small}>
+            <Text c="#64748b" mt={4} style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}>
               {room.type}
             </Text>
-            <Text c={colors.text.body} mt={spacing[3]} style={typography.styles.caption}>
+            <Text c="#64748b" mt={spacing[3]} style={{ fontSize: 12, fontWeight: 400, lineHeight: '16px' }}>
               {room.note}
             </Text>
             <Box mt={spacing[3]}>
@@ -515,7 +496,7 @@ function RoomStep({ onChoose }: { onChoose: () => void }) {
         ))}
       </SimpleGrid>
       <Group justify="flex-end">
-        <Button color="stayosBrand" onClick={onChoose}>
+        <Button color="stayosBrand" onClick={onChoose} style={{ fontWeight: 600 }}>
           Choose Room 402
         </Button>
       </Group>
@@ -537,11 +518,11 @@ function PaymentStep({ onReceive }: { onReceive: () => void }) {
           ['Deposit', 'INR 5,000 suggested', colors.semantic.warning],
           ['Payment Status', 'Advance paid', colors.semantic.success],
         ].map(([label, value, tone]) => (
-          <Paper key={label} p={spacing[4]} radius={radius.lg} bg={colors.surface.subtle}>
-            <Text c={colors.text.muted} style={typography.styles.caption}>
+          <Paper key={label} p={14} radius={radius.lg} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
+            <Text c="#64748b" style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}>
               {label}
             </Text>
-            <Text c={tone} mt={spacing[1]} style={typography.styles.label}>
+            <Text c={tone} mt={4} style={{ fontSize: 13, fontWeight: 600, lineHeight: '18px' }}>
               {value}
             </Text>
           </Paper>
@@ -551,15 +532,10 @@ function PaymentStep({ onReceive }: { onReceive: () => void }) {
         <Button variant="subtle" color="gray">
           Mark Paid
         </Button>
-        <Button color="stayosBrand" leftSection={<CreditCard size={16} />} onClick={onReceive}>
+        <Button color="stayosBrand" leftSection={<CreditCard size={16} />} onClick={onReceive} style={{ fontWeight: 600 }}>
           Receive Payment
         </Button>
       </Group>
-      <MoreDetails>
-        <Text c={colors.text.body} style={typography.styles.small}>
-          Role permissions will control whether a receptionist can waive deposit or mark a balance as paid.
-        </Text>
-      </MoreDetails>
     </Stack>
   );
 }
@@ -586,28 +562,28 @@ function KeysStep({
           ['Registration card ready', true],
           ['Wi-Fi details ready', true],
         ].map(([label, complete]) => (
-          <Paper key={String(label)} p={spacing[3]} radius={radius.md} bg={colors.surface.subtle}>
+          <Paper key={String(label)} p={12} radius={radius.md} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
             <Group gap={spacing[3]}>
               <ThemeIcon color={complete ? 'stayosBrand' : 'yellow'} variant="light" radius={radius.full} size={28}>
                 {complete ? <Check size={15} /> : <FileCheck2 size={15} />}
               </ThemeIcon>
-              <Text c={colors.text.strong} style={typography.styles.label}>
+              <Text c="#182230" style={{ fontSize: 13, fontWeight: 600, lineHeight: '18px' }}>
                 {label}
               </Text>
             </Group>
           </Paper>
         ))}
       </Stack>
-      <Paper p={spacing[4]} radius={radius.lg} bg={colors.brand[50]}>
+      <Paper p={14} radius={radius.lg} style={{ background: '#fbfdff', border: '1px solid #e2e8f0' }}>
         <Group gap={spacing[3]}>
           <ThemeIcon color="stayosBrand" variant="light" radius={radius.full}>
             <MonitorUp size={16} />
           </ThemeIcon>
           <Box>
-            <Text c={colors.text.strong} style={typography.styles.label}>
+            <Text c="#101828" style={{ fontSize: 13, fontWeight: 600, lineHeight: '18px' }}>
               Room key encoder ready
             </Text>
-            <Text c={colors.text.muted} mt={spacing[1]} style={typography.styles.caption}>
+            <Text c="#64748b" mt={4} style={{ fontSize: 12, fontWeight: 400, lineHeight: '16px' }}>
               Two keys will be prepared for Room 402.
             </Text>
           </Box>
@@ -619,6 +595,7 @@ function KeysStep({
           disabled={!identityVerified}
           leftSection={<KeyRound size={16} />}
           onClick={onIssue}
+          style={{ fontWeight: 600 }}
         >
           Issue Room Keys
         </Button>
@@ -630,14 +607,14 @@ function KeysStep({
 function CompleteStep() {
   return (
     <Stack gap={spacing[5]} align="center" ta="center">
-      <ThemeIcon color="stayosBrand" variant="light" radius={radius.full} size={76}>
+      <ThemeIcon color="stayosBrand" variant="light" radius={radius.full} size={64}>
         <BadgeCheck size={34} />
       </ThemeIcon>
       <Box>
-        <Title order={1} c={colors.text.strong} style={typography.styles.h1}>
+        <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 700, lineHeight: '38px' }}>
           Guest has arrived.
         </Title>
-        <Text c={colors.text.body} mt={spacing[2]} style={typography.styles.bodyLarge}>
+        <Text c="#64748b" mt={spacing[2]} style={{ fontSize: 15, fontWeight: 400, lineHeight: '24px' }}>
           Room keys issued. Welcome message sent.
         </Text>
       </Box>
@@ -645,7 +622,7 @@ function CompleteStep() {
         <SoftBadge tone={colors.semantic.success}>Room keys issued</SoftBadge>
         <SoftBadge tone={colors.semantic.success}>Welcome message sent</SoftBadge>
       </Group>
-      <Button component="a" href="/" color="stayosBrand">
+      <Button component="a" href="/" color="stayosBrand" style={{ fontWeight: 600 }}>
         Return to Front Desk
       </Button>
     </Stack>
@@ -756,6 +733,12 @@ export default function CheckInPage() {
     setCurrentStep(steps.findIndex((item) => item.key === step));
   };
 
+  const blockers = [
+    { label: 'Identity pending', ready: state.identityVerified, tone: state.identityVerified ? colors.semantic.success : colors.semantic.warning },
+    { label: 'Payment ready', ready: state.paymentReceived, tone: state.paymentReceived ? colors.semantic.success : colors.semantic.info },
+    { label: 'Room ready', ready: state.roomChosen, tone: state.roomChosen ? colors.semantic.success : colors.semantic.info },
+  ];
+
   return (
     <SimpleGrid cols={{ base: 1, lg: 12 }} spacing={spacing[5]}>
       <Box style={{ gridColumn: 'span 3' }}>
@@ -763,9 +746,9 @@ export default function CheckInPage() {
       </Box>
 
       <Box style={{ gridColumn: 'span 6' }}>
-        <Card p={spacing[6]} radius={radius.lg} shadow="xs" style={{ border: 'none', minHeight: 620 }}>
+        <Card p={24} radius={radius.lg} style={{ ...cardStyle, minHeight: 620 }}>
           <Group justify="space-between" mb={spacing[5]}>
-            <Text c={colors.text.muted} style={typography.styles.label}>
+            <Text c="#64748b" style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}>
               Step {stepNumber} of {steps.length}
             </Text>
             <SoftBadge tone={activeKey === 'complete' ? colors.semantic.success : colors.brand[600]}>
@@ -777,25 +760,51 @@ export default function CheckInPage() {
       </Box>
 
       <Stack gap={spacing[5]} style={{ gridColumn: 'span 3' }}>
-        <AssistantPanel />
-        <Card p={spacing[4]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
-          <Text c={colors.text.strong} style={typography.styles.label}>
-            Current guest
+        <Card p={16} radius={radius.lg} style={cardStyle}>
+          <Text c="#101828" style={{ fontSize: 15, fontWeight: 700, lineHeight: '21px' }}>
+            Current Guest
           </Text>
           <Divider my={spacing[3]} color={colors.border.subtle} />
           <Stack gap={spacing[2]}>
-            <Text c={colors.text.strong} style={typography.styles.h3}>
+            <Text c="#101828" style={{ fontSize: 16, fontWeight: 700, lineHeight: '22px' }}>
               {guest.name}
             </Text>
-            <Text c={colors.text.muted} style={typography.styles.small}>
-              {guest.bookingId} - {guest.roomType}
+            <Text c="#64748b" style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}>
+              {guest.bookingId} - {guest.stayDates}
             </Text>
-            <SoftBadge tone={colors.brand[600]}>{guest.room}</SoftBadge>
-            <Button component={Link} href="/guests/ananya-rao" size="xs" variant="light" color="stayosBrand">
+            <Text c="#526383" style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}>
+              {guest.room} - {guest.roomType}
+            </Text>
+            <Button
+              component={Link}
+              href="/guests/ananya-rao"
+              size="compact-sm"
+              variant="light"
+              color="stayosBrand"
+              style={{ fontWeight: 600 }}
+            >
               Open Guest 360
             </Button>
           </Stack>
         </Card>
+
+        <Card p={16} radius={radius.lg} style={cardStyle}>
+          <Text c="#101828" style={{ fontSize: 15, fontWeight: 700, lineHeight: '21px' }}>
+            Check-in Blockers
+          </Text>
+          <Stack mt={12} gap={8}>
+            {blockers.map((item) => (
+              <Group key={item.label} justify="space-between" wrap="nowrap">
+                <Text c="#334155" style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}>
+                  {item.label}
+                </Text>
+                <SoftBadge tone={item.tone}>{item.ready ? 'Ready' : 'Pending'}</SoftBadge>
+              </Group>
+            ))}
+          </Stack>
+        </Card>
+
+        <AssistantPanel />
       </Stack>
     </SimpleGrid>
   );
