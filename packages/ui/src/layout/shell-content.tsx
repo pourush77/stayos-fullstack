@@ -15,9 +15,9 @@ export function ShellContent(props: ShellContentProps) {
       mx="auto"
       w="100%"
       maw={1440}
-      px={{ base: spacing[4], sm: spacing[5], md: spacing[8] }}
-      py={{ base: spacing[5], md: spacing[8] }}
-      pb={{ base: 88, md: spacing[8] }}
+      px={{ base: spacing[4], sm: spacing[5], md: spacing[5] }}
+      py={{ base: spacing[4], md: spacing[5] }}
+      pb={{ base: 88, md: spacing[5] }}
       {...props}
     />
   );

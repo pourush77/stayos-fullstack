@@ -19,7 +19,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <StayOSProvider>
+        <StayOSProvider brand="purple">
           <BackendConnectivityProvider>
             <StayOSAppShell>{children}</StayOSAppShell>
           </BackendConnectivityProvider>

@@ -4,8 +4,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   ActionIcon,
-  AppShell as MantineAppShell,
   Avatar,
+  Badge,
   Box,
   Burger,
   Button,
@@ -13,7 +13,6 @@ import {
   Drawer,
   Group,
   Menu,
-  NavLink,
   Paper,
   Popover,
   ScrollArea,
@@ -25,24 +24,27 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
-  Bell,
   BedDouble,
   Building2,
   ChevronDown,
   ChevronsLeft,
   ChevronsRight,
+  CheckCircle2,
+  LogOut,
   Menu as MenuIcon,
-  PanelRightClose,
-  PanelRightOpen,
-  Plus,
+  MessageSquare,
+  MoreVertical,
+  PanelLeftClose,
+  PanelLeftOpen,
   Search,
+  Sun,
   UserRound,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
-import { animations, brandPalettes, colors, radius, shadows, spacing, typography, zIndex } from '@stayos/theme';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { animations, colors, radius, shadows, spacing, typography, zIndex } from '@stayos/theme';
 import { OperationalTaskCard } from '../components/operational-task-card';
-import { useBackendStatus, type BackendConnectionStatus } from '../connectivity/backend-connectivity';
 import { getTasksForPath } from '../operations/task-engine';
 import { SearchInput } from '../components/search-input';
 import { mobileNavigation, primaryNavigation } from './navigation';
@@ -52,8 +54,197 @@ type StayOSAppShellProps = {
   children: ReactNode;
 };
 
-const fallbackPropertyName = 'Hillston Resort & Club';
-const userName = 'Aarav Mehta';
+type PropertyStatus = {
+  label: 'Ready' | 'Cleaning' | 'Dirty' | 'Out of Order' | 'Occupied';
+  value: string;
+  tone: string;
+};
+
+type LiveOperation = {
+  action: string;
+  detail: string;
+  time: string;
+  title: string;
+};
+
+type NextEvent = {
+  action: string;
+  detail: string;
+  href: string;
+  time: string;
+  title: string;
+  tone: string;
+};
+
+type FrontDeskUtilityState = {
+  error?: string;
+  isLoading: boolean;
+  liveOperations: LiveOperation[];
+  nextEvent?: NextEvent;
+  propertyStatus: PropertyStatus[];
+  roomTotal: number;
+};
+
+const fallbackPropertyName = 'The Oberoi Grand';
+const userName = 'Priya Mehra';
+const commandSuggestions = [
+  { label: 'Check in Rahul Sharma', href: '/check-in' },
+  { label: 'Assign Room 305', href: '/rooms/305' },
+  { label: 'Collect Rs 8,400', href: '/requests' },
+  { label: 'Booking ST2145', href: '/reservations' },
+];
+
+const emptyPropertyStatus: PropertyStatus[] = [
+  { label: 'Ready', value: '0', tone: '#12b76a' },
+  { label: 'Cleaning', value: '0', tone: '#f79009' },
+  { label: 'Dirty', value: '0', tone: '#f97316' },
+  { label: 'Out of Order', value: '0', tone: '#ef4444' },
+  { label: 'Occupied', value: '0', tone: '#2563eb' },
+];
+
+type ApiResponse<T> = T | { data?: T } | { items?: T } | { results?: T };
+
+function apiBaseUrl() {
+  const env = (globalThis as unknown as { process?: { env?: { NEXT_PUBLIC_API_URL?: string } } })
+    .process?.env;
+  return env?.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api/v1';
+}
+
+function unwrapResponse<T>(response: ApiResponse<T>): T {
+  if (response && typeof response === 'object') {
+    if ('data' in response && response.data !== undefined) return response.data;
+    if ('items' in response && response.items !== undefined) return response.items;
+    if ('results' in response && response.results !== undefined) return response.results;
+  }
+
+  return response as T;
+}
+
+async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${apiBaseUrl()}${path}`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+    signal,
+  });
+  const payload = (await response.json().catch(() => undefined)) as
+    | ApiResponse<T>
+    | { message?: unknown }
+    | undefined;
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string'
+        ? payload.message
+        : `Front Desk utility request failed: ${response.status} ${response.statusText}`;
+    throw new Error(message);
+  }
+
+  return unwrapResponse<T>(payload as ApiResponse<T>);
+}
+
+function stringValue(record: Record<string, unknown> | undefined, keys: string[], fallback = '') {
+  if (!record) return fallback;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number') return String(value);
+  }
+  return fallback;
+}
+
+function booleanValue(record: Record<string, unknown> | undefined, keys: string[]) {
+  if (!record) return false;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return ['true', 'yes', '1', 'vip'].includes(value.toLowerCase());
+  }
+  return false;
+}
+
+function recordValue(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+  }
+  return undefined;
+}
+
+function recordId(record: Record<string, unknown> | undefined) {
+  return stringValue(record, ['id', '_id', 'uuid']);
+}
+
+function normalizedStatus(value: string) {
+  return value.toUpperCase().replace(/[\s-]/g, '_');
+}
+
+function normalizedDate(value: string) {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) {
+    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(
+      parsed.getDate(),
+    ).padStart(2, '0')}`;
+  }
+  return value.slice(0, 10);
+}
+
+function displayDate(value: string) {
+  if (!value) return 'Today';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+}
+
+function activePropertyId(properties: Record<string, unknown>[]) {
+  const active = properties.find(
+    (property) => stringValue(property, ['status'], 'ACTIVE').toUpperCase() === 'ACTIVE',
+  );
+  return recordId(active);
+}
+
+function isReadyRoom(status: string) {
+  return ['READY', 'AVAILABLE', 'CLEAN', 'VACANT_READY', 'ACTIVE'].includes(status);
+}
+
+function isCleaningRoom(status: string) {
+  return ['CLEANING', 'INSPECTION', 'PENDING_INSPECTION'].includes(status);
+}
+
+function isDirtyRoom(status: string) {
+  return ['DIRTY', 'NEEDS_CLEANING', 'CHECKOUT_DIRTY', 'WAITING_GUEST'].includes(status);
+}
+
+function isOutOfOrderRoom(status: string) {
+  return ['OUT_OF_ORDER', 'OUT_OF_SERVICE', 'MAINTENANCE', 'BLOCKED', 'REPAIR'].includes(status);
+}
+
+function isOccupiedRoom(status: string) {
+  return ['OCCUPIED', 'IN_HOUSE', 'GUEST_STAYING'].includes(status);
+}
+
+function roomStatusFromRecord(room: Record<string, unknown>) {
+  return normalizedStatus(stringValue(room, ['operationalStatus', 'operational_status', 'status'], 'READY'));
+}
+
+function roomNumberFromRecord(room: Record<string, unknown>) {
+  return stringValue(room, ['roomNumber', 'number', 'displayName'], 'Room');
+}
+
+function guestNameFromReservation(reservation: Record<string, unknown>) {
+  const guest = recordValue(reservation, ['guest', 'guestProfile']);
+  return (
+    stringValue(guest, ['name', 'fullName', 'displayName', 'guestName']) ||
+    [stringValue(guest, ['firstName']), stringValue(guest, ['lastName'])].filter(Boolean).join(' ') ||
+    stringValue(reservation, ['guestName', 'name'], 'Guest')
+  );
+}
+
+function reservationCode(record: Record<string, unknown>) {
+  return stringValue(record, ['reservationCode', 'code', 'bookingCode', 'id', '_id'], 'Booking');
+}
 
 function getPropertyName(record: unknown) {
   if (!record || typeof record !== 'object') return '';
@@ -82,7 +273,9 @@ function useActivePropertyName() {
 
   useEffect(() => {
     const controller = new AbortController();
-    const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api/v1';
+    const env = (globalThis as unknown as { process?: { env?: { NEXT_PUBLIC_API_URL?: string } } })
+      .process?.env;
+    const apiBaseUrl = env?.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api/v1';
 
     fetch(`${apiBaseUrl}/properties`, {
       headers: { Accept: 'application/json' },
@@ -93,7 +286,9 @@ function useActivePropertyName() {
         return response.json() as Promise<unknown>;
       })
       .then((response) => {
-        const activeProperty = getPropertyList(response).find((property) => getPropertyStatus(property) === 'ACTIVE');
+        const activeProperty = getPropertyList(response).find(
+          (property) => getPropertyStatus(property) === 'ACTIVE',
+        );
         const name = getPropertyName(activeProperty);
         if (name) setPropertyName(name);
       })
@@ -113,33 +308,53 @@ function BrandMark({ collapsed = false }: { collapsed?: boolean }) {
       <Box
         aria-hidden
         style={{
-          width: 34,
-          height: 34,
+          alignItems: 'center',
+          background: 'linear-gradient(135deg, #6d5dfc 0%, #4f46e5 100%)',
+          borderRadius: 10,
+          boxShadow: '0 10px 24px rgba(79, 70, 229, 0.22)',
+          display: 'flex',
           flex: '0 0 34px',
-          borderRadius: radius.md,
-          background: colors.brand[500],
-          boxShadow: shadows.xs,
+          height: 34,
+          justifyContent: 'center',
+          width: 34,
         }}
-      />
+      >
+        <Box
+          aria-hidden
+          style={{
+            border: '2px solid rgba(255, 255, 255, 0.88)',
+            borderRadius: 999,
+            height: 13,
+            width: 13,
+          }}
+        />
+      </Box>
       {!collapsed ? (
         <Box style={{ overflow: 'hidden' }}>
-          <Title order={2} c={colors.text.strong} style={typography.styles.h3}>
+          <Title
+            order={2}
+            c="#101828"
+            style={{ ...typography.styles.h3, fontSize: 19, lineHeight: '24px' }}
+          >
             StayOS
           </Title>
-          <Text c={colors.text.muted} lineClamp={1} style={typography.styles.caption}>
-            Hospitality Operating System
-          </Text>
         </Box>
       ) : null}
     </Group>
   );
 }
 
-function PropertySelector({ collapsed = false, propertyName }: { collapsed?: boolean; propertyName: string }) {
+function PropertySelector({
+  collapsed = false,
+  propertyName,
+}: {
+  collapsed?: boolean;
+  propertyName: string;
+}) {
   if (collapsed) {
     return (
       <Tooltip label={propertyName} position="right">
-        <ActionIcon variant="light" color="stayosBrand" size="lg" aria-label="Current property">
+        <ActionIcon variant="light" color="stayosBrand" size={38} aria-label="Current property">
           <Building2 size={18} />
         </ActionIcon>
       </Tooltip>
@@ -147,29 +362,50 @@ function PropertySelector({ collapsed = false, propertyName }: { collapsed?: boo
   }
 
   return (
-    <Menu width={240} position="bottom-start" shadow="sm">
+    <Menu width={260} position="bottom-start" shadow="sm">
       <Menu.Target>
         <UnstyledButton
           aria-label="Select property"
           style={{
             width: '100%',
-            border: `1px solid ${colors.border.subtle}`,
-            borderRadius: radius.md,
-            padding: spacing[3],
-            background: colors.surface.base,
+            border: '1px solid #e8ebf1',
+            borderRadius: 18,
+            padding: '12px 14px',
+            background: '#f8fafc',
+            textAlign: 'left',
           }}
         >
-          <Group justify="space-between" wrap="nowrap">
-            <Group gap={spacing[3]} wrap="nowrap">
-              <Avatar radius={radius.md} color="stayosBrand" variant="light" size={34}>
+          <Group justify="space-between" wrap="nowrap" align="center">
+            <Group gap={12} wrap="nowrap" align="center">
+              <Box
+                aria-hidden
+                style={{
+                  alignItems: 'center',
+                  background: '#eef2ff',
+                  borderRadius: 12,
+                  color: '#5b21b6',
+                  display: 'flex',
+                  height: 34,
+                  justifyContent: 'center',
+                  width: 34,
+                }}
+              >
                 <Building2 size={16} />
-              </Avatar>
+              </Box>
               <Box style={{ minWidth: 0 }}>
-                <Text c={colors.text.strong} lineClamp={1} style={typography.styles.label}>
+                <Text
+                  c="#101828"
+                  lineClamp={1}
+                  style={{ fontSize: 14, fontWeight: 700, lineHeight: '18px' }}
+                >
                   {propertyName}
                 </Text>
-                <Text c={colors.text.muted} lineClamp={1} style={typography.styles.caption}>
-                  Active property
+                <Text
+                  c="#667085"
+                  lineClamp={1}
+                  style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}
+                >
+                  New Delhi - 62 Rooms
                 </Text>
               </Box>
             </Group>
@@ -187,76 +423,167 @@ function PropertySelector({ collapsed = false, propertyName }: { collapsed?: boo
 
 function NavigationList({ collapsed = false }: { collapsed?: boolean }) {
   const pathname = usePathname();
+  const primaryItems = primaryNavigation.slice(0, 6);
+  const secondaryItems = primaryNavigation.slice(6);
+
+  const renderNavItem = (item: {
+    label: string;
+    href: string;
+    icon: LucideIcon;
+    badge?: string;
+  }) => {
+    const isActive =
+      item.href === '/'
+        ? pathname === '/'
+        : pathname === item.href || pathname.startsWith(`${item.href}/`);
+
+    return (
+      <UnstyledButton
+        key={item.label}
+        component={Link}
+        href={item.href}
+        style={{
+          position: 'relative',
+          display: 'flex',
+          alignItems: 'center',
+          width: '100%',
+          minHeight: 44,
+          borderRadius: 14,
+          padding: collapsed ? '0' : '0 14px',
+          margin: 0,
+          overflow: 'hidden',
+          color: isActive ? '#312e81' : '#475569',
+          backgroundColor: isActive ? 'rgba(124, 58, 237, 0.08)' : 'transparent',
+          boxShadow: isActive ? '0 10px 24px rgba(109, 93, 252, 0.08)' : 'none',
+          transition: 'all 200ms ease',
+        }}
+        onMouseEnter={(event) => {
+          const target = event.currentTarget;
+          target.style.transform = 'translateX(1px)';
+          target.style.backgroundColor = isActive
+            ? 'rgba(124, 58, 237, 0.12)'
+            : 'rgba(109, 93, 252, 0.04)';
+        }}
+        onMouseLeave={(event) => {
+          const target = event.currentTarget;
+          target.style.transform = 'translateX(0)';
+          target.style.backgroundColor = isActive ? 'rgba(124, 58, 237, 0.08)' : 'transparent';
+        }}
+      >
+        <Box
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: 6,
+            bottom: 6,
+            left: 0,
+            width: 4,
+            borderRadius: '0 999px 999px 0',
+            backgroundColor: isActive ? '#7c3aed' : 'transparent',
+          }}
+        />
+        <Group
+          align="center"
+          style={{
+            gap: collapsed ? 0 : 12,
+            width: '100%',
+            justifyContent: collapsed ? 'center' : 'space-between',
+          }}
+        >
+          <Group align="center" style={{ gap: collapsed ? 0 : 12, minWidth: 0 }}>
+            <item.icon size={20} style={{ color: isActive ? '#7c3aed' : '#6b7280' }} />
+            {!collapsed ? (
+              <Text
+                style={{
+                  fontSize: 14,
+                  fontWeight: isActive ? 700 : 600,
+                  color: isActive ? '#312e81' : '#475569',
+                }}
+              >
+                {item.label}
+              </Text>
+            ) : null}
+          </Group>
+          {!collapsed && item.badge ? (
+            <Badge
+              radius="xl"
+              style={{ background: '#eef2ff', color: '#4338ca', fontWeight: 600, fontSize: 11 }}
+            >
+              {item.badge}
+            </Badge>
+          ) : null}
+        </Group>
+      </UnstyledButton>
+    );
+  };
 
   return (
-    <Stack gap={spacing[1]}>
-      {primaryNavigation.map((item) => {
-        const isActive =
-          item.href === '/' ? pathname === '/' : pathname === item.href || pathname.startsWith(`${item.href}/`);
-
-        return (
-          <Tooltip key={item.label} label={item.label} position="right" disabled={!collapsed}>
-            <NavLink
-              aria-label={item.label}
-              component={Link}
-              href={item.href}
-              label={collapsed ? null : item.label}
-              leftSection={<item.icon size={18} />}
-              active={isActive}
-              color="stayosBrand"
-              styles={{
-                root: {
-                  position: 'relative',
-                  minHeight: 42,
-                  borderRadius: radius.md,
-                  color: colors.text.body,
-                  fontWeight: typography.weights.medium,
-                  transition: `background ${animations.duration.fast} ${animations.easing.standard}, color ${animations.duration.fast} ${animations.easing.standard}, transform ${animations.duration.fast} ${animations.easing.standard}`,
-                },
-                section: {
-                  marginInlineEnd: collapsed ? 0 : spacing[3],
-                },
-                body: {
-                  display: collapsed ? 'none' : undefined,
-                },
-              }}
-            />
-          </Tooltip>
-        );
-      })}
+    <Stack gap={10}>
+      <Stack gap={8}>{primaryItems.map(renderNavItem)}</Stack>
+      <Box style={{ height: 1, background: '#e9ecef', margin: '10px 0' }} />
+      <Stack gap={8}>{secondaryItems.map(renderNavItem)}</Stack>
     </Stack>
   );
 }
 
 function UserProfile({ collapsed = false }: { collapsed?: boolean }) {
   return (
-    <Group justify={collapsed ? 'center' : 'space-between'} wrap="nowrap">
-      <Group gap={spacing[3]} wrap="nowrap">
+    <Stack style={{ gap: collapsed ? 10 : 12 }}>
+      <Group align="center" style={{ gap: collapsed ? 0 : 10 }}>
         <Avatar color="stayosBrand" radius="xl" size={34}>
-          AM
+          PM
         </Avatar>
         {!collapsed ? (
           <Box style={{ minWidth: 0 }}>
-            <Text c={colors.text.strong} lineClamp={1} style={typography.styles.label}>
+            <Text
+              c="#101828"
+              lineClamp={1}
+              style={{ fontSize: 13, fontWeight: 700, lineHeight: '18px' }}
+            >
               {userName}
             </Text>
-            <Text c={colors.text.muted} lineClamp={1} style={typography.styles.caption}>
-              Front office
+            <Text
+              c="#667085"
+              lineClamp={1}
+              style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}
+            >
+              Receptionist
             </Text>
           </Box>
         ) : null}
+        {!collapsed ? (
+          <Menu width={180} position="top-start" shadow="md">
+            <Menu.Target>
+              <ActionIcon variant="subtle" size={34} aria-label="Profile menu">
+                <MoreVertical size={18} />
+              </ActionIcon>
+            </Menu.Target>
+            <Menu.Dropdown>
+              <Menu.Item leftSection={<LogOut size={16} />}>Logout</Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
+        ) : null}
       </Group>
-      {!collapsed ? (
-        <ActionIcon variant="subtle" color="gray" aria-label="User menu">
-          <ChevronDown size={16} />
-        </ActionIcon>
-      ) : null}
-    </Group>
+    </Stack>
   );
 }
 
 function GlobalSearch() {
   const [opened, setOpened] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setOpened(true);
+        window.requestAnimationFrame(() => searchInputRef.current?.focus());
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const results = [
     {
@@ -280,21 +607,68 @@ function GlobalSearch() {
   ];
 
   return (
-    <Popover opened={opened} onChange={setOpened} width={440} position="bottom" shadow="md">
+    <Popover opened={opened} onChange={setOpened} width={460} position="bottom" shadow="md">
       <Popover.Target>
         <SearchInput
+          ref={searchInputRef}
           visibleFrom="md"
-          w={{ md: 360, lg: 440 }}
-          leftSection={<Search size={16} />}
-          placeholder="Search reservations, guests, rooms"
+          w="100%"
+          leftSection={<Search size={15} />}
+          rightSection={
+            <Group gap={4} wrap="nowrap">
+              <Box
+                style={{
+                  border: '1px solid #d9e1ef',
+                  borderRadius: 6,
+                  color: '#52627a',
+                  fontSize: 11,
+                  fontWeight: 500,
+                  lineHeight: '16px',
+                  minWidth: 24,
+                  textAlign: 'center',
+                }}
+              >
+                Ctrl
+              </Box>
+              <Box
+                style={{
+                  border: '1px solid #d9e1ef',
+                  borderRadius: 6,
+                  color: '#52627a',
+                  fontSize: 11,
+                  fontWeight: 500,
+                  lineHeight: '16px',
+                  minWidth: 20,
+                  textAlign: 'center',
+                }}
+              >
+                K
+              </Box>
+            </Group>
+          }
+          rightSectionWidth={64}
+          placeholder="Search guests, rooms, bookings or ask StayOS..."
           aria-label="Global search"
           onFocus={() => setOpened(true)}
           onBlur={() => window.setTimeout(() => setOpened(false), 150)}
+          styles={{
+            input: {
+              borderColor: '#d9e1ef',
+              borderRadius: 12,
+              boxShadow: '0 8px 24px rgba(15, 23, 42, 0.04)',
+              height: 42,
+            },
+          }}
         />
       </Popover.Target>
       <Popover.Dropdown p={spacing[2]}>
-        <Text c={colors.text.muted} px={spacing[2]} py={spacing[1]} style={typography.styles.caption}>
-          Dummy results
+        <Text
+          c={colors.text.muted}
+          px={spacing[2]}
+          py={spacing[1]}
+          style={typography.styles.caption}
+        >
+          Quick commands
         </Text>
         <Stack gap={spacing[1]}>
           {results.map((result) => (
@@ -351,68 +725,70 @@ function Sidebar({
   propertyName: string;
 }) {
   return (
-    <Stack h="100%" gap={spacing[5]} p={collapsed ? spacing[3] : spacing[5]}>
-      <Group justify={collapsed ? 'center' : 'space-between'} wrap="nowrap">
-        <BrandMark collapsed={collapsed} />
-        {!collapsed ? (
-          <Tooltip label="Collapse sidebar">
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              onClick={onToggleCollapse}
-              aria-label="Collapse sidebar"
-            >
-              <ChevronsLeft size={18} />
-            </ActionIcon>
-          </Tooltip>
-        ) : null}
-      </Group>
+    <Box style={{ position: 'relative', minHeight: '100%' }}>
+      <Stack h="100%" gap={collapsed ? spacing[4] : 18} p={collapsed ? spacing[3] : '18px 16px'}>
+        <Group justify={collapsed ? 'center' : 'space-between'} align="center" wrap="nowrap">
+          <BrandMark collapsed={collapsed} />
+          {!collapsed ? null : null}
+        </Group>
 
-      {collapsed ? (
-        <Tooltip label="Expand sidebar" position="right">
-          <ActionIcon
-            variant="subtle"
-            color="gray"
-            onClick={onToggleCollapse}
-            aria-label="Expand sidebar"
-          >
-            <ChevronsRight size={18} />
-          </ActionIcon>
-        </Tooltip>
-      ) : null}
+        <PropertySelector collapsed={collapsed} propertyName={propertyName} />
 
-      <PropertySelector collapsed={collapsed} propertyName={propertyName} />
-      {!collapsed ? (
-        <SearchInput aria-label="Search navigation" placeholder="Search StayOS" />
-      ) : null}
-      <Divider color={colors.border.subtle} />
+        <ScrollArea flex={1} type="hover" scrollbarSize={5} style={{ minHeight: 0 }}>
+          <NavigationList collapsed={collapsed} />
+        </ScrollArea>
 
-      <ScrollArea flex={1} type="auto">
-        <NavigationList collapsed={collapsed} />
-      </ScrollArea>
+        <UserProfile collapsed={collapsed} />
+      </Stack>
 
-      <Divider color={colors.border.subtle} />
-      <UserProfile collapsed={collapsed} />
-    </Stack>
+      <ActionIcon
+        variant="filled"
+        color="gray"
+        onClick={onToggleCollapse}
+        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        size={36}
+        style={{
+          position: 'absolute',
+          top: 20,
+          right: -18,
+          width: 36,
+          height: 36,
+          borderRadius: 18,
+          background: '#ffffff',
+          border: '1px solid rgba(15, 23, 42, 0.08)',
+          boxShadow: '0 8px 20px rgba(15, 23, 42, 0.08)',
+          zIndex: 1,
+        }}
+      >
+        {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+      </ActionIcon>
+    </Box>
   );
 }
 
 function TopHeader({
   onOpenMobileMenu,
-  propertyName,
   utilityPanelOpen,
   onToggleUtilityPanel,
 }: {
   onOpenMobileMenu: () => void;
-  propertyName: string;
   utilityPanelOpen: boolean;
   onToggleUtilityPanel: () => void;
 }) {
-  const { status } = useBackendStatus();
+  const currentTime = useMemo(
+    () =>
+      new Intl.DateTimeFormat('en-IN', {
+        hour: '2-digit',
+        hour12: false,
+        minute: '2-digit',
+      }).format(new Date()),
+    [],
+  );
   const currentDate = useMemo(
     () =>
       new Intl.DateTimeFormat('en-IN', {
         weekday: 'short',
+        year: 'numeric',
         day: '2-digit',
         month: 'short',
       }).format(new Date()),
@@ -420,115 +796,118 @@ function TopHeader({
   );
 
   return (
-    <Group h="100%" px={{ base: spacing[4], md: spacing[6] }} justify="space-between" wrap="nowrap">
-      <Group gap={spacing[3]} wrap="nowrap" style={{ minWidth: 0 }}>
-        <Burger
-          hiddenFrom="md"
-          opened={false}
-          onClick={onOpenMobileMenu}
-          size="sm"
-          aria-label="Open menu"
-        />
-        <Box visibleFrom="sm">
-          <Text c={colors.text.strong} style={typography.styles.label}>
-            {propertyName}
-          </Text>
-          <Text c={colors.text.muted} style={typography.styles.caption}>
-            {currentDate}
-          </Text>
-        </Box>
-      </Group>
-
-      <GlobalSearch />
-
-      <Group gap={spacing[2]} wrap="nowrap">
-        <ConnectionIndicator status={status} />
-        <Button
-          visibleFrom="sm"
-          leftSection={<Plus size={16} />}
-          color="stayosBrand"
-          variant="filled"
-        >
-          Quick action
-        </Button>
-        <Tooltip label="Notifications">
-          <ActionIcon variant="subtle" color="gray" aria-label="Notifications">
-            <Bell size={18} />
-          </ActionIcon>
-        </Tooltip>
-        <Tooltip label={utilityPanelOpen ? 'Hide utility panel' : 'Show utility panel'}>
-          <ActionIcon
-            visibleFrom="lg"
-            variant={utilityPanelOpen ? 'light' : 'subtle'}
-            color="stayosBrand"
-            onClick={onToggleUtilityPanel}
-            aria-label="Toggle utility panel"
+    <Stack gap={6} px={{ base: spacing[4], md: spacing[5] }} py={8} justify="center">
+      <Group justify="space-between" wrap="nowrap" align="center">
+        <Group gap={spacing[3]} wrap="nowrap" style={{ minWidth: 160 }}>
+          <Burger
+            hiddenFrom="md"
+            opened={false}
+            onClick={onOpenMobileMenu}
+            size="sm"
+            aria-label="Open menu"
+          />
+          <Title
+            order={1}
+            c="#101828"
+            style={{ fontSize: 20, fontWeight: 700, lineHeight: '28px' }}
           >
-            {utilityPanelOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+            Front Desk
+          </Title>
+        </Group>
+
+        <Stack gap={6} visibleFrom="md" style={{ flex: 1, maxWidth: 760 }}>
+          <GlobalSearch />
+          <Group gap={6} style={{ color: '#8a97ad', fontSize: 12, fontWeight: 500 }}>
+            <Text inherit>Try:</Text>
+            {commandSuggestions.map((suggestion) => (
+              <Button
+                key={suggestion.label}
+                component={Link}
+                href={suggestion.href}
+                variant="subtle"
+                size="compact-xs"
+                color="gray"
+                radius={radius.full}
+                styles={{
+                  root: {
+                    border: '1px solid #e6eaf2',
+                    color: '#52627a',
+                    fontWeight: 600,
+                    height: 24,
+                    paddingInline: 10,
+                  },
+                }}
+              >
+                {suggestion.label}
+              </Button>
+            ))}
+          </Group>
+        </Stack>
+
+        <Group gap={spacing[2]} wrap="nowrap">
+          <Tooltip label="Messages">
+            <ActionIcon
+              visibleFrom="sm"
+              variant="subtle"
+              color="gray"
+              aria-label="Messages"
+              size={32}
+            >
+              <MessageSquare size={18} />
+            </ActionIcon>
+          </Tooltip>
+          <Box
+            visibleFrom="md"
+            style={{ borderLeft: '1px solid #eef1f6', marginInline: 8, paddingLeft: 12 }}
+          >
+            <Text
+              c="#101828"
+              ta="right"
+              style={{ fontSize: 15, fontWeight: 700, lineHeight: '20px' }}
+            >
+              {currentTime}
+            </Text>
+            <Text
+              c="#667085"
+              ta="right"
+              style={{ fontSize: 10, fontWeight: 500, lineHeight: '14px' }}
+            >
+              {currentDate}
+            </Text>
+          </Box>
+          <ActionIcon
+            visibleFrom="md"
+            variant="subtle"
+            color="orange"
+            aria-label="Theme status"
+            size={32}
+          >
+            <Sun size={18} />
           </ActionIcon>
-        </Tooltip>
-        <Avatar visibleFrom="sm" color="stayosBrand" radius="xl" size={34}>
-          AM
-        </Avatar>
+          <Tooltip label={utilityPanelOpen ? 'Hide utility panel' : 'Show utility panel'}>
+            <ActionIcon
+              visibleFrom="lg"
+              variant={utilityPanelOpen ? 'light' : 'subtle'}
+              color="stayosBrand"
+              onClick={onToggleUtilityPanel}
+              aria-label="Toggle utility panel"
+              size={32}
+            >
+              {utilityPanelOpen ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
+            </ActionIcon>
+          </Tooltip>
+        </Group>
       </Group>
-    </Group>
-  );
-}
-
-function connectionIndicatorMeta(status: BackendConnectionStatus) {
-  if (status === 'ONLINE') {
-    return { background: colors.brand[50], color: colors.semantic.success, label: 'StayOS Connected' };
-  }
-
-  if (status === 'CONNECTING') {
-    return { background: brandPalettes.gold[50], color: colors.semantic.warning, label: 'Connecting...' };
-  }
-
-  if (status === 'SERVER_STARTING') {
-    return { background: colors.surface.subtle, color: colors.text.muted, label: 'Server Starting' };
-  }
-
-  return {
-    background: `color-mix(in srgb, ${colors.semantic.danger} 9%, ${colors.surface.base})`,
-    color: colors.semantic.danger,
-    label: 'StayOS Offline',
-  };
-}
-
-function ConnectionIndicator({ status }: { status: BackendConnectionStatus }) {
-  const meta = connectionIndicatorMeta(status);
-
-  return (
-    <Group
-      visibleFrom="sm"
-      gap={spacing[2]}
-      px={spacing[3]}
-      h={34}
-      style={{
-        background: meta.background,
-        border: `1px solid ${colors.border.subtle}`,
-        borderRadius: radius.full,
-      }}
-      wrap="nowrap"
-    >
-      <Box
-        aria-hidden
-        style={{
-          background: meta.color,
-          borderRadius: radius.full,
-          height: 9,
-          width: 9,
-        }}
-      />
-      <Text c={colors.text.strong} style={typography.styles.caption}>
-        {meta.label}
-      </Text>
-    </Group>
+    </Stack>
   );
 }
 
 function UtilityPanel() {
   const pathname = usePathname();
+
+  if (pathname === '/') {
+    return <FrontDeskUtilityPanel />;
+  }
 
   const tasks = getTasksForPath(pathname);
   const topTask = tasks[0];
@@ -571,7 +950,440 @@ function UtilityPanel() {
   );
 }
 
-function MobileDrawer({ opened, onClose, propertyName }: { opened: boolean; onClose: () => void; propertyName: string }) {
+function buildPropertyStatus(rooms: Record<string, unknown>[]): PropertyStatus[] {
+  const statuses = rooms.map(roomStatusFromRecord);
+
+  return [
+    { label: 'Ready', value: String(statuses.filter(isReadyRoom).length), tone: '#12b76a' },
+    { label: 'Cleaning', value: String(statuses.filter(isCleaningRoom).length), tone: '#f79009' },
+    { label: 'Dirty', value: String(statuses.filter(isDirtyRoom).length), tone: '#f97316' },
+    { label: 'Out of Order', value: String(statuses.filter(isOutOfOrderRoom).length), tone: '#ef4444' },
+    { label: 'Occupied', value: String(statuses.filter(isOccupiedRoom).length), tone: '#2563eb' },
+  ];
+}
+
+function buildNextEvent(reservations: Record<string, unknown>[]): NextEvent | undefined {
+  const today = normalizedDate(new Date().toISOString());
+  const upcoming = reservations
+    .map((reservation) => {
+      const arrivalDate = normalizedDate(stringValue(reservation, ['arrivalDate', 'checkInDate', 'startDate']));
+      const departureDate = normalizedDate(stringValue(reservation, ['departureDate', 'checkOutDate', 'endDate']));
+      const status = normalizedStatus(stringValue(reservation, ['status'], 'CONFIRMED'));
+      const isVip = booleanValue(reservation, ['isVip', 'vip']);
+      const isGroup = booleanValue(reservation, ['isGroup', 'group']) || stringValue(reservation, ['companyName', 'groupName']);
+      const eventDate = arrivalDate || departureDate;
+
+      return {
+        eventDate,
+        reservation,
+        score:
+          eventDate >= today && !['CANCELLED', 'CANCELED', 'NO_SHOW'].includes(status)
+            ? isVip
+              ? 0
+              : isGroup
+                ? 1
+                : 2
+            : 99,
+        status,
+      };
+    })
+    .filter((item) => item.eventDate && item.score < 99)
+    .sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.score - b.score);
+
+  const next = upcoming[0];
+  if (!next) return undefined;
+
+  const guestName = guestNameFromReservation(next.reservation);
+  const code = reservationCode(next.reservation);
+  const isVip = booleanValue(next.reservation, ['isVip', 'vip']);
+  const groupName = stringValue(next.reservation, ['companyName', 'groupName']);
+  const title = groupName ? 'Corporate Group Arrival' : isVip ? 'VIP Arrival' : 'Expected Check-in';
+
+  return {
+    action: 'View Booking',
+    detail: `${groupName || guestName} - ${code}`,
+    href: '/reservations',
+    time: next.eventDate === today ? 'Today' : displayDate(next.eventDate),
+    title,
+    tone: isVip ? '#7c3aed' : groupName ? '#f97316' : '#2563eb',
+  };
+}
+
+function buildLiveOperations(
+  reservations: Record<string, unknown>[],
+  rooms: Record<string, unknown>[],
+): LiveOperation[] {
+  const roomEvents = rooms.slice(0, 8).flatMap((room): LiveOperation[] => {
+    const status = roomStatusFromRecord(room);
+    const roomNumber = roomNumberFromRecord(room);
+
+    if (isReadyRoom(status)) {
+      return [{ title: `Room ${roomNumber} ready`, detail: 'Housekeeping completed', action: 'Assign Guest', time: 'Now' }];
+    }
+
+    if (isDirtyRoom(status)) {
+      return [{ title: `Room ${roomNumber} marked dirty`, detail: 'Housekeeping required', action: 'Open Room', time: 'Now' }];
+    }
+
+    if (isOutOfOrderRoom(status)) {
+      return [{ title: `Room ${roomNumber} unavailable`, detail: 'Maintenance or block active', action: 'View Room', time: 'Now' }];
+    }
+
+    return [];
+  });
+
+  const reservationEvents = reservations.slice(0, 8).flatMap((reservation): LiveOperation[] => {
+    const status = normalizedStatus(stringValue(reservation, ['status'], ''));
+    const paymentStatus = normalizedStatus(stringValue(reservation, ['paymentStatus', 'paymentState'], ''));
+    const guestName = guestNameFromReservation(reservation);
+
+    if (status === 'CHECKED_IN') {
+      return [{ title: `${guestName} checked in`, detail: reservationCode(reservation), action: 'Open Stay', time: 'Recent' }];
+    }
+
+    if (status === 'CHECKED_OUT') {
+      return [{ title: `${guestName} checked out`, detail: reservationCode(reservation), action: 'View Folio', time: 'Recent' }];
+    }
+
+    if (paymentStatus === 'PAID') {
+      return [{ title: 'Payment received', detail: `${guestName} - ${reservationCode(reservation)}`, action: 'View Invoice', time: 'Recent' }];
+    }
+
+    return [];
+  });
+
+  return [...roomEvents, ...reservationEvents].slice(0, 20);
+}
+
+function useFrontDeskUtilityData(): FrontDeskUtilityState {
+  const [state, setState] = useState<FrontDeskUtilityState>({
+    isLoading: true,
+    liveOperations: [],
+    propertyStatus: emptyPropertyStatus,
+    roomTotal: 0,
+  });
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadUtilityData() {
+      setState((current) => ({ ...current, error: undefined, isLoading: current.roomTotal === 0 }));
+
+      try {
+        const properties = await apiGet<Record<string, unknown>[]>('/properties', controller.signal);
+        const propertyId = activePropertyId(properties);
+        if (!propertyId) throw new Error('No active property returned from properties API.');
+
+        const [reservations, rooms] = await Promise.all([
+          apiGet<Record<string, unknown>[]>(`/properties/${propertyId}/reservations`, controller.signal),
+          apiGet<Record<string, unknown>[]>(`/properties/${propertyId}/rooms`, controller.signal),
+        ]);
+
+        setState({
+          isLoading: false,
+          liveOperations: buildLiveOperations(reservations, rooms),
+          nextEvent: buildNextEvent(reservations),
+          propertyStatus: buildPropertyStatus(rooms),
+          roomTotal: rooms.length,
+        });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        console.error('Front Desk utility panel API failed', error);
+        setState((current) => ({
+          ...current,
+          error: error instanceof Error ? error.message : 'Live operations are temporarily unavailable.',
+          isLoading: false,
+        }));
+      }
+    }
+
+    void loadUtilityData();
+
+    return () => controller.abort();
+  }, []);
+
+  return state;
+}
+
+function FrontDeskUtilityPanel() {
+  const utility = useFrontDeskUtilityData();
+  const nextEvent = utility.nextEvent;
+  const propertyStatus = utility.propertyStatus;
+  const liveOperations = utility.liveOperations;
+
+  return (
+    <Box h="100%" style={{ overflow: 'hidden' }}>
+      <Stack h="100%" gap={12} p={14} style={{ minHeight: 0 }}>
+        <Paper
+          radius={12}
+          p={16}
+          bg="#ffffff"
+          bd="1px solid #e6eaf2"
+          shadow="xs"
+          style={{ flex: '0 0 auto' }}
+        >
+          <Stack gap={12}>
+            <Group justify="space-between" wrap="nowrap">
+              <Text c="#101828" style={{ fontSize: 15, fontWeight: 700, lineHeight: '21px' }}>
+                Next Event
+              </Text>
+              <Text c="#8a97ad" style={{ fontSize: 11, fontWeight: 500 }}>
+                {utility.isLoading ? 'Loading' : (nextEvent?.time ?? 'Clear')}
+              </Text>
+            </Group>
+            {nextEvent ? (
+              <>
+                <Group gap={12} align="flex-start" wrap="nowrap">
+                  <Box
+                    aria-hidden
+                    style={{
+                      background: nextEvent.tone,
+                      borderRadius: 999,
+                      height: 9,
+                      marginTop: 5,
+                      width: 9,
+                    }}
+                  />
+                  <Box style={{ minWidth: 0, flex: 1 }}>
+                    <Text
+                      c="#182230"
+                      lineClamp={1}
+                      style={{ fontSize: 13, fontWeight: 600, lineHeight: '18px' }}
+                    >
+                      {nextEvent.title}
+                    </Text>
+                    <Text
+                      c="#61708c"
+                      lineClamp={1}
+                      style={{ fontSize: 11, fontWeight: 500, lineHeight: '15px' }}
+                    >
+                      {nextEvent.detail}
+                    </Text>
+                  </Box>
+                </Group>
+                <Button
+                  component={Link}
+                  href={nextEvent.href}
+                  variant="light"
+                  color="stayosBrand"
+                  size="compact-sm"
+                  fw={600}
+                >
+                  {nextEvent.action}
+                </Button>
+              </>
+            ) : (
+              <Text c="#667085" style={{ fontSize: 12, fontWeight: 400, lineHeight: '17px' }}>
+                {utility.error ?? (utility.isLoading ? 'Loading upcoming events...' : 'No upcoming front desk events.')}
+              </Text>
+            )}
+          </Stack>
+        </Paper>
+
+        <Paper
+          radius={12}
+          p={16}
+          bg="#ffffff"
+          bd="1px solid #e6eaf2"
+          shadow="xs"
+          style={{ flex: '0 0 auto' }}
+        >
+          <Stack gap={12}>
+            <Group justify="space-between" wrap="nowrap">
+              <Box>
+                <Text c="#101828" style={{ fontSize: 15, fontWeight: 700, lineHeight: '21px' }}>
+                  Property Status
+                </Text>
+                <Text c="#667085" style={{ fontSize: 11, fontWeight: 500, lineHeight: '15px' }}>
+                  Live room availability
+                </Text>
+              </Box>
+              <Text c="#52627a" style={{ fontSize: 11, fontWeight: 500 }}>
+                {utility.isLoading ? 'Loading' : `${utility.roomTotal} Rooms`}
+              </Text>
+            </Group>
+
+            <Stack gap={8}>
+              {propertyStatus.map((item) => (
+                <Group
+                  key={item.label}
+                  justify="space-between"
+                  wrap="nowrap"
+                  style={{
+                    minHeight: 44,
+                    border: '1px solid #e6eaf2',
+                    borderRadius: 10,
+                    padding: '8px 10px',
+                    background: '#ffffff',
+                  }}
+                >
+                  <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
+                    <Box
+                      aria-hidden
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 999,
+                        background: item.tone,
+                        flex: '0 0 auto',
+                      }}
+                    />
+                    <Box style={{ minWidth: 0 }}>
+                      <Text
+                        c="#182230"
+                        lineClamp={1}
+                        style={{ fontSize: 12, fontWeight: 600, lineHeight: '16px' }}
+                      >
+                        {item.label}
+                      </Text>
+                      <Text
+                        c="#667085"
+                        lineClamp={1}
+                        style={{ fontSize: 11, fontWeight: 500, lineHeight: '14px' }}
+                      >
+                        Live status
+                      </Text>
+                    </Box>
+                  </Group>
+
+                  <Text
+                    style={{
+                      color: item.tone,
+                      fontSize: 16,
+                      fontWeight: 700,
+                      lineHeight: '20px',
+                      flex: '0 0 auto',
+                    }}
+                  >
+                    {item.value}
+                  </Text>
+                </Group>
+              ))}
+            </Stack>
+          </Stack>
+        </Paper>
+
+        <Paper
+          radius={12}
+          p={16}
+          bg="#ffffff"
+          bd="1px solid #e6eaf2"
+          shadow="xs"
+          style={{
+            display: 'flex',
+            flex: '1 1 auto',
+            flexDirection: 'column',
+            minHeight: 0,
+            overflow: 'hidden',
+          }}
+        >
+          <Stack gap={12} h="100%" style={{ minHeight: 0 }}>
+            <Group justify="space-between" wrap="nowrap">
+              <Text c="#101828" style={{ fontSize: 15, fontWeight: 700, lineHeight: '21px' }}>
+                Live Operations
+              </Text>
+              <Text c="#8a97ad" style={{ fontSize: 11, fontWeight: 500 }}>
+                Newest first
+              </Text>
+            </Group>
+            <ScrollArea
+              type="hover"
+              scrollbarSize={6}
+              offsetScrollbars
+              style={{ flex: '1 1 auto', minHeight: 0 }}
+              styles={{
+                viewport: {
+                  overscrollBehavior: 'contain',
+                  scrollBehavior: 'smooth',
+                },
+                thumb: {
+                  background: '#cbd5e1',
+                },
+              }}
+            >
+              <Stack gap={12} pr={4} pb={8}>
+                {liveOperations.length > 0 ? (
+                  liveOperations.map((item) => (
+                  <Group
+                    key={`${item.title}-${item.time}`}
+                    gap={10}
+                    align="flex-start"
+                    wrap="nowrap"
+                  >
+                    <CheckCircle2
+                      size={16}
+                      color="#12b76a"
+                      style={{ flex: '0 0 auto', marginTop: 2 }}
+                    />
+                    <Box style={{ minWidth: 0, flex: 1 }}>
+                      <Text
+                        c="#182230"
+                        lineClamp={1}
+                        style={{ fontSize: 12, fontWeight: 600, lineHeight: '17px' }}
+                      >
+                        {item.title}
+                      </Text>
+                      {item.detail ? (
+                        <Text
+                          c="#667085"
+                          lineClamp={1}
+                          style={{ fontSize: 11, fontWeight: 500, lineHeight: '15px' }}
+                        >
+                          {item.detail}
+                        </Text>
+                      ) : null}
+                      <Button
+                        component="a"
+                        href="#"
+                        variant="subtle"
+                        color="stayosBrand"
+                        size="compact-xs"
+                        px={0}
+                        fw={600}
+                      >
+                        {item.action}
+                      </Button>
+                    </Box>
+                    <Text
+                      c="#8a97ad"
+                      style={{
+                        flex: '0 0 auto',
+                        fontSize: 11,
+                        fontWeight: 500,
+                        lineHeight: '15px',
+                      }}
+                    >
+                      {item.time}
+                    </Text>
+                  </Group>
+                  ))
+                ) : (
+                  <Text c="#667085" style={{ fontSize: 12, fontWeight: 400, lineHeight: '17px' }}>
+                    {utility.error ?? (utility.isLoading ? 'Loading live operations...' : 'No recent activity')}
+                  </Text>
+                )}
+              </Stack>
+            </ScrollArea>
+            <Divider color="#eef1f6" />
+            <Button variant="subtle" color="stayosBrand" fullWidth fw={600}>
+              View Live Operations
+            </Button>
+          </Stack>
+        </Paper>
+      </Stack>
+    </Box>
+  );
+}
+
+function MobileDrawer({
+  opened,
+  onClose,
+  propertyName,
+}: {
+  opened: boolean;
+  onClose: () => void;
+  propertyName: string;
+}) {
   return (
     <Drawer
       opened={opened}
@@ -632,40 +1444,28 @@ export function StayOSAppShell({ children }: StayOSAppShellProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [utilityPanelOpen, setUtilityPanelOpen] = useState(true);
   const propertyName = useActivePropertyName();
-  const sidebarWidth = sidebarCollapsed ? 84 : 292;
+  const sidebarWidth = sidebarCollapsed ? 78 : 264;
 
   return (
     <>
-      <MantineAppShell
-        header={{ height: 68 }}
-        navbar={{
-          width: sidebarWidth,
-          breakpoint: 'md',
-          collapsed: { mobile: true },
+      <Box
+        bg="#f6f7fb"
+        style={{
+          display: 'flex',
+          minHeight: '100vh',
+          overflow: 'hidden',
         }}
-        aside={{
-          width: 320,
-          breakpoint: 'lg',
-          collapsed: { desktop: !utilityPanelOpen, mobile: true },
-        }}
-        padding={0}
-        bg={colors.surface.app}
       >
-        <MantineAppShell.Header bg={colors.surface.base} bd={`1px solid ${colors.border.subtle}`}>
-          <TopHeader
-            onOpenMobileMenu={openMobileMenu}
-            propertyName={propertyName}
-            utilityPanelOpen={utilityPanelOpen}
-            onToggleUtilityPanel={() => setUtilityPanelOpen((value) => !value)}
-          />
-        </MantineAppShell.Header>
-
-        <MantineAppShell.Navbar
+        <Box
           visibleFrom="md"
-          bg={colors.surface.base}
-          bd={`1px solid ${colors.border.subtle}`}
+          bg="#fbfcff"
           style={{
+            borderRight: '1px solid #e6eaf2',
+            flex: `0 0 ${sidebarWidth}px`,
+            height: '100vh',
+            position: 'relative',
             transition: `width ${animations.duration.slow} ${animations.easing.standard}`,
+            width: sidebarWidth,
           }}
         >
           <Sidebar
@@ -673,24 +1473,65 @@ export function StayOSAppShell({ children }: StayOSAppShellProps) {
             onToggleCollapse={() => setSidebarCollapsed((value) => !value)}
             propertyName={propertyName}
           />
-        </MantineAppShell.Navbar>
+        </Box>
 
-        <MantineAppShell.Main>
-          <ScrollArea h="calc(100vh - 68px)" type="auto">
-            <ShellContent>{children}</ShellContent>
-          </ScrollArea>
-        </MantineAppShell.Main>
-
-        <MantineAppShell.Aside
-          visibleFrom="lg"
-          bg={colors.surface.base}
-          bd={`1px solid ${colors.border.subtle}`}
+        <Box
+          style={{
+            display: 'flex',
+            flex: 1,
+            flexDirection: 'column',
+            minHeight: '100vh',
+            minWidth: 0,
+          }}
         >
-          <UtilityPanel />
-        </MantineAppShell.Aside>
-      </MantineAppShell>
+          <Box
+            style={{
+              background: '#ffffff',
+              borderBottom: '1px solid #e6eaf2',
+              flex: '0 0 auto',
+            }}
+          >
+            <TopHeader
+              onOpenMobileMenu={openMobileMenu}
+              utilityPanelOpen={utilityPanelOpen}
+              onToggleUtilityPanel={() => setUtilityPanelOpen((value) => !value)}
+            />
+          </Box>
 
-      <MobileDrawer opened={mobileMenuOpened} onClose={closeMobileMenu} propertyName={propertyName} />
+          <Box
+            style={{
+              display: 'flex',
+              flex: 1,
+              minHeight: 0,
+              minWidth: 0,
+            }}
+          >
+            <ScrollArea style={{ flex: 1, minHeight: 0, minWidth: 0 }} type="never">
+              <ShellContent>{children}</ShellContent>
+            </ScrollArea>
+
+            {utilityPanelOpen ? (
+              <Box
+                visibleFrom="lg"
+                bg="#fbfcff"
+                style={{
+                  borderLeft: '1px solid #e6eaf2',
+                  flex: '0 0 340px',
+                  minHeight: 0,
+                }}
+              >
+                <UtilityPanel />
+              </Box>
+            ) : null}
+          </Box>
+        </Box>
+      </Box>
+
+      <MobileDrawer
+        opened={mobileMenuOpened}
+        onClose={closeMobileMenu}
+        propertyName={propertyName}
+      />
       <MobileBottomNav onOpen={openMobileMenu} />
     </>
   );

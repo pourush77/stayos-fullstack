@@ -2,685 +2,387 @@
 
 import Link from 'next/link';
 import {
-  Badge,
   Box,
   Button,
   Card,
   Group,
-  Menu,
   Paper,
   SimpleGrid,
   Stack,
   Text,
+  ThemeIcon,
   Title,
 } from '@mantine/core';
 import {
+  AlertTriangle,
   BedDouble,
-  CalendarCheck,
+  BriefcaseBusiness,
+  CalendarPlus,
+  ClipboardCheck,
   CreditCard,
+  Crown,
   DoorOpen,
-  Hotel,
-  KeyRound,
+  LogOut,
   Plus,
-  Sparkles,
   UserPlus,
   Users,
-  Wrench,
 } from 'lucide-react';
-import type { CSSProperties, ReactNode } from 'react';
-import { useEffect, useState } from 'react';
-import { brandPalettes, colors, radius, shadows, spacing, typography } from '@stayos/theme';
-import { StayOSOperationsCard } from '@stayos/ui';
-import type { StayOSStatusTone } from '@stayos/ui';
-import { getProperties, getPropertyRooms, type InventoryRoomDto } from '../lib/inventory-api';
+import type { ReactNode } from 'react';
+import { radius, spacing } from '@stayos/theme';
+import { type FrontDeskTask, useFrontDeskData } from '../lib/front-desk-api';
 import styles from './front-desk.module.css';
 
-type QueueItem = {
-  id: string;
-  time: string;
-  guest: string;
-  bookingId: string;
-  room: string;
-  source: string;
-  currentStatus: string;
-  tags: string[];
-  identity: string;
-  nextAction: string;
-  stayHref?: string;
-  vip?: boolean;
+type Tone = 'red' | 'amber' | 'green' | 'blue' | 'purple' | 'neutral';
+type QuickAction = {
+  label: string;
+  icon: ReactNode;
+  href?: string;
+  tone: Tone;
 };
 
-type RoomStatus = {
+type SummaryMetric = {
   label: string;
   value: string;
   detail: string;
-  tone: string;
-  background: string;
+  icon: ReactNode;
+  tone: Tone;
+  href?: string;
 };
 
-const operations = [
+const quickActions: QuickAction[] = [
+  { label: 'New Booking', icon: <CalendarPlus size={18} />, href: '/reservations', tone: 'purple' },
+  { label: 'Walk-in Guest', icon: <UserPlus size={18} />, href: '/check-in', tone: 'green' },
+  { label: 'Find Guest', icon: <Users size={18} />, href: '/guests', tone: 'neutral' },
+  { label: 'Receive Payment', icon: <CreditCard size={18} />, href: '/requests', tone: 'red' },
+  { label: 'View Rooms', icon: <DoorOpen size={18} />, href: '/rooms', tone: 'blue' },
   {
-    label: 'Guests Arriving Today',
-    value: '12',
-    detail: 'Prepare welcome',
-    icon: <DoorOpen size={17} />,
-    tone: 'success',
+    label: 'Availability',
+    icon: <ClipboardCheck size={18} />,
+    href: '/reservations/availability',
+    tone: 'blue',
   },
-  {
-    label: 'Guests Leaving Today',
-    value: '11',
-    detail: 'Review before checkout',
-    icon: <CalendarCheck size={17} />,
-    tone: 'attention',
-  },
-  {
-    label: 'Occupancy',
-    value: '78%',
-    detail: 'Current house status',
-    icon: <Hotel size={17} />,
-    tone: 'muted',
-  },
-  {
-    label: 'Rooms Being Prepared',
-    value: '9',
-    detail: 'Being cleaned',
-    icon: <Sparkles size={17} />,
-    tone: 'progress',
-  },
-  {
-    label: 'Payments to Receive',
-    value: '5',
-    detail: 'Collect INR 38,400',
-    icon: <CreditCard size={17} />,
-    tone: 'danger',
-  },
-  {
-    label: 'VIP Guests',
-    value: '2',
-    detail: 'High-touch service',
-    icon: <Users size={17} />,
-    tone: 'premium',
-  },
+  { label: 'Check Out', icon: <LogOut size={18} />, href: '/rooms', tone: 'amber' },
+  { label: 'More Actions', icon: <Plus size={18} />, tone: 'neutral' },
 ];
 
-const queueItems: QueueItem[] = [
-  {
-    id: 'q-1',
-    time: '09:15',
-    guest: 'Ananya Rao',
-    bookingId: 'ST-1842',
-    room: 'Suite 402',
-    source: 'Booked Directly',
-    currentStatus: 'Room Ready',
-    tags: ['Payment Due', 'VIP', 'Early Arrival'],
-    identity: 'ID Verified',
-    nextAction: 'Check In',
-    stayHref: '/guest-stay/ST1842',
-    vip: true,
-  },
-  {
-    id: 'q-2',
-    time: '09:30',
-    guest: 'Jaipur Textiles Group',
-    bookingId: 'ST-1849',
-    room: '5 Rooms',
-    source: 'Corporate',
-    currentStatus: 'Waiting at Reception',
-    tags: ['Payment Due', 'Group Arrival'],
-    identity: 'ID Verification Needed',
-    nextAction: 'Receive Payment',
-  },
-  {
-    id: 'q-3',
-    time: '10:10',
-    guest: 'Rhea Malhotra',
-    bookingId: 'ST-1856',
-    room: 'Premium King',
-    source: 'OTA',
-    currentStatus: 'Room Needed',
-    tags: ['Choose Room', 'High Floor'],
-    identity: 'Aadhaar Uploaded',
-    nextAction: 'Choose Room',
-  },
-  {
-    id: 'q-4',
-    time: '11:30',
-    guest: 'Mr Kapoor',
-    bookingId: 'ST-1851',
-    room: 'Suite 501',
-    source: 'Booked Directly',
-    currentStatus: 'Airport pickup confirmed',
-    tags: ['VIP', 'Airport Pickup', 'Room Ready'],
-    identity: 'Passport Uploaded',
-    nextAction: 'View Booking',
-    vip: true,
-  },
-];
+function toneClass(tone: Tone) {
+  return styles[`tone${tone[0].toUpperCase()}${tone.slice(1)}`];
+}
 
-const roomStatuses: RoomStatus[] = [
-  {
-    label: 'Available',
-    value: '12',
-    detail: 'Ready for Guests',
-    tone: colors.semantic.success,
-    background: colors.brand[50],
-  },
-  {
-    label: 'Occupied',
-    value: '42',
-    detail: 'Guests In House',
-    tone: colors.semantic.info,
-    background: colors.surface.subtle,
-  },
-  {
-    label: 'Reserved',
-    value: '18',
-    detail: 'Ready for Arrival',
-    tone: colors.semantic.warning,
-    background: colors.surface.subtle,
-  },
-  {
-    label: 'Cleaning',
-    value: '9',
-    detail: 'Being Prepared',
-    tone: colors.brand[500],
-    background: colors.surface.subtle,
-  },
-  {
-    label: 'Maintenance',
-    value: '2',
-    detail: 'Needs Attention',
-    tone: colors.semantic.danger,
-    background: colors.surface.subtle,
-  },
-];
+// function priorityLabel(priority: AttentionPriority) {
+//   switch (priority) {
+//     case 'critical':
+//       return 'P1';
+//     case 'high':
+//       return 'P2';
+//     default:
+//       return 'P3';
+//   }
+// }
 
-const loadingRoomStatuses = roomStatuses.map((status) => ({ ...status, value: '0' }));
-
-type FrontDeskInventoryState = {
-  propertyName: string;
-  roomStatuses: RoomStatus[];
-};
-
-function getString(record: Record<string, unknown> | undefined, keys: string[], fallback = '') {
-  if (!record) return fallback;
-
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === 'string' && value.trim()) return value.trim();
-    if (typeof value === 'number') return String(value);
+function buttonColor(tone: Tone) {
+  switch (tone) {
+    case 'amber':
+      return 'orange';
+    case 'purple':
+      return 'violet';
+    default:
+      return tone;
   }
-
-  return fallback;
 }
 
-function isActiveRecord(record: Record<string, unknown>) {
-  return getString(record, ['status'], 'ACTIVE').toUpperCase() === 'ACTIVE';
+function buttonVariant(tone: Tone) {
+  switch (tone) {
+    case 'red':
+      return 'filled';
+    case 'amber':
+      return 'light';
+    case 'green':
+      return 'light';
+    case 'purple':
+      return 'light';
+    default:
+      return 'outline';
+  }
 }
 
-function operationalStatus(room: InventoryRoomDto) {
-  return getString(room, ['operationalStatus', 'operational_status'], 'READY').toUpperCase();
+function formatCurrency(value: number) {
+  if (value <= 0) return 'INR 0';
+  return `INR ${value.toLocaleString('en-IN')}`;
 }
 
-function useFrontDeskInventory(): FrontDeskInventoryState {
-  const [state, setState] = useState<FrontDeskInventoryState>({
-    propertyName: 'Hillston Resort & Club',
-    roomStatuses: loadingRoomStatuses,
-  });
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function loadInventory() {
-      try {
-        const properties = await getProperties(controller.signal);
-        const activeProperty = properties.find(isActiveRecord);
-        const propertyId = getString(activeProperty, ['id']);
-
-        if (!activeProperty || !propertyId) return;
-
-        const rooms = (await getPropertyRooms(propertyId, controller.signal)).filter(isActiveRecord);
-        const ready = rooms.filter((room) => operationalStatus(room) === 'READY').length;
-        const occupied = rooms.filter((room) => operationalStatus(room) === 'OCCUPIED').length;
-        const cleaning = rooms.filter((room) => ['DIRTY', 'NEEDS_CLEANING', 'CLEANING'].includes(operationalStatus(room))).length;
-        const maintenance = rooms.filter((room) => ['MAINTENANCE', 'OOO', 'OOS', 'OUT_OF_ORDER', 'OUT_OF_SERVICE'].includes(operationalStatus(room))).length;
-
-        setState({
-          propertyName: getString(activeProperty, ['name'], 'Hillston Resort & Club'),
-          roomStatuses: [
-            { ...roomStatuses[0], value: String(ready) },
-            { ...roomStatuses[1], value: String(occupied) },
-            { ...roomStatuses[2], value: '0' },
-            { ...roomStatuses[3], value: String(cleaning) },
-            { ...roomStatuses[4], value: String(maintenance) },
-          ],
-        });
-      } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') return;
-        setState({
-          propertyName: 'Hillston Resort & Club',
-          roomStatuses,
-        });
-      }
-    }
-
-    void loadInventory();
-
-    return () => controller.abort();
-  }, []);
-
-  return state;
+function taskIcon(item: FrontDeskTask) {
+  switch (item.category) {
+    case 'Arrival':
+      return <BriefcaseBusiness size={18} />;
+    case 'Payment':
+      return <CreditCard size={18} />;
+    case 'Room Ready':
+      return <BedDouble size={18} />;
+    case 'VIP':
+      return <Crown size={18} />;
+    case 'Maintenance':
+      return <AlertTriangle size={18} />;
+    case 'Checkout':
+      return <LogOut size={18} />;
+    default:
+      return <Users size={18} />;
+  }
 }
 
-const timeline = [
-  {
-    time: '09:30',
-    title: 'Corporate Group Arrival',
-    detail: 'Jaipur Textiles Group expected at front desk.',
-  },
-  {
-    time: '10:00',
-    title: 'Housekeeping Briefing',
-    detail: 'Priority rooms 402, 501, and 214 review.',
-  },
-  { time: '11:30', title: 'Airport Pickup', detail: 'Driver confirmed for Mr Kapoor.' },
-  { time: '13:00', title: 'VIP Arrival', detail: 'Suite 501 welcome setup should be complete.' },
-  { time: '15:00', title: 'Group Checkout', detail: 'Invoices and luggage assistance needed.' },
-  {
-    time: '18:00',
-    title: 'Night Shift Handover',
-    detail: 'Payment follow-ups and late arrival notes.',
-  },
-];
+function buildSummaryMetrics({
+  isLoading,
+  paymentsDue,
+  arrivalsToday,
+  departuresToday,
+  guestsInHouse,
+  roomsToClean,
+}: {
+  arrivalsToday: number;
+  departuresToday: number;
+  guestsInHouse: number;
+  isLoading: boolean;
+  paymentsDue: number;
+  roomsToClean: number;
+}): SummaryMetric[] {
+  const loadingValue = isLoading ? '--' : undefined;
 
-function softTone(label: string) {
-  if (label.includes('Payment')) return colors.semantic.danger;
-  if (label.includes('VIP')) return colors.brand[500];
-  if (label.includes('Room')) return colors.semantic.success;
-  if (label.includes('ID Verification')) return colors.semantic.warning;
-  return colors.text.body;
+  return [
+    {
+      label: 'Arrivals Today',
+      value: loadingValue ?? String(arrivalsToday),
+      detail: arrivalsToday === 0 && !isLoading ? 'No arrivals today' : 'Expected check-ins today',
+      icon: <Users size={16} />,
+      tone: 'blue',
+      href: '/reservations',
+    },
+    {
+      label: 'Departures Today',
+      value: loadingValue ?? String(departuresToday),
+      detail: departuresToday === 0 && !isLoading ? 'No departures today' : 'Scheduled check-outs today',
+      icon: <Users size={16} />,
+      tone: 'neutral',
+      href: '/rooms',
+    },
+    {
+      label: 'Guests In House',
+      value: loadingValue ?? String(guestsInHouse),
+      detail: 'Active checked-in stays',
+      icon: <Users size={16} />,
+      tone: 'blue',
+      href: '/guests',
+    },
+    {
+      label: 'Payments Due',
+      value: loadingValue ?? formatCurrency(paymentsDue),
+      detail: paymentsDue === 0 && !isLoading ? 'No pending balances' : 'Open guest balances',
+      icon: <AlertTriangle size={16} />,
+      tone: 'red',
+      href: '/requests',
+    },
+    {
+      label: 'Rooms To Clean',
+      value: loadingValue ?? String(roomsToClean),
+      detail: roomsToClean === 0 && !isLoading ? 'Housekeeping clear' : 'Dirty or cleaning rooms',
+      icon: <ClipboardCheck size={16} />,
+      tone: 'amber',
+      href: '/rooms',
+    },
+  ];
 }
 
-function chipBackground(label: string) {
-  if (label.includes('Payment')) return `color-mix(in srgb, ${colors.semantic.danger} 9%, ${colors.surface.base})`;
-  if (label.includes('ID Verification')) return brandPalettes.gold[50];
-  if (label.includes('VIP')) return colors.brand[50];
-  if (label.includes('Room') || label.includes('Ready')) return colors.brand[50];
-  return colors.surface.subtle;
-}
+function QuickActionCard({ action }: { action: QuickAction }) {
+  const content = (
+    <Paper className={`${styles.quickActionCard} ${toneClass(action.tone)}`} radius={radius.lg}>
+      <Group gap={spacing[3]} wrap="nowrap">
+        <ThemeIcon className={styles.quickIcon} variant="light" radius={radius.md} size={34}>
+          {action.icon}
+        </ThemeIcon>
+        <Text className={styles.quickLabel}>{action.label}</Text>
+      </Group>
+    </Paper>
+  );
 
-function StatusChip({ children, tone }: { children: ReactNode; tone: string }) {
-  const label = typeof children === 'string' ? children : '';
-
-  return (
-    <Badge
-      radius={radius.full}
-      variant="light"
-      styles={{
-        root: {
-          background: chipBackground(label),
-          color: tone,
-          fontWeight: typography.weights.semibold,
-          textTransform: 'none',
-        },
-      }}
-    >
-      {children}
-    </Badge>
+  return action.href ? (
+    <Link href={action.href} className={styles.cardLink}>
+      {content}
+    </Link>
+  ) : (
+    content
   );
 }
 
-function FrontDeskHero({ propertyName }: { propertyName: string }) {
-  const currentDate = new Intl.DateTimeFormat('en-IN', {
-    weekday: 'long',
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  }).format(new Date());
-
+function QuickActions() {
   return (
-    <Card
-      p={spacing[6]}
-      radius={radius.lg}
-      shadow="xs"
-      style={{ minHeight: 252, overflow: 'hidden', position: 'relative' }}
+    <SimpleGrid
+      cols={{ base: 2, sm: 3, lg: 4, xl: 4 }}
+      spacing={spacing[3]}
+      className={styles.quickActionsGrid}
     >
-      <img
-        alt=""
-        aria-hidden="true"
-        src="/images/reception-hero.png"
-        style={{
-          height: '100%',
-          inset: 0,
-          objectFit: 'cover',
-          objectPosition: 'center right',
-          position: 'absolute',
-          width: '100%',
-          zIndex: 0,
-        }}
-      />
-      <Box
-        aria-hidden
-        style={{
-          background: `linear-gradient(90deg, ${colors.surface.base} 0%, ${colors.surface.base} 34%, rgba(255,255,255,0.92) 48%, rgba(255,255,255,0) 68%)`,
-          inset: 0,
-          position: 'absolute',
-          zIndex: 1,
-        }}
-      />
-      <Stack
-        gap={spacing[2]}
-        justify="center"
-        mih={204}
-        style={{ position: 'relative', zIndex: 2 }}
-      >
-        <Group gap={spacing[2]}>
-          <Text c={colors.text.strong} style={typography.styles.h3}>
-            Good Morning, Aarav
-          </Text>
-          <img
-            alt=""
-            aria-hidden="true"
-            src="/images/handwave.png"
-            style={{ height: 30, width: 30 }}
-          />
-        </Group>
-        <Title order={1} c={colors.text.strong} style={typography.styles.display}>
-          Everything is under control.
-        </Title>
-        <Text c={colors.text.body} style={typography.styles.body}>
-          {currentDate} - {propertyName}
-        </Text>
-        <Text c={colors.text.muted} style={typography.styles.small}>
-          Morning Shift - 07:00 AM - 03:00 PM
-        </Text>
-        <Text mt={spacing[2]} c={colors.text.strong} style={typography.styles.label}>
-          12 arrivals - 8 guests waiting - 4 rooms ready
-        </Text>
-      </Stack>
-    </Card>
-  );
-}
-
-function OperationsStrip() {
-  return (
-    <SimpleGrid cols={{ base: 1, xs: 2, md: 3, xl: 6 }} spacing={spacing[3]}>
-      {operations.map((item) => (
-          <StayOSOperationsCard
-            key={item.label}
-            title={item.label}
-            value={item.value}
-            detail={item.detail}
-            icon={item.icon}
-            tone={item.tone as StayOSStatusTone}
-          />
+      {quickActions.map((action) => (
+        <QuickActionCard key={action.label} action={action} />
       ))}
     </SimpleGrid>
   );
 }
 
-function GuestInitials({ guest, vip }: { guest: string; vip?: boolean }) {
-  const initials = guest
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase();
+function SummaryCard({ metric }: { metric: SummaryMetric }) {
+  const card = (
+    <Paper className={`${styles.summaryCard} ${toneClass(metric.tone)}`} radius={radius.lg}>
+      <Group justify="space-between" align="flex-start" wrap="nowrap">
+        <Box>
+          <Text className={styles.summaryLabel}>{metric.label}</Text>
+          <Text className={styles.summaryValue}>{metric.value}</Text>
+          <Text className={styles.summaryDetail}>{metric.detail}</Text>
+        </Box>
+        <ThemeIcon className={styles.summaryIcon} variant="light" radius={radius.full} size={34}>
+          {metric.icon}
+        </ThemeIcon>
+      </Group>
+    </Paper>
+  );
 
-  return (
-    <Box
-      aria-hidden
-      style={{
-        alignItems: 'center',
-        background: vip ? colors.brand[100] : colors.surface.subtle,
-        borderRadius: radius.full,
-        color: colors.brand[600],
-        display: 'flex',
-        flex: '0 0 44px',
-        height: 44,
-        justifyContent: 'center',
-        width: 44,
-      }}
-    >
-      {initials}
-    </Box>
+  return metric.href ? (
+    <Link href={metric.href} className={styles.cardLink}>
+      {card}
+    </Link>
+  ) : (
+    card
   );
 }
 
-function QueueCard({ item }: { item: QueueItem }) {
-  const actionHref = item.nextAction === 'Check In' ? '/check-in' : undefined;
+function SummaryCards({ metrics }: { metrics: SummaryMetric[] }) {
+  return (
+    <SimpleGrid
+      cols={{ base: 1, sm: 2, xl: 3 }}
+      spacing={spacing[3]}
+      className={styles.summaryGrid}
+    >
+      {metrics.map((metric) => (
+        <SummaryCard key={metric.label} metric={metric} />
+      ))}
+    </SimpleGrid>
+  );
+}
+
+function AttentionCard({ item }: { item: FrontDeskTask }) {
+  const actionButton = (
+    <Button
+      className={styles.attentionActionButton}
+      variant={buttonVariant(item.tone)}
+      color={buttonColor(item.tone)}
+      size="compact-sm"
+    >
+      {item.action}
+    </Button>
+  );
 
   return (
-    <Paper
-      className={styles.queueCard}
-      p={spacing[4]}
-      radius={radius.lg}
-      shadow="xs"
-      style={
-        {
-          '--queue-accent': item.vip ? colors.brand[500] : colors.semantic.info,
-          '--queue-hover-bg': colors.surface.base,
-          '--queue-hover-shadow': shadows.sm,
-          cursor: 'pointer',
-        } as CSSProperties
-      }
-    >
-      <Group justify="space-between" align="center" gap={spacing[4]} wrap="nowrap">
-        <Group gap={spacing[4]} wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
-          <Text c={colors.brand[600]} style={typography.styles.label} w={52}>
-            {item.time}
-          </Text>
-          <GuestInitials guest={item.guest} vip={item.vip} />
-          <Box style={{ minWidth: 0, flex: 1 }}>
-            <Group gap={spacing[2]} wrap="wrap">
-              <Text c={colors.text.strong} style={typography.styles.h3}>
-                {item.guest}
-              </Text>
-              <StatusChip tone={colors.text.body}>{item.currentStatus}</StatusChip>
-            </Group>
-            <Text mt={spacing[1]} c={colors.text.muted} style={typography.styles.small}>
-              {item.bookingId} - {item.room} - {item.source}
-            </Text>
-            <Group mt={spacing[3]} gap={spacing[2]}>
-              {item.tags.map((tag) => (
-                <StatusChip key={tag} tone={softTone(tag)}>
-                  {tag}
-                </StatusChip>
-              ))}
-              <StatusChip
-                tone={
-                  item.identity.includes('Needed')
-                    ? colors.semantic.warning
-                    : colors.semantic.success
-                }
-              >
-                {item.identity}
-              </StatusChip>
-            </Group>
-          </Box>
-        </Group>
-        <Group gap={spacing[2]} wrap="nowrap">
-          {item.stayHref ? (
-            <Button component={Link} href={item.stayHref} variant="light" color="stayosBrand">
-              View Stay
-            </Button>
-          ) : null}
-          {actionHref ? (
-            <Button color="stayosBrand" component={Link} href={actionHref} leftSection={<KeyRound size={16} />}>
-              {item.nextAction}
-            </Button>
-          ) : (
-            <Button color="stayosBrand" leftSection={<KeyRound size={16} />}>
-              {item.nextAction}
-            </Button>
-          )}
-        </Group>
+    <Paper className={`${styles.attentionCard} ${toneClass(item.tone)}`} radius={radius.lg}>
+      <Group className={styles.attentionGrid} wrap="nowrap">
+        {/* <Box className={styles.attentionPriority}>{priorityLabel(item.priority)}</Box> */}
+
+        <ThemeIcon className={styles.attentionIcon} variant="light" radius={radius.md} size={38}>
+          {taskIcon(item)}
+        </ThemeIcon>
+
+        <Box className={styles.attentionBody}>
+          <Group gap={spacing[2]} wrap="nowrap">
+            <Text className={styles.attentionSignal}>{item.signal}</Text>
+            <Text className={styles.attentionCategory}>{item.category}</Text>
+          </Group>
+
+          <Text className={styles.attentionSubject}>{item.title}</Text>
+          <Text className={styles.attentionMeta}>{item.subtitle}</Text>
+          <Text className={styles.attentionDetail}>{item.message}</Text>
+        </Box>
+
+        {item.href ? (
+          <Link href={item.href} className={styles.cardLink}>
+            {actionButton}
+          </Link>
+        ) : (
+          actionButton
+        )}
       </Group>
     </Paper>
   );
 }
 
-function ReceptionQueue() {
+function NeedsAttention({
+  error,
+  isLoading,
+  items,
+}: {
+  error?: string;
+  isLoading: boolean;
+  items: FrontDeskTask[];
+}) {
+  const visibleItems = items;
+  ///const totalTasks = 12;
+  //const criticalTasks = attentionItems.filter((item) => item.priority === 'critical').length;
+
   return (
-    <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
-      <Group justify="space-between" mb={spacing[4]}>
+    <Card className={styles.sectionCard} radius={radius.lg} p={0}>
+      <Group justify="space-between" align="center" className={styles.sectionHeader}>
         <Box>
-          <Title order={2} style={typography.styles.h3}>
-            Reception Queue
-          </Title>
-          <Text c={colors.text.muted} style={typography.styles.small}>
-            Guests and blockers that need front desk attention.
+          <Group gap={spacing[2]}>
+            <Title order={2} className={styles.sectionTitle}>
+              Needs Attention
+            </Title>
+          </Group>
+          <Text className={styles.sectionSubtitle}>
+            {error
+              ? 'Live queue unavailable'
+              : isLoading
+                ? 'Loading live queue'
+                : visibleItems.length > 0
+                  ? `${visibleItems.length} tasks require action`
+                  : 'No urgent tasks'}
           </Text>
         </Box>
+
+        <Button variant="subtle" size="compact-sm">
+          View Queue
+        </Button>
       </Group>
-      <Stack gap={spacing[3]}>
-        {queueItems.map((item) => (
-          <QueueCard key={item.id} item={item} />
-        ))}
+
+      <Stack gap={0} className={styles.attentionList}>
+        {visibleItems.length > 0 ? (
+          visibleItems.map((item) => <AttentionCard key={item.id} item={item} />)
+        ) : (
+          <Box className={styles.emptyQueue}>
+            <Text className={styles.attentionSubject}>
+              {isLoading ? 'Loading front desk queue...' : 'No urgent tasks'}
+            </Text>
+            <Text className={styles.attentionDetail}>
+              {error ?? 'New arrivals, payments, and room issues will appear here.'}
+            </Text>
+          </Box>
+        )}
       </Stack>
-    </Card>
-  );
-}
-
-function RoomStatusPanel({ roomStatuses }: { roomStatuses: RoomStatus[] }) {
-  return (
-    <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
-      <Title order={2} style={typography.styles.h3}>
-        Room Status
-      </Title>
-      <Text c={colors.text.muted} mt={spacing[1]} style={typography.styles.small}>
-        Current room readiness across the property.
-      </Text>
-      <SimpleGrid mt={spacing[4]} cols={{ base: 1, xs: 2, lg: 1 }} spacing={spacing[3]}>
-        {roomStatuses.map((room) => (
-          <Paper
-            key={room.label}
-            p={spacing[4]}
-            radius={radius.lg}
-            style={{ background: room.background }}
-          >
-            <Text c={colors.text.body} style={typography.styles.label}>
-              {room.label}
-            </Text>
-            <Text mt={spacing[2]} c={colors.text.strong} style={typography.styles.display}>
-              {room.value}
-            </Text>
-            <Text c={room.tone} style={typography.styles.caption}>
-              {room.detail}
-            </Text>
-          </Paper>
-        ))}
-      </SimpleGrid>
-    </Card>
-  );
-}
-
-function TodayTimeline() {
-  return (
-    <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
-      <Title order={2} style={typography.styles.h3}>
-        Today's Timeline
-      </Title>
-      <Text c={colors.text.muted} mt={spacing[1]} style={typography.styles.small}>
-        Property events that shape front desk operations today.
-      </Text>
-      <Stack mt={spacing[5]} gap={spacing[4]}>
-        {timeline.map((event) => (
-          <Group
-            key={`${event.time}-${event.title}`}
-            align="flex-start"
-            gap={spacing[4]}
-            wrap="nowrap"
-          >
-            <Text c={colors.brand[600]} style={typography.styles.label} w={56}>
-              {event.time}
-            </Text>
-            <Box
-              aria-hidden
-              mt={6}
-              style={{
-                background: colors.brand[500],
-                borderRadius: radius.full,
-                height: 9,
-                width: 9,
-              }}
-            />
-            <Box>
-              <Text c={colors.text.strong} style={typography.styles.label}>
-                {event.title}
-              </Text>
-              <Text c={colors.text.body} mt={spacing[1]} style={typography.styles.small}>
-                {event.detail}
-              </Text>
-            </Box>
-          </Group>
-        ))}
-      </Stack>
-    </Card>
-  );
-}
-
-function FloatingShortcuts() {
-  const actions = [
-    { label: 'Walk-in', icon: <UserPlus size={15} /> },
-    { label: 'Check In', icon: <KeyRound size={15} />, href: '/check-in' },
-    { label: 'Check Out', icon: <DoorOpen size={15} /> },
-    { label: 'Choose Room', icon: <BedDouble size={15} /> },
-    { label: 'Block Room', icon: <Wrench size={15} /> },
-    { label: 'Housekeeping Request', icon: <Sparkles size={15} /> },
-  ];
-
-  return (
-    <Card
-      p={spacing[3]}
-      radius={radius.lg}
-      shadow="md"
-      style={{ bottom: spacing[6], position: 'fixed', right: spacing[6], zIndex: 120 }}
-    >
-      <Menu position="top-end" shadow="md" width={240}>
-        <Menu.Target>
-          <Button color="stayosBrand" leftSection={<Plus size={16} />}>
-            Quick Action
-          </Button>
-        </Menu.Target>
-        <Menu.Dropdown>
-          {actions.map((action) =>
-            action.href ? (
-              <Menu.Item key={action.label} component={Link} href={action.href} leftSection={action.icon}>
-                {action.label}
-              </Menu.Item>
-            ) : (
-              <Menu.Item key={action.label} leftSection={action.icon}>
-                {action.label}
-              </Menu.Item>
-            ),
-          )}
-        </Menu.Dropdown>
-      </Menu>
     </Card>
   );
 }
 
 export default function HomePage() {
-  const inventory = useFrontDeskInventory();
+  const frontDesk = useFrontDeskData();
+  const summaryMetrics = buildSummaryMetrics({ ...frontDesk.summary, isLoading: frontDesk.isLoading });
 
   return (
-    <Stack gap={spacing[6]}>
-      <FrontDeskHero propertyName={inventory.propertyName} />
-      <OperationsStrip />
+    <Stack gap={spacing[3]} className={styles.pageShell}>
+      <QuickActions />
 
-      <SimpleGrid cols={{ base: 1, lg: 12 }} spacing={spacing[5]}>
-        <Box style={{ gridColumn: 'span 8' }}>
-          <ReceptionQueue />
-        </Box>
-        <Box style={{ gridColumn: 'span 4' }}>
-          <RoomStatusPanel roomStatuses={inventory.roomStatuses} />
-        </Box>
-      </SimpleGrid>
-
-      <TodayTimeline />
-      <FloatingShortcuts />
+      <Box className={styles.desktopGrid}>
+        <Stack gap={spacing[3]} className={styles.mainColumn}>
+          <SummaryCards metrics={summaryMetrics} />
+          <NeedsAttention
+            error={frontDesk.error}
+            isLoading={frontDesk.isLoading}
+            items={frontDesk.tasks}
+          />
+        </Stack>
+      </Box>
     </Stack>
   );
 }

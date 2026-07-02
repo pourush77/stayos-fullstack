@@ -73,7 +73,7 @@ export const semantic = {
   info: '#2f78d6',
 } as const;
 
-export const createColorTokens = (brand: BrandPaletteName = 'green') => ({
+export const createColorTokens = (brand: BrandPaletteName = 'gold') => ({
   brand: brandPalettes[brand],
   neutral,
   semantic,
