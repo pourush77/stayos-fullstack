@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import {
   Badge,
   Box,
@@ -13,246 +14,318 @@ import {
   Stack,
   Text,
   ThemeIcon,
+  Timeline,
   Title,
 } from '@mantine/core';
 import {
   Baby,
   BedDouble,
   Camera,
-  CheckCircle2,
+  Check,
   ChevronLeft,
   Gift,
+  Plane,
   Shirt,
   Sparkles,
-  UserRound,
   Wrench,
 } from 'lucide-react';
-import { brandPalettes, colors, radius, spacing, typography } from '@stayos/theme';
+import type { CSSProperties, ReactNode } from 'react';
+import { radius, spacing } from '@stayos/theme';
 
-const room = {
-  number: '302',
-  type: 'Premium King',
-  guestStaying: false,
-  checkoutToday: true,
-  vip: true,
-  doNotDisturb: false,
-  laundryRequested: true,
-  extraTowels: true,
-  babyCot: true,
-  anniversary: false,
-  birthday: true,
-  maintenance: 'No active issue',
-  notes: 'Airport pickup guest arriving at 12:30 PM. Please keep two water bottles and extra towels.',
-  lostFound: 'No items reported',
+type RoomSignal = {
+  label: string;
+  tone: 'amber' | 'green' | 'purple' | 'red' | 'neutral';
 };
 
-const checklist = [
-  'Bed Made',
-  'Bathroom Cleaned',
-  'Towels Replaced',
-  'Toiletries Restocked',
-  'Dusting Completed',
-  'Vacuum Completed',
-  'Mini Bar Checked',
-  'Curtains Opened',
-  'Temperature Checked',
-  'Final Inspection',
+type CleaningChecklistItem = {
+  complete: boolean;
+  label: string;
+};
+
+type RoomTimelineItem = {
+  label: string;
+  time: string;
+};
+
+const cardStyle: CSSProperties = {
+  background: '#ffffff',
+  border: '1px solid rgba(226, 232, 240, 0.9)',
+  boxShadow: '0 8px 24px rgba(15, 23, 42, 0.035)',
+};
+
+const room = {
+  arrival: '12:30 PM',
+  assignedTo: 'Anita',
+  eta: '25 min',
+  lostFound: 'No items reported',
+  notes: 'Airport pickup guest arriving at 12:30 PM. Please keep two water bottles and extra towels.',
+  number: '302',
+  status: 'Needs Cleaning',
+  type: 'Premium King',
+};
+
+const roomSignals: RoomSignal[] = [
+  { label: 'Checkout Today', tone: 'amber' },
+  { label: 'Guest Waiting', tone: 'red' },
+  { label: 'VIP', tone: 'purple' },
+  { label: 'Laundry', tone: 'neutral' },
+  { label: 'Extra Towels', tone: 'neutral' },
+  { label: 'Baby Cot', tone: 'neutral' },
 ];
 
-const completedItems = new Set(['Bed Made', 'Bathroom Cleaned', 'Towels Replaced']);
-
-const timeline = [
-  '10:05 Checkout completed',
-  '10:12 Cleaning assigned to Anita',
-  '10:20 Linen trolley dispatched',
-  '10:31 Guest arrival marked priority',
+const checklist: CleaningChecklistItem[] = [
+  { label: 'Bed Made', complete: true },
+  { label: 'Bathroom Cleaned', complete: true },
+  { label: 'Towels Replaced', complete: true },
+  { label: 'Toiletries Restocked', complete: false },
+  { label: 'Dusting Completed', complete: false },
+  { label: 'Vacuum Completed', complete: false },
+  { label: 'Mini Bar Checked', complete: false },
+  { label: 'Final Inspection', complete: false },
 ];
 
-const requests = [
-  'High Floor',
-  'Baby Cot',
-  'Airport Pickup',
-  'Vegetarian',
-  'Late Checkout',
-  'VIP',
-  'Returning Guest',
-  'Birthday',
+const requests = ['VIP', 'Birthday', 'Baby Cot', 'Extra Towels', 'Airport Pickup', 'Vegetarian'];
+
+const timeline: RoomTimelineItem[] = [
+  { time: '10:05', label: 'Checkout completed' },
+  { time: '10:12', label: 'Cleaning assigned' },
+  { time: '10:20', label: 'Cleaning started' },
+  { time: '10:31', label: 'Inspection pending' },
 ];
 
-function RequestBadge({ label }: { label: string }) {
-  const isPriority = label === 'VIP' || label === 'Birthday' || label === 'Airport Pickup';
+function toneForSignal(tone: RoomSignal['tone']) {
+  if (tone === 'green') return { color: '#16a34a', background: '#f0fdf4' };
+  if (tone === 'purple') return { color: '#6d5dfc', background: '#f5f3ff' };
+  if (tone === 'red') return { color: '#dc2626', background: '#fef2f2' };
+  if (tone === 'amber') return { color: '#d97706', background: '#fffbeb' };
+  return { color: '#64748b', background: '#f8fafc' };
+}
+
+function TokenBadge({ children, tone = 'neutral' }: { children: ReactNode; tone?: RoomSignal['tone'] }) {
+  const colors = toneForSignal(tone);
 
   return (
     <Badge
       radius={radius.full}
-      variant="light"
-      styles={{
-        root: {
-          background: isPriority ? brandPalettes.gold[50] : colors.brand[50],
-          color: isPriority ? colors.semantic.warning : colors.brand[600],
-          fontWeight: typography.weights.semibold,
-          textTransform: 'none',
-        },
+      style={{
+        background: colors.background,
+        border: '1px solid rgba(226, 232, 240, 0.9)',
+        color: colors.color,
+        fontSize: 11,
+        fontWeight: 600,
+        height: 24,
+        paddingInline: 10,
+        textTransform: 'none',
       }}
     >
-      {label}
+      {children}
     </Badge>
   );
 }
 
+function SectionCard({ children, icon, title }: { children: ReactNode; icon: ReactNode; title: string }) {
+  return (
+    <Card radius={radius.lg} p={16} style={cardStyle}>
+      <Group gap={10} align="center">
+        <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={34}>
+          {icon}
+        </ThemeIcon>
+        <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 700, lineHeight: '24px' }}>
+          {title}
+        </Title>
+      </Group>
+      <Box mt={14}>{children}</Box>
+    </Card>
+  );
+}
+
+function DetailTile({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <Paper radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
+      <Text c="#64748b" style={{ fontSize: 11, fontWeight: 500, lineHeight: '15px' }}>
+        {label}
+      </Text>
+      <Text c="#182230" mt={3} style={{ fontSize: 13, fontWeight: 600, lineHeight: '18px' }}>
+        {value}
+      </Text>
+    </Paper>
+  );
+}
+
 export default function HousekeepingRoomPage() {
-  const progress = Math.round((completedItems.size / checklist.length) * 100);
+  const completed = checklist.filter((item) => item.complete).length;
+  const progress = Math.round((completed / checklist.length) * 100);
 
   return (
-    <Stack gap={spacing[5]}>
+    <Stack gap={spacing[3]}>
       <Button
-        component="a"
+        component={Link}
         href="/housekeeping"
         variant="subtle"
         color="gray"
         leftSection={<ChevronLeft size={16} />}
         px={0}
         w="fit-content"
+        style={{ fontWeight: 600 }}
       >
         Back to Housekeeping
       </Button>
 
-      <Card p={spacing[6]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
+      <Card radius={radius.lg} p={18} style={cardStyle}>
         <Group justify="space-between" align="flex-start" gap={spacing[5]}>
-          <Group gap={spacing[4]} align="flex-start">
-            <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={52}>
-              <BedDouble size={24} />
+          <Group gap={14} align="flex-start">
+            <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={46}>
+              <BedDouble size={22} />
             </ThemeIcon>
             <Box>
-              <Title order={1} c={colors.text.strong} style={typography.styles.h1}>
-                Room {room.number}
-              </Title>
-              <Text c={colors.text.body} mt={spacing[1]} style={typography.styles.bodyLarge}>
+              <Group gap={8}>
+                <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 700, lineHeight: '38px' }}>
+                  Room {room.number}
+                </Title>
+                <TokenBadge tone="amber">{room.status}</TokenBadge>
+              </Group>
+              <Text c="#64748b" mt={2} style={{ fontSize: 14, fontWeight: 400, lineHeight: '22px' }}>
                 {room.type} housekeeping workspace
               </Text>
             </Box>
           </Group>
-          <Badge color="yellow" variant="light" radius={radius.full} styles={{ root: { textTransform: 'none' } }}>
-            Needs Cleaning
-          </Badge>
         </Group>
       </Card>
 
-      <SimpleGrid cols={{ base: 1, lg: 3 }} spacing={spacing[4]}>
-        <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
-          <Title order={2} c={colors.text.strong} style={typography.styles.h3}>
-            Room Signals
-          </Title>
-          <Stack mt={spacing[4]} gap={spacing[3]}>
-            {[
-              ['Guest Staying?', room.guestStaying ? 'Yes' : 'No', <UserRound size={16} />],
-              ['Checkout Today?', room.checkoutToday ? 'Yes' : 'No', <CheckCircle2 size={16} />],
-              ['VIP?', room.vip ? 'Yes' : 'No', <Gift size={16} />],
-              ['Do Not Disturb?', room.doNotDisturb ? 'Yes' : 'No', <Sparkles size={16} />],
-              ['Laundry Requested?', room.laundryRequested ? 'Yes' : 'No', <Shirt size={16} />],
-              ['Extra Towels?', room.extraTowels ? 'Yes' : 'No', <Sparkles size={16} />],
-              ['Baby Cot?', room.babyCot ? 'Yes' : 'No', <Baby size={16} />],
-              ['Maintenance Issues?', room.maintenance, <Wrench size={16} />],
-            ].map(([label, value, icon]) => (
-              <Group key={String(label)} justify="space-between" wrap="nowrap">
-                <Group gap={spacing[2]}>
-                  <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={28}>
-                    {icon}
-                  </ThemeIcon>
-                  <Text c={colors.text.body} style={typography.styles.small}>
-                    {label}
-                  </Text>
-                </Group>
-                <Text c={colors.text.strong} style={typography.styles.label}>
-                  {value}
+      <Paper radius={radius.lg} p={16} style={cardStyle}>
+        <Group justify="space-between" align="center" gap={spacing[4]}>
+          <Box>
+            <Text c="#101828" style={{ fontSize: 22, fontWeight: 700, lineHeight: '28px' }}>
+              Room {room.number}
+            </Text>
+            <Text c="#64748b" mt={4} style={{ fontSize: 12, fontWeight: 400, lineHeight: '17px' }}>
+              {room.status}. Arrival at {room.arrival}.
+            </Text>
+          </Box>
+          <Group gap={8}>
+            <DetailTile label="Assigned to" value={room.assignedTo} />
+            <DetailTile label="ETA" value={room.eta} />
+          </Group>
+        </Group>
+      </Paper>
+
+      <SimpleGrid cols={{ base: 1, lg: 12 }} spacing={spacing[3]}>
+        <Stack gap={spacing[3]} style={{ gridColumn: 'span 8' }}>
+          <SectionCard title="Cleaning Checklist" icon={<Check size={17} />}>
+            <Group justify="space-between" align="center">
+              <Box>
+                <Text c="#101828" style={{ fontSize: 14, fontWeight: 600, lineHeight: '20px' }}>
+                  {completed} of {checklist.length} complete
                 </Text>
-              </Group>
-            ))}
-          </Stack>
-        </Card>
-
-        <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
-          <Title order={2} c={colors.text.strong} style={typography.styles.h3}>
-            Timeline
-          </Title>
-          <Stack mt={spacing[4]} gap={spacing[3]}>
-            {timeline.map((item) => (
-              <Text key={item} c={colors.text.body} style={typography.styles.small}>
-                {item}
-              </Text>
-            ))}
-          </Stack>
-        </Card>
-
-        <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
-          <Title order={2} c={colors.text.strong} style={typography.styles.h3}>
-            Requests
-          </Title>
-          <Group mt={spacing[4]} gap={spacing[2]}>
-            {requests.map((request) => (
-              <RequestBadge key={request} label={request} />
-            ))}
-          </Group>
-        </Card>
-      </SimpleGrid>
-
-      <SimpleGrid cols={{ base: 1, lg: 2 }} spacing={spacing[4]}>
-        <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
-          <Group justify="space-between" align="center">
-            <Box>
-              <Title order={2} c={colors.text.strong} style={typography.styles.h3}>
-                Cleaning Checklist
-              </Title>
-              <Text c={colors.text.muted} mt={spacing[1]} style={typography.styles.small}>
-                Progress updates automatically.
-              </Text>
-            </Box>
-            <Text c={colors.brand[600]} style={typography.styles.h3}>
-              {progress}%
-            </Text>
-          </Group>
-          <Progress mt={spacing[4]} value={progress} color="stayosBrand" radius={radius.full} />
-          <SimpleGrid mt={spacing[5]} cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
-            {checklist.map((item) => (
-              <Checkbox
-                key={item}
-                label={item}
-                defaultChecked={completedItems.has(item)}
-                color="stayosBrand"
-              />
-            ))}
-          </SimpleGrid>
-        </Card>
-
-        <Stack gap={spacing[4]}>
-          <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
-            <Title order={2} c={colors.text.strong} style={typography.styles.h3}>
-              Housekeeping Notes
-            </Title>
-            <Text c={colors.text.body} mt={spacing[3]} style={typography.styles.body}>
-              {room.notes}
-            </Text>
-          </Card>
-
-          <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
-            <Title order={2} c={colors.text.strong} style={typography.styles.h3}>
-              Lost and Found
-            </Title>
-            <Text c={colors.text.body} mt={spacing[3]} style={typography.styles.body}>
-              {room.lostFound}
-            </Text>
-          </Card>
-
-          <Paper p={spacing[4]} radius={radius.lg} bg={colors.surface.subtle}>
-            <Group gap={spacing[3]}>
-              <ThemeIcon color="stayosBrand" variant="light" radius={radius.full}>
-                <Camera size={16} />
-              </ThemeIcon>
-              <Text c={colors.text.muted} style={typography.styles.small}>
-                Photos can be added here in a future iteration.
+                <Text c="#64748b" mt={2} style={{ fontSize: 12, fontWeight: 400, lineHeight: '17px' }}>
+                  Complete the room and send it for inspection.
+                </Text>
+              </Box>
+              <Text c="#6d5dfc" style={{ fontSize: 22, fontWeight: 700, lineHeight: '28px' }}>
+                {progress}%
               </Text>
             </Group>
-          </Paper>
+            <Progress mt={12} value={progress} color="stayosBrand" radius={radius.full} size={8} />
+            <SimpleGrid mt={14} cols={{ base: 1, sm: 2 }} spacing={spacing[2]}>
+              {checklist.map((item) => (
+                <Paper key={item.label} radius={radius.md} p={10} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
+                  <Checkbox
+                    checked={item.complete}
+                    readOnly
+                    color="stayosBrand"
+                    label={
+                      <Text c={item.complete ? '#16a34a' : '#334155'} style={{ fontSize: 13, fontWeight: item.complete ? 600 : 500 }}>
+                        {item.label}
+                      </Text>
+                    }
+                  />
+                </Paper>
+              ))}
+            </SimpleGrid>
+            <Group mt={14} justify="flex-end">
+              <Button color="stayosBrand" style={{ fontWeight: 600 }}>
+                Send for Inspection
+              </Button>
+            </Group>
+          </SectionCard>
+
+          <SectionCard title="Timeline" icon={<Sparkles size={17} />}>
+            <Timeline active={timeline.length - 1} bulletSize={18} lineWidth={1}>
+              {timeline.map((item) => (
+                <Timeline.Item key={`${item.time}-${item.label}`} title={item.time}>
+                  <Text c="#334155" style={{ fontSize: 13, fontWeight: 500, lineHeight: '18px' }}>
+                    {item.label}
+                  </Text>
+                </Timeline.Item>
+              ))}
+            </Timeline>
+          </SectionCard>
+
+          <SectionCard title="Notes" icon={<Gift size={17} />}>
+            <Text c="#334155" style={{ fontSize: 14, fontWeight: 400, lineHeight: '22px' }}>
+              {room.notes}
+            </Text>
+          </SectionCard>
+        </Stack>
+
+        <Stack gap={spacing[3]} style={{ gridColumn: 'span 4' }}>
+          <SectionCard title="Room Signals" icon={<Sparkles size={17} />}>
+            <Group gap={6}>
+              {roomSignals.map((signal) => (
+                <TokenBadge key={signal.label} tone={signal.tone}>
+                  {signal.label}
+                </TokenBadge>
+              ))}
+            </Group>
+          </SectionCard>
+
+          <SectionCard title="Requests" icon={<Plane size={17} />}>
+            <Group gap={6}>
+              {requests.map((request) => (
+                <TokenBadge key={request} tone={request === 'VIP' || request === 'Birthday' ? 'purple' : 'neutral'}>
+                  {request}
+                </TokenBadge>
+              ))}
+            </Group>
+          </SectionCard>
+
+          <SectionCard title="Lost & Found" icon={<Shirt size={17} />}>
+            <Text c="#334155" style={{ fontSize: 13, fontWeight: 400, lineHeight: '18px' }}>
+              {room.lostFound}
+            </Text>
+            <Button mt={spacing[3]} variant="light" color="gray" size="compact-sm" style={{ fontWeight: 600 }}>
+              Report Item
+            </Button>
+          </SectionCard>
+
+          <SectionCard title="Photos" icon={<Camera size={17} />}>
+            <SimpleGrid cols={1} spacing={spacing[2]}>
+              {['Before photo', 'After photo', 'Damage photo'].map((label) => (
+                <Paper key={label} radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px dashed #cbd5e1' }}>
+                  <Text c="#64748b" style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}>
+                    {label}
+                  </Text>
+                </Paper>
+              ))}
+            </SimpleGrid>
+          </SectionCard>
+
+          <Card radius={radius.lg} p={16} style={cardStyle}>
+            <Stack gap={spacing[2]}>
+              <Button color="stayosBrand" style={{ fontWeight: 600 }}>
+                Complete Room
+              </Button>
+              <Button variant="light" color="orange" leftSection={<Wrench size={16} />} style={{ fontWeight: 600 }}>
+                Report Maintenance
+              </Button>
+              <Button variant="subtle" color="gray" leftSection={<Baby size={16} />} style={{ fontWeight: 600 }}>
+                Add Lost & Found
+              </Button>
+              <Button variant="subtle" color="gray" leftSection={<Camera size={16} />} style={{ fontWeight: 600 }}>
+                Add Photo
+              </Button>
+            </Stack>
+          </Card>
         </Stack>
       </SimpleGrid>
     </Stack>
