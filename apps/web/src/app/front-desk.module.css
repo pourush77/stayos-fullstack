@@ -7,8 +7,10 @@
 
 .pageShell {
   height: 100%;
-  max-height: 100%;
+  min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 
@@ -134,14 +136,21 @@
 /* Main Grid */
 .desktopGrid {
   display: grid;
+  flex: 1 1 auto;
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-items: start;
+  min-height: 0;
 }
 
 .mainColumn,
 .sideColumn {
+  min-height: 0;
   min-width: 0;
+}
+
+.mainColumn {
+  height: 100%;
 }
 
 .sideColumn {
@@ -206,7 +215,7 @@
 /* Needs Attention */
 .sectionCard {
   display: flex;
-  max-height: clamp(360px, calc(100vh - 360px), 500px);
+  flex: 1 1 auto;
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
@@ -260,7 +269,7 @@
 
 .attentionList {
   min-height: 0;
-  flex: 1;
+  flex: 1 1 auto;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-bottom: 8px;
@@ -533,10 +542,6 @@
 }
 
 @media (max-width: 64em) {
-  .sectionCard {
-    max-height: min(500px, calc(100vh - 300px));
-  }
-
   .attentionGrid {
     grid-template-columns: 40px minmax(0, 1fr);
   }
@@ -591,8 +596,23 @@
 }
 
 @media (max-width: 40em) {
+  .pageShell {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+
+  .desktopGrid {
+    flex: initial;
+    min-height: auto;
+  }
+
+  .mainColumn {
+    height: auto;
+  }
+
   .sectionCard {
-    max-height: none;
+    flex: initial;
   }
 
   .attentionList {
@@ -649,5 +669,30 @@
   .attentionActionButton {
     grid-column: 2 / -1;
     width: 100%;
+  }
+}
+
+@media (max-height: 820px) and (min-width: 40.001em) {
+  .pageShell {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+
+  .desktopGrid {
+    flex: initial;
+    min-height: auto;
+  }
+
+  .mainColumn {
+    height: auto;
+  }
+
+  .sectionCard {
+    flex: initial;
+  }
+
+  .attentionList {
+    max-height: clamp(280px, 38vh, 520px);
   }
 }

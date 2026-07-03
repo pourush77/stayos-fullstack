@@ -13,7 +13,8 @@ body {
 
 body {
   margin: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   font-family: 'Plus Jakarta Sans', Inter, system-ui, sans-serif;
   background: #fcfcfb;
 }

@@ -1112,7 +1112,7 @@ function FrontDeskUtilityPanel() {
   const liveOperations = utility.liveOperations;
 
   return (
-    <Box h="100%" style={{ overflow: 'hidden' }}>
+    <Box h="100%" style={{ minHeight: 0, overflow: 'hidden' }}>
       <Stack h="100%" gap={12} p={14} style={{ minHeight: 0 }}>
         <Paper
           radius={12}
@@ -1290,7 +1290,7 @@ function FrontDeskUtilityPanel() {
               type="hover"
               scrollbarSize={6}
               offsetScrollbars
-              style={{ flex: '1 1 auto', minHeight: 0 }}
+              style={{ flex: '1 1 auto', maxHeight: 'clamp(240px, 32vh, 420px)', minHeight: 0 }}
               styles={{
                 viewport: {
                   overscrollBehavior: 'contain',
@@ -1452,8 +1452,8 @@ export function StayOSAppShell({ children }: StayOSAppShellProps) {
         bg="#f6f7fb"
         style={{
           display: 'flex',
+          height: '100vh',
           minHeight: '100vh',
-          overflow: 'hidden',
         }}
       >
         <Box
@@ -1506,9 +1506,17 @@ export function StayOSAppShell({ children }: StayOSAppShellProps) {
               minWidth: 0,
             }}
           >
-            <ScrollArea style={{ flex: 1, minHeight: 0, minWidth: 0 }} type="never">
+            <Box
+              style={{
+                flex: 1,
+                minHeight: 0,
+                minWidth: 0,
+                overflowX: 'hidden',
+                overflowY: 'auto',
+              }}
+            >
               <ShellContent>{children}</ShellContent>
-            </ScrollArea>
+            </Box>
 
             {utilityPanelOpen ? (
               <Box

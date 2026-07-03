@@ -13,6 +13,7 @@ export function ShellContent(props: ShellContentProps) {
   return (
     <Box
       mx="auto"
+      h="100%"
       w="100%"
       maw={1440}
       px={{ base: spacing[4], sm: spacing[5], md: spacing[5] }}
