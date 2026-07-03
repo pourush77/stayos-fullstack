@@ -829,10 +829,12 @@ function Sidebar({
 function TopHeader({
   onOpenMobileMenu,
   utilityPanelOpen,
+  utilityPanelAvailable,
   onToggleUtilityPanel,
 }: {
   onOpenMobileMenu: () => void;
   utilityPanelOpen: boolean;
+  utilityPanelAvailable: boolean;
   onToggleUtilityPanel: () => void;
 }) {
   const currentTime = useMemo(
@@ -944,18 +946,20 @@ function TopHeader({
           >
             <Sun size={18} />
           </ActionIcon>
-          <Tooltip label={utilityPanelOpen ? 'Hide utility panel' : 'Show utility panel'}>
-            <ActionIcon
-              visibleFrom="lg"
-              variant={utilityPanelOpen ? 'light' : 'subtle'}
-              color="stayosBrand"
-              onClick={onToggleUtilityPanel}
-              aria-label="Toggle utility panel"
-              size={32}
-            >
-              {utilityPanelOpen ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
-            </ActionIcon>
-          </Tooltip>
+          {utilityPanelAvailable ? (
+            <Tooltip label={utilityPanelOpen ? 'Hide utility panel' : 'Show utility panel'}>
+              <ActionIcon
+                visibleFrom="lg"
+                variant={utilityPanelOpen ? 'light' : 'subtle'}
+                color="stayosBrand"
+                onClick={onToggleUtilityPanel}
+                aria-label="Toggle utility panel"
+                size={32}
+              >
+                {utilityPanelOpen ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
+              </ActionIcon>
+            </Tooltip>
+          ) : null}
         </Group>
       </Group>
     </Stack>
@@ -1503,8 +1507,10 @@ export function StayOSAppShell({ children }: StayOSAppShellProps) {
   const [mobileMenuOpened, { open: openMobileMenu, close: closeMobileMenu }] = useDisclosure(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [utilityPanelOpen, setUtilityPanelOpen] = useState(true);
+  const pathname = usePathname();
   const propertyName = useActivePropertyName();
   const sidebarWidth = sidebarCollapsed ? 78 : 264;
+  const utilityPanelAvailable = !pathname.startsWith('/rooms');
 
   return (
     <>
@@ -1554,6 +1560,7 @@ export function StayOSAppShell({ children }: StayOSAppShellProps) {
             <TopHeader
               onOpenMobileMenu={openMobileMenu}
               utilityPanelOpen={utilityPanelOpen}
+              utilityPanelAvailable={utilityPanelAvailable}
               onToggleUtilityPanel={() => setUtilityPanelOpen((value) => !value)}
             />
           </Box>
@@ -1578,7 +1585,7 @@ export function StayOSAppShell({ children }: StayOSAppShellProps) {
               <ShellContent>{children}</ShellContent>
             </Box>
 
-            {utilityPanelOpen ? (
+            {utilityPanelAvailable && utilityPanelOpen ? (
               <Box
                 visibleFrom="lg"
                 bg="#fbfcff"
