@@ -29,11 +29,12 @@ import {
   DoorOpen,
   Download,
   Hotel,
+  MapPin,
   Plus,
   Search,
+  Sparkles,
   Upload,
   UserRound,
-  Wrench,
 } from 'lucide-react';
 import type { CSSProperties, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -50,6 +51,8 @@ import {
 } from '@stayos/ui';
 import {
   getProperties,
+  getPropertyFloors,
+  getPropertyRoomTypes,
   getPropertyRooms,
   markRoomCleaning,
   markRoomInspection,
@@ -58,7 +61,9 @@ import {
   markRoomOutOfService,
   markRoomReady,
   type InventoryPropertyDto,
+  type InventoryFloorDto,
   type InventoryRoomDto,
+  type InventoryRoomTypeDto,
 } from '../../lib/inventory-api';
 
 type RoomStatus =
@@ -117,6 +122,11 @@ type InventoryState = {
   isLoading: boolean;
   propertyId?: string;
   rooms: Room[];
+};
+
+type InventoryLookups = {
+  floors: Map<string, InventoryFloorDto>;
+  roomTypes: Map<string, InventoryRoomTypeDto>;
 };
 
 const cardStyle: CSSProperties = {
@@ -411,6 +421,21 @@ function getString(record: Record<string, unknown> | undefined, keys: string[], 
   return fallback;
 }
 
+function getRecord(record: Record<string, unknown> | undefined, keys: string[]) {
+  if (!record) return undefined;
+
+  for (const key of keys) {
+    const value = record[key];
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  }
+
+  return undefined;
+}
+
+function getRoomPayload(dto: InventoryRoomDto) {
+  return getRecord(dto, ['room']) ?? dto;
+}
+
 function getBoolean(record: Record<string, unknown> | undefined, keys: string[]) {
   if (!record) return false;
 
@@ -425,6 +450,17 @@ function getBoolean(record: Record<string, unknown> | undefined, keys: string[])
 
 function isActiveRecord(record: Record<string, unknown>) {
   return getString(record, ['status'], 'ACTIVE').toUpperCase() === 'ACTIVE';
+}
+
+function createLookup<T extends Record<string, unknown>>(records: T[]) {
+  const entries: Array<[string, T]> = [];
+
+  for (const record of records) {
+    const id = getString(record, ['id', '_id', 'uuid']);
+    if (id) entries.push([id, record]);
+  }
+
+  return new Map(entries);
 }
 
 function getPropertyId(property: InventoryPropertyDto) {
@@ -449,12 +485,28 @@ function mapStatus(value: string): RoomStatus {
   return 'vacant';
 }
 
-function mapInventoryRoom(dto: InventoryRoomDto, index: number): Room {
-  const status = mapStatus(getString(dto, ['operationalStatus', 'operational_status', 'status'], 'ready'));
-  const roomNumber = getString(dto, ['roomNumber', 'number', 'displayName'], String(index + 1).padStart(3, '0'));
-  const guestName = getString(dto, ['guestName', 'currentGuest']);
-  const roomType = getString(dto, ['roomTypeName', 'roomType', 'type'], 'Standard Room');
-  const floor = getString(dto, ['floorName', 'floor', 'level'], 'Main Floor');
+function mapInventoryRoom(dto: InventoryRoomDto, index: number, lookups: InventoryLookups): Room {
+  const roomPayload = getRoomPayload(dto);
+  const floorId = getString(roomPayload, ['floorId', 'floor_id'], getString(dto, ['floorId', 'floor_id']));
+  const roomTypeId = getString(roomPayload, ['roomTypeId', 'room_type_id'], getString(dto, ['roomTypeId', 'room_type_id']));
+  const floorRecord = getRecord(roomPayload, ['floor']) ?? getRecord(dto, ['floor']) ?? lookups.floors.get(floorId);
+  const roomTypeRecord =
+    getRecord(roomPayload, ['roomType', 'room_type']) ?? getRecord(dto, ['roomType', 'room_type']) ?? lookups.roomTypes.get(roomTypeId);
+  const status = mapStatus(
+    getString(roomPayload, ['operationalStatus', 'operational_status', 'status'], getString(dto, ['operationalStatus', 'operational_status', 'status'], 'ready')),
+  );
+  const roomNumber = getString(
+    roomPayload,
+    ['roomNumber', 'number', 'displayName', 'name', 'code'],
+    getString(dto, ['roomNumber', 'number', 'displayName', 'name', 'code'], String(index + 1).padStart(3, '0')),
+  );
+  const guestName = getString(dto, ['guestName', 'currentGuest', 'guest'], getString(roomPayload, ['guestName', 'currentGuest']));
+  const roomType =
+    getString(roomTypeRecord, ['name', 'displayName', 'title', 'label', 'code'], '') ||
+    getString(roomPayload, ['roomTypeName', 'room_type_name', 'typeName', 'roomType', 'room_type', 'type'], getString(dto, ['roomTypeName', 'room_type_name', 'typeName', 'roomType', 'room_type', 'type'], 'Standard Room'));
+  const floor =
+    getString(floorRecord, ['name', 'displayName', 'title', 'label', 'code'], '') ||
+    getString(roomPayload, ['floorName', 'floor_name', 'floor', 'levelName', 'level'], getString(dto, ['floorName', 'floor_name', 'floor', 'levelName', 'level'], 'Main Floor'));
   const bedType = getString(dto, ['bedType', 'bed'], roomType.includes('Twin') ? 'Twin' : 'King');
   const view = getString(dto, ['view', 'roomView'], 'City');
   const housekeepingStatus = getString(dto, ['housekeepingStatus', 'housekeeping_status'], statusLabel(status));
@@ -533,8 +585,16 @@ function useRoomInventory({
 
       try {
         const { propertyId, propertyName } = await getCurrentProperty(signal);
-        const roomDtos = await getPropertyRooms(propertyId, signal);
-        const rooms = roomDtos.map(mapInventoryRoom);
+        const [roomDtos, floorDtos, roomTypeDtos] = await Promise.all([
+          getPropertyRooms(propertyId, signal),
+          getPropertyFloors(propertyId, signal),
+          getPropertyRoomTypes(propertyId, signal),
+        ]);
+        const lookups = {
+          floors: createLookup(floorDtos.filter(isActiveRecord)),
+          roomTypes: createLookup(roomTypeDtos.filter(isActiveRecord)),
+        };
+        const rooms = roomDtos.map((room, index) => mapInventoryRoom(room, index, lookups));
         const floors = Array.from(new Set(rooms.map((room) => room.floor)));
 
         setState({
@@ -602,11 +662,40 @@ function statusLabel(status: RoomStatus) {
 function statusTone(status: RoomStatus) {
   if (status === 'ready') return { color: '#16a34a', background: '#f0fdf4' };
   if (status === 'occupied') return { color: '#2563eb', background: '#eff6ff' };
-  if (status === 'cleaning' || status === 'dirty' || status === 'inspection') return { color: '#d97706', background: '#fffbeb' };
-  if (status === 'maintenance') return { color: '#f97316', background: '#fff7ed' };
-  if (status === 'out-of-order' || status === 'out-of-service') return { color: '#dc2626', background: '#fef2f2' };
+  if (status === 'cleaning' || status === 'dirty') return { color: '#d97706', background: '#fffbeb' };
+  if (status === 'inspection') return { color: '#ea580c', background: '#fff7ed' };
+  if (status === 'maintenance' || status === 'out-of-order' || status === 'out-of-service') return { color: '#dc2626', background: '#fef2f2' };
   if (status === 'reserved') return { color: '#6d5dfc', background: '#f5f3ff' };
   return { color: '#64748b', background: '#f8fafc' };
+}
+
+function statusGroup(status: RoomStatus) {
+  if (status === 'ready') return 'ready';
+  if (status === 'occupied') return 'occupied';
+  if (status === 'cleaning' || status === 'dirty' || status === 'inspection') return 'needs-cleaning';
+  if (status === 'maintenance' || status === 'out-of-order' || status === 'out-of-service') return 'unavailable';
+  if (status === 'vacant' || status === 'reserved') return 'vacant';
+  return 'vacant';
+}
+
+function sortRoomLabels(values: string[]) {
+  return [...values].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+}
+
+function groupRoomsByFloor(rooms: Room[], floors: string[]) {
+  return floors
+    .map((floor) => ({
+      floor,
+      rooms: rooms.filter((room) => room.floor === floor),
+    }))
+    .filter((group) => group.rooms.length > 0);
+}
+
+function roomTypeTone(roomType: string) {
+  const normalized = roomType.toLowerCase();
+  if (normalized.includes('suite')) return { color: '#7c3aed', background: '#f3e8ff', border: '#e9d5ff' };
+  if (normalized.includes('deluxe')) return { color: '#2563eb', background: '#eff6ff', border: '#dbeafe' };
+  return { color: '#526383', background: '#f8fafc', border: '#e2e8f0' };
 }
 
 function RoomBadge({ children, status }: { children: ReactNode; status?: RoomStatus }) {
@@ -628,6 +717,62 @@ function RoomBadge({ children, status }: { children: ReactNode; status?: RoomSta
     >
       {children}
     </Badge>
+  );
+}
+
+function RoomTypeBadge({ roomType }: { roomType: string }) {
+  const tone = roomTypeTone(roomType);
+  const isSuite = roomType.toLowerCase().includes('suite');
+  const Icon = isSuite ? Sparkles : BedDouble;
+
+  return (
+    <Box
+      component="span"
+      aria-label={`${roomType} room`}
+      style={{
+        alignItems: 'center',
+        background: tone.background,
+        border: `1px solid ${tone.border}`,
+        borderRadius: radius.full,
+        color: tone.color,
+        display: 'inline-flex',
+        fontSize: 12,
+        fontWeight: 600,
+        gap: 6,
+        height: 26,
+        lineHeight: '16px',
+        paddingInline: 10,
+      }}
+    >
+      <Icon aria-hidden size={14} strokeWidth={2.2} />
+      {roomType}
+    </Box>
+  );
+}
+
+function FloorBadge({ floor }: { floor: string }) {
+  return (
+    <Box
+      component="span"
+      aria-label={`${floor} location`}
+      style={{
+        alignItems: 'center',
+        background: '#f8fafc',
+        border: '1px solid #e5e7eb',
+        borderRadius: radius.full,
+        color: '#64748b',
+        display: 'inline-flex',
+        fontSize: 11,
+        fontWeight: 600,
+        gap: 6,
+        height: 26,
+        lineHeight: '15px',
+        paddingInline: 10,
+      }}
+    >
+      <MapPin aria-hidden size={13} strokeWidth={2.2} />
+      {floor}
+    </Box>
   );
 }
 
@@ -680,18 +825,16 @@ function SummaryCard({
 }
 
 function primaryAction(room: Room) {
-  if (room.status === 'occupied') return room.stayHref ? 'View Stay' : 'Check Out';
-  if (room.status === 'ready') return 'Assign Guest';
-  if (room.status === 'reserved') return 'Check In';
-  if (room.status === 'cleaning' || room.status === 'dirty') return 'Start Cleaning';
-  if (room.status === 'inspection') return 'Mark Ready';
-  if (room.status === 'maintenance' || room.status === 'out-of-order' || room.status === 'out-of-service') return 'View Room';
+  if (room.status === 'occupied') return 'Open Stay';
+  if (room.status === 'ready' || room.status === 'vacant' || room.status === 'reserved') return 'Assign Guest';
+  if (room.status === 'cleaning' || room.status === 'dirty') return 'Mark Ready';
+  if (room.status === 'inspection') return 'Complete Inspection';
+  if (room.status === 'maintenance' || room.status === 'out-of-order' || room.status === 'out-of-service') return 'View Issue';
   return 'Assign Guest';
 }
 
 function actionForPrimary(room: Room): RoomAction | undefined {
-  if (room.status === 'cleaning' || room.status === 'dirty') return 'start-cleaning';
-  if (room.status === 'inspection') return 'mark-ready';
+  if (room.status === 'cleaning' || room.status === 'dirty' || room.status === 'inspection') return 'mark-ready';
   return undefined;
 }
 
@@ -726,7 +869,7 @@ function RoomCard({
     <UnstyledButton onClick={() => onOpen(room)} style={{ display: 'block', height: '100%', width: '100%' }}>
       <Paper
         radius={radius.lg}
-        p={16}
+        p={13}
         style={{
           ...cardStyle,
           borderLeft: `3px solid ${tone.color}`,
@@ -743,65 +886,23 @@ function RoomCard({
           event.currentTarget.style.transform = 'translateY(0)';
         }}
       >
-        <Stack gap={12}>
+        <Stack gap={10}>
           <Group justify="space-between" align="flex-start" wrap="nowrap">
             <Box>
-              <Text c="#101828" style={{ fontSize: 22, fontWeight: 700, lineHeight: '28px' }}>
+              <Text c="#101828" style={{ fontSize: 25, fontWeight: 700, lineHeight: '31px' }}>
                 {room.number}
               </Text>
-              <Text c="#64748b" mt={2} style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}>
-                {room.roomType} - {room.floor}
-              </Text>
+              <Group gap={7} mt={7} wrap="nowrap">
+                <RoomTypeBadge roomType={room.roomType} />
+                <FloorBadge floor={room.floor} />
+              </Group>
             </Box>
             <RoomBadge status={room.status}>{statusLabel(room.status)}</RoomBadge>
           </Group>
 
-          <Group gap={8}>
-            <Text c="#334155" style={{ fontSize: 12, fontWeight: 600, lineHeight: '16px' }}>
-              Guest
-            </Text>
-            <Text c="#64748b" style={{ fontSize: 12, fontWeight: 400, lineHeight: '16px' }}>
-              {room.guest ?? 'None'}
-            </Text>
-          </Group>
-
-          <SimpleGrid cols={2} spacing={8}>
-            <Box>
-              <Text c="#64748b" style={{ fontSize: 11, fontWeight: 500, lineHeight: '15px' }}>
-                Housekeeping
-              </Text>
-              <Text c="#182230" mt={2} lineClamp={1} style={{ fontSize: 12, fontWeight: 600, lineHeight: '16px' }}>
-                {room.housekeeping.status}
-              </Text>
-            </Box>
-            <Box>
-              <Text c="#64748b" style={{ fontSize: 11, fontWeight: 500, lineHeight: '15px' }}>
-                Maintenance
-              </Text>
-              <Text c="#182230" mt={2} lineClamp={1} style={{ fontSize: 12, fontWeight: 600, lineHeight: '16px' }}>
-                {room.maintenance.status}
-              </Text>
-            </Box>
-          </SimpleGrid>
-
-          <Group gap={6}>
-            {room.amenities.slice(0, 4).map((amenity) => (
-              <Badge
-                key={amenity}
-                radius={radius.full}
-                style={{
-                  background: '#f8fafc',
-                  border: '1px solid #e2e8f0',
-                  color: '#526383',
-                  fontSize: 10,
-                  fontWeight: 600,
-                  textTransform: 'none',
-                }}
-              >
-                {amenity}
-              </Badge>
-            ))}
-          </Group>
+          <Text c={room.guest ? '#182230' : '#64748b'} lineClamp={1} style={{ fontSize: 13, fontWeight: 600, lineHeight: '18px' }}>
+            {room.guest ?? 'Available'}
+          </Text>
 
           <Button
             fullWidth
@@ -813,7 +914,7 @@ function RoomCard({
             }}
             size="compact-sm"
             color="stayosBrand"
-            variant={room.status === 'ready' || room.status === 'reserved' ? 'filled' : 'light'}
+            variant={room.status === 'ready' || room.status === 'vacant' || room.status === 'reserved' ? 'filled' : 'light'}
             style={{ fontWeight: 600 }}
           >
             {primaryAction(room)}
@@ -1031,7 +1132,7 @@ function RoomAlerts({ rooms }: { rooms: Room[] }) {
 }
 
 function roomMatches(room: Room, filters: FiltersState) {
-  if (filters.status !== 'all' && room.status !== filters.status) return false;
+  if (filters.status !== 'all' && statusGroup(room.status) !== filters.status) return false;
   if (filters.floor !== 'all' && room.floor !== filters.floor) return false;
   if (filters.roomType !== 'all' && room.roomType !== filters.roomType) return false;
   if (filters.housekeeping !== 'all' && room.housekeeping.status.toLowerCase() !== filters.housekeeping) return false;
@@ -1070,6 +1171,43 @@ type FiltersState = {
   vip: boolean;
 };
 
+function FilterPills({
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  options: Array<{ label: string; value: string }>;
+  value: string;
+}) {
+  return (
+    <Box>
+      <Text c="#64748b" mb={6} style={{ fontSize: 11, fontWeight: 600, lineHeight: '15px' }}>
+        {label}
+      </Text>
+      <Group gap={6}>
+        {options.map((option) => (
+          <Button
+            key={option.value}
+            variant={value === option.value ? 'light' : 'subtle'}
+            color={value === option.value ? 'stayosBrand' : 'gray'}
+            size="compact-sm"
+            onClick={() => onChange(option.value)}
+            style={{
+              border: value === option.value ? '1px solid rgba(109, 93, 252, 0.22)' : '1px solid transparent',
+              fontWeight: 600,
+            }}
+          >
+            {option.label}
+          </Button>
+        ))}
+      </Group>
+    </Box>
+  );
+}
+
 export default function RoomsPage() {
   const backend = useBackendStatus();
   const allowMockFallback = process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
@@ -1093,17 +1231,21 @@ export default function RoomsPage() {
   const [drawerOpened, { open: openDrawer, close: closeDrawer }] = useDisclosure(false);
 
   const displayRooms = inventory.rooms;
-  const floors = useMemo(() => Array.from(new Set(displayRooms.map((room) => room.floor))), [displayRooms]);
-  const roomTypes = useMemo(() => Array.from(new Set(displayRooms.map((room) => room.roomType))), [displayRooms]);
+  const floors = useMemo(() => sortRoomLabels(Array.from(new Set(displayRooms.map((room) => room.floor)))), [displayRooms]);
+  const roomTypes = useMemo(() => sortRoomLabels(Array.from(new Set(displayRooms.map((room) => room.roomType)))), [displayRooms]);
   const filteredRooms = useMemo(
     () => displayRooms.filter((room) => roomMatches(room, filters)),
     [displayRooms, filters],
+  );
+  const groupedRooms = useMemo(
+    () => groupRoomsByFloor(filteredRooms, filters.floor === 'all' ? floors : [filters.floor]),
+    [filteredRooms, filters.floor, floors],
   );
 
   const summary = [
     {
       label: 'Ready',
-      value: displayRooms.filter((room) => room.status === 'ready').length,
+      value: displayRooms.filter((room) => statusGroup(room.status) === 'ready').length,
       detail: 'Rooms available now.',
       tone: '#16a34a',
       icon: <DoorOpen size={17} />,
@@ -1116,29 +1258,22 @@ export default function RoomsPage() {
       icon: <UserRound size={17} />,
     },
     {
-      label: 'Cleaning',
-      value: displayRooms.filter((room) => room.status === 'cleaning' || room.status === 'dirty').length,
-      detail: 'Housekeeping in progress.',
+      label: 'Needs Cleaning',
+      value: displayRooms.filter((room) => statusGroup(room.status) === 'needs-cleaning').length,
+      detail: 'Cleaning or inspection.',
       tone: '#d97706',
       icon: <Brush size={17} />,
     },
     {
-      label: 'Out of Order',
-      value: displayRooms.filter((room) => room.status === 'out-of-order' || room.status === 'out-of-service').length,
-      detail: 'Unavailable rooms.',
+      label: 'Unavailable',
+      value: displayRooms.filter((room) => statusGroup(room.status) === 'unavailable').length,
+      detail: 'Maintenance or blocked.',
       tone: '#dc2626',
       icon: <AlertCircle size={17} />,
     },
     {
-      label: 'Maintenance',
-      value: displayRooms.filter((room) => room.status === 'maintenance').length,
-      detail: 'Engineering work.',
-      tone: '#f97316',
-      icon: <Wrench size={17} />,
-    },
-    {
       label: 'Vacant',
-      value: displayRooms.filter((room) => room.status === 'vacant' || room.status === 'ready').length,
+      value: displayRooms.filter((room) => statusGroup(room.status) === 'vacant').length,
       detail: 'Currently empty rooms.',
       tone: '#64748b',
       icon: <BedDouble size={17} />,
@@ -1200,7 +1335,7 @@ export default function RoomsPage() {
           Manage live room operations across the property.
         </Text>
         <Text mt={spacing[2]} c="#334155" style={{ fontSize: 13, fontWeight: 500, lineHeight: '18px' }}>
-          {displayRooms.length} Rooms - {summary[1].value} Occupied - {summary[0].value} Ready - {summary[2].value} Cleaning
+          {displayRooms.length} Rooms - {summary[1].value} Occupied - {summary[0].value} Ready - {summary[2].value} Need Cleaning
         </Text>
       </Box>
       <Group gap={8}>
@@ -1290,7 +1425,7 @@ export default function RoomsPage() {
         <Group gap={spacing[2]} align="center">
           <TextInput
             leftSection={<Search size={15} />}
-            placeholder="Search room number, guest, booking ID or room type..."
+            placeholder="Search room number, type, floor, guest or booking ID..."
             value={filters.query}
             onChange={(event) => setFilters((current) => ({ ...current, query: event.currentTarget.value }))}
             style={{ flex: 1, minWidth: 260 }}
@@ -1308,27 +1443,14 @@ export default function RoomsPage() {
             w={{ base: 140, md: 160 }}
             data={[
               { label: 'All Statuses', value: 'all' },
-              ...(['ready', 'occupied', 'cleaning', 'dirty', 'inspection', 'maintenance', 'out-of-order', 'out-of-service', 'reserved', 'vacant'] as RoomStatus[]).map((status) => ({
-                label: statusLabel(status),
-                value: status,
-              })),
+              { label: 'Ready', value: 'ready' },
+              { label: 'Occupied', value: 'occupied' },
+              { label: 'Needs Cleaning', value: 'needs-cleaning' },
+              { label: 'Unavailable', value: 'unavailable' },
+              { label: 'Vacant', value: 'vacant' },
             ]}
             value={filters.status}
             onChange={(value) => setFilters((current) => ({ ...current, status: value ?? 'all' }))}
-            styles={{ input: { borderColor: '#dbe3ef', borderRadius: 12, minHeight: 38 } }}
-          />
-          <Select
-            w={{ base: 140, md: 160 }}
-            data={[{ label: 'All Floors', value: 'all' }, ...floors.map((floor) => ({ label: floor, value: floor }))]}
-            value={filters.floor}
-            onChange={(value) => setFilters((current) => ({ ...current, floor: value ?? 'all' }))}
-            styles={{ input: { borderColor: '#dbe3ef', borderRadius: 12, minHeight: 38 } }}
-          />
-          <Select
-            w={{ base: 150, md: 180 }}
-            data={[{ label: 'All Room Types', value: 'all' }, ...roomTypes.map((roomType) => ({ label: roomType, value: roomType }))]}
-            value={filters.roomType}
-            onChange={(value) => setFilters((current) => ({ ...current, roomType: value ?? 'all' }))}
             styles={{ input: { borderColor: '#dbe3ef', borderRadius: 12, minHeight: 38 } }}
           />
           <Button
@@ -1364,6 +1486,29 @@ export default function RoomsPage() {
       <SimpleGrid cols={{ base: 1, lg: 12 }} spacing={spacing[3]}>
         <Box style={{ gridColumn: 'span 9' }}>
           <Stack gap={spacing[3]}>
+            <Card radius={radius.lg} p={12} style={cardStyle}>
+              <Stack gap={spacing[3]}>
+                <FilterPills
+                  label="Floors"
+                  value={filters.floor}
+                  onChange={(value) => setFilters((current) => ({ ...current, floor: value }))}
+                  options={[
+                    { label: 'All Floors', value: 'all' },
+                    ...floors.map((floor) => ({ label: floor, value: floor })),
+                  ]}
+                />
+                <FilterPills
+                  label="Room Types"
+                  value={filters.roomType}
+                  onChange={(value) => setFilters((current) => ({ ...current, roomType: value }))}
+                  options={[
+                    { label: 'All Types', value: 'all' },
+                    ...roomTypes.map((roomType) => ({ label: roomType, value: roomType })),
+                  ]}
+                />
+              </Stack>
+            </Card>
+
             <Group justify="space-between" align="center">
               <Box>
                 <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 700, lineHeight: '24px' }}>
@@ -1377,17 +1522,33 @@ export default function RoomsPage() {
             </Group>
 
             {filteredRooms.length > 0 ? (
-              <SimpleGrid cols={{ base: 1, sm: 2, xl: 3 }} spacing={spacing[3]}>
-                {filteredRooms.map((room) => (
-                  <RoomCard
-                    key={`${room.floor}-${room.number}`}
-                    loadingAction={loadingAction}
-                    onAction={handleRoomAction}
-                    onOpen={openRoom}
-                    room={room}
-                  />
+              <Stack gap={spacing[4]}>
+                {groupedRooms.map((group) => (
+                  <Stack key={group.floor} gap={spacing[3]}>
+                    {filters.floor === 'all' ? (
+                      <Group justify="space-between" align="center">
+                        <Title order={3} c="#182230" style={{ fontSize: 15, fontWeight: 700, lineHeight: '21px' }}>
+                          {group.floor}
+                        </Title>
+                        <Text c="#64748b" style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}>
+                          {group.rooms.length} rooms
+                        </Text>
+                      </Group>
+                    ) : null}
+                    <SimpleGrid cols={{ base: 1, sm: 2, xl: 3 }} spacing={spacing[3]}>
+                      {group.rooms.map((room) => (
+                        <RoomCard
+                          key={`${room.floor}-${room.number}`}
+                          loadingAction={loadingAction}
+                          onAction={handleRoomAction}
+                          onOpen={openRoom}
+                          room={room}
+                        />
+                      ))}
+                    </SimpleGrid>
+                  </Stack>
                 ))}
-              </SimpleGrid>
+              </Stack>
             ) : (
               <Card p={spacing[8]} ta="center" radius={radius.lg} style={cardStyle}>
                 <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={44} mx="auto">
