@@ -30,10 +30,10 @@ import {
   ChevronsLeft,
   ChevronsRight,
   CheckCircle2,
+  KeyRound,
   LogOut,
   Menu as MenuIcon,
   MessageSquare,
-  MoreVertical,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
@@ -527,44 +527,99 @@ function NavigationList({ collapsed = false }: { collapsed?: boolean }) {
 }
 
 function UserProfile({ collapsed = false }: { collapsed?: boolean }) {
+  const [menuOpened, setMenuOpened] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+  const rowActive = menuOpened || isHovered;
+
   return (
-    <Stack style={{ gap: collapsed ? 10 : 12 }}>
-      <Group align="center" style={{ gap: collapsed ? 0 : 10 }}>
-        <Avatar color="stayosBrand" radius="xl" size={34}>
-          PM
-        </Avatar>
-        {!collapsed ? (
-          <Box style={{ minWidth: 0 }}>
-            <Text
-              c="#101828"
-              lineClamp={1}
-              style={{ fontSize: 13, fontWeight: 700, lineHeight: '18px' }}
-            >
-              {userName}
-            </Text>
-            <Text
-              c="#667085"
-              lineClamp={1}
-              style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}
-            >
-              Receptionist
-            </Text>
-          </Box>
-        ) : null}
-        {!collapsed ? (
-          <Menu width={180} position="top-start" shadow="md">
-            <Menu.Target>
-              <ActionIcon variant="subtle" size={34} aria-label="Profile menu">
-                <MoreVertical size={18} />
-              </ActionIcon>
-            </Menu.Target>
-            <Menu.Dropdown>
-              <Menu.Item leftSection={<LogOut size={16} />}>Logout</Menu.Item>
-            </Menu.Dropdown>
-          </Menu>
-        ) : null}
-      </Group>
-    </Stack>
+    <Box
+      style={{
+        flex: '0 0 auto',
+        position: 'sticky',
+        bottom: 0,
+        zIndex: 2,
+        paddingTop: collapsed ? 2 : 4,
+        background: '#fbfcff',
+      }}
+    >
+      <Menu
+        width={collapsed ? 164 : 190}
+        position="top-start"
+        offset={8}
+        opened={menuOpened}
+        onChange={setMenuOpened}
+        shadow="xs"
+        withinPortal
+      >
+        <Menu.Target>
+          <UnstyledButton
+            type="button"
+            aria-label={`Open profile menu for ${userName}`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpened}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              width: '100%',
+              minHeight: collapsed ? 46 : 52,
+              justifyContent: collapsed ? 'center' : 'flex-start',
+              gap: collapsed ? 0 : 10,
+              padding: collapsed ? 6 : '8px 12px',
+              border: '1px solid transparent',
+              borderRadius: 14,
+              background: rowActive ? '#f3f6fb' : 'transparent',
+              boxShadow: isFocused ? '0 0 0 3px rgba(124, 58, 237, 0.16)' : 'none',
+              cursor: 'pointer',
+              outline: 'none',
+              textAlign: 'left',
+              transition:
+                'background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease',
+            }}
+          >
+            <Avatar color="stayosBrand" radius="xl" size={34}>
+              PM
+            </Avatar>
+            {!collapsed ? (
+              <Box style={{ minWidth: 0, flex: 1 }}>
+                <Text
+                  c="#101828"
+                  lineClamp={1}
+                  style={{ fontSize: 13, fontWeight: 700, lineHeight: '18px' }}
+                >
+                  {userName}
+                </Text>
+                <Text
+                  c="#667085"
+                  lineClamp={1}
+                  style={{ marginTop: 1, fontSize: 12, fontWeight: 500, lineHeight: '16px' }}
+                >
+                  Front Desk
+                </Text>
+              </Box>
+            ) : null}
+          </UnstyledButton>
+        </Menu.Target>
+        <Menu.Dropdown
+          aria-label="Profile actions"
+          style={{
+            borderColor: '#e6eaf2',
+            borderRadius: 12,
+            boxShadow: '0 8px 20px rgba(15, 23, 42, 0.08)',
+          }}
+        >
+          <Menu.Item leftSection={<KeyRound size={16} />}>Change Password</Menu.Item>
+          <Menu.Divider />
+          <Menu.Item color="red" leftSection={<LogOut size={16} />}>
+            Log Out
+          </Menu.Item>
+        </Menu.Dropdown>
+      </Menu>
+    </Box>
   );
 }
 
@@ -725,8 +780,13 @@ function Sidebar({
   propertyName: string;
 }) {
   return (
-    <Box style={{ position: 'relative', minHeight: '100%' }}>
-      <Stack h="100%" gap={collapsed ? spacing[4] : 18} p={collapsed ? spacing[3] : '18px 16px'}>
+    <Box style={{ position: 'relative', height: '100%', minHeight: 0 }}>
+      <Stack
+        h="100%"
+        gap={collapsed ? spacing[4] : 18}
+        p={collapsed ? '12px 12px 8px' : '18px 16px 10px'}
+        style={{ minHeight: 0 }}
+      >
         <Group justify={collapsed ? 'center' : 'space-between'} align="center" wrap="nowrap">
           <BrandMark collapsed={collapsed} />
           {!collapsed ? null : null}
