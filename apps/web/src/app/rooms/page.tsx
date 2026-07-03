@@ -6,8 +6,10 @@ import {
   Box,
   Button,
   Card,
+  Checkbox,
   Drawer,
   Group,
+  MultiSelect,
   Paper,
   ScrollArea,
   Select,
@@ -18,7 +20,6 @@ import {
   ThemeIcon,
   Timeline,
   Title,
-  UnstyledButton,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
@@ -27,13 +28,10 @@ import {
   Brush,
   CheckCircle2,
   DoorOpen,
-  Download,
   Hotel,
   MapPin,
-  Plus,
   Search,
   Sparkles,
-  Upload,
   UserRound,
 } from 'lucide-react';
 import type { CSSProperties, ReactNode } from 'react';
@@ -765,9 +763,9 @@ function FloorBadge({ floor }: { floor: string }) {
         fontSize: 11,
         fontWeight: 600,
         gap: 6,
-        height: 26,
-        lineHeight: '15px',
-        paddingInline: 10,
+        lineHeight: '16px',
+        minHeight: 30,
+        padding: '6px 11px',
       }}
     >
       <MapPin aria-hidden size={13} strokeWidth={2.2} />
@@ -866,62 +864,71 @@ function RoomCard({
   const tone = statusTone(room.status);
 
   return (
-    <UnstyledButton onClick={() => onOpen(room)} style={{ display: 'block', height: '100%', width: '100%' }}>
-      <Paper
-        radius={radius.lg}
-        p={13}
-        style={{
-          ...cardStyle,
-          borderLeft: `3px solid ${tone.color}`,
-          cursor: 'pointer',
-          height: '100%',
-          transition: 'border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
-        }}
-        onMouseEnter={(event) => {
-          event.currentTarget.style.boxShadow = '0 12px 24px rgba(15, 23, 42, 0.055)';
-          event.currentTarget.style.transform = 'translateY(-1px)';
-        }}
-        onMouseLeave={(event) => {
-          event.currentTarget.style.boxShadow = cardStyle.boxShadow as string;
-          event.currentTarget.style.transform = 'translateY(0)';
-        }}
-      >
-        <Stack gap={10}>
-          <Group justify="space-between" align="flex-start" wrap="nowrap">
-            <Box>
-              <Text c="#101828" style={{ fontSize: 25, fontWeight: 700, lineHeight: '31px' }}>
-                {room.number}
-              </Text>
-              <Group gap={7} mt={7} wrap="nowrap">
-                <RoomTypeBadge roomType={room.roomType} />
-                <FloorBadge floor={room.floor} />
-              </Group>
-            </Box>
-            <RoomBadge status={room.status}>{statusLabel(room.status)}</RoomBadge>
-          </Group>
+    <Paper
+      role="button"
+      tabIndex={0}
+      aria-label={`Open room ${room.number} details`}
+      radius={radius.lg}
+      p={13}
+      style={{
+        ...cardStyle,
+        borderLeft: `3px solid ${tone.color}`,
+        cursor: 'pointer',
+        height: '100%',
+        transition: 'border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
+      }}
+      onClick={() => onOpen(room)}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onOpen(room);
+        }
+      }}
+      onMouseEnter={(event) => {
+        event.currentTarget.style.boxShadow = '0 12px 24px rgba(15, 23, 42, 0.055)';
+        event.currentTarget.style.transform = 'translateY(-1px)';
+      }}
+      onMouseLeave={(event) => {
+        event.currentTarget.style.boxShadow = cardStyle.boxShadow as string;
+        event.currentTarget.style.transform = 'translateY(0)';
+      }}
+    >
+      <Stack gap={10}>
+        <Group justify="space-between" align="flex-start" wrap="nowrap">
+          <Box>
+            <Text c="#101828" style={{ fontSize: 25, fontWeight: 700, lineHeight: '31px' }}>
+              {room.number}
+            </Text>
+            <Group gap={7} mt={7} wrap="nowrap">
+              <RoomTypeBadge roomType={room.roomType} />
+              <FloorBadge floor={room.floor} />
+            </Group>
+          </Box>
+          <RoomBadge status={room.status}>{statusLabel(room.status)}</RoomBadge>
+        </Group>
 
-          <Text c={room.guest ? '#182230' : '#64748b'} lineClamp={1} style={{ fontSize: 13, fontWeight: 600, lineHeight: '18px' }}>
-            {room.guest ?? 'Available'}
-          </Text>
+        <Text c={room.guest ? '#182230' : '#64748b'} lineClamp={1} style={{ fontSize: 13, fontWeight: 600, lineHeight: '18px' }}>
+          {room.guest ?? 'Available'}
+        </Text>
 
-          <Button
-            fullWidth
-            loading={action ? loadingAction === roomActionKey(room, action) : false}
-            onClick={(event) => {
-              event.stopPropagation();
-              if (action) onAction(room, action);
-              else onOpen(room);
-            }}
-            size="compact-sm"
-            color="stayosBrand"
-            variant={room.status === 'ready' || room.status === 'vacant' || room.status === 'reserved' ? 'filled' : 'light'}
-            style={{ fontWeight: 600 }}
-          >
-            {primaryAction(room)}
-          </Button>
-        </Stack>
-      </Paper>
-    </UnstyledButton>
+        <Button
+          fullWidth
+          loading={action ? loadingAction === roomActionKey(room, action) : false}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (action) onAction(room, action);
+            else onOpen(room);
+          }}
+          size="compact-sm"
+          color="stayosBrand"
+          variant={room.status === 'ready' || room.status === 'vacant' || room.status === 'reserved' ? 'filled' : 'light'}
+          style={{ fontWeight: 600 }}
+        >
+          {primaryAction(room)}
+        </Button>
+      </Stack>
+    </Paper>
   );
 }
 
@@ -1241,6 +1248,15 @@ export default function RoomsPage() {
     () => groupRoomsByFloor(filteredRooms, filters.floor === 'all' ? floors : [filters.floor]),
     [filteredRooms, filters.floor, floors],
   );
+  const selectedRoomAttributes = useMemo(
+    () =>
+      [
+        filters.vip ? 'vip' : undefined,
+        filters.accessible ? 'accessible' : undefined,
+        filters.connecting ? 'connecting' : undefined,
+      ].filter(Boolean) as string[],
+    [filters.accessible, filters.connecting, filters.vip],
+  );
 
   const summary = [
     {
@@ -1338,17 +1354,6 @@ export default function RoomsPage() {
           {displayRooms.length} Rooms - {summary[1].value} Occupied - {summary[0].value} Ready - {summary[2].value} Need Cleaning
         </Text>
       </Box>
-      <Group gap={8}>
-        <Button variant="light" color="gray" leftSection={<Upload size={15} />} style={{ fontWeight: 600 }}>
-          Import
-        </Button>
-        <Button variant="light" color="gray" leftSection={<Download size={15} />} style={{ fontWeight: 600 }}>
-          Export
-        </Button>
-        <Button color="stayosBrand" leftSection={<Plus size={16} />} style={{ fontWeight: 600 }}>
-          Add Room
-        </Button>
-      </Group>
     </Group>
   );
 
@@ -1453,33 +1458,46 @@ export default function RoomsPage() {
             onChange={(value) => setFilters((current) => ({ ...current, status: value ?? 'all' }))}
             styles={{ input: { borderColor: '#dbe3ef', borderRadius: 12, minHeight: 38 } }}
           />
-          <Button
-            variant={filters.vip ? 'light' : 'subtle'}
-            color="stayosBrand"
-            size="compact-md"
-            onClick={() => setFilters((current) => ({ ...current, vip: !current.vip }))}
-            style={{ fontWeight: 600, height: 38 }}
-          >
-            VIP
-          </Button>
-          <Button
-            variant={filters.accessible ? 'light' : 'subtle'}
-            color="gray"
-            size="compact-md"
-            onClick={() => setFilters((current) => ({ ...current, accessible: !current.accessible }))}
-            style={{ fontWeight: 600, height: 38 }}
-          >
-            Accessible
-          </Button>
-          <Button
-            variant={filters.connecting ? 'light' : 'subtle'}
-            color="gray"
-            size="compact-md"
-            onClick={() => setFilters((current) => ({ ...current, connecting: !current.connecting }))}
-            style={{ fontWeight: 600, height: 38 }}
-          >
-            Connecting
-          </Button>
+          <MultiSelect
+            w={{ base: 170, md: 190 }}
+            data={[
+              { label: 'VIP', value: 'vip' },
+              { label: 'Accessible', value: 'accessible' },
+              { label: 'Connecting', value: 'connecting' },
+            ]}
+            value={selectedRoomAttributes}
+            onChange={(value) =>
+              setFilters((current) => ({
+                ...current,
+                accessible: value.includes('accessible'),
+                connecting: value.includes('connecting'),
+                vip: value.includes('vip'),
+              }))
+            }
+            placeholder="Room Attributes"
+            renderOption={({ option, checked }) => (
+              <Group gap={8} wrap="nowrap">
+                <Checkbox checked={checked} readOnly size="xs" color="stayosBrand" aria-hidden />
+                <Text c="#334155" style={{ fontSize: 13, fontWeight: 500, lineHeight: '18px' }}>
+                  {option.label}
+                </Text>
+              </Group>
+            )}
+            renderPill={({ value }) =>
+              value === selectedRoomAttributes[0] ? (
+                <Box component="span" style={{ color: '#334155', fontSize: 13, fontWeight: 500, lineHeight: '18px' }}>
+                  {selectedRoomAttributes.length} selected
+                </Box>
+              ) : null
+            }
+            comboboxProps={{ shadow: 'md' }}
+            withCheckIcon={false}
+            styles={{
+              input: { borderColor: '#dbe3ef', borderRadius: 12, minHeight: 38 },
+              pill: { background: 'transparent', padding: 0 },
+              pillsList: { minHeight: 36 },
+            }}
+          />
         </Group>
       </Card>
 
