@@ -13,11 +13,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     },
   });
 
-  const payload = (await response.json().catch(() => undefined)) as ApiResponse<T> | { message?: unknown } | undefined;
+  const payload = (await response.json().catch(() => undefined)) as
+    ApiResponse<T> | { message?: unknown } | undefined;
 
   if (!response.ok) {
     const message =
-      payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string'
+      payload &&
+      typeof payload === 'object' &&
+      'message' in payload &&
+      typeof payload.message === 'string'
         ? payload.message
         : `Reservation API request failed: ${response.status} ${response.statusText}`;
     throw new Error(message);
@@ -47,11 +51,21 @@ export function getPropertyReservations(propertyId: string, signal?: AbortSignal
   return request<ReservationDto[]>(`/properties/${propertyId}/reservations`, { signal });
 }
 
-export function getPropertyReservation(propertyId: string, reservationId: string, signal?: AbortSignal) {
-  return request<ReservationDto>(`/properties/${propertyId}/reservations/${reservationId}`, { signal });
+export function getPropertyReservation(
+  propertyId: string,
+  reservationId: string,
+  signal?: AbortSignal,
+) {
+  return request<ReservationDto>(`/properties/${propertyId}/reservations/${reservationId}`, {
+    signal,
+  });
 }
 
-export function createPropertyReservation(propertyId: string, payload: Record<string, unknown>, signal?: AbortSignal) {
+export function createPropertyReservation(
+  propertyId: string,
+  payload: Record<string, unknown>,
+  signal?: AbortSignal,
+) {
   return request<ReservationDto>(`/properties/${propertyId}/reservations`, {
     body: JSON.stringify(payload),
     method: 'POST',
@@ -70,4 +84,34 @@ export function updatePropertyReservation(
     method: 'PATCH',
     signal,
   });
+}
+
+export type ReservationWorkflowResponseDto = {
+  reservation: {
+    id: string;
+    reservationCode: string;
+    status: string;
+    roomId?: string | null;
+  };
+  room: {
+    id: string;
+    roomNumber: string;
+    operationalStatus: string;
+  };
+};
+
+export function assignRoomToReservation(
+  propertyId: string,
+  reservationId: string,
+  roomId: string,
+  signal?: AbortSignal,
+) {
+  return request<ReservationWorkflowResponseDto>(
+    `/properties/${propertyId}/reservations/${reservationId}/assign-room`,
+    {
+      body: JSON.stringify({ roomId }),
+      method: 'PATCH',
+      signal,
+    },
+  );
 }
