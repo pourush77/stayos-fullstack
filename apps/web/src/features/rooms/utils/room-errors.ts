@@ -48,3 +48,34 @@ export function friendlyRemoveAssignmentError(error: unknown) {
 
   return 'Unable to remove this room assignment. Please try again.';
 }
+
+export function friendlyCheckInError(error: unknown) {
+  const raw = error instanceof Error ? error.message : '';
+  const normalized = raw.toUpperCase();
+
+  if (normalized.includes('ALREADY') || normalized.includes('CHECKED_IN')) {
+    return 'This guest is already checked in.';
+  }
+  if (normalized.includes('NOT_ASSIGNED') || normalized.includes('ROOM')) {
+    return 'Assign a room before checking in this guest.';
+  }
+  if (normalized.includes('CANCEL')) {
+    return 'This booking cannot be checked in.';
+  }
+
+  return 'Unable to check in this guest. Please try again.';
+}
+
+export function friendlyCheckOutError(error: unknown) {
+  const raw = error instanceof Error ? error.message : '';
+  const normalized = raw.toUpperCase();
+
+  if (normalized.includes('NOT_CHECKED_IN') || normalized.includes('NOT CHECKED')) {
+    return 'Guest has not checked in yet.';
+  }
+  if (normalized.includes('ALREADY') || normalized.includes('CHECKED_OUT')) {
+    return 'This guest is already checked out.';
+  }
+
+  return 'Unable to check out this guest. Please try again.';
+}

@@ -27,6 +27,8 @@ export {
 } from './room-helpers';
 export {
   friendlyAssignmentError,
+  friendlyCheckInError,
+  friendlyCheckOutError,
   friendlyRemoveAssignmentError,
   friendlyRoomChangeError,
 } from './room-errors';

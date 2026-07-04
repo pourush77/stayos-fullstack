@@ -26,7 +26,9 @@ export type Room = {
   bedType: string;
   bookingId?: string;
   capacity: string;
+  checkInTime?: string;
   connecting: boolean;
+  departureDate?: string;
   floor: string;
   guest?: string;
   guestCount?: number;
@@ -45,6 +47,7 @@ export type Room = {
     status: string;
   };
   number: string;
+  paymentStatus?: string;
   reservation: string;
   reservationArrivalDate?: string;
   reservationDepartureDate?: string;

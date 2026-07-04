@@ -56,6 +56,14 @@ export type OperationsRoomBoardItemDto = {
     guestName: string;
     arrivalDate: string;
     departureDate: string;
+    checkInTime?: string;
+    checkedInAt?: string;
+    checkOutTime?: string;
+    checkedOutAt?: string;
+    adults?: number;
+    children?: number;
+    guestCount?: number;
+    specialRequests?: string[];
     status: string;
     paymentStatus?: string;
   } | null;

@@ -129,3 +129,27 @@ export function unassignRoomFromReservation(
     },
   );
 }
+
+export function checkInReservation(propertyId: string, reservationId: string, signal?: AbortSignal) {
+  return request<ReservationWorkflowResponseDto>(
+    `/properties/${propertyId}/reservations/${reservationId}/check-in`,
+    {
+      method: 'PATCH',
+      signal,
+    },
+  );
+}
+
+export function checkOutReservation(
+  propertyId: string,
+  reservationId: string,
+  signal?: AbortSignal,
+) {
+  return request<ReservationWorkflowResponseDto>(
+    `/properties/${propertyId}/reservations/${reservationId}/check-out`,
+    {
+      method: 'PATCH',
+      signal,
+    },
+  );
+}

@@ -10,7 +10,7 @@ function isPreCheckInReservation(status: string | undefined) {
 
 export function mapOperationsRoom(dto: OperationsRoomBoardItemDto): Room {
   const roomStatus = dto.uiStatus ?? dto.operationalStatus;
-  const mappedStatus = mapOperationsStatus(roomStatus);
+  const mappedStatus = mapOperationsStatus(roomStatus ?? dto.currentStay?.status);
   const floorLabel =
     dto.floor.name ??
     dto.floor.code ??
@@ -24,7 +24,9 @@ export function mapOperationsRoom(dto: OperationsRoomBoardItemDto): Room {
     bookingId: dto.currentStay?.reservationCode,
     reservationId: dto.currentStay?.reservationId,
     capacity: '2 guests',
+    checkInTime: dto.currentStay?.checkedInAt ?? dto.currentStay?.checkInTime,
     connecting: false,
+    departureDate: dto.currentStay?.departureDate,
     floor: floorLabel,
     guest: dto.currentStay?.guestName,
     housekeeping: {
@@ -42,6 +44,7 @@ export function mapOperationsRoom(dto: OperationsRoomBoardItemDto): Room {
       status: mappedStatus === 'maintenance' ? 'Open' : 'Clear',
     },
     number: dto.roomNumber,
+    paymentStatus: dto.currentStay?.paymentStatus,
     reservation: dto.currentStay?.reservationCode ?? 'Available',
     reservationArrivalDate: dto.currentStay?.arrivalDate,
     reservationDepartureDate: dto.currentStay?.departureDate,

@@ -54,7 +54,12 @@ import {
   useBackendStatus,
 } from '@stayos/ui';
 import { getProperties } from '../../lib/inventory-api';
-import { assignRoomToReservation, unassignRoomFromReservation } from '../../lib/reservation-api';
+import {
+  assignRoomToReservation,
+  checkInReservation,
+  checkOutReservation,
+  unassignRoomFromReservation,
+} from '../../lib/reservation-api';
 import { type Reservation, useReservations } from '../../lib/reservation-hooks';
 
 import {
@@ -67,7 +72,7 @@ import {
   type OperationsAvailableRoomDto,
 } from '../../lib/operations-api';
 import styles from './RoomsPage.module.css';
-import { DetailTile } from './components';
+import { CheckInModal, CheckOutDialog, DetailTile, StayDrawer } from './components';
 import { cardStyle, defaultRoomFilters, emptyInventory, mockRooms } from './constants';
 import { useRoomFilters } from './hooks';
 import type { FiltersState, InventoryState, Room, RoomAction, RoomStatus } from './types';
@@ -76,6 +81,8 @@ import {
   assignmentIssue,
   compactFloorLabel,
   friendlyAssignmentError,
+  friendlyCheckInError,
+  friendlyCheckOutError,
   friendlyRemoveAssignmentError,
   friendlyRoomChangeError,
   getPropertyId,
@@ -508,13 +515,17 @@ function RoomCard({
   loadingAction,
   onAction,
   onAssignGuest,
+  onCheckIn,
   onOpen,
+  onOpenStay,
   room,
 }: {
   loadingAction?: string;
   onAction: (room: Room, action: RoomAction) => void;
   onAssignGuest: (room: Room) => void;
+  onCheckIn: (room: Room) => void;
   onOpen: (room: Room) => void;
+  onOpenStay: (room: Room) => void;
   room: Room;
 }) {
   const action = actionForPrimary(room);
@@ -674,6 +685,16 @@ function RoomCard({
           </Text>
         ) : null}
 
+        {isOccupied ? (
+          <Text
+            c="#1e3a8a"
+            lineClamp={1}
+            style={{ fontSize: 12, fontWeight: 650, lineHeight: '16px' }}
+          >
+            {room.checkInTime ? `Checked in ${room.checkInTime}` : 'Checked in Today'}
+          </Text>
+        ) : null}
+
         <Button
           fullWidth
           loading={action ? loadingAction === roomActionKey(room, action) : false}
@@ -681,7 +702,12 @@ function RoomCard({
             event.stopPropagation();
 
             if (isAssignedArrival) {
-              onOpen(room);
+              onCheckIn(room);
+              return;
+            }
+
+            if (isOccupied) {
+              onOpenStay(room);
               return;
             }
 
@@ -843,6 +869,12 @@ function OperationRow({
       <ChevronRight size={15} color="#94a3b8" />
     </UnstyledButton>
   );
+}
+
+function formatActivityTime(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
 
 function AssignGuestModal({
@@ -1273,17 +1305,23 @@ function ChangeRoomModal({
 }
 
 function RoomDrawer({
+  activityItems,
   onAction,
   onAssignGuest,
+  onCheckIn,
   onChangeRoom,
+  onOpenStay,
   onRemoveAssignment,
   onClose,
   opened,
   room,
 }: {
+  activityItems: OperationsActivityItemDto[];
   onAction: (room: Room, action: RoomAction) => void;
   onAssignGuest: (room: Room) => void;
+  onCheckIn: (room: Room) => void;
   onChangeRoom: (room: Room) => void;
+  onOpenStay: (room: Room) => void;
   onRemoveAssignment: (room: Room) => void;
   onClose: () => void;
   opened: boolean;
@@ -1306,10 +1344,36 @@ function RoomDrawer({
   const contextBanner = getContextBanner(room);
   const isReady = isRoomReadyForAssignment(room);
   const isAssignedArrival = hasAssignedBooking(room) && isReady;
+  const activityTimeline = activityItems
+    .filter((item) => {
+      const entityId = item.entity?.id;
+      return (
+        entityId === room.id ||
+        entityId === room.reservationId ||
+        item.description.includes(`Room ${room.number}`) ||
+        item.description.includes(room.reservation)
+      );
+    })
+    .slice(0, 6)
+    .map((item) => ({
+      label: item.title,
+      time: formatActivityTime(item.timestamp),
+    }));
+  const timeline = activityTimeline.length > 0 ? activityTimeline : room.timeline;
 
   const handlePrimaryClick = () => {
     if (isReady && !isAssignedArrival) {
       onAssignGuest(room);
+      return;
+    }
+
+    if (isAssignedArrival) {
+      onCheckIn(room);
+      return;
+    }
+
+    if (room.status === 'occupied') {
+      onOpenStay(room);
       return;
     }
 
@@ -1415,8 +1479,16 @@ function RoomDrawer({
               {/* Occupied Room */}
               {room.status === 'occupied' ? (
                 <>
-                  <OperationRow icon={<DoorOpen size={16} />} label="Move Room" />
-                  <OperationRow icon={<CheckCircle2 size={16} />} label="Check Out" />
+                  <OperationRow
+                    icon={<DoorOpen size={16} />}
+                    label="Open Stay"
+                    onClick={() => onOpenStay(room)}
+                  />
+                  <OperationRow
+                    icon={<CheckCircle2 size={16} />}
+                    label="Check Out"
+                    onClick={() => onOpenStay(room)}
+                  />
                 </>
               ) : null}
 
@@ -1476,11 +1548,11 @@ function RoomDrawer({
             </Stack>
           </DrawerSection>
 
-          {room.timeline.length > 0 ? (
+          {timeline.length > 0 ? (
             <DrawerSection title="Recent Activity">
-              <Timeline active={room.timeline.length - 1} bulletSize={18} lineWidth={1}>
-                {room.timeline.map((item) => (
-                  <Timeline.Item key={`${item.time}-${item.label}`} title={item.time}>
+              <Timeline active={timeline.length - 1} bulletSize={18} lineWidth={1}>
+                {timeline.map((item, index) => (
+                  <Timeline.Item key={`${item.time}-${item.label}-${index}`} title={item.time}>
                     <Text c="#334155" style={{ fontSize: 13, fontWeight: 450, lineHeight: '19px' }}>
                       {item.label}
                     </Text>
@@ -1701,6 +1773,15 @@ export default function RoomsPage() {
   ] = useDisclosure(false);
   const [removeAssignmentRoom, setRemoveAssignmentRoom] = useState<Room | null>(null);
   const [isRemovingAssignment, setIsRemovingAssignment] = useState(false);
+  const [checkInOpened, { open: openCheckInModal, close: closeCheckInModal }] =
+    useDisclosure(false);
+  const [checkInRoom, setCheckInRoom] = useState<Room | null>(null);
+  const [isCheckingIn, setIsCheckingIn] = useState(false);
+  const [stayOpened, { open: openStayDrawer, close: closeStayDrawer }] = useDisclosure(false);
+  const [stayRoom, setStayRoom] = useState<Room | null>(null);
+  const [checkOutOpened, { open: openCheckOutDialog, close: closeCheckOutDialog }] =
+    useDisclosure(false);
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -1788,11 +1869,59 @@ export default function RoomsPage() {
   };
 
   const openChangeRoom = (room: Room) => {
+    if (room.status === 'occupied') {
+      showToast({
+        color: 'yellow',
+        title: 'Room change unavailable',
+        message: 'This room assignment cannot be changed after check-in.',
+      });
+      return;
+    }
+
     setChangeRoomSource(room);
     openChangeRoomModal();
   };
 
+  const reservationForRoom = useCallback(
+    (room: Room | null) =>
+      reservationsState.reservations.find(
+        (reservation) =>
+          reservation.backendId === room?.reservationId ||
+          reservation.backendId === room?.bookingId ||
+          reservation.id === room?.bookingId,
+      ),
+    [reservationsState.reservations],
+  );
+
+  const openCheckIn = (room: Room) => {
+    if (room.status === 'occupied') {
+      showToast({
+        color: 'yellow',
+        title: 'Already checked in',
+        message: 'This guest is already checked in.',
+      });
+      return;
+    }
+
+    setCheckInRoom(room);
+    openCheckInModal();
+  };
+
+  const openStay = (room: Room) => {
+    setStayRoom(room);
+    openStayDrawer();
+  };
+
   const openRemoveAssignment = (room: Room) => {
+    if (room.status === 'occupied') {
+      showToast({
+        color: 'yellow',
+        title: 'Assignment locked',
+        message: 'This room assignment cannot be changed after check-in.',
+      });
+      return;
+    }
+
     setRemoveAssignmentRoom(room);
     openRemoveAssignmentModal();
   };
@@ -1902,6 +2031,111 @@ export default function RoomsPage() {
       });
     } finally {
       setIsChangingRoom(false);
+    }
+  };
+
+  const handleCheckIn = async () => {
+    const reservation = reservationForRoom(checkInRoom);
+
+    if (
+      !inventory.propertyId ||
+      !checkInRoom?.reservationId ||
+      inventory.isFallback
+    ) {
+      showToast({
+        color: 'red',
+        title: 'Check in failed',
+        message: 'Unable to check in this guest. Please try again.',
+      });
+      return;
+    }
+
+    if (checkInRoom.status === 'occupied' || reservation?.status === 'Checked-in') {
+      showToast({
+        color: 'yellow',
+        title: 'Already checked in',
+        message: 'This guest is already checked in.',
+      });
+      return;
+    }
+
+    setIsCheckingIn(true);
+
+    try {
+      await checkInReservation(inventory.propertyId, checkInRoom.reservationId);
+
+      showToast({
+        color: 'green',
+        title: 'Guest checked in',
+        message: 'Guest checked in successfully.',
+      });
+
+      closeCheckInModal();
+      closeDrawer();
+      setCheckInRoom(null);
+
+      await Promise.all([inventory.refreshInventory(), reservationsState.refreshReservations()]);
+
+      setSidebarRefreshKey((current) => current + 1);
+    } catch (error) {
+      showToast({
+        color: 'red',
+        title: 'Check in failed',
+        message: friendlyCheckInError(error),
+      });
+    } finally {
+      setIsCheckingIn(false);
+    }
+  };
+
+  const handleCheckOut = async () => {
+    const reservation = reservationForRoom(stayRoom);
+
+    if (!inventory.propertyId || !stayRoom?.reservationId || inventory.isFallback) {
+      showToast({
+        color: 'red',
+        title: 'Check out failed',
+        message: 'Unable to check out this guest. Please try again.',
+      });
+      return;
+    }
+
+    if (stayRoom.status !== 'occupied' && reservation?.status !== 'Checked-in') {
+      showToast({
+        color: 'yellow',
+        title: 'Cannot check out yet',
+        message: 'Guest has not checked in yet.',
+      });
+      return;
+    }
+
+    setIsCheckingOut(true);
+
+    try {
+      await checkOutReservation(inventory.propertyId, stayRoom.reservationId);
+
+      showToast({
+        color: 'green',
+        title: 'Guest checked out',
+        message: 'Guest checked out successfully.',
+      });
+
+      closeCheckOutDialog();
+      closeStayDrawer();
+      closeDrawer();
+      setStayRoom(null);
+
+      await Promise.all([inventory.refreshInventory(), reservationsState.refreshReservations()]);
+
+      setSidebarRefreshKey((current) => current + 1);
+    } catch (error) {
+      showToast({
+        color: 'red',
+        title: 'Check out failed',
+        message: friendlyCheckOutError(error),
+      });
+    } finally {
+      setIsCheckingOut(false);
     }
   };
 
@@ -2203,7 +2437,9 @@ export default function RoomsPage() {
                           loadingAction={loadingAction}
                           onAction={handleRoomAction}
                           onAssignGuest={openAssignGuest}
+                          onCheckIn={openCheckIn}
                           onOpen={openRoom}
+                          onOpenStay={openStay}
                           room={room}
                         />
                       ))}
@@ -2250,9 +2486,12 @@ export default function RoomsPage() {
       </SimpleGrid>
 
       <RoomDrawer
+        activityItems={activityItems}
         onAction={handleRoomAction}
         onAssignGuest={openAssignGuest}
+        onCheckIn={openCheckIn}
         onChangeRoom={openChangeRoom}
+        onOpenStay={openStay}
         room={selectedRoom}
         opened={drawerOpened}
         onClose={closeDrawer}
@@ -2278,6 +2517,30 @@ export default function RoomsPage() {
         propertyId={inventory.propertyId}
         reservations={reservationsState.reservations}
         room={changeRoomSource}
+      />
+
+      <CheckInModal
+        loading={isCheckingIn}
+        onClose={closeCheckInModal}
+        onConfirm={handleCheckIn}
+        opened={checkInOpened}
+        reservation={reservationForRoom(checkInRoom)}
+        room={checkInRoom}
+      />
+
+      <StayDrawer
+        onCheckOut={openCheckOutDialog}
+        onClose={closeStayDrawer}
+        opened={stayOpened}
+        reservation={reservationForRoom(stayRoom)}
+        room={stayRoom}
+      />
+
+      <CheckOutDialog
+        loading={isCheckingOut}
+        onClose={closeCheckOutDialog}
+        onConfirm={handleCheckOut}
+        opened={checkOutOpened}
       />
 
       <Modal

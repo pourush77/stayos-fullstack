@@ -47,9 +47,11 @@ export function mapStatus(value: string | undefined, fallback: RoomStatus = 'vac
   const normalized = value.toLowerCase().replace(/_/g, '-').replace(/\s+/g, '-');
   if (['active', 'available', 'clean', 'vacant-ready', 'ready'].includes(normalized))
     return 'ready';
-  if (['occupied', 'in-house', 'guest-staying'].includes(normalized)) return 'occupied';
+  if (['occupied', 'in-house', 'guest-staying', 'checked-in', 'checked-in-today'].includes(normalized))
+    return 'occupied';
   if (['cleaning', 'waiting-guest'].includes(normalized)) return 'cleaning';
-  if (['dirty', 'needs-cleaning', 'checkout-dirty'].includes(normalized)) return 'dirty';
+  if (['dirty', 'needs-cleaning', 'checkout-dirty', 'checked-out'].includes(normalized))
+    return 'dirty';
   if (['inspection', 'inspect', 'pending-inspection'].includes(normalized)) return 'inspection';
   if (['maintenance', 'under-maintenance', 'repair'].includes(normalized)) return 'maintenance';
   if (['out-of-order', 'ooo'].includes(normalized)) return 'out-of-order';
@@ -64,6 +66,8 @@ export function mapOperationsStatus(
 ): RoomStatus {
   if (value === 'READY') return 'ready';
   if (value === 'OCCUPIED') return 'occupied';
+  if (value === 'CHECKED_IN') return 'occupied';
+  if (value === 'CHECKED_OUT') return 'dirty';
   if (value === 'CLEANING') return 'cleaning';
   if (value === 'MAINTENANCE') return 'maintenance';
   if (value === 'UNAVAILABLE') return 'out-of-service';
