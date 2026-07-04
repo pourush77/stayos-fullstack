@@ -63,15 +63,17 @@ import {
   markRoomReady,
   type InventoryPropertyDto,
 } from '../../lib/inventory-api';
-import { assignRoomToReservation } from '../../lib/reservation-api';
+import { assignRoomToReservation, unassignRoomFromReservation } from '../../lib/reservation-api';
 import { type Reservation, useReservations } from '../../lib/reservation-hooks';
 
 import {
   getRoomBoard,
   getActivityFeed,
+  getAvailableRooms,
   getNeedsAttention,
   type OperationsActivityItemDto,
   type OperationsAttentionItemDto,
+  type OperationsAvailableRoomDto,
   type OperationsRoomBoardItemDto,
 } from '../../lib/operations-api';
 
@@ -104,6 +106,7 @@ type Room = {
   connecting: boolean;
   floor: string;
   guest?: string;
+  guestCount?: number;
   housekeeping: {
     assignedStaff: string;
     estimatedFinish: string;
@@ -120,6 +123,9 @@ type Room = {
   };
   number: string;
   reservation: string;
+  reservationArrivalDate?: string;
+  reservationDepartureDate?: string;
+  reservationId?: string;
   roomType: string;
   roomTypeId?: string;
   stayDates: string;
@@ -488,7 +494,9 @@ function getPropertyName(property: InventoryPropertyDto) {
   return getString(property, ['name', 'title', 'displayName']);
 }
 
-function mapStatus(value: string): RoomStatus {
+function mapStatus(value: string | undefined, fallback: RoomStatus = 'vacant'): RoomStatus {
+  if (!value) return fallback;
+
   const normalized = value.toLowerCase().replace(/_/g, '-').replace(/\s+/g, '-');
   if (['active', 'available', 'clean', 'vacant-ready', 'ready'].includes(normalized))
     return 'ready';
@@ -500,17 +508,17 @@ function mapStatus(value: string): RoomStatus {
   if (['out-of-order', 'ooo'].includes(normalized)) return 'out-of-order';
   if (['out-of-service', 'oos', 'blocked'].includes(normalized)) return 'out-of-service';
   if (['reserved', 'held', 'vip-arrival', 'vip'].includes(normalized)) return 'reserved';
-  return 'vacant';
+  return fallback;
 }
 
-function mapOperationsStatus(value: string): RoomStatus {
+function mapOperationsStatus(value: string | undefined, fallback: RoomStatus = 'ready'): RoomStatus {
   if (value === 'READY') return 'ready';
   if (value === 'OCCUPIED') return 'occupied';
   if (value === 'CLEANING') return 'cleaning';
   if (value === 'MAINTENANCE') return 'maintenance';
   if (value === 'UNAVAILABLE') return 'out-of-service';
 
-  return mapStatus(value);
+  return mapStatus(value, fallback);
 }
 
 function isPreCheckInReservation(status: string | undefined) {
@@ -526,6 +534,8 @@ function formatArrivalLabel(value: string | undefined) {
 }
 
 function mapOperationsRoom(dto: OperationsRoomBoardItemDto): Room {
+  const roomStatus = dto.uiStatus ?? dto.operationalStatus;
+  const mappedStatus = mapOperationsStatus(roomStatus);
   const floorLabel =
     dto.floor.name ??
     dto.floor.code ??
@@ -537,35 +547,41 @@ function mapOperationsRoom(dto: OperationsRoomBoardItemDto): Room {
     amenities: [],
     bedType: 'King',
     bookingId: dto.currentStay?.reservationCode,
+    reservationId: dto.currentStay?.reservationId,
     capacity: '2 guests',
     connecting: false,
     floor: floorLabel,
     guest: dto.currentStay?.guestName,
     housekeeping: {
       assignedStaff: 'Unassigned',
-      estimatedFinish: dto.uiStatus === 'READY' ? 'Complete' : 'Not set',
-      inspection: dto.uiStatus === 'READY' ? 'Ready' : 'Pending',
+      estimatedFinish: mappedStatus === 'ready' ? 'Complete' : 'Not set',
+      inspection: mappedStatus === 'ready' ? 'Ready' : 'Pending',
       started: 'Not recorded',
-      status: dto.uiStatus,
+      status: roomStatus ?? statusLabel(mappedStatus),
     },
     id: dto.roomId,
     maintenance: {
       engineer: 'Unassigned',
-      issue: dto.uiStatus === 'MAINTENANCE' ? 'Maintenance active' : 'None',
+      issue: mappedStatus === 'maintenance' ? 'Maintenance active' : 'None',
       priority: dto.attentionLevel === 'CRITICAL' ? 'High' : 'None',
-      status: dto.uiStatus === 'MAINTENANCE' ? 'Open' : 'Clear',
+      status: mappedStatus === 'maintenance' ? 'Open' : 'Clear',
     },
     number: dto.roomNumber,
     reservation: dto.currentStay?.reservationCode ?? 'Available',
+    reservationArrivalDate: dto.currentStay?.arrivalDate,
+    reservationDepartureDate: dto.currentStay?.departureDate,
     roomType: dto.roomType.name,
     roomTypeId: dto.roomType.id,
     stayDates: dto.currentStay
-      ? formatArrivalLabel(dto.currentStay.arrivalDate)
+      ? preCheckInAssignment
+        ? `Arrival ${formatArrivalLabel(dto.currentStay.arrivalDate)}`
+        : formatArrivalLabel(dto.currentStay.arrivalDate)
       : (dto.checkoutLabel ?? 'Available today'),
-    status: preCheckInAssignment ? 'ready' : mapOperationsStatus(dto.uiStatus),
-    stayHref: dto.currentStay?.reservationId && !preCheckInAssignment
-      ? `/guest-stay/${dto.currentStay.reservationCode}`
-      : undefined,
+    status: preCheckInAssignment ? 'reserved' : mappedStatus,
+    stayHref:
+      dto.currentStay?.reservationId && !preCheckInAssignment
+        ? `/guest-stay/${dto.currentStay.reservationCode}`
+        : undefined,
     timeline: [],
     view: 'City',
     vip: false,
@@ -835,7 +851,10 @@ function statusGroup(status: RoomStatus) {
 }
 
 function getRoomSubtitle(room: Room) {
-  if (hasAssignedBooking(room) && room.status !== 'occupied') return room.guest ?? room.reservation;
+  if (room.status === 'reserved' || (hasAssignedBooking(room) && room.status !== 'occupied')) {
+    return room.guest ?? room.reservation ?? 'Assigned booking';
+  }
+
   if (room.status === 'ready') return 'Vacant';
   if (room.status === 'occupied') return room.guest ?? 'Guest in house';
   if (room.status === 'cleaning' || room.status === 'dirty') return 'Waiting for housekeeping';
@@ -843,11 +862,10 @@ function getRoomSubtitle(room: Room) {
   if (room.status === 'maintenance') return 'Maintenance in progress';
   if (room.status === 'out-of-order') return 'Unavailable for sale';
   if (room.status === 'out-of-service') return 'Temporarily unavailable';
-  if (room.status === 'reserved') return 'Held for arrival';
+  if (room.status === 'vacant') return 'Vacant';
 
   return statusLabel(room.status);
 }
-
 function isRoomReadyForAssignment(room: Room) {
   return room.status === 'ready' || room.status === 'vacant' || room.status === 'reserved';
 }
@@ -929,6 +947,37 @@ function friendlyAssignmentError(error: unknown) {
   }
 
   return 'Unable to assign this room. Please try again.';
+}
+
+function friendlyRoomChangeError(error: unknown) {
+  const raw = error instanceof Error ? error.message : '';
+  const normalized = raw.toUpperCase();
+
+  if (normalized.includes('ROOM_CAPACITY_EXCEEDED') || normalized.includes('CAPACITY')) {
+    return 'This room cannot fit all guests in this booking. Please choose a larger room.';
+  }
+  if (normalized.includes('ROOM_TYPE_MISMATCH') || normalized.includes('ROOM TYPE')) {
+    return 'This booking needs a different room type.';
+  }
+  if (normalized.includes('ROOM_ALREADY_ASSIGNED') || normalized.includes('ALREADY_ASSIGNED')) {
+    return 'This room is already assigned to another booking.';
+  }
+  if (normalized.includes('ROOM_NOT_READY') || normalized.includes('NOT_READY')) {
+    return 'This room is not ready right now.';
+  }
+
+  return 'Unable to change the room. Please try again.';
+}
+
+function friendlyRemoveAssignmentError(error: unknown) {
+  const raw = error instanceof Error ? error.message : '';
+  const normalized = raw.toUpperCase();
+
+  if (normalized.includes('NOT_FOUND')) {
+    return 'This room assignment could not be found. Please refresh and try again.';
+  }
+
+  return 'Unable to remove this room assignment. Please try again.';
 }
 
 function sortRoomLabels(values: string[]) {
@@ -1167,17 +1216,10 @@ function SummaryCard({
 
 function primaryAction(room: Room) {
   if (room.status === 'occupied') return 'Open Stay';
-  if (hasAssignedBooking(room) && isRoomReadyForAssignment(room)) return 'Check In';
-  if (isRoomReadyForAssignment(room)) return 'Assign Guest';
-  if (
-    room.status === 'cleaning' ||
-    room.status === 'dirty' ||
-    room.status === 'inspection' ||
-    room.status === 'maintenance' ||
-    room.status === 'out-of-order' ||
-    room.status === 'out-of-service'
-  )
-    return 'View Details';
+
+  if (room.status === 'reserved' || hasAssignedBooking(room)) return 'Check In';
+
+  if (room.status === 'ready' || room.status === 'vacant') return 'Assign Guest';
 
   return 'View Details';
 }
@@ -1364,7 +1406,11 @@ function RoomCard({
         </Box>
 
         {isAssignedArrival ? (
-          <Text c="#475569" lineClamp={1} style={{ fontSize: 12, fontWeight: 600, lineHeight: '16px' }}>
+          <Text
+            c="#475569"
+            lineClamp={1}
+            style={{ fontSize: 12, fontWeight: 600, lineHeight: '16px' }}
+          >
             {room.reservation} Â· {room.stayDates}
           </Text>
         ) : null}
@@ -1375,13 +1421,18 @@ function RoomCard({
           onClick={(event) => {
             event.stopPropagation();
 
-            if (action) {
-              onAction(room, action);
+            if (isAssignedArrival) {
+              onOpen(room);
               return;
             }
 
-            if (isRoomReadyForAssignment(room) && !isAssignedArrival) {
+            if (isRoomReadyForAssignment(room)) {
               onAssignGuest(room);
+              return;
+            }
+
+            if (action) {
+              onAction(room, action);
               return;
             }
 
@@ -1389,11 +1440,7 @@ function RoomCard({
           }}
           size="compact-sm"
           color="stayosBrand"
-          variant={
-            room.status === 'ready' || room.status === 'vacant' || room.status === 'reserved'
-              ? 'filled'
-              : 'light'
-          }
+          variant={isAssignedArrival || isRoomReadyForAssignment(room) ? 'filled' : 'light'}
           style={{
             fontWeight: 650,
           }}
@@ -1763,16 +1810,243 @@ function AssignGuestModal({
   );
 }
 
+function ChangeRoomModal({
+  loading,
+  onClose,
+  onConfirm,
+  opened,
+  propertyId,
+  reservations,
+  room,
+}: {
+  loading: boolean;
+  onClose: () => void;
+  onConfirm: (room: Room) => void;
+  opened: boolean;
+  propertyId?: string;
+  reservations: Reservation[];
+  room: Room | null;
+}) {
+  const [availableRooms, setAvailableRooms] = useState<OperationsAvailableRoomDto[]>([]);
+  const [isLoadingRooms, setIsLoadingRooms] = useState(false);
+  const [loadError, setLoadError] = useState<string>();
+  const [selectedRoomId, setSelectedRoomId] = useState<string>();
+
+  const reservation = useMemo(
+    () =>
+      reservations.find(
+        (item) =>
+          item.backendId === room?.reservationId ||
+          item.backendId === room?.bookingId ||
+          item.id === room?.bookingId,
+      ),
+    [reservations, room?.bookingId, room?.reservationId],
+  );
+
+  useEffect(() => {
+    if (!opened) return;
+
+    setSelectedRoomId(undefined);
+    setAvailableRooms([]);
+    setLoadError(undefined);
+
+    if (!propertyId || !room?.reservationId) {
+      setLoadError('Unable to load available rooms for this booking.');
+      return;
+    }
+
+    const controller = new AbortController();
+
+    async function loadAvailableRooms() {
+      setIsLoadingRooms(true);
+
+      try {
+        const rooms = await getAvailableRooms(
+          propertyId!,
+          {
+            arrivalDate: room?.reservationArrivalDate ?? reservation?.arrivalDate,
+            departureDate: room?.reservationDepartureDate ?? reservation?.departureDate,
+            guestCount: reservation ? parseGuestCount(reservation.occupancy) : room?.guestCount,
+            roomTypeId: room?.roomTypeId,
+          },
+          controller.signal,
+        );
+
+        setAvailableRooms(
+          rooms.filter(
+            (availableRoom) =>
+              availableRoom.roomId !== room?.id && availableRoom.roomNumber !== room?.number,
+          ),
+        );
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setLoadError('Unable to load available rooms right now.');
+      } finally {
+        setIsLoadingRooms(false);
+      }
+    }
+
+    void loadAvailableRooms();
+
+    return () => controller.abort();
+  }, [opened, propertyId, reservation, room]);
+
+  const mappedRooms = useMemo(() => availableRooms.map(mapOperationsRoom), [availableRooms]);
+  const selectedRoom = mappedRooms.find((item) => item.id === selectedRoomId);
+
+  return (
+    <Modal
+      opened={opened}
+      onClose={onClose}
+      centered
+      size="min(92vw, 720px)"
+      title={
+        <Box>
+          <Text c="#101828" style={{ fontSize: 18, fontWeight: 700, lineHeight: '24px' }}>
+            Change Room
+          </Text>
+          <Text c="#64748b" mt={3} style={{ fontSize: 13, fontWeight: 450, lineHeight: '19px' }}>
+            {room
+              ? `Move ${room.guest ?? 'this guest'} from Room ${room.number} to another available room.`
+              : 'Select an assigned room first.'}
+          </Text>
+        </Box>
+      }
+    >
+      <Stack gap={spacing[3]}>
+        {room ? (
+          <Paper radius={radius.lg} p={14} style={cardStyle}>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+              <DetailTile label="Guest" value={room.guest ?? 'Guest not recorded'} />
+              <DetailTile label="Booking ID" value={room.bookingId ?? room.reservation} />
+              <DetailTile label="Current room" value={`Room ${room.number}`} />
+              <DetailTile
+                label="Stay dates"
+                value={reservation?.stayDates ?? room.stayDates ?? 'Stay dates not recorded'}
+              />
+            </SimpleGrid>
+          </Paper>
+        ) : null}
+
+        {isLoadingRooms ? (
+          <Alert color="blue" variant="light" radius={radius.lg}>
+            Loading available rooms...
+          </Alert>
+        ) : null}
+
+        {loadError ? (
+          <Alert color="red" variant="light" radius={radius.lg}>
+            {loadError}
+          </Alert>
+        ) : null}
+
+        {!isLoadingRooms && !loadError ? (
+          <Stack gap={8}>
+            {mappedRooms.length > 0 ? (
+              mappedRooms.map((availableRoom) => {
+                const selected = availableRoom.id === selectedRoomId;
+
+                return (
+                  <UnstyledButton
+                    key={availableRoom.id ?? availableRoom.number}
+                    onClick={() => setSelectedRoomId(availableRoom.id)}
+                    style={{
+                      background: selected ? '#f5f3ff' : '#ffffff',
+                      border: selected
+                        ? '1px solid rgba(109, 93, 252, 0.35)'
+                        : '1px solid #eef2f7',
+                      borderRadius: radius.lg,
+                      cursor: 'pointer',
+                      padding: 12,
+                      textAlign: 'left',
+                      width: '100%',
+                    }}
+                  >
+                    <Group justify="space-between" align="flex-start" wrap="nowrap">
+                      <Box style={{ minWidth: 0 }}>
+                        <Group gap={8} wrap="wrap">
+                          <Text c="#101828" style={{ fontSize: 15, fontWeight: 700 }}>
+                            Room {availableRoom.number}
+                          </Text>
+                          <RoomBadge status={availableRoom.status}>
+                            {statusLabel(availableRoom.status)}
+                          </RoomBadge>
+                        </Group>
+                        <Text c="#64748b" mt={4} style={{ fontSize: 12, fontWeight: 450 }}>
+                          {availableRoom.roomType} - {availableRoom.floor}
+                        </Text>
+                        <Text c="#475569" mt={4} style={{ fontSize: 12, fontWeight: 500 }}>
+                          Capacity {availableRoom.capacity}
+                        </Text>
+                        {room?.roomTypeId && availableRoom.roomTypeId !== room.roomTypeId ? (
+                          <Text
+                            c="#b45309"
+                            mt={7}
+                            style={{ fontSize: 12, fontWeight: 600, lineHeight: '17px' }}
+                          >
+                            Backend will validate this room type before moving the booking.
+                          </Text>
+                        ) : null}
+                      </Box>
+                      <Badge
+                        variant={selected ? 'filled' : 'light'}
+                        color="stayosBrand"
+                        radius={radius.full}
+                      >
+                        {selected ? 'Selected' : 'Select'}
+                      </Badge>
+                    </Group>
+                  </UnstyledButton>
+                );
+              })
+            ) : (
+              <Paper
+                radius={radius.lg}
+                p={16}
+                style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}
+              >
+                <Text c="#64748b" style={{ fontSize: 13, fontWeight: 450 }}>
+                  No compatible rooms are available right now.
+                </Text>
+              </Paper>
+            )}
+          </Stack>
+        ) : null}
+
+        <Group justify="flex-end" mt={spacing[2]}>
+          <Button variant="subtle" color="gray" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            color="stayosBrand"
+            disabled={!selectedRoom || !room}
+            loading={loading}
+            onClick={() => {
+              if (selectedRoom) onConfirm(selectedRoom);
+            }}
+            style={{ fontWeight: 650 }}
+          >
+            Confirm Room Change
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
 function RoomDrawer({
   onAction,
   onAssignGuest,
+  onChangeRoom,
+  onRemoveAssignment,
   onClose,
   opened,
   room,
 }: {
-  loadingAction?: string;
   onAction: (room: Room, action: RoomAction) => void;
   onAssignGuest: (room: Room) => void;
+  onChangeRoom: (room: Room) => void;
+  onRemoveAssignment: (room: Room) => void;
   onClose: () => void;
   opened: boolean;
   room: Room | null;
@@ -1900,6 +2174,7 @@ function RoomDrawer({
 
           <DrawerSection title="Operations">
             <Stack gap={2}>
+              {/* Occupied Room */}
               {room.status === 'occupied' ? (
                 <>
                   <OperationRow icon={<DoorOpen size={16} />} label="Move Room" />
@@ -1907,6 +2182,25 @@ function RoomDrawer({
                 </>
               ) : null}
 
+              {/* Assigned but not Checked In */}
+              {room.status === 'reserved' ? (
+                <>
+                  <OperationRow
+                    icon={<DoorOpen size={16} />}
+                    label="Change Room"
+                    onClick={() => onChangeRoom(room)}
+                  />
+
+                  <OperationRow
+                    color="#dc2626"
+                    icon={<Ban size={16} />}
+                    label="Remove Assignment"
+                    onClick={() => onRemoveAssignment(room)}
+                  />
+                </>
+              ) : null}
+
+              {/* Cleaning / Dirty / Inspection */}
               {room.status === 'cleaning' ||
               room.status === 'dirty' ||
               room.status === 'inspection' ? (
@@ -1917,7 +2211,9 @@ function RoomDrawer({
                 />
               ) : null}
 
-              {room.status !== 'maintenance' &&
+              {/* Maintenance should NOT appear for assigned rooms */}
+              {room.status !== 'reserved' &&
+              room.status !== 'maintenance' &&
               room.status !== 'out-of-service' &&
               room.status !== 'out-of-order' ? (
                 <OperationRow
@@ -1928,7 +2224,8 @@ function RoomDrawer({
                 />
               ) : null}
 
-              {isReady ? (
+              {/* Block Room only when truly Ready */}
+              {isReady && room.status !== 'reserved' ? (
                 <OperationRow
                   color="#dc2626"
                   icon={<Ban size={16} />}
@@ -2210,6 +2507,16 @@ export default function RoomsPage() {
   const [assignmentRoom, setAssignmentRoom] = useState<Room | null>(null);
   const [selectedReservationId, setSelectedReservationId] = useState<string>();
   const [isAssigningRoom, setIsAssigningRoom] = useState(false);
+  const [changeRoomOpened, { open: openChangeRoomModal, close: closeChangeRoomModal }] =
+    useDisclosure(false);
+  const [changeRoomSource, setChangeRoomSource] = useState<Room | null>(null);
+  const [isChangingRoom, setIsChangingRoom] = useState(false);
+  const [
+    removeAssignmentOpened,
+    { open: openRemoveAssignmentModal, close: closeRemoveAssignmentModal },
+  ] = useDisclosure(false);
+  const [removeAssignmentRoom, setRemoveAssignmentRoom] = useState<Room | null>(null);
+  const [isRemovingAssignment, setIsRemovingAssignment] = useState(false);
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -2314,6 +2621,16 @@ export default function RoomsPage() {
     openAssignmentModal();
   };
 
+  const openChangeRoom = (room: Room) => {
+    setChangeRoomSource(room);
+    openChangeRoomModal();
+  };
+
+  const openRemoveAssignment = (room: Room) => {
+    setRemoveAssignmentRoom(room);
+    openRemoveAssignmentModal();
+  };
+
   const handleAssignGuest = async () => {
     const selectedReservation = reservationsState.reservations.find(
       (reservation) => reservation.backendId === selectedReservationId,
@@ -2371,6 +2688,93 @@ export default function RoomsPage() {
       });
     } finally {
       setIsAssigningRoom(false);
+    }
+  };
+
+  const handleChangeRoom = async (newRoom: Room) => {
+    if (
+      !inventory.propertyId ||
+      !changeRoomSource?.reservationId ||
+      !newRoom.id ||
+      inventory.isFallback
+    ) {
+      showToast({
+        color: 'red',
+        message: 'Unable to change the room. Please try again.',
+        title: 'Room change failed',
+      });
+      return;
+    }
+
+    setIsChangingRoom(true);
+
+    try {
+      await assignRoomToReservation(
+        inventory.propertyId,
+        changeRoomSource.reservationId,
+        newRoom.id,
+      );
+
+      showToast({
+        color: 'green',
+        message: `${changeRoomSource.guest ?? 'Guest'} moved from Room ${changeRoomSource.number} to Room ${newRoom.number}.`,
+        title: 'Room changed',
+      });
+
+      closeChangeRoomModal();
+      closeDrawer();
+      setChangeRoomSource(null);
+
+      await Promise.all([inventory.refreshInventory(), reservationsState.refreshReservations()]);
+
+      setSidebarRefreshKey((current) => current + 1);
+    } catch (error) {
+      showToast({
+        color: 'red',
+        message: friendlyRoomChangeError(error),
+        title: 'Room change failed',
+      });
+    } finally {
+      setIsChangingRoom(false);
+    }
+  };
+
+  const handleRemoveAssignment = async (room: Room) => {
+    if (!inventory.propertyId || !room.reservationId || inventory.isFallback) {
+      showToast({
+        color: 'red',
+        title: 'Unable to remove assignment',
+        message: 'Unable to remove this room assignment. Please try again.',
+      });
+      return;
+    }
+
+    setIsRemovingAssignment(true);
+
+    try {
+      await unassignRoomFromReservation(inventory.propertyId, room.reservationId);
+
+      showToast({
+        color: 'green',
+        title: 'Assignment removed',
+        message: `Room ${room.number} is available again.`,
+      });
+
+      closeRemoveAssignmentModal();
+      closeDrawer();
+      setRemoveAssignmentRoom(null);
+
+      await Promise.all([inventory.refreshInventory(), reservationsState.refreshReservations()]);
+
+      setSidebarRefreshKey((current) => current + 1);
+    } catch (error) {
+      showToast({
+        color: 'red',
+        title: 'Unable to remove assignment',
+        message: friendlyRemoveAssignmentError(error),
+      });
+    } finally {
+      setIsRemovingAssignment(false);
     }
   };
 
@@ -2710,12 +3114,13 @@ export default function RoomsPage() {
       </SimpleGrid>
 
       <RoomDrawer
-        loadingAction={loadingAction}
         onAction={handleRoomAction}
         onAssignGuest={openAssignGuest}
+        onChangeRoom={openChangeRoom}
         room={selectedRoom}
         opened={drawerOpened}
         onClose={closeDrawer}
+        onRemoveAssignment={openRemoveAssignment}
       />
 
       <AssignGuestModal
@@ -2728,6 +3133,52 @@ export default function RoomsPage() {
         selectedReservationId={selectedReservationId}
         setSelectedReservationId={setSelectedReservationId}
       />
+
+      <ChangeRoomModal
+        loading={isChangingRoom}
+        onClose={closeChangeRoomModal}
+        onConfirm={handleChangeRoom}
+        opened={changeRoomOpened}
+        propertyId={inventory.propertyId}
+        reservations={reservationsState.reservations}
+        room={changeRoomSource}
+      />
+
+      <Modal
+        opened={removeAssignmentOpened}
+        onClose={closeRemoveAssignmentModal}
+        centered
+        size="min(92vw, 460px)"
+        title={
+          <Text c="#101828" style={{ fontSize: 18, fontWeight: 700, lineHeight: '24px' }}>
+            Remove room assignment?
+          </Text>
+        }
+      >
+        <Stack gap={spacing[4]}>
+          <Text c="#475569" style={{ fontSize: 14, fontWeight: 450, lineHeight: '21px' }}>
+            {removeAssignmentRoom
+              ? `This will release Room ${removeAssignmentRoom.number} and keep the booking unassigned. You can assign another room later.`
+              : 'This will release the room and keep the booking unassigned. You can assign another room later.'}
+          </Text>
+
+          <Group justify="flex-end">
+            <Button variant="subtle" color="gray" onClick={closeRemoveAssignmentModal}>
+              Cancel
+            </Button>
+            <Button
+              color="red"
+              loading={isRemovingAssignment}
+              onClick={() => {
+                if (removeAssignmentRoom) void handleRemoveAssignment(removeAssignmentRoom);
+              }}
+              style={{ fontWeight: 650 }}
+            >
+              Remove Assignment
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 }

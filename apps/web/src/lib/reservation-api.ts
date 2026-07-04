@@ -115,3 +115,17 @@ export function assignRoomToReservation(
     },
   );
 }
+
+export function unassignRoomFromReservation(
+  propertyId: string,
+  reservationId?: string,
+  signal?: AbortSignal,
+) {
+  return request<ReservationWorkflowResponseDto>(
+    `/properties/${propertyId}/reservations/${reservationId}/unassign-room`,
+    {
+      method: 'PATCH',
+      signal,
+    },
+  );
+}
