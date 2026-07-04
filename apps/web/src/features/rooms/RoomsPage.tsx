@@ -473,16 +473,10 @@ function SummaryCard({
   value: number;
 }) {
   return (
-    <Paper
-      radius={radius.lg}
-      p={18}
-      className={styles.summaryCard}
-    >
+    <Paper radius={radius.lg} p={18} className={styles.summaryCard}>
       <Group justify="space-between" align="flex-start" wrap="nowrap">
         <Box>
-          <Text className={styles.summaryLabel}>
-            {label}
-          </Text>
+          <Text className={styles.summaryLabel}>{label}</Text>
           <Text mt={4} className={styles.summaryValue}>
             {value}
           </Text>
@@ -740,9 +734,7 @@ function RoomCard({
 function DrawerSection({ children, title }: { children: ReactNode; title: string }) {
   return (
     <Box>
-      <Text className={styles.drawerSectionTitle}>
-        {title}
-      </Text>
+      <Text className={styles.drawerSectionTitle}>{title}</Text>
       <Box mt={10}>{children}</Box>
     </Box>
   );
@@ -863,9 +855,7 @@ function OperationRow({
       }}
     >
       <Box style={{ color, display: 'flex', flex: '0 0 auto' }}>{icon}</Box>
-      <Text className={styles.operationLabel}>
-        {label}
-      </Text>
+      <Text className={styles.operationLabel}>{label}</Text>
       <ChevronRight size={15} color="#94a3b8" />
     </UnstyledButton>
   );
@@ -905,23 +895,21 @@ function AssignGuestModal({
   const visibleReservations = useMemo(() => {
     const normalized = query.trim().toLowerCase();
 
-    return reservations
-      .filter((reservation) => {
-        if (reservation.status !== 'Confirmed' && reservation.status !== 'Pending') return false;
-        if (!normalized) return true;
+    return reservations.filter((reservation) => {
+      if (reservation.status !== 'Confirmed' && reservation.status !== 'Pending') return false;
+      if (!normalized) return true;
 
-        return [
-          reservation.id,
-          reservation.guest,
-          reservation.phone,
-          reservation.roomType,
-          reservation.occupancy,
-        ]
-          .join(' ')
-          .toLowerCase()
-          .includes(normalized);
-      })
-      .slice(0, 8);
+      return [
+        reservation.id,
+        reservation.guest,
+        reservation.phone,
+        reservation.roomType,
+        reservation.occupancy,
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(normalized);
+    });
   }, [query, reservations]);
   const selectedReservation = reservations.find(
     (reservation) => reservation.backendId === selectedReservationId,
@@ -938,9 +926,7 @@ function AssignGuestModal({
       size="min(92vw, 640px)"
       title={
         <Box>
-          <Text className={styles.modalTitle}>
-            Assign Guest
-          </Text>
+          <Text className={styles.modalTitle}>Assign Guest</Text>
           <Text mt={3} className={styles.modalSubtitle}>
             {room ? `Assign a booking to Room ${room.number}.` : 'Select a room first.'}
           </Text>
@@ -1176,9 +1162,7 @@ function ChangeRoomModal({
       size="min(92vw, 720px)"
       title={
         <Box>
-          <Text className={styles.modalTitle}>
-            Change Room
-          </Text>
+          <Text className={styles.modalTitle}>Change Room</Text>
           <Text mt={3} className={styles.modalSubtitle}>
             {room
               ? `Move ${room.guest ?? 'this guest'} from Room ${room.number} to another available room.`
@@ -1226,9 +1210,7 @@ function ChangeRoomModal({
                     onClick={() => setSelectedRoomId(availableRoom.id)}
                     style={{
                       background: selected ? '#f5f3ff' : '#ffffff',
-                      border: selected
-                        ? '1px solid rgba(109, 93, 252, 0.35)'
-                        : '1px solid #eef2f7',
+                      border: selected ? '1px solid rgba(109, 93, 252, 0.35)' : '1px solid #eef2f7',
                       borderRadius: radius.lg,
                       cursor: 'pointer',
                       padding: 12,
@@ -2037,11 +2019,7 @@ export default function RoomsPage() {
   const handleCheckIn = async () => {
     const reservation = reservationForRoom(checkInRoom);
 
-    if (
-      !inventory.propertyId ||
-      !checkInRoom?.reservationId ||
-      inventory.isFallback
-    ) {
+    if (!inventory.propertyId || !checkInRoom?.reservationId || inventory.isFallback) {
       showToast({
         color: 'red',
         title: 'Check in failed',
@@ -2225,16 +2203,10 @@ export default function RoomsPage() {
         <Title order={1} className={styles.pageTitle}>
           Rooms
         </Title>
-        <Text
-          mt={spacing[1]}
-          className={styles.pageSubtitle}
-        >
+        <Text mt={spacing[1]} className={styles.pageSubtitle}>
           Manage live room operations across the property.
         </Text>
-        <Text
-          mt={spacing[2]}
-          className={styles.pageMeta}
-        >
+        <Text mt={spacing[2]} className={styles.pageMeta}>
           {displayRooms.length} Rooms - {summary[1].value} Occupied - {summary[0].value} Ready -{' '}
           {summary[2].value} Need Cleaning
         </Text>
@@ -2355,17 +2327,12 @@ export default function RoomsPage() {
             renderOption={({ option, checked }) => (
               <Group gap={8} wrap="nowrap">
                 <Checkbox checked={checked} readOnly size="xs" color="stayosBrand" aria-hidden />
-                <Text className={styles.attributeOptionLabel}>
-                  {option.label}
-                </Text>
+                <Text className={styles.attributeOptionLabel}>{option.label}</Text>
               </Group>
             )}
             renderPill={({ value }) =>
               value === selectedRoomAttributes[0] ? (
-                <Box
-                  component="span"
-                  className={styles.attributeSelectedCount}
-                >
+                <Box component="span" className={styles.attributeSelectedCount}>
                   {selectedRoomAttributes.length} selected
                 </Box>
               ) : null
@@ -2425,9 +2392,7 @@ export default function RoomsPage() {
                         <Title order={3} className={styles.floorTitle}>
                           {group.floor}
                         </Title>
-                        <Text className={styles.floorCount}>
-                          {group.rooms.length} rooms
-                        </Text>
+                        <Text className={styles.floorCount}>{group.rooms.length} rooms</Text>
                       </Group>
                     ) : null}
                     <SimpleGrid cols={{ base: 1, sm: 2, xl: 3 }} spacing={spacing[3]}>
@@ -2548,11 +2513,7 @@ export default function RoomsPage() {
         onClose={closeRemoveAssignmentModal}
         centered
         size="min(92vw, 460px)"
-        title={
-          <Text className={styles.modalTitle}>
-            Remove room assignment?
-          </Text>
-        }
+        title={<Text className={styles.modalTitle}>Remove room assignment?</Text>}
       >
         <Stack gap={spacing[4]}>
           <Text className={styles.dialogBody}>
@@ -2581,4 +2542,3 @@ export default function RoomsPage() {
     </Stack>
   );
 }
-
