@@ -121,6 +121,7 @@ type Room = {
   number: string;
   reservation: string;
   roomType: string;
+  roomTypeId?: string;
   stayDates: string;
   status: RoomStatus;
   stayHref?: string;
@@ -512,11 +513,24 @@ function mapOperationsStatus(value: string): RoomStatus {
   return mapStatus(value);
 }
 
+function isPreCheckInReservation(status: string | undefined) {
+  const normalized = (status ?? '').toUpperCase().replace(/[\s-]/g, '_');
+  return normalized === 'CONFIRMED' || normalized === 'PENDING';
+}
+
+function formatArrivalLabel(value: string | undefined) {
+  if (!value) return 'Arrival date not recorded';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return `Arrival ${value}`;
+  return `Arrival ${parsed.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}`;
+}
+
 function mapOperationsRoom(dto: OperationsRoomBoardItemDto): Room {
   const floorLabel =
     dto.floor.name ??
     dto.floor.code ??
     (dto.floor.floorNumber ? `Floor ${dto.floor.floorNumber}` : 'Floor');
+  const preCheckInAssignment = isPreCheckInReservation(dto.currentStay?.status);
 
   return {
     accessible: false,
@@ -544,9 +558,12 @@ function mapOperationsRoom(dto: OperationsRoomBoardItemDto): Room {
     number: dto.roomNumber,
     reservation: dto.currentStay?.reservationCode ?? 'Available',
     roomType: dto.roomType.name,
-    stayDates: dto.checkoutLabel ?? 'Available today',
-    status: mapOperationsStatus(dto.uiStatus),
-    stayHref: dto.currentStay?.reservationId
+    roomTypeId: dto.roomType.id,
+    stayDates: dto.currentStay
+      ? formatArrivalLabel(dto.currentStay.arrivalDate)
+      : (dto.checkoutLabel ?? 'Available today'),
+    status: preCheckInAssignment ? 'ready' : mapOperationsStatus(dto.uiStatus),
+    stayHref: dto.currentStay?.reservationId && !preCheckInAssignment
       ? `/guest-stay/${dto.currentStay.reservationCode}`
       : undefined,
     timeline: [],
@@ -818,6 +835,7 @@ function statusGroup(status: RoomStatus) {
 }
 
 function getRoomSubtitle(room: Room) {
+  if (hasAssignedBooking(room) && room.status !== 'occupied') return room.guest ?? room.reservation;
   if (room.status === 'ready') return 'Vacant';
   if (room.status === 'occupied') return room.guest ?? 'Guest in house';
   if (room.status === 'cleaning' || room.status === 'dirty') return 'Waiting for housekeeping';
@@ -828,6 +846,89 @@ function getRoomSubtitle(room: Room) {
   if (room.status === 'reserved') return 'Held for arrival';
 
   return statusLabel(room.status);
+}
+
+function isRoomReadyForAssignment(room: Room) {
+  return room.status === 'ready' || room.status === 'vacant' || room.status === 'reserved';
+}
+
+function hasAssignedBooking(room: Room) {
+  return Boolean(room.bookingId || (room.guest && room.reservation !== 'Available'));
+}
+
+function parseGuestCount(occupancy: string) {
+  const adults = occupancy.match(/(\d+)\s+Adult/i)?.[1];
+  const children = occupancy.match(/(\d+)\s+Child/i)?.[1];
+  const guests = occupancy.match(/(\d+)\s+Guest/i)?.[1];
+
+  if (adults || children) return Number(adults ?? 0) + Number(children ?? 0);
+  if (guests) return Number(guests);
+  return 0;
+}
+
+function parseRoomCapacity(capacity: string) {
+  return Number(capacity.match(/\d+/)?.[0] ?? 0);
+}
+
+function normalizeRoomType(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/room type not connected|standard room/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function roomTypesMatch(roomType: string, bookingRoomType: string) {
+  const room = normalizeRoomType(roomType);
+  const booking = normalizeRoomType(bookingRoomType);
+
+  if (!room || !booking) return true;
+  return room.includes(booking) || booking.includes(room);
+}
+
+function assignmentIssue(room: Room | null, reservation: Reservation) {
+  if (!room) return 'Select a room first.';
+  if (reservation.status !== 'Confirmed' && reservation.status !== 'Pending') {
+    return 'This booking is not ready for room assignment.';
+  }
+  if (reservation.room !== 'Unassigned') {
+    return 'This booking already has a room assigned.';
+  }
+  if (!isRoomReadyForAssignment(room)) {
+    return 'This room is not ready for guest assignment yet.';
+  }
+
+  const roomCapacity = parseRoomCapacity(room.capacity);
+  const guestCount = parseGuestCount(reservation.occupancy);
+
+  if (roomCapacity > 0 && guestCount > roomCapacity) {
+    return `This room can accommodate up to ${roomCapacity} guests. This booking has ${guestCount} guests. Please choose a larger room.`;
+  }
+  if (!roomTypesMatch(room.roomType, reservation.roomType)) {
+    return 'This booking requires a different room type.';
+  }
+
+  return undefined;
+}
+
+function friendlyAssignmentError(error: unknown) {
+  const raw = error instanceof Error ? error.message : '';
+  const normalized = raw.toUpperCase();
+
+  if (normalized.includes('ROOM_CAPACITY_EXCEEDED') || normalized.includes('CAPACITY')) {
+    return 'This room cannot accommodate everyone in the booking. Please choose a larger room.';
+  }
+  if (normalized.includes('ROOM_TYPE_MISMATCH') || normalized.includes('ROOM TYPE')) {
+    return 'This booking requires a different room type.';
+  }
+  if (normalized.includes('ROOM_NOT_READY') || normalized.includes('NOT_READY')) {
+    return 'This room is not ready for guest assignment yet.';
+  }
+  if (normalized.includes('BOOKING_ALREADY_ASSIGNED') || normalized.includes('ALREADY_ASSIGNED')) {
+    return 'This booking already has a room assigned.';
+  }
+
+  return 'Unable to assign this room. Please try again.';
 }
 
 function sortRoomLabels(values: string[]) {
@@ -1066,8 +1167,8 @@ function SummaryCard({
 
 function primaryAction(room: Room) {
   if (room.status === 'occupied') return 'Open Stay';
-  if (room.status === 'ready' || room.status === 'vacant' || room.status === 'reserved')
-    return 'Assign Guest';
+  if (hasAssignedBooking(room) && isRoomReadyForAssignment(room)) return 'Check In';
+  if (isRoomReadyForAssignment(room)) return 'Assign Guest';
   if (
     room.status === 'cleaning' ||
     room.status === 'dirty' ||
@@ -1119,6 +1220,7 @@ function RoomCard({
   const tone = statusTone(room.status);
 
   const isOccupied = room.status === 'occupied';
+  const isAssignedArrival = hasAssignedBooking(room) && isRoomReadyForAssignment(room);
   const isSuiteRoom = room.roomType.toLowerCase().includes('suite');
   const isAttentionState = [
     'cleaning',
@@ -1173,21 +1275,7 @@ function RoomCard({
         position: 'relative',
         transition: 'border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
       }}
-      onClick={(event) => {
-        event.stopPropagation();
-
-        if (room.status === 'ready' || room.status === 'vacant' || room.status === 'reserved') {
-          onAssignGuest(room);
-          return;
-        }
-
-        if (action) {
-          onAction(room, action);
-          return;
-        }
-
-        onOpen(room);
-      }}
+      onClick={() => onOpen(room)}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
 
@@ -1275,6 +1363,12 @@ function RoomCard({
           )}
         </Box>
 
+        {isAssignedArrival ? (
+          <Text c="#475569" lineClamp={1} style={{ fontSize: 12, fontWeight: 600, lineHeight: '16px' }}>
+            {room.reservation} Â· {room.stayDates}
+          </Text>
+        ) : null}
+
         <Button
           fullWidth
           loading={action ? loadingAction === roomActionKey(room, action) : false}
@@ -1283,6 +1377,11 @@ function RoomCard({
 
             if (action) {
               onAction(room, action);
+              return;
+            }
+
+            if (isRoomReadyForAssignment(room) && !isAssignedArrival) {
+              onAssignGuest(room);
               return;
             }
 
@@ -1331,6 +1430,14 @@ function DrawerSection({ children, title }: { children: ReactNode; title: string
 }
 
 function getDrawerContext(room: Room) {
+  if (hasAssignedBooking(room) && isRoomReadyForAssignment(room)) {
+    return {
+      title: 'Assigned Booking',
+      headline: room.guest ?? room.reservation,
+      detail: `${room.reservation} Â· ${room.stayDates}`,
+    };
+  }
+
   if (room.status === 'ready' || room.status === 'vacant' || room.status === 'reserved') {
     return {
       title: 'Availability',
@@ -1375,6 +1482,10 @@ function getDrawerContext(room: Room) {
 }
 
 function getContextBanner(room: Room) {
+  if (hasAssignedBooking(room) && isRoomReadyForAssignment(room)) {
+    return 'This booking has a room assigned. The guest has not checked in yet.';
+  }
+
   if (room.status === 'ready' || room.status === 'vacant') {
     return 'This room is clean and available for immediate assignment.';
   }
@@ -1458,20 +1569,20 @@ function AssignGuestModal({
   reservations: Reservation[];
   room: Room | null;
   selectedReservationId?: string;
-  setSelectedReservationId: (value: string) => void;
+  setSelectedReservationId: (value: string | undefined) => void;
 }) {
   const [query, setQuery] = useState('');
 
-  const assignableReservations = useMemo(() => {
+  useEffect(() => {
+    if (opened) setQuery('');
+  }, [opened, room?.id]);
+
+  const visibleReservations = useMemo(() => {
     const normalized = query.trim().toLowerCase();
 
     return reservations
       .filter((reservation) => {
-        const canAssign =
-          (reservation.status === 'Confirmed' || reservation.status === 'Pending') &&
-          reservation.room === 'Unassigned';
-
-        if (!canAssign) return false;
+        if (reservation.status !== 'Confirmed' && reservation.status !== 'Pending') return false;
         if (!normalized) return true;
 
         return [
@@ -1487,6 +1598,12 @@ function AssignGuestModal({
       })
       .slice(0, 8);
   }, [query, reservations]);
+  const selectedReservation = reservations.find(
+    (reservation) => reservation.backendId === selectedReservationId,
+  );
+  const selectedIssue = selectedReservation
+    ? assignmentIssue(room, selectedReservation)
+    : undefined;
 
   return (
     <Modal
@@ -1526,7 +1643,10 @@ function AssignGuestModal({
           leftSection={<Search size={15} />}
           placeholder="Search booking, guest, phone or room type..."
           value={query}
-          onChange={(event) => setQuery(event.currentTarget.value)}
+          onChange={(event) => {
+            setQuery(event.currentTarget.value);
+            setSelectedReservationId(undefined);
+          }}
           styles={{
             input: {
               borderColor: '#dbe3ef',
@@ -1538,18 +1658,29 @@ function AssignGuestModal({
         />
 
         <Stack gap={8}>
-          {assignableReservations.length > 0 ? (
-            assignableReservations.map((reservation) => {
+          {visibleReservations.length > 0 ? (
+            visibleReservations.map((reservation) => {
               const selected = selectedReservationId === reservation.backendId;
+              const issue = assignmentIssue(room, reservation);
+              const canSelect = !issue;
 
               return (
                 <UnstyledButton
                   key={reservation.backendId}
-                  onClick={() => setSelectedReservationId(reservation.backendId)}
+                  aria-disabled={!canSelect}
+                  onClick={() => {
+                    if (canSelect) setSelectedReservationId(reservation.backendId);
+                  }}
                   style={{
                     background: selected ? '#f5f3ff' : '#ffffff',
-                    border: selected ? '1px solid rgba(109, 93, 252, 0.35)' : '1px solid #eef2f7',
+                    border: selected
+                      ? '1px solid rgba(109, 93, 252, 0.35)'
+                      : issue
+                        ? '1px solid #e5e7eb'
+                        : '1px solid #eef2f7',
                     borderRadius: radius.lg,
+                    cursor: canSelect ? 'pointer' : 'not-allowed',
+                    opacity: canSelect ? 1 : 0.72,
                     padding: 12,
                     textAlign: 'left',
                     width: '100%',
@@ -1573,13 +1704,22 @@ function AssignGuestModal({
                       <Text c="#475569" mt={4} style={{ fontSize: 12, fontWeight: 500 }}>
                         {reservation.roomType} · {reservation.occupancy}
                       </Text>
+                      {issue ? (
+                        <Text
+                          c="#b45309"
+                          mt={7}
+                          style={{ fontSize: 12, fontWeight: 600, lineHeight: '17px' }}
+                        >
+                          {issue}
+                        </Text>
+                      ) : null}
                     </Box>
                     <Badge
                       variant={selected ? 'filled' : 'light'}
-                      color="stayosBrand"
+                      color={issue ? 'gray' : 'stayosBrand'}
                       radius={radius.full}
                     >
-                      {selected ? 'Selected' : 'Select'}
+                      {issue ? 'Unavailable' : selected ? 'Selected' : 'Select'}
                     </Badge>
                   </Group>
                 </UnstyledButton>
@@ -1592,11 +1732,17 @@ function AssignGuestModal({
               style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}
             >
               <Text c="#64748b" style={{ fontSize: 13, fontWeight: 450 }}>
-                No unassigned confirmed or pending bookings found.
+                No confirmed or pending bookings match this search.
               </Text>
             </Paper>
           )}
         </Stack>
+
+        {selectedIssue ? (
+          <Alert color="yellow" variant="light" radius={radius.lg}>
+            {selectedIssue}
+          </Alert>
+        ) : null}
 
         <Group justify="flex-end" mt={spacing[2]}>
           <Button variant="subtle" color="gray" onClick={onClose}>
@@ -1604,7 +1750,7 @@ function AssignGuestModal({
           </Button>
           <Button
             color="stayosBrand"
-            disabled={!selectedReservationId || !room}
+            disabled={!selectedReservationId || !room || Boolean(selectedIssue)}
             loading={loading}
             onClick={onAssign}
             style={{ fontWeight: 650 }}
@@ -1646,10 +1792,11 @@ function RoomDrawer({
   const action = actionForPrimary(room);
   const context = getDrawerContext(room);
   const contextBanner = getContextBanner(room);
-  const isReady = room.status === 'ready' || room.status === 'vacant' || room.status === 'reserved';
+  const isReady = isRoomReadyForAssignment(room);
+  const isAssignedArrival = hasAssignedBooking(room) && isReady;
 
   const handlePrimaryClick = () => {
-    if (isReady) {
+    if (isReady && !isAssignedArrival) {
       onAssignGuest(room);
       return;
     }
@@ -2168,16 +2315,31 @@ export default function RoomsPage() {
   };
 
   const handleAssignGuest = async () => {
+    const selectedReservation = reservationsState.reservations.find(
+      (reservation) => reservation.backendId === selectedReservationId,
+    );
+
     if (
       !inventory.propertyId ||
       !assignmentRoom?.id ||
       !selectedReservationId ||
+      !selectedReservation ||
       inventory.isFallback
     ) {
       showToast({
         color: 'red',
-        message: 'Live room assignment is unavailable.',
+        message: 'Unable to assign this room. Please try again.',
         title: 'Assignment failed',
+      });
+      return;
+    }
+
+    const issue = assignmentIssue(assignmentRoom, selectedReservation);
+    if (issue) {
+      showToast({
+        color: 'yellow',
+        message: issue,
+        title: 'Assignment needs review',
       });
       return;
     }
@@ -2204,7 +2366,7 @@ export default function RoomsPage() {
     } catch (error) {
       showToast({
         color: 'red',
-        message: error instanceof Error ? error.message : 'Unable to assign room.',
+        message: friendlyAssignmentError(error),
         title: 'Assignment failed',
       });
     } finally {
