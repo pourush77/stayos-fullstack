@@ -1,0 +1,1 @@
+export { DetailTile } from './DetailTile';

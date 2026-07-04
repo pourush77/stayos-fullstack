@@ -1,0 +1,55 @@
+.plainCard {
+  border: none;
+}
+
+.statusBadgeRoot {
+  text-transform: none;
+}
+
+.roomTitle {
+  color: #101828;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 38px;
+}
+
+.roomType {
+  color: #475569;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 28px;
+}
+
+.sectionTitle {
+  color: #101828;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 30px;
+}
+
+.loadingText,
+.fallbackText,
+.timelineText {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.detailPaper {
+  background: #ffffff;
+}
+
+.detailLabel {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+}
+
+.detailValue {
+  color: #101828;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}

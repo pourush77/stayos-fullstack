@@ -1,0 +1,64 @@
+import type { OperationsRoomBoardItemDto } from '../../../lib/operations-api';
+import type { Room } from '../types';
+import { formatArrivalLabel } from './room-formatters';
+import { mapOperationsStatus, statusLabel } from './room-status';
+
+function isPreCheckInReservation(status: string | undefined) {
+  const normalized = (status ?? '').toUpperCase().replace(/[\s-]/g, '_');
+  return normalized === 'CONFIRMED' || normalized === 'PENDING';
+}
+
+export function mapOperationsRoom(dto: OperationsRoomBoardItemDto): Room {
+  const roomStatus = dto.uiStatus ?? dto.operationalStatus;
+  const mappedStatus = mapOperationsStatus(roomStatus);
+  const floorLabel =
+    dto.floor.name ??
+    dto.floor.code ??
+    (dto.floor.floorNumber ? `Floor ${dto.floor.floorNumber}` : 'Floor');
+  const preCheckInAssignment = isPreCheckInReservation(dto.currentStay?.status);
+
+  return {
+    accessible: false,
+    amenities: [],
+    bedType: 'King',
+    bookingId: dto.currentStay?.reservationCode,
+    reservationId: dto.currentStay?.reservationId,
+    capacity: '2 guests',
+    connecting: false,
+    floor: floorLabel,
+    guest: dto.currentStay?.guestName,
+    housekeeping: {
+      assignedStaff: 'Unassigned',
+      estimatedFinish: mappedStatus === 'ready' ? 'Complete' : 'Not set',
+      inspection: mappedStatus === 'ready' ? 'Ready' : 'Pending',
+      started: 'Not recorded',
+      status: roomStatus ?? statusLabel(mappedStatus),
+    },
+    id: dto.roomId,
+    maintenance: {
+      engineer: 'Unassigned',
+      issue: mappedStatus === 'maintenance' ? 'Maintenance active' : 'None',
+      priority: dto.attentionLevel === 'CRITICAL' ? 'High' : 'None',
+      status: mappedStatus === 'maintenance' ? 'Open' : 'Clear',
+    },
+    number: dto.roomNumber,
+    reservation: dto.currentStay?.reservationCode ?? 'Available',
+    reservationArrivalDate: dto.currentStay?.arrivalDate,
+    reservationDepartureDate: dto.currentStay?.departureDate,
+    roomType: dto.roomType.name,
+    roomTypeId: dto.roomType.id,
+    stayDates: dto.currentStay
+      ? preCheckInAssignment
+        ? `Arrival ${formatArrivalLabel(dto.currentStay.arrivalDate)}`
+        : formatArrivalLabel(dto.currentStay.arrivalDate)
+      : (dto.checkoutLabel ?? 'Available today'),
+    status: preCheckInAssignment ? 'reserved' : mappedStatus,
+    stayHref:
+      dto.currentStay?.reservationId && !preCheckInAssignment
+        ? `/guest-stay/${dto.currentStay.reservationCode}`
+        : undefined,
+    timeline: [],
+    view: 'City',
+    vip: false,
+  };
+}
