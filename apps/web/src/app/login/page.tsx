@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Anchor,
   Box,
@@ -57,15 +57,22 @@ function validateEmail(value: string) {
 export default function LoginPage() {
   const auth = useAuth();
   const [email, setEmail] = useState(() =>
-    typeof window === 'undefined' ? '' : window.localStorage.getItem('stayos.rememberedEmail') ?? '',
+    typeof window === 'undefined'
+      ? ''
+      : (window.localStorage.getItem('stayos.rememberedEmail') ?? ''),
   );
+  const [rememberDevice, setRememberDevice] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [password, setPassword] = useState('');
-  const [rememberDevice, setRememberDevice] = useState(() =>
-    typeof window === 'undefined' ? false : window.localStorage.getItem('stayos.rememberDevice') === 'true',
-  );
+
   const [errors, setErrors] = useState<{ email?: string; password?: string; form?: string }>({});
   const [submitting, setSubmitting] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    setRememberDevice(localStorage.getItem('stayos.rememberDevice') === 'true');
+  }, []);
 
   async function submit() {
     const nextErrors = {
@@ -135,15 +142,26 @@ export default function LoginPage() {
                 onChange={(event) => setPassword(event.currentTarget.value)}
                 placeholder="Enter your password"
                 value={password}
-                visibilityToggleIcon={({ reveal }) => (reveal ? <EyeOff size={16} /> : <Eye size={16} />)}
+                visibilityToggleIcon={({ reveal }) =>
+                  reveal ? <EyeOff size={16} /> : <Eye size={16} />
+                }
               />
               <Group justify="space-between" align="center">
                 <Checkbox
-                  checked={rememberDevice}
+                  checked={mounted ? rememberDevice : false}
                   label="Remember this device"
-                  onChange={(event) => setRememberDevice(event.currentTarget.checked)}
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked;
+                    setRememberDevice(checked);
+                    localStorage.setItem('stayos.rememberDevice', String(checked));
+                  }}
                 />
-                <Anchor component="button" type="button" size="sm" onClick={() => setForgotOpen(true)}>
+                <Anchor
+                  component="button"
+                  type="button"
+                  size="sm"
+                  onClick={() => setForgotOpen(true)}
+                >
                   Forgot Password
                 </Anchor>
               </Group>
