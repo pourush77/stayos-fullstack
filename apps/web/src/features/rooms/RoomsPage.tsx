@@ -25,6 +25,7 @@ import {
   UnstyledButton,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
+import { useRouter } from 'next/navigation';
 import {
   Accessibility,
   AlertCircle,
@@ -57,7 +58,6 @@ import { getProperties } from '../../lib/inventory-api';
 import {
   assignRoomToReservation,
   checkInReservation,
-  checkOutReservation,
   unassignRoomFromReservation,
 } from '../../lib/reservation-api';
 import { type Reservation, useReservations } from '../../lib/reservation-hooks';
@@ -72,7 +72,7 @@ import {
   type OperationsAvailableRoomDto,
 } from '../../lib/operations-api';
 import styles from './RoomsPage.module.css';
-import { CheckInModal, CheckOutDialog, DetailTile, StayDrawer } from './components';
+import { CheckInModal, DetailTile } from './components';
 import { cardStyle, defaultRoomFilters, emptyInventory, mockRooms } from './constants';
 import { useRoomFilters } from './hooks';
 import type { FiltersState, InventoryState, Room, RoomAction, RoomStatus } from './types';
@@ -82,7 +82,6 @@ import {
   compactFloorLabel,
   friendlyAssignmentError,
   friendlyCheckInError,
-  friendlyCheckOutError,
   friendlyRemoveAssignmentError,
   friendlyRoomChangeError,
   getPropertyId,
@@ -1724,6 +1723,7 @@ function FilterPills({
 }
 
 export default function RoomsPage() {
+  const router = useRouter();
   const backend = useBackendStatus();
   const allowMockFallback = process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
   const inventory = useRoomInventory({
@@ -1759,11 +1759,6 @@ export default function RoomsPage() {
     useDisclosure(false);
   const [checkInRoom, setCheckInRoom] = useState<Room | null>(null);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
-  const [stayOpened, { open: openStayDrawer, close: closeStayDrawer }] = useDisclosure(false);
-  const [stayRoom, setStayRoom] = useState<Room | null>(null);
-  const [checkOutOpened, { open: openCheckOutDialog, close: closeCheckOutDialog }] =
-    useDisclosure(false);
-  const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -1890,8 +1885,18 @@ export default function RoomsPage() {
   };
 
   const openStay = (room: Room) => {
-    setStayRoom(room);
-    openStayDrawer();
+    const stayId = room.reservationId || room.bookingId;
+
+    if (!stayId) {
+      showToast({
+        color: 'red',
+        title: 'Stay unavailable',
+        message: 'Unable to open this stay. Booking details are missing.',
+      });
+      return;
+    }
+
+    router.push(`/guest-stay/${stayId}`);
   };
 
   const openRemoveAssignment = (room: Room) => {
@@ -2063,57 +2068,6 @@ export default function RoomsPage() {
       });
     } finally {
       setIsCheckingIn(false);
-    }
-  };
-
-  const handleCheckOut = async () => {
-    const reservation = reservationForRoom(stayRoom);
-
-    if (!inventory.propertyId || !stayRoom?.reservationId || inventory.isFallback) {
-      showToast({
-        color: 'red',
-        title: 'Check out failed',
-        message: 'Unable to check out this guest. Please try again.',
-      });
-      return;
-    }
-
-    if (stayRoom.status !== 'occupied' && reservation?.status !== 'Checked-in') {
-      showToast({
-        color: 'yellow',
-        title: 'Cannot check out yet',
-        message: 'Guest has not checked in yet.',
-      });
-      return;
-    }
-
-    setIsCheckingOut(true);
-
-    try {
-      await checkOutReservation(inventory.propertyId, stayRoom.reservationId);
-
-      showToast({
-        color: 'green',
-        title: 'Guest checked out',
-        message: 'Guest checked out successfully.',
-      });
-
-      closeCheckOutDialog();
-      closeStayDrawer();
-      closeDrawer();
-      setStayRoom(null);
-
-      await Promise.all([inventory.refreshInventory(), reservationsState.refreshReservations()]);
-
-      setSidebarRefreshKey((current) => current + 1);
-    } catch (error) {
-      showToast({
-        color: 'red',
-        title: 'Check out failed',
-        message: friendlyCheckOutError(error),
-      });
-    } finally {
-      setIsCheckingOut(false);
     }
   };
 
@@ -2491,21 +2445,6 @@ export default function RoomsPage() {
         opened={checkInOpened}
         reservation={reservationForRoom(checkInRoom)}
         room={checkInRoom}
-      />
-
-      <StayDrawer
-        onCheckOut={openCheckOutDialog}
-        onClose={closeStayDrawer}
-        opened={stayOpened}
-        reservation={reservationForRoom(stayRoom)}
-        room={stayRoom}
-      />
-
-      <CheckOutDialog
-        loading={isCheckingOut}
-        onClose={closeCheckOutDialog}
-        onConfirm={handleCheckOut}
-        opened={checkOutOpened}
       />
 
       <Modal

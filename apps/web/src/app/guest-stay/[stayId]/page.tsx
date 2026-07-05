@@ -1,5 +1,3 @@
-import GuestStayWorkspace from '../workspace';
+import StayWorkspace from '../../../features/stays/components/StayWorkspace';
 
-export default function GuestStayPage() {
-  return <GuestStayWorkspace />;
-}
+export default StayWorkspace;

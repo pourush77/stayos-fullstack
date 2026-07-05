@@ -143,7 +143,13 @@ export default function BookingDetailPage() {
             <Text c="#64748b" size="sm">{booking.guestName} - {formatStayDates(booking.arrivalDate, booking.departureDate)}</Text>
           </Stack>
           <Group gap={8}>
-            <Button color="stayosBrand" onClick={() => booking.room === 'Unassigned' ? setAssignOpened(true) : undefined}>{primaryAction(booking)}</Button>
+            {booking.status === 'CHECKED_IN' ? (
+              <Button component={Link} href={`/guest-stay/${booking.backendId}`} color="stayosBrand">
+                {primaryAction(booking)}
+              </Button>
+            ) : (
+              <Button color="stayosBrand" onClick={() => booking.room === 'Unassigned' ? setAssignOpened(true) : undefined}>{primaryAction(booking)}</Button>
+            )}
             <Button component={Link} href={`/reservations/${booking.backendId}/edit`} variant="light" color="stayosBrand" leftSection={<Edit size={16} />}>Edit Booking</Button>
             {canCancel ? <Button variant="subtle" color="red" leftSection={<XCircle size={16} />} onClick={() => setCancelOpened(true)}>Cancel Booking</Button> : null}
           </Group>
