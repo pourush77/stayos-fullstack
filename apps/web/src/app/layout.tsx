@@ -3,7 +3,9 @@ import type { ReactNode } from 'react';
 import '@mantine/core/styles.css';
 import '@mantine/dates/styles.css';
 import '@mantine/notifications/styles.css';
-import { BackendConnectivityProvider, StayOSAppShell, StayOSProvider } from '@stayos/ui';
+import { BackendConnectivityProvider, StayOSProvider } from '@stayos/ui';
+import { AppFrame } from '../features/auth/AppFrame';
+import { AuthProvider } from '../features/auth/auth-context';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -21,7 +23,9 @@ export default function RootLayout({
       <body>
         <StayOSProvider brand="purple">
           <BackendConnectivityProvider>
-            <StayOSAppShell>{children}</StayOSAppShell>
+            <AuthProvider>
+              <AppFrame>{children}</AppFrame>
+            </AuthProvider>
           </BackendConnectivityProvider>
         </StayOSProvider>
       </body>

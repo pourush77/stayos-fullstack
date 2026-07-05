@@ -20,7 +20,6 @@ import {
   BriefcaseBusiness,
   CalendarPlus,
   ClipboardCheck,
-  CreditCard,
   Crown,
   DoorOpen,
   LogOut,
@@ -58,7 +57,6 @@ function buildQuickActions(onNewArrival: () => void): QuickAction[] {
   { label: 'New Arrival', icon: <UserPlus size={18} />, onClick: onNewArrival, tone: 'green' },
   { label: 'New Booking', icon: <CalendarPlus size={18} />, href: '/reservations/new', tone: 'purple' },
   { label: 'Find Guest', icon: <Users size={18} />, href: '/guests', tone: 'neutral' },
-  { label: 'Receive Payment', icon: <CreditCard size={18} />, href: '/requests', tone: 'red' },
   { label: 'View Rooms', icon: <DoorOpen size={18} />, href: '/rooms', tone: 'blue' },
   {
     label: 'Availability',
@@ -112,17 +110,10 @@ function buttonVariant(tone: Tone) {
   }
 }
 
-function formatCurrency(value: number) {
-  if (value <= 0) return 'INR 0';
-  return `INR ${value.toLocaleString('en-IN')}`;
-}
-
 function taskIcon(item: FrontDeskTask) {
   switch (item.category) {
     case 'Arrival':
       return <BriefcaseBusiness size={18} />;
-    case 'Payment':
-      return <CreditCard size={18} />;
     case 'Room Ready':
       return <BedDouble size={18} />;
     case 'VIP':
@@ -138,7 +129,6 @@ function taskIcon(item: FrontDeskTask) {
 
 function buildSummaryMetrics({
   isLoading,
-  paymentsDue,
   arrivalsToday,
   departuresToday,
   guestsInHouse,
@@ -148,7 +138,6 @@ function buildSummaryMetrics({
   departuresToday: number;
   guestsInHouse: number;
   isLoading: boolean;
-  paymentsDue: number;
   roomsToClean: number;
 }): SummaryMetric[] {
   const loadingValue = isLoading ? '--' : undefined;
@@ -177,14 +166,6 @@ function buildSummaryMetrics({
       icon: <Users size={16} />,
       tone: 'blue',
       href: '/guests',
-    },
-    {
-      label: 'Payments Due',
-      value: loadingValue ?? formatCurrency(paymentsDue),
-      detail: paymentsDue === 0 && !isLoading ? 'No pending balances' : 'Open guest balances',
-      icon: <AlertTriangle size={16} />,
-      tone: 'red',
-      href: '/requests',
     },
     {
       label: 'Rooms To Clean',

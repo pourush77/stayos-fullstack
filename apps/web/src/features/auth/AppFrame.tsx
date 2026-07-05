@@ -1,0 +1,169 @@
+'use client';
+
+import { Modal, PasswordInput, Stack, Text, Button, Box, Title } from '@mantine/core';
+import { usePathname } from 'next/navigation';
+import { useState, type ReactNode } from 'react';
+import { StayOSAppShell, type ShellUser } from '@stayos/ui';
+import { primaryNavigation } from '@stayos/ui';
+import { useAuth } from './auth-context';
+
+const roleLabels: Record<string, string> = {
+  ACCOUNTS: 'Accounts',
+  ADMIN: 'Admin',
+  FRONT_DESK: 'Front Desk',
+  HOUSEKEEPING: 'Housekeeping',
+  MAINTENANCE: 'Maintenance',
+  MANAGER: 'Manager',
+  OWNER: 'Owner',
+  READ_ONLY: 'Read Only',
+};
+
+const roleNavigation: Record<string, string[]> = {
+  ACCOUNTS: ['/rooms', '/billing', '/reports'],
+  ADMIN: ['*'],
+  FRONT_DESK: ['/', '/reservations', '/rooms', '/guests', '/housekeeping'],
+  HOUSEKEEPING: ['/housekeeping', '/rooms'],
+  MAINTENANCE: ['/rooms', '/housekeeping'],
+  MANAGER: ['*'],
+  OWNER: ['*'],
+  READ_ONLY: ['/', '/rooms', '/reports'],
+};
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return (parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : name.slice(0, 2)).toUpperCase();
+}
+
+function navigationForRole(role: string) {
+  const allowed = roleNavigation[role] ?? roleNavigation.FRONT_DESK;
+  if (allowed.includes('*')) return primaryNavigation;
+  return primaryNavigation.filter((item) => allowed.includes(item.href));
+}
+
+function BrandedLoader() {
+  return (
+    <Box
+      style={{
+        alignItems: 'center',
+        background: '#fbfcff',
+        display: 'flex',
+        minHeight: '100vh',
+        justifyContent: 'center',
+      }}
+    >
+      <Stack align="center" gap={14}>
+        <Box
+          aria-hidden
+          style={{
+            alignItems: 'center',
+            background: 'linear-gradient(135deg, #6d5dfc 0%, #4f46e5 100%)',
+            borderRadius: 14,
+            boxShadow: '0 18px 40px rgba(79, 70, 229, 0.22)',
+            display: 'flex',
+            height: 48,
+            justifyContent: 'center',
+            width: 48,
+          }}
+        >
+          <Box
+            aria-hidden
+            style={{
+              border: '2px solid rgba(255, 255, 255, 0.9)',
+              borderRadius: 999,
+              height: 18,
+              width: 18,
+            }}
+          />
+        </Box>
+        <Title order={1} style={{ color: '#101828', fontSize: 24, lineHeight: '30px' }}>
+          StayOS
+        </Title>
+        <Text c="#667085" size="sm">
+          Loading your hotel workspace
+        </Text>
+      </Stack>
+    </Box>
+  );
+}
+
+function UnlockDialog() {
+  const auth = useAuth();
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | undefined>();
+  const [submitting, setSubmitting] = useState(false);
+
+  return (
+    <Modal opened={auth.isLocked} onClose={() => undefined} centered withCloseButton={false} title="Session Locked">
+      <form
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (!password) {
+            setError('Password is required.');
+            return;
+          }
+          setSubmitting(true);
+          setError(undefined);
+          try {
+            await auth.unlock(password);
+            setPassword('');
+          } catch (unlockError) {
+            setError(unlockError instanceof Error ? unlockError.message : 'Unable to unlock session.');
+          } finally {
+            setSubmitting(false);
+          }
+        }}
+      >
+        <Stack gap="md">
+          <Text c="#667085" size="sm">
+            Your session has been locked due to inactivity.
+          </Text>
+          <PasswordInput
+            autoFocus
+            error={error}
+            label="Password"
+            onChange={(event) => setPassword(event.currentTarget.value)}
+            placeholder="Enter your password"
+            value={password}
+          />
+          <Button type="submit" loading={submitting}>
+            Unlock Session
+          </Button>
+        </Stack>
+      </form>
+    </Modal>
+  );
+}
+
+export function AppFrame({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const auth = useAuth();
+  const isPublicRoute = pathname === '/login';
+  const role = String(auth.user?.role ?? 'FRONT_DESK').toUpperCase();
+  const shellUser: ShellUser | undefined = auth.user
+    ? {
+        email: auth.user.email,
+        initials: initials(auth.user.name),
+        name: auth.user.name,
+        propertyName: auth.user.propertyName,
+        roleLabel: roleLabels[role] ?? role,
+      }
+    : undefined;
+
+  if (auth.isBootstrapping && !isPublicRoute) return <BrandedLoader />;
+
+  return (
+    <>
+      <StayOSAppShell
+        isPublicRoute={isPublicRoute}
+        navigationItems={navigationForRole(role)}
+        onLockSession={auth.lockSession}
+        onSignOut={auth.logout}
+        propertyName={auth.user?.propertyName}
+        user={shellUser}
+      >
+        {children}
+      </StayOSAppShell>
+      <UnlockDialog />
+    </>
+  );
+}

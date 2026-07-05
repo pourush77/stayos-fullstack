@@ -52,6 +52,20 @@ import { ShellContent } from './shell-content';
 
 type StayOSAppShellProps = {
   children: ReactNode;
+  isPublicRoute?: boolean;
+  navigationItems?: typeof primaryNavigation;
+  onLockSession?: () => void;
+  onSignOut?: () => void;
+  propertyName?: string;
+  user?: ShellUser;
+};
+
+export type ShellUser = {
+  email: string;
+  initials?: string;
+  name: string;
+  propertyName?: string;
+  roleLabel: string;
 };
 
 type PropertyStatus = {
@@ -86,7 +100,18 @@ type FrontDeskUtilityState = {
 };
 
 const fallbackPropertyName = 'The Oberoi Grand';
-const userName = 'Priya Mehra';
+const fallbackUser: ShellUser = {
+  email: 'frontdesk@stayos.local',
+  initials: 'FD',
+  name: 'Front Desk',
+  roleLabel: 'Front Desk',
+};
+
+type ActiveProperty = {
+  city?: string;
+  name: string;
+  roomCount?: number;
+};
 const commandSuggestions = [
   { label: 'Check in Rahul Sharma', href: '/check-in' },
   { label: 'Assign Room 305', href: '/rooms/305' },
@@ -268,10 +293,16 @@ function getPropertyList(response: unknown) {
   return [];
 }
 
-function useActivePropertyName() {
-  const [propertyName, setPropertyName] = useState(fallbackPropertyName);
+function useActiveProperty(enabled = true) {
+  const [property, setProperty] = useState<ActiveProperty>({
+    name: fallbackPropertyName,
+    roomCount: 62,
+    city: 'New Delhi',
+  });
 
   useEffect(() => {
+    if (!enabled) return undefined;
+
     const controller = new AbortController();
     const env = (globalThis as unknown as { process?: { env?: { NEXT_PUBLIC_API_URL?: string } } })
       .process?.env;
@@ -288,18 +319,26 @@ function useActivePropertyName() {
       .then((response) => {
         const activeProperty = getPropertyList(response).find(
           (property) => getPropertyStatus(property) === 'ACTIVE',
-        );
+        ) as Record<string, unknown> | undefined;
         const name = getPropertyName(activeProperty);
-        if (name) setPropertyName(name);
+        if (name) {
+          const city = stringValue(activeProperty, ['city']);
+          const roomCount = Number(stringValue(activeProperty, ['totalRooms', 'rooms']));
+          setProperty({
+            city: city || undefined,
+            name,
+            roomCount: Number.isFinite(roomCount) && roomCount > 0 ? roomCount : undefined,
+          });
+        }
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return;
       });
 
     return () => controller.abort();
-  }, []);
+  }, [enabled]);
 
-  return propertyName;
+  return property;
 }
 
 function BrandMark({ collapsed = false }: { collapsed?: boolean }) {
@@ -346,9 +385,11 @@ function BrandMark({ collapsed = false }: { collapsed?: boolean }) {
 
 function PropertySelector({
   collapsed = false,
+  propertyMeta,
   propertyName,
 }: {
   collapsed?: boolean;
+  propertyMeta?: ActiveProperty;
   propertyName: string;
 }) {
   if (collapsed) {
@@ -405,7 +446,9 @@ function PropertySelector({
                   lineClamp={1}
                   style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}
                 >
-                  New Delhi - 62 Rooms
+                  {[propertyMeta?.city, propertyMeta?.roomCount ? `${propertyMeta.roomCount} Rooms` : undefined]
+                    .filter(Boolean)
+                    .join(' - ') || 'Active property'}
                 </Text>
               </Box>
             </Group>
@@ -421,10 +464,16 @@ function PropertySelector({
   );
 }
 
-function NavigationList({ collapsed = false }: { collapsed?: boolean }) {
+function NavigationList({
+  collapsed = false,
+  navigationItems = primaryNavigation,
+}: {
+  collapsed?: boolean;
+  navigationItems?: typeof primaryNavigation;
+}) {
   const pathname = usePathname();
-  const primaryItems = primaryNavigation.slice(0, 6);
-  const secondaryItems = primaryNavigation.slice(6);
+  const primaryItems = navigationItems.slice(0, 6);
+  const secondaryItems = navigationItems.slice(6);
 
   const renderNavItem = (item: {
     label: string;
@@ -526,7 +575,17 @@ function NavigationList({ collapsed = false }: { collapsed?: boolean }) {
   );
 }
 
-function UserProfile({ collapsed = false }: { collapsed?: boolean }) {
+function UserProfile({
+  collapsed = false,
+  onLockSession,
+  onSignOut,
+  user = fallbackUser,
+}: {
+  collapsed?: boolean;
+  onLockSession?: () => void;
+  onSignOut?: () => void;
+  user?: ShellUser;
+}) {
   const [menuOpened, setMenuOpened] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
@@ -555,7 +614,7 @@ function UserProfile({ collapsed = false }: { collapsed?: boolean }) {
         <Menu.Target>
           <UnstyledButton
             type="button"
-            aria-label={`Open profile menu for ${userName}`}
+            aria-label={`Open profile menu for ${user.name}`}
             aria-haspopup="menu"
             aria-expanded={menuOpened}
             onMouseEnter={() => setIsHovered(true)}
@@ -569,7 +628,7 @@ function UserProfile({ collapsed = false }: { collapsed?: boolean }) {
               minHeight: collapsed ? 46 : 52,
               justifyContent: collapsed ? 'center' : 'flex-start',
               gap: collapsed ? 0 : 10,
-              padding: collapsed ? 6 : '8px 12px',
+              padding: collapsed ? 6 : '8px 42px 8px 12px',
               border: '1px solid transparent',
               borderRadius: 14,
               background: rowActive ? '#f3f6fb' : 'transparent',
@@ -582,7 +641,7 @@ function UserProfile({ collapsed = false }: { collapsed?: boolean }) {
             }}
           >
             <Avatar color="stayosBrand" radius="xl" size={34}>
-              PM
+              {user.initials ?? user.name.slice(0, 2).toUpperCase()}
             </Avatar>
             {!collapsed ? (
               <Box style={{ minWidth: 0, flex: 1 }}>
@@ -591,14 +650,14 @@ function UserProfile({ collapsed = false }: { collapsed?: boolean }) {
                   lineClamp={1}
                   style={{ fontSize: 13, fontWeight: 700, lineHeight: '18px' }}
                 >
-                  {userName}
+                  {user.name}
                 </Text>
                 <Text
                   c="#667085"
                   lineClamp={1}
                   style={{ marginTop: 1, fontSize: 12, fontWeight: 500, lineHeight: '16px' }}
                 >
-                  Front Desk
+                  {user.email}
                 </Text>
               </Box>
             ) : null}
@@ -612,13 +671,44 @@ function UserProfile({ collapsed = false }: { collapsed?: boolean }) {
             boxShadow: '0 8px 20px rgba(15, 23, 42, 0.08)',
           }}
         >
-          <Menu.Item leftSection={<KeyRound size={16} />}>Change Password</Menu.Item>
+          <Menu.Label>
+            <Text c="#101828" fw={700} size="sm">
+              {user.name}
+            </Text>
+            <Text c="#667085" size="xs">
+              {user.email}
+            </Text>
+          </Menu.Label>
+          <Menu.Item leftSection={<UserRound size={16} />}>Profile</Menu.Item>
+          <Menu.Item disabled>{user.roleLabel}</Menu.Item>
+          <Menu.Item leftSection={<KeyRound size={16} />} onClick={onLockSession}>
+            Lock Session
+          </Menu.Item>
           <Menu.Divider />
-          <Menu.Item color="red" leftSection={<LogOut size={16} />}>
-            Log Out
+          <Menu.Item color="red" leftSection={<LogOut size={16} />} onClick={onSignOut}>
+            Sign Out
           </Menu.Item>
         </Menu.Dropdown>
       </Menu>
+      {onSignOut ? (
+        <Tooltip label="Sign out" position="right">
+          <ActionIcon
+            aria-label="Sign out"
+            color="red"
+            onClick={onSignOut}
+            size={collapsed ? 34 : 30}
+            style={{
+              position: collapsed ? 'static' : 'absolute',
+              right: collapsed ? undefined : 10,
+              top: collapsed ? undefined : 15,
+              zIndex: 3,
+            }}
+            variant="subtle"
+          >
+            <LogOut size={16} />
+          </ActionIcon>
+        </Tooltip>
+      ) : null}
     </Box>
   );
 }
@@ -772,12 +862,22 @@ function GlobalSearch() {
 
 function Sidebar({
   collapsed,
+  navigationItems,
+  onLockSession,
+  onSignOut,
   onToggleCollapse,
+  propertyMeta,
   propertyName,
+  user,
 }: {
   collapsed: boolean;
+  navigationItems?: typeof primaryNavigation;
+  onLockSession?: () => void;
+  onSignOut?: () => void;
   onToggleCollapse: () => void;
+  propertyMeta?: ActiveProperty;
   propertyName: string;
+  user?: ShellUser;
 }) {
   return (
     <Box style={{ position: 'relative', height: '100%', minHeight: 0 }}>
@@ -792,13 +892,22 @@ function Sidebar({
           {!collapsed ? null : null}
         </Group>
 
-        <PropertySelector collapsed={collapsed} propertyName={propertyName} />
+        <PropertySelector
+          collapsed={collapsed}
+          propertyMeta={propertyMeta}
+          propertyName={propertyName}
+        />
 
         <ScrollArea flex={1} type="hover" scrollbarSize={5} style={{ minHeight: 0 }}>
-          <NavigationList collapsed={collapsed} />
+          <NavigationList collapsed={collapsed} navigationItems={navigationItems} />
         </ScrollArea>
 
-        <UserProfile collapsed={collapsed} />
+        <UserProfile
+          collapsed={collapsed}
+          onLockSession={onLockSession}
+          onSignOut={onSignOut}
+          user={user}
+        />
       </Stack>
 
       <ActionIcon
@@ -1367,9 +1476,9 @@ function FrontDeskUtilityPanel() {
             >
               <Stack gap={12} pr={4} pb={8}>
                 {liveOperations.length > 0 ? (
-                  liveOperations.map((item) => (
+                  liveOperations.map((item, index) => (
                   <Group
-                    key={`${item.title}-${item.time}`}
+                    key={`${item.title}-${item.detail}-${item.time}-${index}`}
                     gap={10}
                     align="flex-start"
                     wrap="nowrap"
@@ -1440,13 +1549,23 @@ function FrontDeskUtilityPanel() {
 }
 
 function MobileDrawer({
+  navigationItems,
+  onLockSession,
   opened,
   onClose,
+  onSignOut,
+  propertyMeta,
   propertyName,
+  user,
 }: {
+  navigationItems?: typeof primaryNavigation;
+  onLockSession?: () => void;
   opened: boolean;
   onClose: () => void;
+  onSignOut?: () => void;
+  propertyMeta?: ActiveProperty;
   propertyName: string;
+  user?: ShellUser;
 }) {
   return (
     <Drawer
@@ -1456,13 +1575,29 @@ function MobileDrawer({
       size="min(90vw, 340px)"
       zIndex={zIndex.drawer}
     >
-      <Sidebar collapsed={false} onToggleCollapse={onClose} propertyName={propertyName} />
+      <Sidebar
+        collapsed={false}
+        navigationItems={navigationItems}
+        onLockSession={onLockSession}
+        onSignOut={onSignOut}
+        onToggleCollapse={onClose}
+        propertyMeta={propertyMeta}
+        propertyName={propertyName}
+        user={user}
+      />
     </Drawer>
   );
 }
 
-function MobileBottomNav({ onOpen }: { onOpen: () => void }) {
+function MobileBottomNav({
+  navigationItems,
+  onOpen,
+}: {
+  navigationItems?: typeof primaryNavigation;
+  onOpen: () => void;
+}) {
   const pathname = usePathname();
+  const items = navigationItems ? mobileNavigation.filter((item) => navigationItems.some((nav) => nav.href === item.href)) : mobileNavigation;
 
   return (
     <Group
@@ -1477,7 +1612,7 @@ function MobileBottomNav({ onOpen }: { onOpen: () => void }) {
       bd={`1px solid ${colors.border.subtle}`}
       style={{ zIndex: zIndex.sticky, boxShadow: shadows.sm }}
     >
-      {mobileNavigation.map((item) => (
+      {items.map((item) => (
         <ActionIcon
           component={Link}
           href={item.href}
@@ -1503,12 +1638,24 @@ function MobileBottomNav({ onOpen }: { onOpen: () => void }) {
   );
 }
 
-export function StayOSAppShell({ children }: StayOSAppShellProps) {
+function ProtectedStayOSAppShell({
+  children,
+  navigationItems,
+  onLockSession,
+  onSignOut,
+  propertyName: propertyNameProp,
+  user,
+}: Omit<StayOSAppShellProps, 'isPublicRoute'>) {
   const [mobileMenuOpened, { open: openMobileMenu, close: closeMobileMenu }] = useDisclosure(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [utilityPanelOpen, setUtilityPanelOpen] = useState(true);
+  const [utilityPanelOpen, setUtilityPanelOpen] = useState(false);
   const pathname = usePathname();
-  const propertyName = useActivePropertyName();
+  const activeProperty = useActiveProperty(!propertyNameProp && !user?.propertyName);
+  const propertyName = propertyNameProp ?? user?.propertyName ?? activeProperty.name;
+  const propertyMeta =
+    propertyNameProp || user?.propertyName
+      ? { name: propertyName }
+      : activeProperty;
   const sidebarWidth = sidebarCollapsed ? 78 : 264;
   const utilityPanelAvailable = !pathname.startsWith('/rooms');
 
@@ -1536,8 +1683,13 @@ export function StayOSAppShell({ children }: StayOSAppShellProps) {
         >
           <Sidebar
             collapsed={sidebarCollapsed}
+            navigationItems={navigationItems}
+            onLockSession={onLockSession}
+            onSignOut={onSignOut}
             onToggleCollapse={() => setSidebarCollapsed((value) => !value)}
+            propertyMeta={propertyMeta}
             propertyName={propertyName}
+            user={user}
           />
         </Box>
 
@@ -1603,11 +1755,40 @@ export function StayOSAppShell({ children }: StayOSAppShellProps) {
       </Box>
 
       <MobileDrawer
+        navigationItems={navigationItems}
+        onLockSession={onLockSession}
         opened={mobileMenuOpened}
         onClose={closeMobileMenu}
+        onSignOut={onSignOut}
+        propertyMeta={propertyMeta}
         propertyName={propertyName}
+        user={user}
       />
-      <MobileBottomNav onOpen={openMobileMenu} />
+      <MobileBottomNav navigationItems={navigationItems} onOpen={openMobileMenu} />
     </>
+  );
+}
+
+export function StayOSAppShell({
+  children,
+  isPublicRoute = false,
+  navigationItems,
+  onLockSession,
+  onSignOut,
+  propertyName,
+  user,
+}: StayOSAppShellProps) {
+  if (isPublicRoute) return <>{children}</>;
+
+  return (
+    <ProtectedStayOSAppShell
+      navigationItems={navigationItems}
+      onLockSession={onLockSession}
+      onSignOut={onSignOut}
+      propertyName={propertyName}
+      user={user}
+    >
+      {children}
+    </ProtectedStayOSAppShell>
   );
 }

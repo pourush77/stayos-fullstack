@@ -16,7 +16,6 @@ export type FrontDeskSummary = {
   arrivalsToday: number;
   departuresToday: number;
   guestsInHouse: number;
-  paymentsDue: number;
   roomsToClean: number;
 };
 
@@ -25,7 +24,6 @@ export type FrontDeskTask = {
   priority: FrontDeskTaskPriority;
   category:
     | 'Arrival'
-    | 'Payment'
     | 'Room Ready'
     | 'VIP'
     | 'Maintenance'
@@ -52,10 +50,8 @@ type ReservationView = {
   id: string;
   arrivalDate: string;
   departureDate: string;
-  balanceAmount: number;
   guestName: string;
   isVip: boolean;
-  paymentStatus: string;
   roomAssigned: boolean;
   roomLabel: string;
   status: string;
@@ -71,7 +67,6 @@ const emptySummary: FrontDeskSummary = {
   arrivalsToday: 0,
   departuresToday: 0,
   guestsInHouse: 0,
-  paymentsDue: 0,
   roomsToClean: 0,
 };
 
@@ -85,21 +80,6 @@ function getString(record: Record<string, unknown> | undefined, keys: string[], 
   }
 
   return fallback;
-}
-
-function getNumber(record: Record<string, unknown> | undefined, keys: string[]) {
-  if (!record) return 0;
-
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string' && value.trim()) {
-      const parsed = Number(value.replace(/[^\d.-]/g, ''));
-      if (Number.isFinite(parsed)) return parsed;
-    }
-  }
-
-  return 0;
 }
 
 function getBoolean(record: Record<string, unknown> | undefined, keys: string[]) {
@@ -163,11 +143,6 @@ function isInHouseStatus(status: string) {
   return normalizeStatus(status) === 'CHECKED_IN';
 }
 
-function hasPaymentDue(status: string, balanceAmount: number) {
-  const normalized = normalizeStatus(status);
-  return balanceAmount > 0 || ['PAYMENT_DUE', 'DUE', 'PARTIALLY_PAID', 'PARTIAL', 'UNPAID'].includes(normalized);
-}
-
 function guestName(guest: GuestDto | undefined) {
   if (!guest) return 'Guest not connected';
   return (
@@ -188,17 +163,12 @@ function mapReservation(dto: ReservationDto, guests: Map<string, GuestDto>): Res
   const roomId = getString(dto, ['roomId'], getId(roomRecord ?? {}));
   const arrivalDate = normalizeDate(getString(dto, ['arrivalDate', 'checkInDate', 'startDate']));
   const departureDate = normalizeDate(getString(dto, ['departureDate', 'checkOutDate', 'endDate']));
-  const totalAmount = getNumber(dto, ['balanceAmount', 'balance', 'amountDue', 'dueAmount', 'outstandingAmount']);
-  const paymentStatus = getString(dto, ['paymentStatus', 'payment_state', 'paymentState'], '');
-
   return {
     id: getString(dto, ['reservationCode', 'code', 'bookingCode', 'id', '_id'], 'Reservation'),
     arrivalDate,
     departureDate,
-    balanceAmount: totalAmount,
     guestName: guestName(guestRecord),
     isVip: getBoolean(dto, ['isVip', 'vip']) || getBoolean(guestRecord, ['isVip', 'vip', 'vipStatus']),
-    paymentStatus,
     roomAssigned: Boolean(roomNumber || roomId),
     roomLabel: roomNumber ? `Room ${roomNumber}` : 'Room not assigned',
     status: getString(dto, ['status'], 'CONFIRMED'),
@@ -242,13 +212,6 @@ function buildSummary(reservations: ReservationView[], rooms: RoomView[]): Front
       (reservation) => reservation.departureDate === today && normalizeStatus(reservation.status) !== 'CANCELLED',
     ).length,
     guestsInHouse: Math.max(reservationGuestsInHouse, occupiedRooms),
-    paymentsDue: reservations.reduce(
-      (total, reservation) =>
-        hasPaymentDue(reservation.paymentStatus, reservation.balanceAmount)
-          ? total + Math.max(0, reservation.balanceAmount)
-          : total,
-      0,
-    ),
     roomsToClean: rooms.filter((room) => isRoomCleaning(room.status)).length,
   };
 }
@@ -278,24 +241,6 @@ function buildTasks(reservations: ReservationView[], rooms: RoomView[]): FrontDe
         action: 'Assign Room',
         tone: 'red',
         href: '/rooms',
-      });
-    }
-
-    if (hasPaymentDue(reservation.paymentStatus, reservation.balanceAmount)) {
-      tasks.push({
-        id: `payment-${reservation.id}`,
-        priority: isArrivalToday ? 'high' : 'medium',
-        category: 'Payment',
-        title: reservation.guestName,
-        subtitle: `${reservation.id} - ${reservation.roomLabel}`,
-        message:
-          reservation.balanceAmount > 0
-            ? `INR ${reservation.balanceAmount.toLocaleString('en-IN')} balance is pending.`
-            : 'Payment is still pending.',
-        signal: 'Payment pending',
-        action: reservation.balanceAmount > 0 ? `Collect INR ${reservation.balanceAmount.toLocaleString('en-IN')}` : 'Collect Payment',
-        tone: 'amber',
-        href: '/requests',
       });
     }
 

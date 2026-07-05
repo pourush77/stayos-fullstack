@@ -23,6 +23,7 @@ export * from './components/visual-language';
 export * from './connectivity/backend-connectivity';
 export * from './layout/stayos-app-shell';
 export * from './layout/shell-content';
+export * from './layout/navigation';
 export * from './providers/stayos-provider';
 export * from './illustrations/hospitality-welcome';
 export * from './operations/task-engine';
