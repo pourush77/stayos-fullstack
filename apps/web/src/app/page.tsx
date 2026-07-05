@@ -12,6 +12,7 @@ import {
   Text,
   ThemeIcon,
   Title,
+  UnstyledButton,
 } from '@mantine/core';
 import {
   AlertTriangle,
@@ -28,7 +29,9 @@ import {
   Users,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
+import { ArrivalWorkspace } from '../features/arrivals/components/ArrivalWorkspace';
 import { type FrontDeskTask, useFrontDeskData } from '../lib/front-desk-api';
 import styles from './front-desk.module.css';
 
@@ -37,6 +40,7 @@ type QuickAction = {
   label: string;
   icon: ReactNode;
   href?: string;
+  onClick?: () => void;
   tone: Tone;
 };
 
@@ -49,9 +53,10 @@ type SummaryMetric = {
   href?: string;
 };
 
-const quickActions: QuickAction[] = [
-  { label: 'New Booking', icon: <CalendarPlus size={18} />, href: '/reservations', tone: 'purple' },
-  { label: 'Walk-in Guest', icon: <UserPlus size={18} />, href: '/check-in', tone: 'green' },
+function buildQuickActions(onNewArrival: () => void): QuickAction[] {
+  return [
+  { label: 'New Arrival', icon: <UserPlus size={18} />, onClick: onNewArrival, tone: 'green' },
+  { label: 'New Booking', icon: <CalendarPlus size={18} />, href: '/reservations/new', tone: 'purple' },
   { label: 'Find Guest', icon: <Users size={18} />, href: '/guests', tone: 'neutral' },
   { label: 'Receive Payment', icon: <CreditCard size={18} />, href: '/requests', tone: 'red' },
   { label: 'View Rooms', icon: <DoorOpen size={18} />, href: '/rooms', tone: 'blue' },
@@ -63,7 +68,8 @@ const quickActions: QuickAction[] = [
   },
   { label: 'Check Out', icon: <LogOut size={18} />, href: '/rooms', tone: 'amber' },
   { label: 'More Actions', icon: <Plus size={18} />, tone: 'neutral' },
-];
+  ];
+}
 
 function toneClass(tone: Tone) {
   return styles[`tone${tone[0].toUpperCase()}${tone.slice(1)}`];
@@ -207,12 +213,18 @@ function QuickActionCard({ action }: { action: QuickAction }) {
     <Link href={action.href} className={styles.cardLink}>
       {content}
     </Link>
+  ) : action.onClick ? (
+    <UnstyledButton onClick={action.onClick} className={styles.cardLink}>
+      {content}
+    </UnstyledButton>
   ) : (
     content
   );
 }
 
-function QuickActions() {
+function QuickActions({ onNewArrival }: { onNewArrival: () => void }) {
+  const quickActions = buildQuickActions(onNewArrival);
+
   return (
     <SimpleGrid
       cols={{ base: 2, sm: 3, lg: 4, xl: 4 }}
@@ -367,11 +379,12 @@ function NeedsAttention({
 
 export default function HomePage() {
   const frontDesk = useFrontDeskData();
+  const [arrivalOpened, setArrivalOpened] = useState(false);
   const summaryMetrics = buildSummaryMetrics({ ...frontDesk.summary, isLoading: frontDesk.isLoading });
 
   return (
     <Stack gap={spacing[3]} className={styles.pageShell}>
-      <QuickActions />
+      <QuickActions onNewArrival={() => setArrivalOpened(true)} />
 
       <Box className={styles.desktopGrid}>
         <Stack gap={spacing[3]} className={styles.mainColumn}>
@@ -383,6 +396,7 @@ export default function HomePage() {
           />
         </Stack>
       </Box>
+      <ArrivalWorkspace opened={arrivalOpened} onClose={() => setArrivalOpened(false)} />
     </Stack>
   );
 }
