@@ -1,5 +1,5 @@
 import { BookingFormPage } from '../../../features/reservations/BookingFormPage';
 
-export default function AvailabilityCompatibilityPage() {
+export default function NewBookingPage() {
   return <BookingFormPage mode="create" />;
 }

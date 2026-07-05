@@ -2,20 +2,34 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost
 
 type ApiResponse<T> = T | { data?: T } | { items?: T } | { results?: T };
 
-async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
     cache: 'no-store',
     headers: {
       Accept: 'application/json',
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...options.headers,
     },
-    signal,
   });
 
+  const payload = (await response.json().catch(() => undefined)) as
+    | ApiResponse<T>
+    | { message?: unknown }
+    | undefined;
+
   if (!response.ok) {
-    throw new Error(`Guest API request failed: ${response.status} ${response.statusText}`);
+    const message =
+      payload &&
+      typeof payload === 'object' &&
+      'message' in payload &&
+      typeof payload.message === 'string'
+        ? payload.message
+        : `Guest API request failed: ${response.status} ${response.statusText}`;
+    throw new Error(message);
   }
 
-  return unwrapResponse<T>((await response.json()) as ApiResponse<T>);
+  return unwrapResponse<T>(payload as ApiResponse<T>);
 }
 
 function unwrapResponse<T>(response: ApiResponse<T>): T {
@@ -30,15 +44,53 @@ function unwrapResponse<T>(response: ApiResponse<T>): T {
 
 export type GuestPropertyDto = Record<string, unknown>;
 export type GuestDto = Record<string, unknown>;
+export type GuestPayloadDto = {
+  alternatePhone?: string;
+  blacklistStatus?: boolean;
+  displayName?: string;
+  email?: string;
+  firstName: string;
+  lastName: string;
+  nationality?: string;
+  phone: string;
+  preferredLanguage?: string;
+  status?: string;
+  vipStatus?: boolean;
+};
 
 export function getProperties(signal?: AbortSignal) {
-  return get<GuestPropertyDto[]>('/properties', signal);
+  return request<GuestPropertyDto[]>('/properties', { signal });
 }
 
 export function getPropertyGuests(propertyId: string, signal?: AbortSignal) {
-  return get<GuestDto[]>(`/properties/${propertyId}/guests`, signal);
+  return request<GuestDto[]>(`/properties/${propertyId}/guests`, { signal });
 }
 
 export function getPropertyGuest(propertyId: string, guestId: string, signal?: AbortSignal) {
-  return get<GuestDto>(`/properties/${propertyId}/guests/${guestId}`, signal);
+  return request<GuestDto>(`/properties/${propertyId}/guests/${guestId}`, { signal });
+}
+
+export function createPropertyGuest(
+  propertyId: string,
+  payload: GuestPayloadDto,
+  signal?: AbortSignal,
+) {
+  return request<GuestDto>(`/properties/${propertyId}/guests`, {
+    body: JSON.stringify(payload),
+    method: 'POST',
+    signal,
+  });
+}
+
+export function updatePropertyGuest(
+  propertyId: string,
+  guestId: string,
+  payload: Partial<GuestPayloadDto>,
+  signal?: AbortSignal,
+) {
+  return request<GuestDto>(`/properties/${propertyId}/guests/${guestId}`, {
+    body: JSON.stringify(payload),
+    method: 'PATCH',
+    signal,
+  });
 }

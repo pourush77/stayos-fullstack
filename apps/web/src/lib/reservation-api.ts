@@ -86,6 +86,13 @@ export function updatePropertyReservation(
   });
 }
 
+export function cancelReservation(propertyId: string, reservationId: string, signal?: AbortSignal) {
+  return request<ReservationDto>(`/properties/${propertyId}/reservations/${reservationId}/cancel`, {
+    method: 'PATCH',
+    signal,
+  });
+}
+
 export type ReservationWorkflowResponseDto = {
   reservation: {
     id: string;
