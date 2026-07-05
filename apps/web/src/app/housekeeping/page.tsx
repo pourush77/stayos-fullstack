@@ -1,12 +1,13 @@
 'use client';
 
-import Link from 'next/link';
 import {
+  Alert,
   Badge,
   Box,
   Button,
   Card,
   Group,
+  Modal,
   Paper,
   ScrollArea,
   Select,
@@ -20,451 +21,717 @@ import {
 import {
   Brush,
   CheckCircle2,
-  Clock,
+  ClipboardCheck,
   Eye,
-  Search,
+  Plus,
   Sparkles,
-  UserRound,
+  UserPlus,
   Wrench,
 } from 'lucide-react';
-import type { CSSProperties, ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
+import { showToast } from '@stayos/ui';
+import {
+  assignHousekeepingRoom,
+  completeHousekeepingRoom,
+  createHousekeepingEmployee,
+  friendlyHousekeepingError,
+  getCurrentPropertyId,
+  getHousekeepingDashboard,
+  getHousekeepingEmployees,
+  inspectHousekeepingRoom,
+  startHousekeepingRoom,
+} from '../../features/housekeeping/api/housekeeping-api';
+import {
+  createChecklist,
+  serializeChecklist,
+} from '../../features/housekeeping/utils/housekeeping-checklist';
+import type {
+  HousekeepingChecklistItem,
+  HousekeepingEmployee,
+  HousekeepingRoom,
+  HousekeepingStatus,
+} from '../../features/housekeeping/types/housekeeping.types';
 
-type HousekeepingStatus = 'dirty' | 'cleaning' | 'inspection' | 'ready' | 'out-of-order';
-type Priority = 'guest-waiting' | 'vip' | 'arrival-soon' | 'checkout-dirty' | 'normal' | 'refresh' | 'maintenance';
-
-type HousekeepingTask = {
-  action: string;
-  arrivalContext?: string;
-  assignedStaff: string;
-  eta: string;
-  floor: string;
-  href: string;
-  priority: Priority;
-  room: string;
-  roomType: string;
-  specialRequest?: string;
-  status: HousekeepingStatus;
-};
-
-const cardStyle: CSSProperties = {
+const cardStyle = {
   background: '#ffffff',
   border: '1px solid rgba(226, 232, 240, 0.9)',
   boxShadow: '0 8px 24px rgba(15, 23, 42, 0.035)',
 };
 
-const tasks: HousekeepingTask[] = [
-  {
-    action: 'Start Cleaning',
-    arrivalContext: 'Guest waiting',
-    assignedStaff: 'Anita',
-    eta: '25 min',
-    floor: 'Third Floor',
-    href: '/housekeeping/302',
-    priority: 'guest-waiting',
-    room: '302',
-    roomType: 'Premium King',
-    specialRequest: 'Airport pickup guest',
-    status: 'dirty',
-  },
-  {
-    action: 'Inspect Room',
-    arrivalContext: 'VIP arrival at 2:00 PM',
-    assignedStaff: 'Supervisor Neha',
-    eta: '10 min',
-    floor: 'Fourth Floor',
-    href: '/housekeeping/406',
-    priority: 'vip',
-    room: '406',
-    roomType: 'Premium Suite',
-    specialRequest: 'VIP setup',
-    status: 'inspection',
-  },
-  {
-    action: 'Start Cleaning',
-    arrivalContext: 'Checkout dirty',
-    assignedStaff: 'Ravi',
-    eta: '20 min',
-    floor: 'Second Floor',
-    href: '/housekeeping/221',
-    priority: 'checkout-dirty',
-    room: '221',
-    roomType: 'Deluxe Twin',
-    status: 'dirty',
-  },
-  {
-    action: 'Mark Ready',
-    assignedStaff: 'Anita',
-    eta: '8 min',
-    floor: 'Fourth Floor',
-    href: '/housekeeping/402',
-    priority: 'refresh',
-    room: '402',
-    roomType: 'Premium Suite',
-    specialRequest: 'Fresh towels',
-    status: 'cleaning',
-  },
-  {
-    action: 'Send for Inspection',
-    arrivalContext: 'Arrival at 5:00 PM',
-    assignedStaff: 'Meena',
-    eta: '15 min',
-    floor: 'Fifth Floor',
-    href: '/housekeeping/502',
-    priority: 'arrival-soon',
-    room: '502',
-    roomType: 'Suite',
-    status: 'cleaning',
-  },
-  {
-    action: 'View Room',
-    assignedStaff: 'Engineering',
-    eta: 'Expected 3 PM',
-    floor: 'Fifth Floor',
-    href: '/housekeeping/504',
-    priority: 'maintenance',
-    room: '504',
-    roomType: 'Suite',
-    specialRequest: 'AC repair',
-    status: 'out-of-order',
-  },
+const groups: Array<{ key: HousekeepingStatus | 'maintenance-group'; label: string }> = [
+  { key: 'dirty', label: 'Needs Cleaning' },
+  { key: 'cleaning', label: 'In Progress' },
+  { key: 'inspection', label: 'Waiting Inspection' },
+  { key: 'ready', label: 'Ready' },
+  { key: 'maintenance-group', label: 'Maintenance / Out of Order' },
 ];
 
 function statusLabel(status: HousekeepingStatus) {
-  const labels: Record<HousekeepingStatus, string> = {
-    cleaning: 'Cleaning',
-    dirty: 'Dirty',
-    inspection: 'Inspection',
-    'out-of-order': 'Out of Order',
-    ready: 'Ready',
-  };
-
-  return labels[status];
+  if (status === 'dirty') return 'Needs Cleaning';
+  if (status === 'cleaning') return 'In Progress';
+  if (status === 'inspection') return 'Inspection';
+  if (status === 'ready') return 'Ready';
+  if (status === 'maintenance') return 'Maintenance';
+  if (status === 'out-of-service') return 'Out of Service';
+  return 'Out of Order';
 }
 
 function statusTone(status: HousekeepingStatus) {
-  if (status === 'ready') return { color: '#16a34a', background: '#f0fdf4' };
-  if (status === 'cleaning') return { color: '#2563eb', background: '#eff6ff' };
-  if (status === 'inspection') return { color: '#6d5dfc', background: '#f5f3ff' };
-  if (status === 'out-of-order') return { color: '#dc2626', background: '#fef2f2' };
-  return { color: '#d97706', background: '#fffbeb' };
+  if (status === 'ready') return { color: '#15803d', background: '#f0fdf4', border: '#bbf7d0' };
+  if (status === 'cleaning') return { color: '#1d4ed8', background: '#eff6ff', border: '#bfdbfe' };
+  if (status === 'inspection')
+    return { color: '#6d5dfc', background: '#f5f3ff', border: '#ddd6fe' };
+  if (status === 'maintenance' || status === 'out-of-order' || status === 'out-of-service') {
+    return { color: '#dc2626', background: '#fef2f2', border: '#fecaca' };
+  }
+  return { color: '#b45309', background: '#fffbeb', border: '#fde68a' };
 }
 
-function StatusBadge({ children, status }: { children: ReactNode; status?: HousekeepingStatus }) {
-  const tone = status ? statusTone(status) : { color: '#64748b', background: '#f8fafc' };
+function statusIcon(status: HousekeepingStatus) {
+  if (status === 'ready') return <CheckCircle2 size={17} />;
+  if (status === 'cleaning') return <Brush size={17} />;
+  if (status === 'inspection') return <Eye size={17} />;
+  if (status === 'maintenance' || status === 'out-of-order' || status === 'out-of-service')
+    return <Wrench size={17} />;
+  return <Sparkles size={17} />;
+}
 
+function StatusBadge({ status }: { status: HousekeepingStatus }) {
+  const tone = statusTone(status);
   return (
     <Badge
       radius={radius.full}
       style={{
         background: tone.background,
-        border: '1px solid rgba(226, 232, 240, 0.9)',
+        border: `1px solid ${tone.border}`,
         color: tone.color,
         fontSize: 11,
-        fontWeight: 600,
+        fontWeight: 700,
         height: 24,
-        paddingInline: 10,
         textTransform: 'none',
       }}
     >
-      {children}
+      {statusLabel(status)}
     </Badge>
   );
 }
 
-function statusIcon(status: HousekeepingStatus): ReactNode {
-  if (status === 'ready') return <CheckCircle2 size={17} />;
-  if (status === 'cleaning') return <Brush size={17} />;
-  if (status === 'inspection') return <Eye size={17} />;
-  if (status === 'out-of-order') return <Wrench size={17} />;
-  return <Sparkles size={17} />;
+function checklistProgress(room: HousekeepingRoom) {
+  const done = room.checklist.filter((item) => item.completed).length;
+  return `${done}/${room.checklist.length}`;
 }
 
-function priorityRank(priority: Priority) {
-  const order: Record<Priority, number> = {
-    'guest-waiting': 0,
-    vip: 1,
-    'arrival-soon': 2,
-    'checkout-dirty': 3,
-    normal: 4,
-    refresh: 5,
-    maintenance: 6,
-  };
-
-  return order[priority];
+function roomMatchesGroup(room: HousekeepingRoom, group: (typeof groups)[number]['key']) {
+  if (group === 'maintenance-group') {
+    return ['maintenance', 'out-of-order', 'out-of-service'].includes(room.status);
+  }
+  return room.status === group;
 }
 
-function SummaryCard({
-  detail,
-  icon,
-  label,
-  status,
-  value,
+function primaryAction(room: HousekeepingRoom) {
+  if (room.status === 'dirty') return room.assignedEmployeeId ? 'Start Cleaning' : 'Assign Staff';
+  if (room.status === 'cleaning') return 'Complete on behalf';
+  if (room.status === 'inspection') return 'Inspect';
+  return 'View';
+}
+
+function ChecklistButtons({
+  checklist,
+  onToggle,
+  readOnly = false,
 }: {
-  detail: string;
-  icon: ReactNode;
-  label: string;
-  status: HousekeepingStatus;
-  value: number;
+  checklist: HousekeepingChecklistItem[];
+  onToggle: (key: string) => void;
+  readOnly?: boolean;
 }) {
-  const tone = statusTone(status);
-
   return (
-    <Paper radius={radius.lg} p={15} style={{ ...cardStyle, minHeight: 84 }}>
-      <Group justify="space-between" align="flex-start" wrap="nowrap">
-        <Box>
-          <Text c="#334155" style={{ fontSize: 12, fontWeight: 600, lineHeight: '15px' }}>
-            {label}
-          </Text>
-          <Text c="#111827" mt={4} style={{ fontSize: 22, fontWeight: 700, lineHeight: '26px' }}>
-            {value}
-          </Text>
-          <Text c="#64748b" mt={2} style={{ fontSize: 12, fontWeight: 500, lineHeight: '15px' }}>
-            {detail}
-          </Text>
-        </Box>
-        <Box
-          aria-hidden
-          style={{
-            alignItems: 'center',
-            background: tone.background,
-            borderRadius: radius.full,
-            color: tone.color,
-            display: 'flex',
-            flex: '0 0 34px',
-            height: 34,
-            justifyContent: 'center',
-            width: 34,
-          }}
-        >
-          {icon}
-        </Box>
-      </Group>
-    </Paper>
+    <SimpleGrid cols={{ base: 2, sm: 3 }} spacing={spacing[2]}>
+      {checklist.map((item) => {
+        const Icon = item.icon;
+        if (readOnly) {
+          return (
+            <Paper
+              key={item.key}
+              aria-label={`${item.label} ${item.completed ? 'complete' : 'not complete'}`}
+              radius={radius.md}
+              p={12}
+              style={{
+                alignItems: 'center',
+                background: item.completed ? '#f0fdf4' : '#f8fafc',
+                border: `1px solid ${item.completed ? '#bbf7d0' : '#e2e8f0'}`,
+                color: item.completed ? '#15803d' : '#475569',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                minHeight: 70,
+                justifyContent: 'center',
+              }}
+            >
+              <Icon aria-hidden size={22} />
+              <Text style={{ fontSize: 13, fontWeight: 800, lineHeight: '17px' }}>
+                {item.label}
+              </Text>
+            </Paper>
+          );
+        }
+        return (
+          <Button
+            key={item.key}
+            color={item.completed ? 'green' : 'gray'}
+            h={70}
+            leftSection={<Icon size={22} />}
+            onClick={() => onToggle(item.key)}
+            variant={item.completed ? 'filled' : 'light'}
+            style={{ fontWeight: 800, whiteSpace: 'normal' }}
+          >
+            {item.label}
+          </Button>
+        );
+      })}
+    </SimpleGrid>
   );
 }
 
-function TaskCard({ task }: { task: HousekeepingTask }) {
+function RoomCard({
+  loading,
+  onAssign,
+  onComplete,
+  onInspect,
+  onStart,
+  room,
+}: {
+  loading?: boolean;
+  onAssign: (room: HousekeepingRoom) => void;
+  onComplete: (room: HousekeepingRoom) => void;
+  onInspect: (room: HousekeepingRoom) => void;
+  onStart: (room: HousekeepingRoom) => void;
+  room: HousekeepingRoom;
+}) {
+  const action = primaryAction(room);
   return (
     <Paper radius={radius.lg} p={16} style={cardStyle}>
-      <Group justify="space-between" align="flex-start" gap={spacing[3]}>
+      <Group justify="space-between" align="flex-start" wrap="nowrap">
         <Box>
-          <Text c="#101828" style={{ fontSize: 22, fontWeight: 700, lineHeight: '28px' }}>
-            Room {task.room}
+          <Text c="#101828" style={{ fontSize: 34, fontWeight: 800, lineHeight: '38px' }}>
+            {room.number}
           </Text>
-          <Text c="#64748b" mt={2} style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}>
-            {task.roomType} - {task.floor}
+          <Text c="#475569" mt={4} style={{ fontSize: 13, fontWeight: 650 }}>
+            {room.roomType} - {room.floor}
           </Text>
         </Box>
-        <StatusBadge status={task.status}>{statusLabel(task.status)}</StatusBadge>
+        <StatusBadge status={room.status} />
       </Group>
 
-      <SimpleGrid mt={12} cols={{ base: 1, sm: 2 }} spacing={8}>
-        <Box>
-          <Text c="#64748b" style={{ fontSize: 11, fontWeight: 500, lineHeight: '15px' }}>
-            Assigned Staff
+      <Stack gap={6} mt={14}>
+        <Text c="#334155" style={{ fontSize: 13, fontWeight: 700 }}>
+          {room.assignedEmployeeName ? `Assigned to ${room.assignedEmployeeName}` : 'Unassigned'}
+        </Text>
+        {room.status === 'cleaning' && room.assignedEmployeeName ? (
+          <Text c="#1d4ed8" style={{ fontSize: 13, fontWeight: 700 }}>
+            Cleaning by {room.assignedEmployeeName}
           </Text>
-          <Text c="#182230" mt={2} style={{ fontSize: 12, fontWeight: 600, lineHeight: '16px' }}>
-            {task.assignedStaff}
-          </Text>
-        </Box>
-        <Box>
-          <Text c="#64748b" style={{ fontSize: 11, fontWeight: 500, lineHeight: '15px' }}>
-            ETA
-          </Text>
-          <Text c="#182230" mt={2} style={{ fontSize: 12, fontWeight: 600, lineHeight: '16px' }}>
-            {task.eta}
-          </Text>
-        </Box>
-        <Box>
-          <Text c="#64748b" style={{ fontSize: 11, fontWeight: 500, lineHeight: '15px' }}>
-            Context
-          </Text>
-          <Text c="#182230" mt={2} lineClamp={1} style={{ fontSize: 12, fontWeight: 600, lineHeight: '16px' }}>
-            {task.arrivalContext ?? 'Normal cleaning'}
-          </Text>
-        </Box>
-        <Box>
-          <Text c="#64748b" style={{ fontSize: 11, fontWeight: 500, lineHeight: '15px' }}>
-            Request
-          </Text>
-          <Text c="#182230" mt={2} lineClamp={1} style={{ fontSize: 12, fontWeight: 600, lineHeight: '16px' }}>
-            {task.specialRequest ?? 'None'}
-          </Text>
-        </Box>
-      </SimpleGrid>
+        ) : null}
+        <Text c="#64748b" style={{ fontSize: 12, fontWeight: 600 }}>
+          Checklist {checklistProgress(room)}
+        </Text>
+        <Text c="#94a3b8" style={{ fontSize: 12, fontWeight: 500 }}>
+          {room.updatedAt ?? room.completedAt ?? room.startedAt ?? 'Updated today'}
+        </Text>
+      </Stack>
 
-      <Group mt={14} justify="space-between" gap={spacing[3]}>
-        <Group gap={8}>
-          <UserRound size={15} color="#64748b" />
-          <Text c="#64748b" style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}>
-            Priority: {task.priority.replace(/-/g, ' ')}
-          </Text>
-        </Group>
-        <Button component={Link} href={task.href} color="stayosBrand" size="compact-sm" style={{ fontWeight: 600 }}>
-          {task.action}
-        </Button>
+      <Group mt={16} justify="flex-end">
+        {room.status === 'dirty' && !room.assignedEmployeeId ? (
+          <Button
+            leftSection={<UserPlus size={16} />}
+            onClick={() => onAssign(room)}
+            loading={loading}
+          >
+            Assign Staff
+          </Button>
+        ) : null}
+        {room.status === 'dirty' && room.assignedEmployeeId ? (
+          <Button leftSection={<Brush size={16} />} onClick={() => onStart(room)} loading={loading}>
+            Start Cleaning
+          </Button>
+        ) : null}
+        {room.status === 'cleaning' ? (
+          <Button
+            leftSection={<ClipboardCheck size={16} />}
+            onClick={() => onComplete(room)}
+            loading={loading}
+          >
+            Complete on behalf
+          </Button>
+        ) : null}
+        {room.status === 'inspection' ? (
+          <Button leftSection={<Eye size={16} />} onClick={() => onInspect(room)} loading={loading}>
+            Inspect
+          </Button>
+        ) : null}
+        {['ready', 'maintenance', 'out-of-order', 'out-of-service'].includes(room.status) ? (
+          <Button variant="light" color="gray">
+            {action}
+          </Button>
+        ) : null}
       </Group>
     </Paper>
   );
 }
 
 export default function HousekeepingPage() {
-  const [query, setQuery] = useState('');
-  const [status, setStatus] = useState('all');
-  const [floor, setFloor] = useState('all');
-  const [staff, setStaff] = useState('all');
-  const [priority, setPriority] = useState('all');
-  const [arrivalToday, setArrivalToday] = useState(false);
+  const [propertyId, setPropertyId] = useState('');
+  const [rooms, setRooms] = useState<HousekeepingRoom[]>([]);
+  const [employees, setEmployees] = useState<HousekeepingEmployee[]>([]);
+  const [error, setError] = useState<string>();
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadingRoomId, setLoadingRoomId] = useState<string>();
+  const [assignRoom, setAssignRoom] = useState<HousekeepingRoom | null>(null);
+  const [completeRoom, setCompleteRoom] = useState<HousekeepingRoom | null>(null);
+  const [inspectRoom, setInspectRoom] = useState<HousekeepingRoom | null>(null);
+  const [staffOpened, setStaffOpened] = useState(false);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const [checklist, setChecklist] = useState<HousekeepingChecklistItem[]>(createChecklist());
+  const [rejectReason, setRejectReason] = useState<string>();
+  const [newEmployee, setNewEmployee] = useState({
+    firstName: '',
+    lastName: '',
+    displayName: '',
+    phone: '',
+  });
+  const updateNewEmployee =
+    (field: keyof typeof newEmployee) => (event: ChangeEvent<HTMLInputElement>) => {
+      const { value } = event.currentTarget;
 
-  const filteredTasks = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
+      setNewEmployee((current) => ({ ...current, [field]: value }));
+    };
 
-    return tasks
-      .filter((task) => {
-        const matchesQuery = normalized ? task.room.toLowerCase().includes(normalized) : true;
-        const matchesStatus = status === 'all' || task.status === status;
-        const matchesFloor = floor === 'all' || task.floor === floor;
-        const matchesStaff = staff === 'all' || task.assignedStaff === staff;
-        const matchesPriority = priority === 'all' || task.priority === priority;
-        const matchesArrival = !arrivalToday || Boolean(task.arrivalContext?.toLowerCase().includes('arrival') || task.arrivalContext?.toLowerCase().includes('waiting'));
+  const load = useCallback(
+    async (signal?: AbortSignal) => {
+      setError(undefined);
+      setIsLoading(true);
+      try {
+        const nextPropertyId = propertyId || (await getCurrentPropertyId(signal));
+        const [nextRooms, nextEmployees] = await Promise.all([
+          getHousekeepingDashboard(nextPropertyId, signal),
+          getHousekeepingEmployees(nextPropertyId, signal),
+        ]);
+        setPropertyId(nextPropertyId);
+        setRooms(nextRooms);
+        setEmployees(nextEmployees);
+      } catch (loadError) {
+        if (loadError instanceof DOMException && loadError.name === 'AbortError') return;
+        setError('Housekeeping is temporarily unavailable.');
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [propertyId],
+  );
 
-        return matchesQuery && matchesStatus && matchesFloor && matchesStaff && matchesPriority && matchesArrival;
-      })
-      .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
-  }, [arrivalToday, floor, priority, query, staff, status]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
 
-  const completed = 12;
-  const remaining = 6;
-  const floors = Array.from(new Set(tasks.map((task) => task.floor)));
-  const staffOptions = Array.from(new Set(tasks.map((task) => task.assignedStaff)));
+  const employeeOptions = useMemo(
+    () => employees.map((employee) => ({ label: employee.displayName, value: employee.id })),
+    [employees],
+  );
+  const selectedEmployee = employees.find((employee) => employee.id === selectedEmployeeId);
 
-  const summary = [
-    { label: 'Dirty', value: tasks.filter((task) => task.status === 'dirty').length, detail: 'Needs cleaning.', status: 'dirty' as const, icon: statusIcon('dirty') },
-    { label: 'Cleaning', value: tasks.filter((task) => task.status === 'cleaning').length, detail: 'In progress.', status: 'cleaning' as const, icon: statusIcon('cleaning') },
-    { label: 'Inspection', value: tasks.filter((task) => task.status === 'inspection').length, detail: 'Supervisor review.', status: 'inspection' as const, icon: statusIcon('inspection') },
-    { label: 'Ready', value: tasks.filter((task) => task.status === 'ready').length, detail: 'Ready for assignment.', status: 'ready' as const, icon: statusIcon('ready') },
-    { label: 'Out of Order', value: tasks.filter((task) => task.status === 'out-of-order').length, detail: 'Unavailable rooms.', status: 'out-of-order' as const, icon: statusIcon('out-of-order') },
-  ];
+  const runAction = async (
+    room: HousekeepingRoom,
+    action: () => Promise<unknown>,
+    success: string,
+  ) => {
+    setLoadingRoomId(room.id);
+    try {
+      await action();
+      showToast({ color: 'green', title: 'Housekeeping updated', message: success });
+      await load();
+    } catch (actionError) {
+      showToast({
+        color: 'red',
+        title: 'Unable to update room',
+        message: friendlyHousekeepingError(actionError),
+      });
+    } finally {
+      setLoadingRoomId(undefined);
+    }
+  };
+
+  const openComplete = (room: HousekeepingRoom) => {
+    setCompleteRoom(room);
+    setSelectedEmployeeId(room.assignedEmployeeId ?? null);
+    setChecklist(
+      room.checklist.some((item) => item.completed) ? room.checklist : createChecklist(),
+    );
+  };
+
+  const openInspect = (room: HousekeepingRoom) => {
+    setInspectRoom(room);
+    setRejectReason(undefined);
+    setChecklist(
+      room.checklist.some((item) => item.completed) ? room.checklist : createChecklist(),
+    );
+  };
 
   return (
-    <Stack gap={spacing[3]}>
-      <Group justify="space-between" align="flex-start" gap={spacing[4]}>
+    <Stack gap={spacing[3]} h="100%" style={{ minHeight: 0 }}>
+      <Group justify="space-between" align="flex-start" gap={spacing[4]} wrap="wrap">
         <Box>
-          <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 700, lineHeight: '38px' }}>
+          <Title
+            order={1}
+            c="#101828"
+            style={{ fontSize: 30, fontWeight: 750, lineHeight: '38px' }}
+          >
             Housekeeping
           </Title>
-          <Text mt={spacing[1]} c="#64748b" style={{ fontSize: 14, fontWeight: 400, lineHeight: '22px' }}>
-            Manage cleaning, inspections and room readiness.
-          </Text>
-          <Text mt={spacing[2]} c="#334155" style={{ fontSize: 13, fontWeight: 500, lineHeight: '18px' }}>
-            18 rooms assigned today - {completed} completed - {remaining} remaining
+          <Text c="#64748b" mt={4} style={{ fontSize: 14, lineHeight: '22px' }}>
+            Assign rooms, track cleaning, and inspect rooms before release.
           </Text>
         </Box>
       </Group>
 
+      {error ? <Alert color="red">{error}</Alert> : null}
+      {isLoading ? <Alert color="blue">Loading housekeeping rooms...</Alert> : null}
+
       <SimpleGrid cols={{ base: 1, xs: 2, md: 3, xl: 5 }} spacing={spacing[3]}>
-        {summary.map((item) => (
-          <SummaryCard key={item.label} {...item} />
-        ))}
+        {groups.map((group) => {
+          const status = group.key === 'maintenance-group' ? 'out-of-order' : group.key;
+          const count = rooms.filter((room) => roomMatchesGroup(room, group.key)).length;
+          return (
+            <Paper key={group.key} radius={radius.lg} p={16} style={cardStyle}>
+              <Group justify="space-between" align="flex-start" wrap="nowrap">
+                <Box>
+                  <Text c="#334155" style={{ fontSize: 12, fontWeight: 700 }}>
+                    {group.label}
+                  </Text>
+                  <Text c="#111827" mt={4} style={{ fontSize: 25, fontWeight: 800 }}>
+                    {count}
+                  </Text>
+                </Box>
+                <ThemeIcon
+                  variant="light"
+                  color={status === 'ready' ? 'green' : 'stayosBrand'}
+                  radius={radius.full}
+                >
+                  {statusIcon(status as HousekeepingStatus)}
+                </ThemeIcon>
+              </Group>
+            </Paper>
+          );
+        })}
       </SimpleGrid>
 
-      <Card radius={radius.lg} p={12} style={cardStyle}>
-        <Group gap={spacing[2]} align="center">
-          <TextInput
-            leftSection={<Search size={15} />}
-            placeholder="Search room number..."
-            value={query}
-            onChange={(event) => setQuery(event.currentTarget.value)}
-            style={{ flex: 1, minWidth: 180 }}
-            styles={{ input: { borderColor: '#dbe3ef', borderRadius: 12, minHeight: 38 } }}
-          />
-          <Select
-            w={{ base: 140, md: 160 }}
-            data={[
-              { label: 'All Statuses', value: 'all' },
-              ...(['dirty', 'cleaning', 'inspection', 'ready', 'out-of-order'] as HousekeepingStatus[]).map((item) => ({
-                label: statusLabel(item),
-                value: item,
-              })),
-            ]}
-            value={status}
-            onChange={(value) => setStatus(value ?? 'all')}
-            styles={{ input: { borderColor: '#dbe3ef', borderRadius: 12, minHeight: 38 } }}
-          />
-          <Select
-            w={{ base: 140, md: 160 }}
-            data={[{ label: 'All Floors', value: 'all' }, ...floors.map((item) => ({ label: item, value: item }))]}
-            value={floor}
-            onChange={(value) => setFloor(value ?? 'all')}
-            styles={{ input: { borderColor: '#dbe3ef', borderRadius: 12, minHeight: 38 } }}
-          />
-          <Select
-            w={{ base: 150, md: 170 }}
-            data={[{ label: 'All Staff', value: 'all' }, ...staffOptions.map((item) => ({ label: item, value: item }))]}
-            value={staff}
-            onChange={(value) => setStaff(value ?? 'all')}
-            styles={{ input: { borderColor: '#dbe3ef', borderRadius: 12, minHeight: 38 } }}
-          />
-          <Select
-            w={{ base: 150, md: 170 }}
-            data={[
-              { label: 'All Priorities', value: 'all' },
-              { label: 'Guest waiting', value: 'guest-waiting' },
-              { label: 'VIP', value: 'vip' },
-              { label: 'Arrival soon', value: 'arrival-soon' },
-              { label: 'Checkout dirty', value: 'checkout-dirty' },
-              { label: 'Normal', value: 'normal' },
-              { label: 'Refresh', value: 'refresh' },
-              { label: 'Maintenance', value: 'maintenance' },
-            ]}
-            value={priority}
-            onChange={(value) => setPriority(value ?? 'all')}
-            styles={{ input: { borderColor: '#dbe3ef', borderRadius: 12, minHeight: 38 } }}
-          />
-          <Button
-            variant={arrivalToday ? 'light' : 'subtle'}
-            color="stayosBrand"
-            size="compact-md"
-            onClick={() => setArrivalToday((value) => !value)}
-            style={{ fontWeight: 600, height: 38 }}
-          >
-            Arrival Today
-          </Button>
+      <Card
+        radius={radius.lg}
+        p={0}
+        style={{ ...cardStyle, flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }}
+      >
+        <Group p={16} justify="space-between" style={{ borderBottom: '1px solid #e2e8f0' }}>
+          <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 750 }}>
+            Room Workflow
+          </Title>
+          <Badge radius={radius.full} variant="light" color="gray">
+            {employees.length} active staff
+          </Badge>
         </Group>
-      </Card>
-
-      <Card radius={radius.lg} p={0} style={{ ...cardStyle, overflow: 'hidden' }}>
-        <Group justify="space-between" align="center" p={16} style={{ borderBottom: '1px solid #e2e8f0' }}>
-          <Box>
-            <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 700, lineHeight: '24px' }}>
-              Cleaning Queue
-            </Title>
-            <Text c="#64748b" mt={2} style={{ fontSize: 12, fontWeight: 400, lineHeight: '17px' }}>
-              What room should housekeeping handle next?
-            </Text>
-          </Box>
-          <Group gap={8}>
-            <ThemeIcon color="stayosBrand" variant="light" radius={radius.full}>
-              <Clock size={16} />
-            </ThemeIcon>
-            <Text c="#64748b" style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}>
-              Priority ordered
-            </Text>
-          </Group>
-        </Group>
-
-        <ScrollArea h={520} type="hover" scrollbarSize={6}>
-          <Stack gap={0}>
-            {filteredTasks.map((task) => (
-              <Box key={task.room} p={12} style={{ borderBottom: '1px solid #edf2f7' }}>
-                <TaskCard task={task} />
-              </Box>
-            ))}
+        <ScrollArea
+          style={{
+            maxHeight: 'calc(100vh - 330px)',
+            minHeight: 280,
+          }}
+          scrollbarSize={6}
+        >
+          <Stack p={12} gap={spacing[4]}>
+            {groups.map((group) => {
+              const groupRooms = rooms.filter((room) => roomMatchesGroup(room, group.key));
+              return (
+                <Stack key={group.key} gap={spacing[2]}>
+                  <Group justify="space-between">
+                    <Title order={3} c="#334155" style={{ fontSize: 15, fontWeight: 800 }}>
+                      {group.label}
+                    </Title>
+                    <Text c="#94a3b8" style={{ fontSize: 12, fontWeight: 700 }}>
+                      {groupRooms.length} rooms
+                    </Text>
+                  </Group>
+                  <SimpleGrid cols={{ base: 1, md: 2, xl: 3 }} spacing={spacing[3]}>
+                    {groupRooms.map((room) => (
+                      <RoomCard
+                        key={room.id}
+                        loading={loadingRoomId === room.id}
+                        onAssign={(nextRoom) => {
+                          setAssignRoom(nextRoom);
+                          setSelectedEmployeeId(nextRoom.assignedEmployeeId ?? null);
+                        }}
+                        onComplete={openComplete}
+                        onInspect={openInspect}
+                        onStart={(nextRoom) =>
+                          void runAction(
+                            nextRoom,
+                            () =>
+                              startHousekeepingRoom(
+                                propertyId,
+                                nextRoom.id,
+                                nextRoom.assignedEmployeeId,
+                              ),
+                            `Room ${nextRoom.number} is in progress.`,
+                          )
+                        }
+                        room={room}
+                      />
+                    ))}
+                  </SimpleGrid>
+                </Stack>
+              );
+            })}
           </Stack>
         </ScrollArea>
       </Card>
+
+      <Modal
+        opened={Boolean(assignRoom)}
+        onClose={() => setAssignRoom(null)}
+        title="Assign Staff"
+        centered
+      >
+        <Stack>
+          <Text c="#334155" style={{ fontWeight: 700 }}>
+            Room {assignRoom?.number}
+          </Text>
+          <Select
+            data={employeeOptions}
+            label="Housekeeping staff"
+            value={selectedEmployeeId}
+            onChange={setSelectedEmployeeId}
+          />
+          <Button
+            disabled={!assignRoom || !selectedEmployeeId}
+            onClick={() => {
+              if (!assignRoom || !selectedEmployeeId) return;
+              const room = assignRoom;
+              setAssignRoom(null);
+              void runAction(
+                room,
+                () => assignHousekeepingRoom(propertyId, room.id, selectedEmployeeId),
+                `Assigned to ${selectedEmployee?.displayName ?? 'staff'}.`,
+              );
+            }}
+          >
+            Save
+          </Button>
+        </Stack>
+      </Modal>
+
+      <Modal
+        opened={Boolean(completeRoom)}
+        onClose={() => setCompleteRoom(null)}
+        title="Complete on behalf"
+        centered
+        size="lg"
+      >
+        <Stack>
+          <Select
+            data={employeeOptions}
+            label="Staff"
+            value={selectedEmployeeId}
+            onChange={setSelectedEmployeeId}
+          />
+          <Button
+            variant="light"
+            onClick={() =>
+              setChecklist((items) => items.map((item) => ({ ...item, completed: true })))
+            }
+          >
+            Mark all done
+          </Button>
+          <ChecklistButtons
+            checklist={checklist}
+            onToggle={(key) =>
+              setChecklist((items) =>
+                items.map((item) =>
+                  item.key === key ? { ...item, completed: !item.completed } : item,
+                ),
+              )
+            }
+          />
+          <Button
+            disabled={
+              !completeRoom || !selectedEmployeeId || checklist.some((item) => !item.completed)
+            }
+            onClick={() => {
+              if (!completeRoom || !selectedEmployeeId) return;
+              const room = completeRoom;
+              setCompleteRoom(null);
+              void runAction(
+                room,
+                () =>
+                  completeHousekeepingRoom(propertyId, room.id, {
+                    checklist: serializeChecklist(checklist),
+                    completedOnBehalf: true,
+                    employeeId: selectedEmployeeId,
+                  }),
+                `Room ${room.number} sent for inspection.`,
+              );
+            }}
+          >
+            Send for Inspection
+          </Button>
+        </Stack>
+      </Modal>
+
+      <Modal
+        opened={Boolean(inspectRoom)}
+        onClose={() => setInspectRoom(null)}
+        title="Inspect Room"
+        centered
+        size="lg"
+      >
+        <Stack>
+          <ChecklistButtons checklist={checklist} onToggle={() => undefined} />
+          <Text c="#334155" style={{ fontSize: 13, fontWeight: 700 }}>
+            Send back reason
+          </Text>
+          <SimpleGrid cols={{ base: 2, sm: 4 }}>
+            {createChecklist().map((item) => {
+              const Icon = item.icon;
+              return (
+                <Button
+                  key={item.key}
+                  variant={rejectReason === item.label ? 'filled' : 'light'}
+                  color={rejectReason === item.label ? 'red' : 'gray'}
+                  leftSection={<Icon size={17} />}
+                  onClick={() => setRejectReason(item.label)}
+                >
+                  {item.label}
+                </Button>
+              );
+            })}
+          </SimpleGrid>
+          <Group justify="flex-end">
+            <Button
+              color="red"
+              variant="light"
+              disabled={!inspectRoom || !rejectReason}
+              onClick={() => {
+                if (!inspectRoom || !rejectReason) return;
+                const room = inspectRoom;
+                setInspectRoom(null);
+                void runAction(
+                  room,
+                  () =>
+                    inspectHousekeepingRoom(propertyId, room.id, {
+                      action: 'REJECT',
+                      reason: rejectReason,
+                    }),
+                  `Room ${room.number} sent back.`,
+                );
+              }}
+            >
+              Send Back
+            </Button>
+            <Button
+              color="green"
+              disabled={!inspectRoom}
+              onClick={() => {
+                if (!inspectRoom) return;
+                const room = inspectRoom;
+                setInspectRoom(null);
+                void runAction(
+                  room,
+                  () => inspectHousekeepingRoom(propertyId, room.id, { action: 'APPROVE' }),
+                  `Room ${room.number} is ready.`,
+                );
+              }}
+            >
+              Mark Ready
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal
+        opened={staffOpened}
+        onClose={() => setStaffOpened(false)}
+        title="Manage Staff"
+        centered
+        size="lg"
+      >
+        <Stack>
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            {employees.map((employee) => (
+              <Paper
+                key={employee.id}
+                radius={radius.md}
+                p={12}
+                style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}
+              >
+                <Text c="#101828" style={{ fontWeight: 800 }}>
+                  {employee.displayName}
+                </Text>
+                <Text c="#64748b" style={{ fontSize: 12, fontWeight: 600 }}>
+                  {employee.phone || employee.employeeCode || 'Housekeeping'}
+                </Text>
+                <Text c="#6d5dfc" mt={6} style={{ fontSize: 12, fontWeight: 700 }}>
+                  /housekeeping/staff/{employee.id}
+                </Text>
+              </Paper>
+            ))}
+          </SimpleGrid>
+          <Group grow align="flex-end" wrap="wrap">
+            <TextInput
+              label="First name"
+              value={newEmployee.firstName}
+              onChange={updateNewEmployee('firstName')}
+            />
+            <TextInput
+              label="Last name"
+              value={newEmployee.lastName}
+              onChange={updateNewEmployee('lastName')}
+            />
+          </Group>
+          <Group grow align="flex-end" wrap="wrap">
+            <TextInput
+              label="Display name"
+              value={newEmployee.displayName}
+              onChange={updateNewEmployee('displayName')}
+            />
+            <TextInput
+              label="Phone"
+              value={newEmployee.phone}
+              onChange={updateNewEmployee('phone')}
+            />
+          </Group>
+          <Button
+            leftSection={<Plus size={16} />}
+            onClick={async () => {
+              try {
+                await createHousekeepingEmployee(propertyId, {
+                  ...newEmployee,
+                  displayName:
+                    newEmployee.displayName ||
+                    `${newEmployee.firstName} ${newEmployee.lastName}`.trim(),
+                  status: 'ACTIVE',
+                });
+                setNewEmployee({ firstName: '', lastName: '', displayName: '', phone: '' });
+                await load();
+              } catch (createError) {
+                showToast({
+                  color: 'red',
+                  title: 'Unable to create staff',
+                  message: friendlyHousekeepingError(createError),
+                });
+              }
+            }}
+          >
+            Add Staff
+          </Button>
+        </Stack>
+      </Modal>
     </Stack>
   );
 }

@@ -48,7 +48,7 @@ type AuthContextValue = {
   login: (payload: LoginPayload) => Promise<void>;
   logout: () => Promise<void>;
   lockSession: () => void;
-  refreshCurrentUser: () => Promise<void>;
+  refreshCurrentUser: () => Promise<AuthUser>;
   unlock: (password: string) => Promise<void>;
   user?: AuthUser;
 };
@@ -94,6 +94,24 @@ function normalizeRole(value: unknown): AuthRole {
   return typeof value === 'string' && value ? value : 'FRONT_DESK';
 }
 
+function defaultRouteForRole(role?: AuthRole) {
+  switch (role) {
+    case 'HOUSEKEEPING':
+      return '/housekeeping';
+    case 'MAINTENANCE':
+      return '/maintenance';
+    case 'ACCOUNTS':
+      return '/billing';
+    case 'OWNER':
+    case 'ADMIN':
+    case 'MANAGER':
+    case 'FRONT_DESK':
+    case 'READ_ONLY':
+    default:
+      return '/front-desk';
+  }
+}
+
 function stringValue(record: Record<string, unknown> | undefined, keys: string[], fallback = '') {
   if (!record) return fallback;
   for (const key of keys) {
@@ -105,13 +123,17 @@ function stringValue(record: Record<string, unknown> | undefined, keys: string[]
 }
 
 function stringArray(value: unknown) {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
 }
 
 function mapUser(payload: unknown): AuthUser {
   const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
   const profile =
-    record.user && typeof record.user === 'object' ? (record.user as Record<string, unknown>) : record;
+    record.user && typeof record.user === 'object'
+      ? (record.user as Record<string, unknown>)
+      : record;
   const property =
     profile.property && typeof profile.property === 'object'
       ? (profile.property as Record<string, unknown>)
@@ -122,10 +144,13 @@ function mapUser(payload: unknown): AuthUser {
     id: stringValue(profile, ['id', '_id', 'uuid'], 'current-user'),
     name:
       stringValue(profile, ['name', 'fullName', 'displayName']) ||
-      [stringValue(profile, ['firstName']), stringValue(profile, ['lastName'])].filter(Boolean).join(' ') ||
+      [stringValue(profile, ['firstName']), stringValue(profile, ['lastName'])]
+        .filter(Boolean)
+        .join(' ') ||
       stringValue(profile, ['email'], 'StayOS User'),
     permissions: stringArray(profile.permissions ?? record.permissions),
-    propertyName: stringValue(property, ['name'], stringValue(profile, ['propertyName'])) || undefined,
+    propertyName:
+      stringValue(property, ['name'], stringValue(profile, ['propertyName'])) || undefined,
     role: normalizeRole(profile.role ?? record.role),
   };
 }
@@ -171,7 +196,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const rawFetchRef = useRef<typeof fetch | undefined>(undefined);
 
   const redirectToLogin = useCallback(() => {
-    const next = pathname && !publicPaths.has(pathname) ? `?next=${encodeURIComponent(pathname)}` : '';
+    const next =
+      pathname && !publicPaths.has(pathname) ? `?next=${encodeURIComponent(pathname)}` : '';
     router.replace(`/login${next}`);
   }, [pathname, router]);
 
@@ -238,7 +264,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const response = await authedFetch(`${API_BASE_URL}/auth/me`);
     const payload = await parseJson(response);
     if (!response.ok) throw new Error(getMessage(payload, 'Unable to load current user.'));
-    setUser(mapUser(unwrap(payload as ApiResponse<unknown>)));
+
+    const currentUser = mapUser(unwrap(payload as ApiResponse<unknown>));
+    setUser(currentUser);
+    return currentUser;
   }, [authedFetch]);
 
   const logout = useCallback(async () => {
@@ -271,7 +300,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = unwrap<Record<string, unknown>>(payload as ApiResponse<Record<string, unknown>>);
       const nextAccessToken = stringValue(data, ['accessToken', 'token']);
       const nextRefreshToken = stringValue(data, ['refreshToken']);
-      if (!nextAccessToken || !nextRefreshToken) throw new Error('Login response did not include session tokens.');
+      if (!nextAccessToken || !nextRefreshToken)
+        throw new Error('Login response did not include session tokens.');
 
       window.localStorage.setItem(rememberDeviceKey, rememberDevice ? 'true' : 'false');
       writeToken(accessTokenKey, nextAccessToken, rememberDevice);
@@ -283,10 +313,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       const mePayload = await parseJson(meResponse);
       if (!meResponse.ok) throw new Error(getMessage(mePayload, 'Unable to load your workspace.'));
-      setUser(mapUser(unwrap(mePayload as ApiResponse<unknown>)));
+      const currentUser = mapUser(unwrap(mePayload as ApiResponse<unknown>));
+      setUser(currentUser);
 
       const next = new URLSearchParams(window.location.search).get('next');
-      router.replace(next && next.startsWith('/') ? next : '/front-desk');
+      router.replace(next && next.startsWith('/') ? next : defaultRouteForRole(currentUser.role));
     },
     [router],
   );
@@ -316,7 +347,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const rawFetch = rawFetchRef.current;
 
     window.fetch = async (input, init = {}) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const isStayApi = url.startsWith(API_BASE_URL);
       const headers = new Headers(init.headers);
       const token = readToken(accessTokenKey);
@@ -365,8 +397,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        await refreshCurrentUser();
-        if (pathname === '/login') router.replace('/front-desk');
+        const currentUser = await refreshCurrentUser();
+
+        if (pathname === '/login') {
+          router.replace(defaultRouteForRole(currentUser.role));
+        }
       } catch {
         try {
           await refreshTokens();

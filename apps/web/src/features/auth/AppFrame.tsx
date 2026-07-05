@@ -137,7 +137,7 @@ function UnlockDialog() {
 export function AppFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const auth = useAuth();
-  const isPublicRoute = pathname === '/login';
+  const isPublicRoute = pathname === '/login' || pathname.startsWith('/housekeeping/staff/');
   const role = String(auth.user?.role ?? 'FRONT_DESK').toUpperCase();
   const shellUser: ShellUser | undefined = auth.user
     ? {

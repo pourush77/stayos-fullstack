@@ -152,13 +152,14 @@ async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
     signal,
   });
   const payload = (await response.json().catch(() => undefined)) as
-    | ApiResponse<T>
-    | { message?: unknown }
-    | undefined;
+    ApiResponse<T> | { message?: unknown } | undefined;
 
   if (!response.ok) {
     const message =
-      payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string'
+      payload &&
+      typeof payload === 'object' &&
+      'message' in payload &&
+      typeof payload.message === 'string'
         ? payload.message
         : `Front Desk utility request failed: ${response.status} ${response.statusText}`;
     throw new Error(message);
@@ -251,7 +252,9 @@ function isOccupiedRoom(status: string) {
 }
 
 function roomStatusFromRecord(room: Record<string, unknown>) {
-  return normalizedStatus(stringValue(room, ['operationalStatus', 'operational_status', 'status'], 'READY'));
+  return normalizedStatus(
+    stringValue(room, ['operationalStatus', 'operational_status', 'status'], 'READY'),
+  );
 }
 
 function roomNumberFromRecord(room: Record<string, unknown>) {
@@ -262,7 +265,9 @@ function guestNameFromReservation(reservation: Record<string, unknown>) {
   const guest = recordValue(reservation, ['guest', 'guestProfile']);
   return (
     stringValue(guest, ['name', 'fullName', 'displayName', 'guestName']) ||
-    [stringValue(guest, ['firstName']), stringValue(guest, ['lastName'])].filter(Boolean).join(' ') ||
+    [stringValue(guest, ['firstName']), stringValue(guest, ['lastName'])]
+      .filter(Boolean)
+      .join(' ') ||
     stringValue(reservation, ['guestName', 'name'], 'Guest')
   );
 }
@@ -446,7 +451,10 @@ function PropertySelector({
                   lineClamp={1}
                   style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px' }}
                 >
-                  {[propertyMeta?.city, propertyMeta?.roomCount ? `${propertyMeta.roomCount} Rooms` : undefined]
+                  {[
+                    propertyMeta?.city,
+                    propertyMeta?.roomCount ? `${propertyMeta.roomCount} Rooms` : undefined,
+                  ]
                     .filter(Boolean)
                     .join(' - ') || 'Active property'}
                 </Text>
@@ -936,11 +944,13 @@ function Sidebar({
 }
 
 function TopHeader({
+  workspaceTitle,
   onOpenMobileMenu,
   utilityPanelOpen,
   utilityPanelAvailable,
   onToggleUtilityPanel,
 }: {
+  workspaceTitle: string;
   onOpenMobileMenu: () => void;
   utilityPanelOpen: boolean;
   utilityPanelAvailable: boolean;
@@ -982,7 +992,7 @@ function TopHeader({
             c="#101828"
             style={{ fontSize: 20, fontWeight: 700, lineHeight: '28px' }}
           >
-            Front Desk
+            {workspaceTitle}
           </Title>
         </Group>
 
@@ -1130,7 +1140,11 @@ function buildPropertyStatus(rooms: Record<string, unknown>[]): PropertyStatus[]
     { label: 'Ready', value: String(statuses.filter(isReadyRoom).length), tone: '#12b76a' },
     { label: 'Cleaning', value: String(statuses.filter(isCleaningRoom).length), tone: '#f79009' },
     { label: 'Dirty', value: String(statuses.filter(isDirtyRoom).length), tone: '#f97316' },
-    { label: 'Out of Order', value: String(statuses.filter(isOutOfOrderRoom).length), tone: '#ef4444' },
+    {
+      label: 'Out of Order',
+      value: String(statuses.filter(isOutOfOrderRoom).length),
+      tone: '#ef4444',
+    },
     { label: 'Occupied', value: String(statuses.filter(isOccupiedRoom).length), tone: '#2563eb' },
   ];
 }
@@ -1139,11 +1153,17 @@ function buildNextEvent(reservations: Record<string, unknown>[]): NextEvent | un
   const today = normalizedDate(new Date().toISOString());
   const upcoming = reservations
     .map((reservation) => {
-      const arrivalDate = normalizedDate(stringValue(reservation, ['arrivalDate', 'checkInDate', 'startDate']));
-      const departureDate = normalizedDate(stringValue(reservation, ['departureDate', 'checkOutDate', 'endDate']));
+      const arrivalDate = normalizedDate(
+        stringValue(reservation, ['arrivalDate', 'checkInDate', 'startDate']),
+      );
+      const departureDate = normalizedDate(
+        stringValue(reservation, ['departureDate', 'checkOutDate', 'endDate']),
+      );
       const status = normalizedStatus(stringValue(reservation, ['status'], 'CONFIRMED'));
       const isVip = booleanValue(reservation, ['isVip', 'vip']);
-      const isGroup = booleanValue(reservation, ['isGroup', 'group']) || stringValue(reservation, ['companyName', 'groupName']);
+      const isGroup =
+        booleanValue(reservation, ['isGroup', 'group']) ||
+        stringValue(reservation, ['companyName', 'groupName']);
       const eventDate = arrivalDate || departureDate;
 
       return {
@@ -1191,15 +1211,36 @@ function buildLiveOperations(
     const roomNumber = roomNumberFromRecord(room);
 
     if (isReadyRoom(status)) {
-      return [{ title: `Room ${roomNumber} ready`, detail: 'Housekeeping completed', action: 'Assign Guest', time: 'Now' }];
+      return [
+        {
+          title: `Room ${roomNumber} ready`,
+          detail: 'Housekeeping completed',
+          action: 'Assign Guest',
+          time: 'Now',
+        },
+      ];
     }
 
     if (isDirtyRoom(status)) {
-      return [{ title: `Room ${roomNumber} marked dirty`, detail: 'Housekeeping required', action: 'Open Room', time: 'Now' }];
+      return [
+        {
+          title: `Room ${roomNumber} marked dirty`,
+          detail: 'Housekeeping required',
+          action: 'Open Room',
+          time: 'Now',
+        },
+      ];
     }
 
     if (isOutOfOrderRoom(status)) {
-      return [{ title: `Room ${roomNumber} unavailable`, detail: 'Maintenance or block active', action: 'View Room', time: 'Now' }];
+      return [
+        {
+          title: `Room ${roomNumber} unavailable`,
+          detail: 'Maintenance or block active',
+          action: 'View Room',
+          time: 'Now',
+        },
+      ];
     }
 
     return [];
@@ -1207,19 +1248,42 @@ function buildLiveOperations(
 
   const reservationEvents = reservations.slice(0, 8).flatMap((reservation): LiveOperation[] => {
     const status = normalizedStatus(stringValue(reservation, ['status'], ''));
-    const paymentStatus = normalizedStatus(stringValue(reservation, ['paymentStatus', 'paymentState'], ''));
+    const paymentStatus = normalizedStatus(
+      stringValue(reservation, ['paymentStatus', 'paymentState'], ''),
+    );
     const guestName = guestNameFromReservation(reservation);
 
     if (status === 'CHECKED_IN') {
-      return [{ title: `${guestName} checked in`, detail: reservationCode(reservation), action: 'Open Stay', time: 'Recent' }];
+      return [
+        {
+          title: `${guestName} checked in`,
+          detail: reservationCode(reservation),
+          action: 'Open Stay',
+          time: 'Recent',
+        },
+      ];
     }
 
     if (status === 'CHECKED_OUT') {
-      return [{ title: `${guestName} checked out`, detail: reservationCode(reservation), action: 'View Folio', time: 'Recent' }];
+      return [
+        {
+          title: `${guestName} checked out`,
+          detail: reservationCode(reservation),
+          action: 'View Folio',
+          time: 'Recent',
+        },
+      ];
     }
 
     if (paymentStatus === 'PAID') {
-      return [{ title: 'Payment received', detail: `${guestName} - ${reservationCode(reservation)}`, action: 'View Invoice', time: 'Recent' }];
+      return [
+        {
+          title: 'Payment received',
+          detail: `${guestName} - ${reservationCode(reservation)}`,
+          action: 'View Invoice',
+          time: 'Recent',
+        },
+      ];
     }
 
     return [];
@@ -1243,12 +1307,18 @@ function useFrontDeskUtilityData(): FrontDeskUtilityState {
       setState((current) => ({ ...current, error: undefined, isLoading: current.roomTotal === 0 }));
 
       try {
-        const properties = await apiGet<Record<string, unknown>[]>('/properties', controller.signal);
+        const properties = await apiGet<Record<string, unknown>[]>(
+          '/properties',
+          controller.signal,
+        );
         const propertyId = activePropertyId(properties);
         if (!propertyId) throw new Error('No active property returned from properties API.');
 
         const [reservations, rooms] = await Promise.all([
-          apiGet<Record<string, unknown>[]>(`/properties/${propertyId}/reservations`, controller.signal),
+          apiGet<Record<string, unknown>[]>(
+            `/properties/${propertyId}/reservations`,
+            controller.signal,
+          ),
           apiGet<Record<string, unknown>[]>(`/properties/${propertyId}/rooms`, controller.signal),
         ]);
 
@@ -1264,7 +1334,8 @@ function useFrontDeskUtilityData(): FrontDeskUtilityState {
         console.error('Front Desk utility panel API failed', error);
         setState((current) => ({
           ...current,
-          error: error instanceof Error ? error.message : 'Live operations are temporarily unavailable.',
+          error:
+            error instanceof Error ? error.message : 'Live operations are temporarily unavailable.',
           isLoading: false,
         }));
       }
@@ -1347,7 +1418,10 @@ function FrontDeskUtilityPanel() {
               </>
             ) : (
               <Text c="#667085" style={{ fontSize: 12, fontWeight: 400, lineHeight: '17px' }}>
-                {utility.error ?? (utility.isLoading ? 'Loading upcoming events...' : 'No upcoming front desk events.')}
+                {utility.error ??
+                  (utility.isLoading
+                    ? 'Loading upcoming events...'
+                    : 'No upcoming front desk events.')}
               </Text>
             )}
           </Stack>
@@ -1477,62 +1551,63 @@ function FrontDeskUtilityPanel() {
               <Stack gap={12} pr={4} pb={8}>
                 {liveOperations.length > 0 ? (
                   liveOperations.map((item, index) => (
-                  <Group
-                    key={`${item.title}-${item.detail}-${item.time}-${index}`}
-                    gap={10}
-                    align="flex-start"
-                    wrap="nowrap"
-                  >
-                    <CheckCircle2
-                      size={16}
-                      color="#12b76a"
-                      style={{ flex: '0 0 auto', marginTop: 2 }}
-                    />
-                    <Box style={{ minWidth: 0, flex: 1 }}>
-                      <Text
-                        c="#182230"
-                        lineClamp={1}
-                        style={{ fontSize: 12, fontWeight: 600, lineHeight: '17px' }}
-                      >
-                        {item.title}
-                      </Text>
-                      {item.detail ? (
-                        <Text
-                          c="#667085"
-                          lineClamp={1}
-                          style={{ fontSize: 11, fontWeight: 500, lineHeight: '15px' }}
-                        >
-                          {item.detail}
-                        </Text>
-                      ) : null}
-                      <Button
-                        component="a"
-                        href="#"
-                        variant="subtle"
-                        color="stayosBrand"
-                        size="compact-xs"
-                        px={0}
-                        fw={600}
-                      >
-                        {item.action}
-                      </Button>
-                    </Box>
-                    <Text
-                      c="#8a97ad"
-                      style={{
-                        flex: '0 0 auto',
-                        fontSize: 11,
-                        fontWeight: 500,
-                        lineHeight: '15px',
-                      }}
+                    <Group
+                      key={`${item.title}-${item.detail}-${item.time}-${index}`}
+                      gap={10}
+                      align="flex-start"
+                      wrap="nowrap"
                     >
-                      {item.time}
-                    </Text>
-                  </Group>
+                      <CheckCircle2
+                        size={16}
+                        color="#12b76a"
+                        style={{ flex: '0 0 auto', marginTop: 2 }}
+                      />
+                      <Box style={{ minWidth: 0, flex: 1 }}>
+                        <Text
+                          c="#182230"
+                          lineClamp={1}
+                          style={{ fontSize: 12, fontWeight: 600, lineHeight: '17px' }}
+                        >
+                          {item.title}
+                        </Text>
+                        {item.detail ? (
+                          <Text
+                            c="#667085"
+                            lineClamp={1}
+                            style={{ fontSize: 11, fontWeight: 500, lineHeight: '15px' }}
+                          >
+                            {item.detail}
+                          </Text>
+                        ) : null}
+                        <Button
+                          component="a"
+                          href="#"
+                          variant="subtle"
+                          color="stayosBrand"
+                          size="compact-xs"
+                          px={0}
+                          fw={600}
+                        >
+                          {item.action}
+                        </Button>
+                      </Box>
+                      <Text
+                        c="#8a97ad"
+                        style={{
+                          flex: '0 0 auto',
+                          fontSize: 11,
+                          fontWeight: 500,
+                          lineHeight: '15px',
+                        }}
+                      >
+                        {item.time}
+                      </Text>
+                    </Group>
                   ))
                 ) : (
                   <Text c="#667085" style={{ fontSize: 12, fontWeight: 400, lineHeight: '17px' }}>
-                    {utility.error ?? (utility.isLoading ? 'Loading live operations...' : 'No recent activity')}
+                    {utility.error ??
+                      (utility.isLoading ? 'Loading live operations...' : 'No recent activity')}
                   </Text>
                 )}
               </Stack>
@@ -1597,7 +1672,9 @@ function MobileBottomNav({
   onOpen: () => void;
 }) {
   const pathname = usePathname();
-  const items = navigationItems ? mobileNavigation.filter((item) => navigationItems.some((nav) => nav.href === item.href)) : mobileNavigation;
+  const items = navigationItems
+    ? mobileNavigation.filter((item) => navigationItems.some((nav) => nav.href === item.href))
+    : mobileNavigation;
 
   return (
     <Group
@@ -1653,11 +1730,11 @@ function ProtectedStayOSAppShell({
   const activeProperty = useActiveProperty(!propertyNameProp && !user?.propertyName);
   const propertyName = propertyNameProp ?? user?.propertyName ?? activeProperty.name;
   const propertyMeta =
-    propertyNameProp || user?.propertyName
-      ? { name: propertyName }
-      : activeProperty;
+    propertyNameProp || user?.propertyName ? { name: propertyName } : activeProperty;
   const sidebarWidth = sidebarCollapsed ? 78 : 264;
   const utilityPanelAvailable = !pathname.startsWith('/rooms');
+  const workspaceTitle = workspaceTitleForPath(pathname);
+  const pageOwnsScroll = pathname.startsWith('/housekeeping');
 
   return (
     <>
@@ -1710,6 +1787,7 @@ function ProtectedStayOSAppShell({
             }}
           >
             <TopHeader
+              workspaceTitle={workspaceTitle}
               onOpenMobileMenu={openMobileMenu}
               utilityPanelOpen={utilityPanelOpen}
               utilityPanelAvailable={utilityPanelAvailable}
@@ -1731,7 +1809,7 @@ function ProtectedStayOSAppShell({
                 minHeight: 0,
                 minWidth: 0,
                 overflowX: 'hidden',
-                overflowY: 'auto',
+                overflowY: pageOwnsScroll ? 'hidden' : 'auto',
               }}
             >
               <ShellContent>{children}</ShellContent>
@@ -1767,6 +1845,14 @@ function ProtectedStayOSAppShell({
       <MobileBottomNav navigationItems={navigationItems} onOpen={openMobileMenu} />
     </>
   );
+}
+
+function workspaceTitleForPath(pathname: string) {
+  if (pathname.startsWith('/housekeeping')) return 'Housekeeping';
+  if (pathname.startsWith('/maintenance')) return 'Maintenance';
+  if (pathname.startsWith('/billing')) return 'Billing';
+  if (pathname.startsWith('/reports')) return 'Manager Dashboard';
+  return 'Front Desk';
 }
 
 export function StayOSAppShell({
