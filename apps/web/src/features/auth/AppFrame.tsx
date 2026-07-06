@@ -1,8 +1,8 @@
 'use client';
 
 import { Modal, PasswordInput, Stack, Text, Button, Box, Title } from '@mantine/core';
-import { usePathname } from 'next/navigation';
-import { useState, type ReactNode } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, useState, type ReactNode } from 'react';
 import { StayOSAppShell, type ShellUser } from '@stayos/ui';
 import { primaryNavigation } from '@stayos/ui';
 import { useAuth } from './auth-context';
@@ -22,7 +22,7 @@ const roleNavigation: Record<string, string[]> = {
   ACCOUNTS: ['/rooms', '/billing', '/reports'],
   ADMIN: ['*'],
   FRONT_DESK: ['/', '/reservations', '/rooms', '/guests', '/housekeeping'],
-  HOUSEKEEPING: ['/housekeeping', '/rooms'],
+  HOUSEKEEPING: ['/housekeeping'],
   MAINTENANCE: ['/rooms', '/housekeeping'],
   MANAGER: ['/', '/reservations', '/rooms', '/guests', '/housekeeping', '/settings/employees'],
   OWNER: ['*'],
@@ -145,6 +145,7 @@ function UnlockDialog() {
 
 export function AppFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const auth = useAuth();
   const isPublicRoute = pathname === '/login' || pathname.startsWith('/housekeeping/staff/');
   const role = String(auth.user?.role ?? 'FRONT_DESK').toUpperCase();
@@ -157,6 +158,11 @@ export function AppFrame({ children }: { children: ReactNode }) {
         roleLabel: roleLabels[role] ?? role,
       }
     : undefined;
+
+  useEffect(() => {
+    if (auth.isBootstrapping || isPublicRoute || role !== 'HOUSEKEEPING') return;
+    if (pathname === '/rooms' || pathname.startsWith('/rooms/')) router.replace('/housekeeping');
+  }, [auth.isBootstrapping, isPublicRoute, pathname, role, router]);
 
   if (auth.isBootstrapping && !isPublicRoute) return <BrandedLoader />;
 
