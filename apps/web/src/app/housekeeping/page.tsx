@@ -9,12 +9,12 @@ import {
   Group,
   Modal,
   Paper,
+  Progress,
   ScrollArea,
   Select,
   SimpleGrid,
   Stack,
   Text,
-  TextInput,
   ThemeIcon,
   Title,
 } from '@mantine/core';
@@ -23,18 +23,18 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Eye,
-  Plus,
   Sparkles,
   UserPlus,
   Wrench,
 } from 'lucide-react';
-import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
 import { showToast } from '@stayos/ui';
+import { useAuth } from '../../features/auth/auth-context';
 import {
   assignHousekeepingRoom,
   completeHousekeepingRoom,
-  createHousekeepingEmployee,
   friendlyHousekeepingError,
   getCurrentPropertyId,
   getHousekeepingDashboard,
@@ -117,9 +117,44 @@ function StatusBadge({ status }: { status: HousekeepingStatus }) {
   );
 }
 
+function hasPermission(permissions: string[] | undefined, permission: string) {
+  return Boolean(permissions?.includes(permission) || permissions?.includes('*'));
+}
+
 function checklistProgress(room: HousekeepingRoom) {
   const done = room.checklist.filter((item) => item.completed).length;
   return `${done}/${room.checklist.length}`;
+}
+
+function checklistItemsProgress(items: HousekeepingChecklistItem[]) {
+  const done = items.filter((item) => item.completed).length;
+  return `${done}/${items.length}`;
+}
+
+function checklistPercent(room: HousekeepingRoom) {
+  if (room.checklist.length === 0) return 0;
+  return (room.checklist.filter((item) => item.completed).length / room.checklist.length) * 100;
+}
+
+function formatTimestamp(value?: string) {
+  if (!value) return undefined;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    month: 'short',
+  }).format(date);
+}
+
+function roomActivityLabel(room: HousekeepingRoom) {
+  if (room.status === 'cleaning' && room.startedAt) return `Started ${formatTimestamp(room.startedAt)}`;
+  if (room.status === 'inspection' && room.completedAt)
+    return `Completed ${formatTimestamp(room.completedAt)}`;
+  if (room.inspectedAt) return `Inspected ${formatTimestamp(room.inspectedAt)}`;
+  if (room.updatedAt) return `Updated ${formatTimestamp(room.updatedAt)}`;
+  return 'Updated today';
 }
 
 function roomMatchesGroup(room: HousekeepingRoom, group: (typeof groups)[number]['key']) {
@@ -132,7 +167,7 @@ function roomMatchesGroup(room: HousekeepingRoom, group: (typeof groups)[number]
 function primaryAction(room: HousekeepingRoom) {
   if (room.status === 'dirty') return room.assignedEmployeeId ? 'Start Cleaning' : 'Assign Staff';
   if (room.status === 'cleaning') return 'Complete on behalf';
-  if (room.status === 'inspection') return 'Inspect';
+  if (room.status === 'inspection') return 'Inspect Room';
   return 'View';
 }
 
@@ -225,18 +260,25 @@ function RoomCard({
 
       <Stack gap={6} mt={14}>
         <Text c="#334155" style={{ fontSize: 13, fontWeight: 700 }}>
-          {room.assignedEmployeeName ? `Assigned to ${room.assignedEmployeeName}` : 'Unassigned'}
+          {room.status === 'cleaning' && room.assignedEmployeeName
+            ? `Cleaning by ${room.assignedEmployeeName}`
+            : room.assignedEmployeeName
+              ? `Assigned to ${room.assignedEmployeeName}`
+              : 'Unassigned'}
         </Text>
-        {room.status === 'cleaning' && room.assignedEmployeeName ? (
-          <Text c="#1d4ed8" style={{ fontSize: 13, fontWeight: 700 }}>
-            Cleaning by {room.assignedEmployeeName}
+        {room.status === 'inspection' ? (
+          <Text c="#334155" style={{ fontSize: 13, fontWeight: 700 }}>
+            {room.completedByEmployeeId || room.assignedEmployeeName
+              ? `Completed by ${room.assignedEmployeeName ?? 'staff'}`
+              : 'Completed by staff'}
           </Text>
         ) : null}
         <Text c="#64748b" style={{ fontSize: 12, fontWeight: 600 }}>
           Checklist {checklistProgress(room)}
         </Text>
+        <Progress value={checklistPercent(room)} size={5} radius={radius.full} color="green" />
         <Text c="#94a3b8" style={{ fontSize: 12, fontWeight: 500 }}>
-          {room.updatedAt ?? room.completedAt ?? room.startedAt ?? 'Updated today'}
+          {roomActivityLabel(room)}
         </Text>
       </Stack>
 
@@ -251,22 +293,54 @@ function RoomCard({
           </Button>
         ) : null}
         {room.status === 'dirty' && room.assignedEmployeeId ? (
-          <Button leftSection={<Brush size={16} />} onClick={() => onStart(room)} loading={loading}>
-            Start Cleaning
-          </Button>
+          <>
+            <Button
+              variant="light"
+              color="gray"
+              onClick={() => onAssign(room)}
+              loading={loading}
+            >
+              Change Staff
+            </Button>
+            <Button
+              variant="light"
+              leftSection={<ClipboardCheck size={16} />}
+              onClick={() => onComplete(room)}
+              loading={loading}
+            >
+              Complete on behalf
+            </Button>
+            <Button
+              leftSection={<Brush size={16} />}
+              onClick={() => onStart(room)}
+              loading={loading}
+            >
+              Start Cleaning
+            </Button>
+          </>
         ) : null}
         {room.status === 'cleaning' ? (
-          <Button
-            leftSection={<ClipboardCheck size={16} />}
-            onClick={() => onComplete(room)}
-            loading={loading}
-          >
-            Complete on behalf
-          </Button>
+          <>
+            <Button
+              variant="light"
+              color="gray"
+              onClick={() => onAssign(room)}
+              loading={loading}
+            >
+              Change Staff
+            </Button>
+            <Button
+              leftSection={<ClipboardCheck size={16} />}
+              onClick={() => onComplete(room)}
+              loading={loading}
+            >
+              Complete on behalf
+            </Button>
+          </>
         ) : null}
         {room.status === 'inspection' ? (
           <Button leftSection={<Eye size={16} />} onClick={() => onInspect(room)} loading={loading}>
-            Inspect
+            Inspect Room
           </Button>
         ) : null}
         {['ready', 'maintenance', 'out-of-order', 'out-of-service'].includes(room.status) ? (
@@ -280,6 +354,8 @@ function RoomCard({
 }
 
 export default function HousekeepingPage() {
+  const auth = useAuth();
+  const canManageEmployees = hasPermission(auth.user?.permissions, 'employees.manage');
   const [propertyId, setPropertyId] = useState('');
   const [rooms, setRooms] = useState<HousekeepingRoom[]>([]);
   const [employees, setEmployees] = useState<HousekeepingEmployee[]>([]);
@@ -289,22 +365,10 @@ export default function HousekeepingPage() {
   const [assignRoom, setAssignRoom] = useState<HousekeepingRoom | null>(null);
   const [completeRoom, setCompleteRoom] = useState<HousekeepingRoom | null>(null);
   const [inspectRoom, setInspectRoom] = useState<HousekeepingRoom | null>(null);
-  const [staffOpened, setStaffOpened] = useState(false);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [checklist, setChecklist] = useState<HousekeepingChecklistItem[]>(createChecklist());
   const [rejectReason, setRejectReason] = useState<string>();
-  const [newEmployee, setNewEmployee] = useState({
-    firstName: '',
-    lastName: '',
-    displayName: '',
-    phone: '',
-  });
-  const updateNewEmployee =
-    (field: keyof typeof newEmployee) => (event: ChangeEvent<HTMLInputElement>) => {
-      const { value } = event.currentTarget;
-
-      setNewEmployee((current) => ({ ...current, [field]: value }));
-    };
+  const checklistComplete = checklist.length > 0 && checklist.every((item) => item.completed);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -336,8 +400,21 @@ export default function HousekeepingPage() {
   }, [load]);
 
   const employeeOptions = useMemo(
-    () => employees.map((employee) => ({ label: employee.displayName, value: employee.id })),
-    [employees],
+    () =>
+      employees
+        .filter(
+          (employee) =>
+            employee.status.toUpperCase() === 'ACTIVE' &&
+            employee.department.toUpperCase() === 'HOUSEKEEPING',
+        )
+        .map((employee) => ({
+          label:
+            assignRoom?.assignedEmployeeId === employee.id
+              ? `${employee.displayName} (Currently assigned)`
+              : employee.displayName,
+          value: employee.id,
+        })),
+    [assignRoom?.assignedEmployeeId, employees],
   );
   const selectedEmployee = employees.find((employee) => employee.id === selectedEmployeeId);
 
@@ -496,7 +573,7 @@ export default function HousekeepingPage() {
       <Modal
         opened={Boolean(assignRoom)}
         onClose={() => setAssignRoom(null)}
-        title="Assign Staff"
+        title={assignRoom?.assignedEmployeeId ? 'Change Staff' : 'Assign Staff'}
         centered
       >
         <Stack>
@@ -506,19 +583,43 @@ export default function HousekeepingPage() {
           <Select
             data={employeeOptions}
             label="Housekeeping staff"
+            disabled={employeeOptions.length === 0}
+            placeholder={
+              employeeOptions.length === 0
+                ? 'No housekeeping staff available'
+                : 'Select housekeeping staff'
+            }
             value={selectedEmployeeId}
             onChange={setSelectedEmployeeId}
           />
+          {employeeOptions.length === 0 ? (
+            <Alert color="yellow">
+              No housekeeping staff found. Ask a manager to add housekeeping employees.
+            </Alert>
+          ) : null}
+          {canManageEmployees ? (
+            <Button
+              component={Link}
+              href="/settings/employees"
+              variant="light"
+              leftSection={<UserPlus size={16} />}
+            >
+              Manage Employees
+            </Button>
+          ) : null}
           <Button
             disabled={!assignRoom || !selectedEmployeeId}
             onClick={() => {
               if (!assignRoom || !selectedEmployeeId) return;
               const room = assignRoom;
+              const wasAssigned = Boolean(room.assignedEmployeeId);
               setAssignRoom(null);
               void runAction(
                 room,
                 () => assignHousekeepingRoom(propertyId, room.id, selectedEmployeeId),
-                `Assigned to ${selectedEmployee?.displayName ?? 'staff'}.`,
+                wasAssigned
+                  ? `Room reassigned to ${selectedEmployee?.displayName ?? 'staff'}.`
+                  : `Room assigned to ${selectedEmployee?.displayName ?? 'staff'}.`,
               );
             }}
           >
@@ -530,17 +631,46 @@ export default function HousekeepingPage() {
       <Modal
         opened={Boolean(completeRoom)}
         onClose={() => setCompleteRoom(null)}
-        title="Complete on behalf"
+        title="Complete cleaning on behalf"
         centered
         size="lg"
       >
         <Stack>
+          <Text c="#64748b" style={{ fontSize: 14, lineHeight: '22px' }}>
+            Use this when staff has finished the room but cannot update StayOS.
+          </Text>
+          <Text c="#334155" style={{ fontSize: 13, fontWeight: 800 }}>
+            {completeRoom?.assignedEmployeeName
+              ? `Assigned staff: ${completeRoom.assignedEmployeeName}`
+              : 'Assigned staff required'}
+          </Text>
           <Select
             data={employeeOptions}
             label="Staff"
+            disabled={employeeOptions.length === 0}
+            placeholder={
+              employeeOptions.length === 0
+                ? 'No housekeeping staff available'
+                : 'Select housekeeping staff'
+            }
             value={selectedEmployeeId}
             onChange={setSelectedEmployeeId}
           />
+          {employeeOptions.length === 0 ? (
+            <Alert color="yellow">
+              No housekeeping staff found. Ask a manager to add housekeeping employees.
+            </Alert>
+          ) : null}
+          {canManageEmployees ? (
+            <Button
+              component={Link}
+              href="/settings/employees"
+              variant="light"
+              leftSection={<UserPlus size={16} />}
+            >
+              Manage Employees
+            </Button>
+          ) : null}
           <Button
             variant="light"
             onClick={() =>
@@ -575,7 +705,7 @@ export default function HousekeepingPage() {
                     completedOnBehalf: true,
                     employeeId: selectedEmployeeId,
                   }),
-                `Room ${room.number} sent for inspection.`,
+                'Room sent for inspection.',
               );
             }}
           >
@@ -592,7 +722,19 @@ export default function HousekeepingPage() {
         size="lg"
       >
         <Stack>
-          <ChecklistButtons checklist={checklist} onToggle={() => undefined} />
+          <Text c="#334155" style={{ fontSize: 13, fontWeight: 800 }}>
+            Checklist {checklistItemsProgress(checklist)}
+          </Text>
+          <ChecklistButtons
+            checklist={checklist}
+            onToggle={(key) =>
+              setChecklist((items) =>
+                items.map((item) =>
+                  item.key === key ? { ...item, completed: !item.completed } : item,
+                ),
+              )
+            }
+          />
           <Text c="#334155" style={{ fontSize: 13, fontWeight: 700 }}>
             Send back reason
           </Text>
@@ -605,7 +747,9 @@ export default function HousekeepingPage() {
                   variant={rejectReason === item.label ? 'filled' : 'light'}
                   color={rejectReason === item.label ? 'red' : 'gray'}
                   leftSection={<Icon size={17} />}
-                  onClick={() => setRejectReason(item.label)}
+                  onClick={() =>
+                    setRejectReason((current) => (current === item.label ? undefined : item.label))
+                  }
                 >
                   {item.label}
                 </Button>
@@ -636,7 +780,7 @@ export default function HousekeepingPage() {
             </Button>
             <Button
               color="green"
-              disabled={!inspectRoom}
+              disabled={!inspectRoom || !checklistComplete}
               onClick={() => {
                 if (!inspectRoom) return;
                 const room = inspectRoom;
@@ -654,84 +798,6 @@ export default function HousekeepingPage() {
         </Stack>
       </Modal>
 
-      <Modal
-        opened={staffOpened}
-        onClose={() => setStaffOpened(false)}
-        title="Manage Staff"
-        centered
-        size="lg"
-      >
-        <Stack>
-          <SimpleGrid cols={{ base: 1, sm: 2 }}>
-            {employees.map((employee) => (
-              <Paper
-                key={employee.id}
-                radius={radius.md}
-                p={12}
-                style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}
-              >
-                <Text c="#101828" style={{ fontWeight: 800 }}>
-                  {employee.displayName}
-                </Text>
-                <Text c="#64748b" style={{ fontSize: 12, fontWeight: 600 }}>
-                  {employee.phone || employee.employeeCode || 'Housekeeping'}
-                </Text>
-                <Text c="#6d5dfc" mt={6} style={{ fontSize: 12, fontWeight: 700 }}>
-                  /housekeeping/staff/{employee.id}
-                </Text>
-              </Paper>
-            ))}
-          </SimpleGrid>
-          <Group grow align="flex-end" wrap="wrap">
-            <TextInput
-              label="First name"
-              value={newEmployee.firstName}
-              onChange={updateNewEmployee('firstName')}
-            />
-            <TextInput
-              label="Last name"
-              value={newEmployee.lastName}
-              onChange={updateNewEmployee('lastName')}
-            />
-          </Group>
-          <Group grow align="flex-end" wrap="wrap">
-            <TextInput
-              label="Display name"
-              value={newEmployee.displayName}
-              onChange={updateNewEmployee('displayName')}
-            />
-            <TextInput
-              label="Phone"
-              value={newEmployee.phone}
-              onChange={updateNewEmployee('phone')}
-            />
-          </Group>
-          <Button
-            leftSection={<Plus size={16} />}
-            onClick={async () => {
-              try {
-                await createHousekeepingEmployee(propertyId, {
-                  ...newEmployee,
-                  displayName:
-                    newEmployee.displayName ||
-                    `${newEmployee.firstName} ${newEmployee.lastName}`.trim(),
-                  status: 'ACTIVE',
-                });
-                setNewEmployee({ firstName: '', lastName: '', displayName: '', phone: '' });
-                await load();
-              } catch (createError) {
-                showToast({
-                  color: 'red',
-                  title: 'Unable to create staff',
-                  message: friendlyHousekeepingError(createError),
-                });
-              }
-            }}
-          >
-            Add Staff
-          </Button>
-        </Stack>
-      </Modal>
     </Stack>
   );
 }

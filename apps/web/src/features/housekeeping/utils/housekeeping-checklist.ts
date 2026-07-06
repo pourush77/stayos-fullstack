@@ -23,5 +23,5 @@ export function createChecklist(completedKeys: HousekeepingChecklistKey[] = []) 
 }
 
 export function serializeChecklist(items: HousekeepingChecklistItem[]) {
-  return items.map(({ completed, key, label }) => ({ completed, key, label }));
+  return items.map(({ completed, key }) => ({ completed, key }));
 }

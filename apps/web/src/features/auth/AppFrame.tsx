@@ -13,8 +13,8 @@ const roleLabels: Record<string, string> = {
   FRONT_DESK: 'Front Desk',
   HOUSEKEEPING: 'Housekeeping',
   MAINTENANCE: 'Maintenance',
-  MANAGER: 'Manager',
-  OWNER: 'Owner',
+  MANAGER: 'Operations Manager',
+  OWNER: 'StayOS Admin',
   READ_ONLY: 'Read Only',
 };
 
@@ -24,7 +24,7 @@ const roleNavigation: Record<string, string[]> = {
   FRONT_DESK: ['/', '/reservations', '/rooms', '/guests', '/housekeeping'],
   HOUSEKEEPING: ['/housekeeping', '/rooms'],
   MAINTENANCE: ['/rooms', '/housekeeping'],
-  MANAGER: ['*'],
+  MANAGER: ['/', '/reservations', '/rooms', '/guests', '/housekeeping', '/settings/employees'],
   OWNER: ['*'],
   READ_ONLY: ['/', '/rooms', '/reports'],
 };
@@ -34,10 +34,19 @@ function initials(name: string) {
   return (parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : name.slice(0, 2)).toUpperCase();
 }
 
-function navigationForRole(role: string) {
+function hasPermission(permissions: string[] | undefined, permission: string) {
+  return Boolean(permissions?.includes(permission) || permissions?.includes('*'));
+}
+
+function navigationForRole(role: string, permissions: string[] | undefined) {
   const allowed = roleNavigation[role] ?? roleNavigation.FRONT_DESK;
-  if (allowed.includes('*')) return primaryNavigation;
-  return primaryNavigation.filter((item) => allowed.includes(item.href));
+  const base = allowed.includes('*')
+    ? primaryNavigation
+    : primaryNavigation.filter((item) => allowed.includes(item.href));
+  return base.filter((item) => {
+    if (item.href === '/settings/employees') return hasPermission(permissions, 'employees.view');
+    return true;
+  });
 }
 
 function BrandedLoader() {
@@ -155,7 +164,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
     <>
       <StayOSAppShell
         isPublicRoute={isPublicRoute}
-        navigationItems={navigationForRole(role)}
+        navigationItems={navigationForRole(role, auth.user?.permissions)}
         onLockSession={auth.lockSession}
         onSignOut={auth.logout}
         propertyName={auth.user?.propertyName}

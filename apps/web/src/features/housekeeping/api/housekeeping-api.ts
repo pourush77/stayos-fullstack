@@ -2,6 +2,7 @@ import { API_BASE_URL, getProperties } from '../../../lib/inventory-api';
 import { type OperationsRoomBoardItemDto } from '../../../lib/operations-api';
 import { createChecklist } from '../utils/housekeeping-checklist';
 import type {
+  HousekeepingChecklistKey,
   HousekeepingChecklistItem,
   HousekeepingEmployee,
   HousekeepingInspectAction,
@@ -25,11 +26,15 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     ApiResponse<T> | { code?: string; error?: string; message?: string } | undefined;
 
   if (!response.ok) {
+    const code =
+      payload && typeof payload === 'object' && 'code' in payload && payload.code
+        ? String(payload.code)
+        : '';
     const message =
-      payload && typeof payload === 'object' && 'message' in payload
+      payload && typeof payload === 'object' && 'message' in payload && payload.message
         ? String(payload.message)
         : `Housekeeping request failed: ${response.status}`;
-    throw new Error(message);
+    throw new Error([code, message].filter(Boolean).join(': '));
   }
 
   return unwrapResponse(payload as ApiResponse<T>);
@@ -70,13 +75,22 @@ function getRecord(record: LooseRecord | undefined, keys: string[]) {
 
 function normalizeStatus(value?: string): HousekeepingStatus {
   const normalized = (value ?? '').toUpperCase().replace(/[\s_-]/g, '');
-  if (normalized.includes('CLEANING')) return 'cleaning';
+
+  if (normalized === 'NEEDSCLEANING' || normalized === 'DIRTY' || normalized === 'VACANTDIRTY') {
+    return 'dirty';
+  }
+
+  if (normalized === 'CLEANING' || normalized === 'INPROGRESS') {
+    return 'cleaning';
+  }
+
   if (normalized.includes('INSPECTION')) return 'inspection';
   if (normalized.includes('MAINTENANCE')) return 'maintenance';
   if (normalized.includes('OUTOFORDER')) return 'out-of-order';
   if (normalized.includes('OUTOFSERVICE') || normalized.includes('UNAVAILABLE'))
     return 'out-of-service';
-  if (normalized.includes('READY') || normalized.includes('CLEAN')) return 'ready';
+  if (normalized.includes('READY') || normalized === 'CLEAN') return 'ready';
+
   return 'dirty';
 }
 
@@ -102,11 +116,19 @@ export async function getCurrentPropertyId(signal?: AbortSignal) {
 }
 
 export function friendlyHousekeepingError(error: unknown) {
-  const text = error instanceof Error ? error.message.toLowerCase() : '';
+  const raw = error instanceof Error ? error.message : '';
+  const code = raw.split(':')[0]?.trim().toUpperCase();
+  if (code === 'EMPLOYEE_NOT_FOUND') return 'This staff member was not found.';
+  if (code === 'EMPLOYEE_INACTIVE') return 'This staff member is inactive.';
+  if (code === 'EMPLOYEE_NOT_HOUSEKEEPING') return 'Please select a housekeeping staff member.';
+  if (code === 'CHECKLIST_INCOMPLETE') return 'Please complete all checklist items.';
+  if (code === 'FORBIDDEN') return 'You do not have permission to update housekeeping rooms.';
+
+  const text = raw.toLowerCase();
+  if (text.includes('not found')) return 'This staff member was not found.';
   if (text.includes('inactive')) return 'This staff member is inactive.';
   if (text.includes('department')) return 'Please select a housekeeping staff member.';
-  if (text.includes('checklist'))
-    return 'Please complete all cleaning items before sending for inspection.';
+  if (text.includes('checklist')) return 'Please complete all checklist items.';
   if (text.includes('not ready') || text.includes('invalid') || text.includes('transition')) {
     return 'This room is not ready for this action.';
   }
@@ -176,10 +198,26 @@ function mapHousekeepingRoomFromDashboard(dto: LooseRecord): HousekeepingRoom {
   const floor = getString(dto, ['floor', 'floorName', 'floorLabel'], 'Floor');
 
   return {
-    assignedEmployeeId: getString(dto, ['assignedEmployeeId', 'assigned_employee_id']) || undefined,
+    assignedEmployeeId:
+      getString(dto, [
+        'assignedEmployeeId',
+        'assigned_employee_id',
+        'assignedStaffId',
+        'assigned_staff_id',
+        'employeeId',
+        'employee_id',
+      ]) || undefined,
+
     assignedEmployeeName:
-      getString(dto, ['assignedEmployeeName', 'assigned_employee_name', 'assignedStaff']) ||
-      undefined,
+      getString(dto, [
+        'assignedEmployeeName',
+        'assigned_employee_name',
+        'assignedStaff',
+        'assignedStaffName',
+        'assigned_staff_name',
+        'employeeName',
+        'employee_name',
+      ]) || undefined,
     checklist: checklistFrom(dto.checklist),
     completedAt: getString(dto, ['completedAt', 'completed_at']) || undefined,
     completedByEmployeeId:
@@ -260,7 +298,11 @@ export function startHousekeepingRoom(propertyId: string, roomId: string, employ
 export function completeHousekeepingRoom(
   propertyId: string,
   roomId: string,
-  payload: { employeeId: string; completedOnBehalf: boolean; checklist: unknown[] },
+  payload: {
+    employeeId: string;
+    completedOnBehalf: boolean;
+    checklist: Array<{ key: HousekeepingChecklistKey; completed: boolean }>;
+  },
 ) {
   return request<unknown>(`/properties/${propertyId}/housekeeping/rooms/${roomId}/complete`, {
     body: JSON.stringify(payload),
