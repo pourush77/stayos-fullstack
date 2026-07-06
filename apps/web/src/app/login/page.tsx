@@ -56,11 +56,7 @@ function validateEmail(value: string) {
 
 export default function LoginPage() {
   const auth = useAuth();
-  const [email, setEmail] = useState(() =>
-    typeof window === 'undefined'
-      ? ''
-      : (window.localStorage.getItem('stayos.rememberedEmail') ?? ''),
-  );
+  const [email, setEmail] = useState('');
   const [rememberDevice, setRememberDevice] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [password, setPassword] = useState('');
@@ -71,6 +67,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     setMounted(true);
+    setEmail(localStorage.getItem('stayos.rememberedEmail') ?? '');
     setRememberDevice(localStorage.getItem('stayos.rememberDevice') === 'true');
   }, []);
 

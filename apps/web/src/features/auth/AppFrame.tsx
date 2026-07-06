@@ -88,7 +88,7 @@ function BrandedLoader() {
           StayOS
         </Title>
         <Text c="#667085" size="sm">
-          Loading your hotel workspace
+          Checking session...
         </Text>
       </Stack>
     </Box>
@@ -164,7 +164,14 @@ export function AppFrame({ children }: { children: ReactNode }) {
     if (pathname === '/rooms' || pathname.startsWith('/rooms/')) router.replace('/housekeeping');
   }, [auth.isBootstrapping, isPublicRoute, pathname, role, router]);
 
+  useEffect(() => {
+    if (auth.isBootstrapping || isPublicRoute || auth.isAuthenticated) return;
+    const next = pathname ? `?next=${encodeURIComponent(pathname)}` : '';
+    router.replace(`/login${next}`);
+  }, [auth.isAuthenticated, auth.isBootstrapping, isPublicRoute, pathname, router]);
+
   if (auth.isBootstrapping && !isPublicRoute) return <BrandedLoader />;
+  if (!isPublicRoute && !auth.isAuthenticated) return <BrandedLoader />;
 
   return (
     <>
