@@ -272,18 +272,22 @@ export function regenerateStaffAccess(propertyId: string, employeeId: string) {
 export function updateStaffAccess(
   propertyId: string,
   employeeId: string,
-  payload: { enabled: boolean },
+  enabled: boolean,
 ) {
   return request<LooseRecord>(`/properties/${propertyId}/employees/${employeeId}/staff-access`, {
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ enabled }),
     method: 'PATCH',
   }).then(mapEmployee);
 }
 
-export async function getStaffAccessWorklist(token: string, signal?: AbortSignal) {
+export async function getStaffWorklistByToken(
+  propertyId: string,
+  token: string,
+  signal?: AbortSignal,
+) {
   const response = await request<
     LooseRecord[] | { employee?: LooseRecord; property?: LooseRecord; rooms?: LooseRecord[] }
-  >(`/housekeeping/staff/access/${encodeURIComponent(token)}`, { signal });
+  >(`/properties/${propertyId}/housekeeping/staff/access/${encodeURIComponent(token)}`, { signal });
   const rooms = Array.isArray(response) ? response : (response.rooms ?? []);
   const employee = Array.isArray(response)
     ? undefined
@@ -301,26 +305,31 @@ export async function getStaffAccessWorklist(token: string, signal?: AbortSignal
   };
 }
 
-export function startStaffAccessRoom(token: string, roomId: string) {
+export function startStaffRoomByToken(propertyId: string, token: string, roomId: string) {
   return request<unknown>(
-    `/housekeeping/staff/access/${encodeURIComponent(token)}/rooms/${roomId}/start`,
+    `/properties/${propertyId}/housekeeping/staff/access/${encodeURIComponent(token)}/rooms/${roomId}/start`,
     { method: 'PATCH' },
   );
 }
 
-export function completeStaffAccessRoom(
+export function completeStaffRoomByToken(
+  propertyId: string,
   token: string,
   roomId: string,
   payload: { checklist: Array<{ key: HousekeepingChecklistKey; completed: boolean }> },
 ) {
   return request<unknown>(
-    `/housekeeping/staff/access/${encodeURIComponent(token)}/rooms/${roomId}/complete`,
+    `/properties/${propertyId}/housekeeping/staff/access/${encodeURIComponent(token)}/rooms/${roomId}/complete`,
     {
       body: JSON.stringify(payload),
       method: 'PATCH',
     },
   );
 }
+
+export const getStaffAccessWorklist = getStaffWorklistByToken;
+export const startStaffAccessRoom = startStaffRoomByToken;
+export const completeStaffAccessRoom = completeStaffRoomByToken;
 
 export function createHousekeepingEmployee(
   propertyId: string,

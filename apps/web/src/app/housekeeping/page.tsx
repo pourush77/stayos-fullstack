@@ -683,7 +683,7 @@ export default function HousekeepingPage() {
     const enabled = Boolean(employee.staffAccessEnabled && employee.staffAccessToken);
     setStaffAccessBusy(`toggle:${employee.id}`);
     try {
-      await updateStaffAccess(propertyId, employee.id, { enabled: !enabled });
+      await updateStaffAccess(propertyId, employee.id, !enabled);
       await load();
       showToast({
         color: 'green',

@@ -7,10 +7,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
 import { showToast } from '@stayos/ui';
 import {
-  completeStaffAccessRoom,
+  completeStaffRoomByToken,
   friendlyHousekeepingError,
-  getStaffAccessWorklist,
-  startStaffAccessRoom,
+  getCurrentPropertyId,
+  getStaffWorklistByToken,
+  startStaffRoomByToken,
 } from '../../../../../features/housekeeping/api/housekeeping-api';
 import { createChecklist, serializeChecklist } from '../../../../../features/housekeeping/utils/housekeeping-checklist';
 import type {
@@ -78,6 +79,7 @@ export default function HousekeepingStaffAccessPage() {
   const params = useParams<{ token: string }>();
   const token = params.token;
   const previousRoomCount = useRef<number | undefined>(undefined);
+  const [propertyId, setPropertyId] = useState('');
   const [employee, setEmployee] = useState<HousekeepingEmployee>();
   const [rooms, setRooms] = useState<HousekeepingRoom[]>([]);
   const [activeRoomId, setActiveRoomId] = useState<string>();
@@ -95,7 +97,9 @@ export default function HousekeepingStaffAccessPage() {
       else setIsLoading(true);
       setError(undefined);
       try {
-        const worklist = await getStaffAccessWorklist(token, signal);
+        const nextPropertyId = propertyId || (await getCurrentPropertyId(signal));
+        const worklist = await getStaffWorklistByToken(nextPropertyId, token, signal);
+        setPropertyId(nextPropertyId);
         setEmployee(worklist.employee);
         setRooms(worklist.rooms);
         setInvalidAccess(false);
@@ -130,7 +134,7 @@ export default function HousekeepingStaffAccessPage() {
         setIsRefreshing(false);
       }
     },
-    [token],
+    [propertyId, token],
   );
 
   useEffect(() => {
@@ -230,6 +234,9 @@ export default function HousekeepingStaffAccessPage() {
                   <Text c="#64748b" mt={4} style={{ fontSize: 17, fontWeight: 800 }}>
                     {activeRoom.floor}
                   </Text>
+                  <Text c="#64748b" mt={2} style={{ fontSize: 15, fontWeight: 700 }}>
+                    {activeRoom.roomType}
+                  </Text>
                 </Box>
                 <Badge color="blue" radius={radius.full} size="lg" variant="light">
                   In Progress
@@ -257,7 +264,7 @@ export default function HousekeepingStaffAccessPage() {
                   void runRoomAction(
                     activeRoom,
                     () =>
-                      completeStaffAccessRoom(token, activeRoom.id, {
+                      completeStaffRoomByToken(propertyId, token, activeRoom.id, {
                         checklist: serializeChecklist(activeChecklist),
                       }),
                     'Room sent for inspection.',
@@ -292,6 +299,9 @@ export default function HousekeepingStaffAccessPage() {
                           <Text c="#64748b" mt={6} style={{ fontSize: 17, fontWeight: 800 }}>
                             {room.floor}
                           </Text>
+                          <Text c="#64748b" mt={2} style={{ fontSize: 15, fontWeight: 700 }}>
+                            {room.roomType}
+                          </Text>
                         </Box>
                         <Badge color={room.status === 'inspection' ? 'violet' : room.status === 'cleaning' ? 'blue' : 'yellow'} radius={radius.full} size="lg" variant="light">
                           {statusLabel(room.status)}
@@ -311,7 +321,7 @@ export default function HousekeepingStaffAccessPage() {
                           }
                           void runRoomAction(
                             room,
-                            () => startStaffAccessRoom(token, room.id),
+                            () => startStaffRoomByToken(propertyId, token, room.id),
                             `Room ${room.number} started.`,
                           ).then(() => setActiveRoomId(room.id));
                         }}
