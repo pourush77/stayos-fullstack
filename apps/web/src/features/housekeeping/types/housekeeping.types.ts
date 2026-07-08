@@ -11,6 +11,9 @@ export type HousekeepingEmployee = {
   designation: string;
   phone?: string;
   status: string;
+  propertyName?: string;
+  staffAccessEnabled?: boolean;
+  staffAccessToken?: string;
 };
 
 export type HousekeepingChecklistKey =

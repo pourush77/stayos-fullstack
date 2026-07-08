@@ -155,7 +155,15 @@ export function mapEmployee(dto: LooseRecord): HousekeepingEmployee {
     id: getString(dto, ['id', '_id', 'uuid', 'employeeId']),
     lastName,
     phone: getString(dto, ['phone', 'mobile']) || undefined,
+    propertyName: getString(dto, ['propertyName', 'property_name']) || undefined,
     status: getString(dto, ['status'], 'ACTIVE'),
+    staffAccessEnabled: getBoolean(
+      dto,
+      ['staffAccessEnabled', 'staff_access_enabled', 'accessEnabled', 'access_enabled'],
+      Boolean(getString(dto, ['staffAccessToken', 'staff_access_token', 'accessToken'])),
+    ),
+    staffAccessToken:
+      getString(dto, ['staffAccessToken', 'staff_access_token', 'accessToken']) || undefined,
   };
 }
 
@@ -252,6 +260,66 @@ export function getHousekeepingEmployees(propertyId: string, signal?: AbortSigna
     `/properties/${propertyId}/employees?department=HOUSEKEEPING&status=ACTIVE`,
     { signal },
   ).then((employees) => employees.map(mapEmployee));
+}
+
+export function regenerateStaffAccess(propertyId: string, employeeId: string) {
+  return request<LooseRecord>(
+    `/properties/${propertyId}/employees/${employeeId}/staff-access/regenerate`,
+    { method: 'POST' },
+  ).then(mapEmployee);
+}
+
+export function updateStaffAccess(
+  propertyId: string,
+  employeeId: string,
+  payload: { enabled: boolean },
+) {
+  return request<LooseRecord>(`/properties/${propertyId}/employees/${employeeId}/staff-access`, {
+    body: JSON.stringify(payload),
+    method: 'PATCH',
+  }).then(mapEmployee);
+}
+
+export async function getStaffAccessWorklist(token: string, signal?: AbortSignal) {
+  const response = await request<
+    LooseRecord[] | { employee?: LooseRecord; property?: LooseRecord; rooms?: LooseRecord[] }
+  >(`/housekeeping/staff/access/${encodeURIComponent(token)}`, { signal });
+  const rooms = Array.isArray(response) ? response : (response.rooms ?? []);
+  const employee = Array.isArray(response)
+    ? undefined
+    : response.employee
+      ? mapEmployee(response.employee)
+      : undefined;
+  const propertyName = Array.isArray(response)
+    ? undefined
+    : getString(response.property, ['name', 'displayName', 'propertyName']);
+
+  return {
+    employee,
+    propertyName,
+    rooms: rooms.map((room) => mapHousekeepingRoomFromDashboard(room)),
+  };
+}
+
+export function startStaffAccessRoom(token: string, roomId: string) {
+  return request<unknown>(
+    `/housekeeping/staff/access/${encodeURIComponent(token)}/rooms/${roomId}/start`,
+    { method: 'PATCH' },
+  );
+}
+
+export function completeStaffAccessRoom(
+  token: string,
+  roomId: string,
+  payload: { checklist: Array<{ key: HousekeepingChecklistKey; completed: boolean }> },
+) {
+  return request<unknown>(
+    `/housekeeping/staff/access/${encodeURIComponent(token)}/rooms/${roomId}/complete`,
+    {
+      body: JSON.stringify(payload),
+      method: 'PATCH',
+    },
+  );
 }
 
 export function createHousekeepingEmployee(

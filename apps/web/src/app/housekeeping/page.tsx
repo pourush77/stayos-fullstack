@@ -6,6 +6,7 @@ import {
   Box,
   Button,
   Card,
+  Divider,
   Group,
   Modal,
   Paper,
@@ -22,12 +23,19 @@ import {
   Brush,
   CheckCircle2,
   ClipboardCheck,
+  Copy,
   Eye,
+  Printer,
+  QrCode,
+  RotateCw,
+  ShieldCheck,
+  ShieldOff,
   Sparkles,
   UserPlus,
   Wrench,
 } from 'lucide-react';
 import Link from 'next/link';
+import { QRCodeSVG } from 'qrcode.react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
 import { showToast } from '@stayos/ui';
@@ -40,7 +48,9 @@ import {
   getHousekeepingDashboard,
   getHousekeepingEmployees,
   inspectHousekeepingRoom,
+  regenerateStaffAccess,
   startHousekeepingRoom,
+  updateStaffAccess,
 } from '../../features/housekeeping/api/housekeeping-api';
 import {
   createChecklist,
@@ -119,6 +129,19 @@ function StatusBadge({ status }: { status: HousekeepingStatus }) {
 
 function hasPermission(permissions: string[] | undefined, permission: string) {
   return Boolean(permissions?.includes(permission) || permissions?.includes('*'));
+}
+
+function canManageStaffAccess(role: string | undefined, permissions: string[] | undefined) {
+  const normalizedRole = String(role ?? '').toUpperCase();
+  return (
+    ['MANAGER', 'ADMIN', 'OWNER'].includes(normalizedRole) ||
+    hasPermission(permissions, 'housekeeping.manage')
+  );
+}
+
+function staffAccessUrl(origin: string, employee: HousekeepingEmployee) {
+  if (!origin || !employee.staffAccessToken) return '';
+  return `${origin}/housekeeping/staff/access/${employee.staffAccessToken}`;
 }
 
 function checklistProgress(room: HousekeepingRoom) {
@@ -225,6 +248,171 @@ function ChecklistButtons({
         );
       })}
     </SimpleGrid>
+  );
+}
+
+function PrintableStaffCard({
+  employee,
+  origin,
+  propertyName,
+}: {
+  employee?: HousekeepingEmployee;
+  origin: string;
+  propertyName?: string;
+}) {
+  const url = employee ? staffAccessUrl(origin, employee) : '';
+  if (!employee || !url) return null;
+
+  return (
+    <Box className="staff-print-root" aria-hidden>
+      <Box className="staff-print-card">
+        <Title order={1}>StayOS</Title>
+        <Text className="staff-print-kicker">HOUSEKEEPING STAFF</Text>
+        <Text>
+          <strong>Name:</strong> {employee.displayName}
+        </Text>
+        <Text>
+          <strong>Code:</strong> {employee.employeeCode}
+        </Text>
+        <Text>
+          <strong>Property:</strong> {employee.propertyName || propertyName || 'Hillston Hotel'}
+        </Text>
+        <QRCodeSVG value={url} size={184} level="M" includeMargin />
+        <Text className="staff-print-hint">Scan to view your rooms.</Text>
+      </Box>
+    </Box>
+  );
+}
+
+function StaffAccessModal({
+  employees,
+  isBusy,
+  onClose,
+  onPrint,
+  onRegenerate,
+  onToggleAccess,
+  opened,
+  origin,
+  propertyName,
+}: {
+  employees: HousekeepingEmployee[];
+  isBusy?: string;
+  onClose: () => void;
+  onPrint: (employee: HousekeepingEmployee) => void;
+  onRegenerate: (employee: HousekeepingEmployee) => void;
+  onToggleAccess: (employee: HousekeepingEmployee) => void;
+  opened: boolean;
+  origin: string;
+  propertyName?: string;
+}) {
+  const activeHousekeeping = employees.filter(
+    (employee) =>
+      employee.status.toUpperCase() === 'ACTIVE' &&
+      employee.department.toUpperCase() === 'HOUSEKEEPING',
+  );
+
+  return (
+    <Modal opened={opened} onClose={onClose} title="Staff Access" centered size="xl">
+      <Stack gap={spacing[3]}>
+        {activeHousekeeping.length === 0 ? (
+          <Alert color="yellow">No active housekeeping employees found.</Alert>
+        ) : null}
+        {activeHousekeeping.map((employee) => {
+          const enabled = Boolean(employee.staffAccessEnabled && employee.staffAccessToken);
+          const url = staffAccessUrl(origin, employee);
+          return (
+            <Paper key={employee.id} radius={radius.lg} p={16} style={cardStyle}>
+              <Group align="flex-start" justify="space-between" gap={spacing[3]} wrap="wrap">
+                <Stack gap={4} style={{ flex: '1 1 220px' }}>
+                  <Text c="#101828" style={{ fontSize: 17, fontWeight: 850 }}>
+                    {employee.displayName}
+                  </Text>
+                  <Text c="#64748b" style={{ fontSize: 13, fontWeight: 700 }}>
+                    {employee.employeeCode}
+                  </Text>
+                  <Badge
+                    color={enabled ? 'green' : 'gray'}
+                    radius={radius.full}
+                    variant="light"
+                    w="fit-content"
+                  >
+                    {enabled ? 'Access enabled' : 'Access disabled'}
+                  </Badge>
+                  <Text c="#94a3b8" style={{ fontSize: 12, fontWeight: 650 }}>
+                    {employee.propertyName || propertyName || 'Property'}
+                  </Text>
+                </Stack>
+                <Box
+                  style={{
+                    alignItems: 'center',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 8,
+                    display: 'flex',
+                    height: 132,
+                    justifyContent: 'center',
+                    width: 132,
+                  }}
+                >
+                  {enabled && url ? (
+                    <QRCodeSVG value={url} size={112} level="M" includeMargin />
+                  ) : (
+                    <Text c="#94a3b8" ta="center" style={{ fontSize: 12, fontWeight: 800 }}>
+                      Access disabled.
+                    </Text>
+                  )}
+                </Box>
+              </Group>
+              <Divider my={14} />
+              <Group justify="flex-end" gap={8}>
+                <Button
+                  variant="light"
+                  color="gray"
+                  leftSection={<Copy size={16} />}
+                  disabled={!enabled || !url}
+                  onClick={() => {
+                    void navigator.clipboard.writeText(url).then(() => {
+                      showToast({
+                        color: 'green',
+                        title: 'Copied',
+                        message: 'Staff link copied.',
+                      });
+                    });
+                  }}
+                >
+                  Copy link
+                </Button>
+                <Button
+                  variant="light"
+                  leftSection={<Printer size={16} />}
+                  disabled={!enabled || !url}
+                  onClick={() => onPrint(employee)}
+                >
+                  Print card
+                </Button>
+                <Button
+                  variant="light"
+                  color="yellow"
+                  leftSection={<RotateCw size={16} />}
+                  loading={isBusy === `regenerate:${employee.id}`}
+                  onClick={() => onRegenerate(employee)}
+                >
+                  Regenerate QR
+                </Button>
+                <Button
+                  variant="light"
+                  color={enabled ? 'red' : 'green'}
+                  leftSection={enabled ? <ShieldOff size={16} /> : <ShieldCheck size={16} />}
+                  loading={isBusy === `toggle:${employee.id}`}
+                  onClick={() => onToggleAccess(employee)}
+                >
+                  {enabled ? 'Disable Access' : 'Enable Access'}
+                </Button>
+              </Group>
+            </Paper>
+          );
+        })}
+      </Stack>
+    </Modal>
   );
 }
 
@@ -356,12 +544,17 @@ function RoomCard({
 export default function HousekeepingPage() {
   const auth = useAuth();
   const canManageEmployees = hasPermission(auth.user?.permissions, 'employees.manage');
+  const canOpenStaffAccess = canManageStaffAccess(auth.user?.role, auth.user?.permissions);
   const [propertyId, setPropertyId] = useState('');
   const [rooms, setRooms] = useState<HousekeepingRoom[]>([]);
   const [employees, setEmployees] = useState<HousekeepingEmployee[]>([]);
+  const [origin, setOrigin] = useState('');
   const [error, setError] = useState<string>();
   const [isLoading, setIsLoading] = useState(true);
   const [loadingRoomId, setLoadingRoomId] = useState<string>();
+  const [staffAccessOpen, setStaffAccessOpen] = useState(false);
+  const [staffAccessBusy, setStaffAccessBusy] = useState<string>();
+  const [printEmployee, setPrintEmployee] = useState<HousekeepingEmployee>();
   const [assignRoom, setAssignRoom] = useState<HousekeepingRoom | null>(null);
   const [completeRoom, setCompleteRoom] = useState<HousekeepingRoom | null>(null);
   const [inspectRoom, setInspectRoom] = useState<HousekeepingRoom | null>(null);
@@ -398,6 +591,19 @@ export default function HousekeepingPage() {
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+
+  useEffect(() => {
+    if (!printEmployee) return;
+    const timeout = window.setTimeout(() => {
+      window.print();
+      setPrintEmployee(undefined);
+    }, 100);
+    return () => window.clearTimeout(timeout);
+  }, [printEmployee]);
 
   const employeeOptions = useMemo(
     () =>
@@ -455,8 +661,111 @@ export default function HousekeepingPage() {
     );
   };
 
+  const regenerateAccess = async (employee: HousekeepingEmployee) => {
+    if (!window.confirm('Old QR will stop working. Continue?')) return;
+    setStaffAccessBusy(`regenerate:${employee.id}`);
+    try {
+      await regenerateStaffAccess(propertyId, employee.id);
+      await load();
+      showToast({ color: 'green', title: 'Staff access updated', message: 'New QR is ready.' });
+    } catch {
+      showToast({
+        color: 'red',
+        title: 'Unable to regenerate QR',
+        message: 'Please try again.',
+      });
+    } finally {
+      setStaffAccessBusy(undefined);
+    }
+  };
+
+  const toggleAccess = async (employee: HousekeepingEmployee) => {
+    const enabled = Boolean(employee.staffAccessEnabled && employee.staffAccessToken);
+    setStaffAccessBusy(`toggle:${employee.id}`);
+    try {
+      await updateStaffAccess(propertyId, employee.id, { enabled: !enabled });
+      await load();
+      showToast({
+        color: 'green',
+        title: 'Staff access updated',
+        message: enabled ? 'Access disabled.' : 'Access enabled.',
+      });
+    } catch {
+      showToast({
+        color: 'red',
+        title: 'Unable to update access',
+        message: 'Please try again.',
+      });
+    } finally {
+      setStaffAccessBusy(undefined);
+    }
+  };
+
   return (
     <Stack gap={spacing[3]} h="100%" style={{ minHeight: 0 }}>
+      <style jsx global>{`
+        .staff-print-root {
+          display: none;
+        }
+        @media print {
+          body * {
+            visibility: hidden !important;
+          }
+          .staff-print-root,
+          .staff-print-root * {
+            visibility: visible !important;
+          }
+          .staff-print-root {
+            align-items: flex-start;
+            background: #ffffff;
+            display: flex !important;
+            inset: 0;
+            justify-content: center;
+            padding: 24px;
+            position: fixed;
+          }
+          .staff-print-card {
+            border: 2px solid #101828;
+            border-radius: 12px;
+            color: #101828;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            text-align: center;
+            width: 300px;
+          }
+          .staff-print-card h1 {
+            font-size: 26px;
+            margin: 0 0 8px;
+          }
+          .staff-print-card p {
+            font-size: 14px;
+            margin: 7px 0;
+            text-align: left;
+          }
+          .staff-print-kicker {
+            font-size: 15px !important;
+            font-weight: 800 !important;
+            letter-spacing: 1.5px;
+            margin: 0 0 18px !important;
+            text-align: center !important;
+          }
+          .staff-print-card svg {
+            height: 184px;
+            margin: 18px auto;
+            width: 184px;
+          }
+          .staff-print-hint {
+            font-size: 15px !important;
+            font-weight: 700 !important;
+            text-align: center !important;
+          }
+        }
+      `}</style>
+      <PrintableStaffCard
+        employee={printEmployee}
+        origin={origin}
+        propertyName={auth.user?.propertyName}
+      />
       <Group justify="space-between" align="flex-start" gap={spacing[4]} wrap="wrap">
         <Box>
           <Title
@@ -470,6 +779,11 @@ export default function HousekeepingPage() {
             Assign rooms, track cleaning, and inspect rooms before release.
           </Text>
         </Box>
+        {canOpenStaffAccess ? (
+          <Button leftSection={<QrCode size={17} />} onClick={() => setStaffAccessOpen(true)}>
+            Staff Access
+          </Button>
+        ) : null}
       </Group>
 
       {error ? <Alert color="red">{error}</Alert> : null}
@@ -797,6 +1111,18 @@ export default function HousekeepingPage() {
           </Group>
         </Stack>
       </Modal>
+
+      <StaffAccessModal
+        employees={employees}
+        isBusy={staffAccessBusy}
+        onClose={() => setStaffAccessOpen(false)}
+        onPrint={setPrintEmployee}
+        onRegenerate={(employee) => void regenerateAccess(employee)}
+        onToggleAccess={(employee) => void toggleAccess(employee)}
+        opened={staffAccessOpen}
+        origin={origin}
+        propertyName={auth.user?.propertyName}
+      />
 
     </Stack>
   );
