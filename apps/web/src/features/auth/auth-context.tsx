@@ -29,6 +29,7 @@ export type AuthUser = {
   id: string;
   name: string;
   permissions: string[];
+  propertyId?: string;
   propertyName?: string;
   role: AuthRole;
 };
@@ -61,6 +62,12 @@ const accessTokenKey = 'stayos.accessToken';
 const refreshTokenKey = 'stayos.refreshToken';
 const rememberDeviceKey = 'stayos.rememberDevice';
 const publicPaths = new Set(['/login']);
+
+function isPublicPath(pathname: string | null) {
+  return Boolean(
+    pathname && (publicPaths.has(pathname) || pathname.startsWith('/housekeeping/staff/')),
+  );
+}
 
 function unwrap<T>(payload: ApiResponse<T>): T {
   if (payload && typeof payload === 'object') {
@@ -149,6 +156,9 @@ function mapUser(payload: unknown): AuthUser {
         .join(' ') ||
       stringValue(profile, ['email'], 'StayOS User'),
     permissions: stringArray(profile.permissions ?? record.permissions),
+    propertyId:
+      stringValue(property, ['id', '_id', 'uuid', 'propertyId'], stringValue(profile, ['propertyId'])) ||
+      undefined,
     propertyName:
       stringValue(property, ['name'], stringValue(profile, ['propertyName'])) || undefined,
     role: normalizeRole(profile.role ?? record.role),
@@ -196,8 +206,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const rawFetchRef = useRef<typeof fetch | undefined>(undefined);
 
   const redirectToLogin = useCallback(() => {
-    const next =
-      pathname && !publicPaths.has(pathname) ? `?next=${encodeURIComponent(pathname)}` : '';
+    const next = pathname && !isPublicPath(pathname) ? `?next=${encodeURIComponent(pathname)}` : '';
     router.replace(`/login${next}`);
   }, [pathname, router]);
 
@@ -350,6 +359,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const url =
         typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const isStayApi = url.startsWith(API_BASE_URL);
+      const isCurrentRoutePublic = isPublicPath(pathname);
       const headers = new Headers(init.headers);
       const token = readToken(accessTokenKey);
       if (isStayApi && token && !headers.has('Authorization')) {
@@ -357,7 +367,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const response = await rawFetch(input, { ...init, headers });
-      if (!isStayApi || response.status !== 401 || url.includes('/auth/refresh')) return response;
+      if (
+        !isStayApi ||
+        response.status !== 401 ||
+        url.includes('/auth/refresh') ||
+        isCurrentRoutePublic
+      ) {
+        return response;
+      }
 
       const payload = await parseJson(response.clone());
       const code = getErrorCode(payload);
@@ -392,7 +409,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!token) {
         setIsBootstrapping(false);
-        if (!publicPaths.has(pathname)) redirectToLogin();
+        if (!isPublicPath(pathname)) redirectToLogin();
         return;
       }
 
@@ -409,7 +426,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch {
           clearTokens();
           setUser(undefined);
-          if (!publicPaths.has(pathname)) redirectToLogin();
+          if (!isPublicPath(pathname)) redirectToLogin();
         }
       } finally {
         setIsBootstrapping(false);

@@ -2,15 +2,17 @@
 
 import { Alert, Badge, Box, Button, Card, Group, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core';
 import { Brush, CheckCircle2, ClipboardCheck, RefreshCw, Sparkles } from 'lucide-react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
 import { showToast } from '@stayos/ui';
 import {
+  completeStaffAccessRoom,
   completeStaffRoomByToken,
   friendlyHousekeepingError,
-  getCurrentPropertyId,
+  getStaffAccessWorklist,
   getStaffWorklistByToken,
+  startStaffAccessRoom,
   startStaffRoomByToken,
 } from '../../../../../features/housekeeping/api/housekeeping-api';
 import { createChecklist, serializeChecklist } from '../../../../../features/housekeeping/utils/housekeeping-checklist';
@@ -77,9 +79,10 @@ function StaffChecklist({
 
 export default function HousekeepingStaffAccessPage() {
   const params = useParams<{ token: string }>();
+  const searchParams = useSearchParams();
   const token = params.token;
+  const propertyId = searchParams.get('propertyId') ?? '';
   const previousRoomCount = useRef<number | undefined>(undefined);
-  const [propertyId, setPropertyId] = useState('');
   const [employee, setEmployee] = useState<HousekeepingEmployee>();
   const [rooms, setRooms] = useState<HousekeepingRoom[]>([]);
   const [activeRoomId, setActiveRoomId] = useState<string>();
@@ -97,9 +100,9 @@ export default function HousekeepingStaffAccessPage() {
       else setIsLoading(true);
       setError(undefined);
       try {
-        const nextPropertyId = propertyId || (await getCurrentPropertyId(signal));
-        const worklist = await getStaffWorklistByToken(nextPropertyId, token, signal);
-        setPropertyId(nextPropertyId);
+        const worklist = propertyId
+          ? await getStaffWorklistByToken(propertyId, token, signal)
+          : await getStaffAccessWorklist(token, signal);
         setEmployee(worklist.employee);
         setRooms(worklist.rooms);
         setInvalidAccess(false);
@@ -264,9 +267,13 @@ export default function HousekeepingStaffAccessPage() {
                   void runRoomAction(
                     activeRoom,
                     () =>
-                      completeStaffRoomByToken(propertyId, token, activeRoom.id, {
-                        checklist: serializeChecklist(activeChecklist),
-                      }),
+                      propertyId
+                        ? completeStaffRoomByToken(propertyId, token, activeRoom.id, {
+                            checklist: serializeChecklist(activeChecklist),
+                          })
+                        : completeStaffAccessRoom(token, activeRoom.id, {
+                            checklist: serializeChecklist(activeChecklist),
+                          }),
                     'Room sent for inspection.',
                   ).then(() => setActiveRoomId(undefined))
                 }
@@ -321,7 +328,10 @@ export default function HousekeepingStaffAccessPage() {
                           }
                           void runRoomAction(
                             room,
-                            () => startStaffRoomByToken(propertyId, token, room.id),
+                            () =>
+                              propertyId
+                                ? startStaffRoomByToken(propertyId, token, room.id)
+                                : startStaffAccessRoom(token, room.id),
                             `Room ${room.number} started.`,
                           ).then(() => setActiveRoomId(room.id));
                         }}

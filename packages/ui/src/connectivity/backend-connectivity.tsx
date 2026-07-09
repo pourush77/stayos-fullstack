@@ -17,6 +17,12 @@ const BackendConnectivityContext = createContext<BackendConnectivityContextValue
 
 const onlineIntervalMs = 30_000;
 const offlineIntervalMs = 10_000;
+const healthResultCacheMs = 5_000;
+
+let sharedHealthInFlight: Promise<BackendConnectionStatus> | undefined;
+let sharedHealthResult:
+  | { checkedAt: number; status: BackendConnectionStatus; successfulAt: Date | null }
+  | undefined;
 
 function apiBaseUrl() {
   return process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api/v1';
@@ -32,33 +38,58 @@ export function BackendConnectivityProvider({ children }: { children: ReactNode 
   const [status, setStatus] = useState<BackendConnectionStatus>('CONNECTING');
   const [lastSuccessfulConnection, setLastSuccessfulConnection] = useState<Date | null>(null);
   const inFlightRef = useRef(false);
+  const statusRef = useRef<BackendConnectionStatus>('CONNECTING');
 
   const checkHealth = useCallback(async () => {
-    if (inFlightRef.current) return status;
+    if (inFlightRef.current) return statusRef.current;
+
+    if (
+      sharedHealthResult &&
+      Date.now() - sharedHealthResult.checkedAt < healthResultCacheMs
+    ) {
+      statusRef.current = sharedHealthResult.status;
+      setStatus(sharedHealthResult.status);
+      setLastSuccessfulConnection(sharedHealthResult.successfulAt);
+      return sharedHealthResult.status;
+    }
+
+    if (sharedHealthInFlight) {
+      const nextStatus = await sharedHealthInFlight;
+      statusRef.current = nextStatus;
+      setStatus(nextStatus);
+      setLastSuccessfulConnection(sharedHealthResult?.successfulAt ?? null);
+      return nextStatus;
+    }
 
     inFlightRef.current = true;
     setStatus((currentStatus) => (currentStatus === 'ONLINE' ? currentStatus : 'CONNECTING'));
 
     try {
-      const response = await fetch(`${apiBaseUrl()}/health/ready`, {
+      sharedHealthInFlight = fetch(`${apiBaseUrl()}/health/ready`, {
         cache: 'no-store',
         headers: { Accept: 'application/json' },
-      });
-      const nextStatus = statusFromResponse(response);
+      }).then(statusFromResponse);
+      const nextStatus = await sharedHealthInFlight;
 
+      statusRef.current = nextStatus;
       setStatus(nextStatus);
+      const successfulAt = nextStatus === 'ONLINE' ? new Date() : null;
+      sharedHealthResult = { checkedAt: Date.now(), status: nextStatus, successfulAt };
       if (nextStatus === 'ONLINE') {
-        setLastSuccessfulConnection(new Date());
+        setLastSuccessfulConnection(successfulAt);
       }
 
       return nextStatus;
     } catch {
+      statusRef.current = 'OFFLINE';
       setStatus('OFFLINE');
+      sharedHealthResult = { checkedAt: Date.now(), status: 'OFFLINE', successfulAt: null };
       return 'OFFLINE';
     } finally {
       inFlightRef.current = false;
+      sharedHealthInFlight = undefined;
     }
-  }, [status]);
+  }, []);
 
   const retry = useCallback(() => checkHealth(), [checkHealth]);
 

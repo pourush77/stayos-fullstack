@@ -37,9 +37,21 @@ export type HousekeepingStatus =
   | 'cleaning'
   | 'inspection'
   | 'ready'
+  | 'occupied'
   | 'maintenance'
   | 'out-of-order'
   | 'out-of-service';
+
+export type HousekeepingDashboardSummary = {
+  dirty?: number;
+  cleaning?: number;
+  inspection?: number;
+  ready?: number;
+  occupied?: number;
+  maintenance?: number;
+  outOfOrder?: number;
+  outOfService?: number;
+};
 
 export type HousekeepingRoom = {
   id: string;

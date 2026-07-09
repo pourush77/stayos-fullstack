@@ -154,6 +154,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
         email: auth.user.email,
         initials: initials(auth.user.name),
         name: auth.user.name,
+        propertyId: auth.user.propertyId,
         propertyName: auth.user.propertyName,
         roleLabel: roleLabels[role] ?? role,
       }
@@ -180,6 +181,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
         navigationItems={navigationForRole(role, auth.user?.permissions)}
         onLockSession={auth.lockSession}
         onSignOut={auth.logout}
+        propertyId={auth.user?.propertyId}
         propertyName={auth.user?.propertyName}
         user={shellUser}
       >

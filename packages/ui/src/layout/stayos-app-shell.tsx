@@ -56,6 +56,7 @@ type StayOSAppShellProps = {
   navigationItems?: typeof primaryNavigation;
   onLockSession?: () => void;
   onSignOut?: () => void;
+  propertyId?: string;
   propertyName?: string;
   user?: ShellUser;
 };
@@ -64,6 +65,7 @@ export type ShellUser = {
   email: string;
   initials?: string;
   name: string;
+  propertyId?: string;
   propertyName?: string;
   roleLabel: string;
 };
@@ -1085,11 +1087,11 @@ function TopHeader({
   );
 }
 
-function UtilityPanel() {
+function UtilityPanel({ enabled }: { enabled: boolean }) {
   const pathname = usePathname();
 
   if (pathname === '/') {
-    return <FrontDeskUtilityPanel />;
+    return <FrontDeskUtilityPanel enabled={enabled} />;
   }
 
   const tasks = getTasksForPath(pathname);
@@ -1292,15 +1294,17 @@ function buildLiveOperations(
   return [...roomEvents, ...reservationEvents].slice(0, 20);
 }
 
-function useFrontDeskUtilityData(): FrontDeskUtilityState {
+function useFrontDeskUtilityData(enabled: boolean): FrontDeskUtilityState {
   const [state, setState] = useState<FrontDeskUtilityState>({
-    isLoading: true,
+    isLoading: false,
     liveOperations: [],
     propertyStatus: emptyPropertyStatus,
     roomTotal: 0,
   });
 
   useEffect(() => {
+    if (!enabled) return undefined;
+
     const controller = new AbortController();
 
     async function loadUtilityData() {
@@ -1344,13 +1348,13 @@ function useFrontDeskUtilityData(): FrontDeskUtilityState {
     void loadUtilityData();
 
     return () => controller.abort();
-  }, []);
+  }, [enabled]);
 
   return state;
 }
 
-function FrontDeskUtilityPanel() {
-  const utility = useFrontDeskUtilityData();
+function FrontDeskUtilityPanel({ enabled }: { enabled: boolean }) {
+  const utility = useFrontDeskUtilityData(enabled);
   const nextEvent = utility.nextEvent;
   const propertyStatus = utility.propertyStatus;
   const liveOperations = utility.liveOperations;
@@ -1732,9 +1736,8 @@ function ProtectedStayOSAppShell({
   const propertyMeta =
     propertyNameProp || user?.propertyName ? { name: propertyName } : activeProperty;
   const sidebarWidth = sidebarCollapsed ? 78 : 264;
-  const utilityPanelAvailable = !pathname.startsWith('/rooms');
+  const utilityPanelAvailable = !pathname.startsWith('/rooms') && !pathname.startsWith('/housekeeping');
   const workspaceTitle = workspaceTitleForPath(pathname);
-  const pageOwnsScroll = pathname.startsWith('/housekeeping');
 
   return (
     <>
@@ -1809,7 +1812,7 @@ function ProtectedStayOSAppShell({
                 minHeight: 0,
                 minWidth: 0,
                 overflowX: 'hidden',
-                overflowY: pageOwnsScroll ? 'hidden' : 'auto',
+                overflowY: 'auto',
               }}
             >
               <ShellContent>{children}</ShellContent>
@@ -1825,7 +1828,7 @@ function ProtectedStayOSAppShell({
                   minHeight: 0,
                 }}
               >
-                <UtilityPanel />
+                <UtilityPanel enabled={utilityPanelAvailable && utilityPanelOpen} />
               </Box>
             ) : null}
           </Box>
@@ -1861,6 +1864,7 @@ export function StayOSAppShell({
   navigationItems,
   onLockSession,
   onSignOut,
+  propertyId,
   propertyName,
   user,
 }: StayOSAppShellProps) {
@@ -1871,6 +1875,7 @@ export function StayOSAppShell({
       navigationItems={navigationItems}
       onLockSession={onLockSession}
       onSignOut={onSignOut}
+      propertyId={propertyId}
       propertyName={propertyName}
       user={user}
     >

@@ -1,8 +1,8 @@
 import { API_BASE_URL, getProperties } from '../../../lib/inventory-api';
-import { type OperationsRoomBoardItemDto } from '../../../lib/operations-api';
 import { createChecklist } from '../utils/housekeeping-checklist';
 import type {
   HousekeepingChecklistKey,
+  HousekeepingDashboardSummary,
   HousekeepingChecklistItem,
   HousekeepingEmployee,
   HousekeepingInspectAction,
@@ -65,10 +65,13 @@ function getBoolean(record: LooseRecord | undefined, keys: string[], fallback = 
   return fallback;
 }
 
-function getRecord(record: LooseRecord | undefined, keys: string[]) {
+function getNumber(record: LooseRecord | undefined, keys: string[]) {
   for (const key of keys) {
     const value = record?.[key];
-    if (value && typeof value === 'object' && !Array.isArray(value)) return value as LooseRecord;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) {
+      return Number(value);
+    }
   }
   return undefined;
 }
@@ -84,6 +87,10 @@ function normalizeStatus(value?: string): HousekeepingStatus {
     return 'cleaning';
   }
 
+  if (normalized === 'OCCUPIED' || normalized === 'INHOUSE' || normalized === 'GUESTSTAYING') {
+    return 'occupied';
+  }
+
   if (normalized.includes('INSPECTION')) return 'inspection';
   if (normalized.includes('MAINTENANCE')) return 'maintenance';
   if (normalized.includes('OUTOFORDER')) return 'out-of-order';
@@ -92,6 +99,21 @@ function normalizeStatus(value?: string): HousekeepingStatus {
   if (normalized.includes('READY') || normalized === 'CLEAN') return 'ready';
 
   return 'dirty';
+}
+
+function normalizeSummary(value: unknown): HousekeepingDashboardSummary | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as LooseRecord;
+  return {
+    cleaning: getNumber(record, ['cleaning', 'inProgress', 'in_progress', 'IN_PROGRESS']),
+    dirty: getNumber(record, ['dirty', 'needsCleaning', 'needs_cleaning', 'NEEDS_CLEANING']),
+    inspection: getNumber(record, ['inspection', 'waitingInspection', 'waiting_inspection']),
+    maintenance: getNumber(record, ['maintenance']),
+    occupied: getNumber(record, ['occupied', 'OCCUPIED']),
+    outOfOrder: getNumber(record, ['outOfOrder', 'out_of_order']),
+    outOfService: getNumber(record, ['outOfService', 'out_of_service']),
+    ready: getNumber(record, ['ready', 'READY']),
+  };
 }
 
 function checklistFrom(value: unknown): HousekeepingChecklistItem[] {
@@ -167,41 +189,6 @@ export function mapEmployee(dto: LooseRecord): HousekeepingEmployee {
   };
 }
 
-export function mapHousekeepingRoom(dto: OperationsRoomBoardItemDto): HousekeepingRoom {
-  const raw = dto as unknown as LooseRecord;
-  const assignment =
-    getRecord(raw, ['housekeepingAssignment', 'assignment', 'housekeeping']) ?? raw;
-  const floor =
-    dto.floor.name ??
-    dto.floor.code ??
-    (dto.floor.floorNumber ? `Floor ${dto.floor.floorNumber}` : 'Floor');
-  return {
-    assignedEmployeeId:
-      getString(assignment, ['assignedEmployeeId', 'assigned_employee_id']) || undefined,
-    assignedEmployeeName:
-      getString(assignment, ['assignedEmployeeName', 'assigned_employee_name', 'assignedStaff']) ||
-      undefined,
-    checklist: checklistFrom(assignment.checklist),
-    completedAt: getString(assignment, ['completedAt', 'completed_at']) || undefined,
-    completedByEmployeeId:
-      getString(assignment, ['completedByEmployeeId', 'completed_by_employee_id']) || undefined,
-    completedByUserId:
-      getString(assignment, ['completedByUserId', 'completed_by_user_id']) || undefined,
-    completedOnBehalf: getBoolean(assignment, ['completedOnBehalf', 'completed_on_behalf']),
-    floor,
-    id: dto.roomId,
-    inspectedAt: getString(assignment, ['inspectedAt', 'inspected_at']) || undefined,
-    inspectedByUserId:
-      getString(assignment, ['inspectedByUserId', 'inspected_by_user_id']) || undefined,
-    number: dto.roomNumber,
-    reworkReason: getString(assignment, ['reworkReason', 'rework_reason']) || undefined,
-    roomType: dto.roomType.name,
-    startedAt: getString(assignment, ['startedAt', 'started_at']) || undefined,
-    status: normalizeStatus(String(dto.uiStatus ?? dto.operationalStatus ?? '')),
-    updatedAt: getString(assignment, ['updatedAt', 'updated_at']) || undefined,
-  };
-}
-
 function mapHousekeepingRoomFromDashboard(dto: LooseRecord): HousekeepingRoom {
   const floor = getString(dto, ['floor', 'floorName', 'floorLabel'], 'Floor');
 
@@ -246,12 +233,19 @@ function mapHousekeepingRoomFromDashboard(dto: LooseRecord): HousekeepingRoom {
 }
 
 export async function getHousekeepingDashboard(propertyId: string, signal?: AbortSignal) {
-  return request<LooseRecord[] | { rooms?: LooseRecord[] }>(
+  const dashboard = await getHousekeepingDashboardData(propertyId, signal);
+  return dashboard.rooms;
+}
+
+export async function getHousekeepingDashboardData(propertyId: string, signal?: AbortSignal) {
+  return request<LooseRecord[] | { rooms?: LooseRecord[]; summary?: unknown }>(
     `/properties/${propertyId}/housekeeping/dashboard`,
     { signal },
   ).then((response) => {
     const rooms = Array.isArray(response) ? response : (response.rooms ?? []);
-    return rooms.map((room) => mapHousekeepingRoomFromDashboard(room));
+    const mappedRooms = rooms.map((room) => mapHousekeepingRoomFromDashboard(room));
+    const summary = Array.isArray(response) ? undefined : normalizeSummary(response.summary);
+    return { rooms: mappedRooms, summary };
   });
 }
 
@@ -327,9 +321,47 @@ export function completeStaffRoomByToken(
   );
 }
 
-export const getStaffAccessWorklist = getStaffWorklistByToken;
-export const startStaffAccessRoom = startStaffRoomByToken;
-export const completeStaffAccessRoom = completeStaffRoomByToken;
+export async function getStaffAccessWorklist(token: string, signal?: AbortSignal) {
+  const response = await request<
+    LooseRecord[] | { employee?: LooseRecord; property?: LooseRecord; rooms?: LooseRecord[] }
+  >(`/housekeeping/staff/access/${encodeURIComponent(token)}`, { signal });
+  const rooms = Array.isArray(response) ? response : (response.rooms ?? []);
+  const employee = Array.isArray(response)
+    ? undefined
+    : response.employee
+      ? mapEmployee(response.employee)
+      : undefined;
+  const propertyName = Array.isArray(response)
+    ? undefined
+    : getString(response.property, ['name', 'displayName', 'propertyName']);
+
+  return {
+    employee,
+    propertyName,
+    rooms: rooms.map((room) => mapHousekeepingRoomFromDashboard(room)),
+  };
+}
+
+export function startStaffAccessRoom(token: string, roomId: string) {
+  return request<unknown>(
+    `/housekeeping/staff/access/${encodeURIComponent(token)}/rooms/${roomId}/start`,
+    { method: 'PATCH' },
+  );
+}
+
+export function completeStaffAccessRoom(
+  token: string,
+  roomId: string,
+  payload: { checklist: Array<{ key: HousekeepingChecklistKey; completed: boolean }> },
+) {
+  return request<unknown>(
+    `/housekeeping/staff/access/${encodeURIComponent(token)}/rooms/${roomId}/complete`,
+    {
+      body: JSON.stringify(payload),
+      method: 'PATCH',
+    },
+  );
+}
 
 export function createHousekeepingEmployee(
   propertyId: string,
@@ -390,7 +422,7 @@ export function completeHousekeepingRoom(
 export function inspectHousekeepingRoom(
   propertyId: string,
   roomId: string,
-  payload: { action: HousekeepingInspectAction; reason?: string },
+  payload: { action: HousekeepingInspectAction; reworkReason?: string },
 ) {
   return request<unknown>(`/properties/${propertyId}/housekeeping/rooms/${roomId}/inspect`, {
     body: JSON.stringify(payload),
