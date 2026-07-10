@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useAuth } from '../features/auth/auth-context';
 import {
   getProperties,
   getPropertyReservations,
@@ -305,7 +306,12 @@ function buildTasks(reservations: ReservationView[], rooms: RoomView[]): FrontDe
   return tasks.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]).slice(0, 20);
 }
 
-async function getCurrentProperty(signal?: AbortSignal) {
+async function getCurrentProperty(
+  signal?: AbortSignal,
+  preferredPropertyId?: string,
+) {
+  if (preferredPropertyId) return preferredPropertyId;
+
   const properties = await getProperties(signal);
   const activeProperty = properties.find((property) => isActiveProperty(property));
   const propertyId = activeProperty ? getId(activeProperty) : '';
@@ -317,18 +323,37 @@ async function getCurrentProperty(signal?: AbortSignal) {
   return propertyId;
 }
 
-async function loadFrontDesk(signal?: AbortSignal): Promise<Omit<FrontDeskState, 'isLoading' | 'error'>> {
-  const propertyId = await getCurrentProperty(signal);
-  const [reservationDtos, roomDtos, guestDtos] = await Promise.all([
-    getPropertyReservations(propertyId, signal),
+async function loadFrontDesk(
+  signal?: AbortSignal,
+  preferredPropertyId?: string,
+): Promise<Omit<FrontDeskState, 'isLoading' | 'error'> & { error?: string }> {
+  const propertyId = await getCurrentProperty(signal, preferredPropertyId);
+  const [reservationResult, roomDtos, guestDtos] = await Promise.all([
+    getPropertyReservations(propertyId, signal).then(
+      (reservations) => ({ reservations, error: undefined }),
+      (error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') throw error;
+
+        return {
+          reservations: [] as ReservationDto[],
+          error:
+            error instanceof Error
+              ? error.message
+              : 'Reservation data is temporarily unavailable.',
+        };
+      },
+    ),
     getPropertyRooms(propertyId, signal),
     getPropertyGuests(propertyId, signal),
   ]);
   const guests = createLookup(guestDtos);
-  const reservations = reservationDtos.map((reservation) => mapReservation(reservation, guests));
+  const reservations = reservationResult.reservations.map((reservation) =>
+    mapReservation(reservation, guests),
+  );
   const rooms = roomDtos.map(mapRoom);
 
   return {
+    error: reservationResult.error,
     propertyId,
     summary: buildSummary(reservations, rooms),
     tasks: buildTasks(reservations, rooms),
@@ -336,6 +361,7 @@ async function loadFrontDesk(signal?: AbortSignal): Promise<Omit<FrontDeskState,
 }
 
 export function useFrontDeskData(): FrontDeskState & { refreshFrontDesk: () => Promise<void> } {
+  const auth = useAuth();
   const [state, setState] = useState<FrontDeskState>({
     isLoading: true,
     summary: emptySummary,
@@ -346,7 +372,7 @@ export function useFrontDeskData(): FrontDeskState & { refreshFrontDesk: () => P
     setState((current) => ({ ...current, error: undefined, isLoading: current.tasks.length === 0 }));
 
     try {
-      const data = await loadFrontDesk(signal);
+      const data = await loadFrontDesk(signal, auth.user?.propertyId);
       setState({ ...data, isLoading: false });
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
@@ -357,7 +383,7 @@ export function useFrontDeskData(): FrontDeskState & { refreshFrontDesk: () => P
         isLoading: false,
       }));
     }
-  }, []);
+  }, [auth.user?.propertyId]);
 
   useEffect(() => {
     const controller = new AbortController();

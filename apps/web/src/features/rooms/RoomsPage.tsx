@@ -2050,7 +2050,7 @@ export default function RoomsPage() {
       showToast({
         color: 'green',
         title: 'Guest checked in',
-        message: 'Guest checked in successfully.',
+        message: `${reservation?.guest ?? checkInRoom.guest ?? 'Guest'} checked in to Room ${checkInRoom.number}.`,
       });
 
       closeCheckInModal();
@@ -2241,9 +2241,10 @@ export default function RoomsPage() {
             leftSection={<Search size={15} />}
             placeholder="Search room number, type, floor, guest or booking ID..."
             value={filters.query}
-            onChange={(event) =>
-              setFilters((current) => ({ ...current, query: event.currentTarget.value }))
-            }
+            onChange={(event) => {
+              const query = event.currentTarget.value;
+              setFilters((current) => ({ ...current, query }));
+            }}
             className={styles.searchInput}
             classNames={{ input: styles.searchControlInput }}
           />

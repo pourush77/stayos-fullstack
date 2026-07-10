@@ -1,32 +1,97 @@
+import { useMemo, useState } from 'react';
 import {
   Alert,
   Badge,
   Box,
   Button,
+  Checkbox,
   Divider,
   Group,
   Modal,
   Paper,
+  Select,
   SimpleGrid,
   Stack,
   Text,
+  TextInput,
   ThemeIcon,
+  Title,
 } from '@mantine/core';
 import { radius, spacing } from '@stayos/theme';
 import {
+  AlertTriangle,
+  BedDouble,
   CheckCircle2,
+  Circle,
   CreditCard,
+  DoorOpen,
   FileCheck2,
   Hotel,
   IdCard,
-  Smartphone,
   Upload,
   UserRound,
+  X,
+  XCircle,
 } from 'lucide-react';
 import type { Reservation } from '../../../lib/reservation-hooks';
 import styles from '../RoomsPage.module.css';
 import type { Room } from '../types';
 import { DetailTile } from './DetailTile';
+
+type StepKey = 'booking' | 'registration' | 'identity' | 'payment' | 'room' | 'review';
+type StepStatus = 'complete' | 'warning' | 'blocked';
+
+type RegistrationForm = {
+  address1: string;
+  address2: string;
+  arrivalFrom: string;
+  city: string;
+  country: string;
+  dateOfBirth: string;
+  email: string;
+  fullName: string;
+  gender: string;
+  mobile: string;
+  nationality: string;
+  nextDestination: string;
+  passportExpiryDate: string;
+  passportIssueDate: string;
+  passportIssuePlace: string;
+  passportNumber: string;
+  pinCode: string;
+  purposeOfVisit: string;
+  state: string;
+  visaExpiryDate: string;
+  visaIssueDate: string;
+  visaNumber: string;
+  visaType: string;
+};
+
+type IdentityForm = {
+  idNumber: string;
+  idType: string;
+  verified: boolean;
+};
+
+const steps: Array<{ key: StepKey; label: string; title: string }> = [
+  { key: 'booking', label: 'Booking', title: 'Booking Review' },
+  { key: 'registration', label: 'Registration', title: 'Guest Registration' },
+  { key: 'identity', label: 'Identity', title: 'Identity Verification' },
+  { key: 'payment', label: 'Payment', title: 'Payment Review' },
+  { key: 'room', label: 'Room', title: 'Room Readiness' },
+  { key: 'review', label: 'Review', title: 'Final Review' },
+];
+
+const requiredRegistrationFields: Array<keyof RegistrationForm> = [
+  'fullName',
+  'mobile',
+  'address1',
+  'city',
+  'state',
+  'country',
+  'pinCode',
+  'purposeOfVisit',
+];
 
 function guestBreakdown(occupancy: string) {
   const adults = occupancy.match(/(\d+)\s+Adult/i)?.[1] ?? 'Not recorded';
@@ -40,6 +105,53 @@ function isPaymentDue(payment?: string) {
 
   return (
     normalized.includes('due') || normalized.includes('partial') || normalized.includes('pending')
+  );
+}
+
+function isIndia(value: string) {
+  return ['india', 'in', 'indian'].includes(value.trim().toLowerCase());
+}
+
+function readinessFor(room: Room | null) {
+  const status = room?.status;
+  const operationalStatus = status ?? 'Not recorded';
+  const roomAssigned = Boolean(room?.reservationId);
+  const roomReady = status === 'ready' || status === 'reserved';
+  const housekeepingClear = !['dirty', 'cleaning', 'inspection'].includes(status ?? '');
+  const maintenanceClear = !['maintenance', 'out-of-order', 'out-of-service'].includes(status ?? '');
+  const notOccupied = status !== 'occupied';
+
+  return {
+    housekeepingClear,
+    maintenanceClear,
+    notOccupied,
+    operationalStatus,
+    roomAssigned,
+    roomReady,
+  };
+}
+
+function StatusBadge({ status }: { status: StepStatus }) {
+  if (status === 'complete') {
+    return (
+      <Badge color="green" variant="light" leftSection={<CheckCircle2 size={12} />}>
+        complete
+      </Badge>
+    );
+  }
+
+  if (status === 'blocked') {
+    return (
+      <Badge color="red" variant="light" leftSection={<XCircle size={12} />}>
+        blocked
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge color="yellow" variant="light" leftSection={<AlertTriangle size={12} />}>
+      warning
+    </Badge>
   );
 }
 
@@ -69,16 +181,22 @@ function SectionHeader({
   );
 }
 
-function ReviewItem({ label, tone = 'green' }: { label: string; tone?: 'green' | 'yellow' }) {
-  const isWarning = tone === 'yellow';
+function CheckItem({
+  complete,
+  label,
+  blocked,
+}: {
+  blocked?: boolean;
+  complete: boolean;
+  label: string;
+}) {
+  const color = complete ? '#16a34a' : blocked ? '#dc2626' : '#d97706';
+  const Icon = complete ? CheckCircle2 : blocked ? XCircle : AlertTriangle;
 
   return (
     <Group gap={8} wrap="nowrap">
-      <CheckCircle2 size={16} color={isWarning ? '#d97706' : '#16a34a'} />
-      <Text
-        c={isWarning ? '#92400e' : '#334155'}
-        style={{ fontSize: 13, fontWeight: 550, lineHeight: '18px' }}
-      >
+      <Icon size={16} color={color} />
+      <Text c={complete ? '#334155' : blocked ? '#991b1b' : '#92400e'} size="sm" fw={550}>
         {label}
       </Text>
     </Group>
@@ -103,236 +221,419 @@ export function CheckInModal({
   const guests = guestBreakdown(reservation?.occupancy ?? '');
   const paymentStatus = reservation?.payment ?? room?.paymentStatus ?? 'Not recorded';
   const paymentDue = isPaymentDue(paymentStatus);
-  const hasAssignment = Boolean(room?.reservationId);
-  const canComplete = Boolean(hasAssignment && room && room.status !== 'occupied');
+  const readiness = readinessFor(room);
+  const [activeStep, setActiveStep] = useState<StepKey>('booking');
+  const [registrationSaved, setRegistrationSaved] = useState(false);
+  const [paymentReviewed, setPaymentReviewed] = useState(!paymentDue);
+  const [identity, setIdentity] = useState<IdentityForm>({
+    idNumber: '',
+    idType: 'Aadhaar',
+    verified: false,
+  });
+  const [registration, setRegistration] = useState<RegistrationForm>({
+    address1: '',
+    address2: '',
+    arrivalFrom: '',
+    city: '',
+    country: 'India',
+    dateOfBirth: '',
+    email: reservation?.email ?? '',
+    fullName: reservation?.guest ?? room?.guest ?? '',
+    gender: '',
+    mobile: reservation?.phone ?? '',
+    nationality: 'India',
+    nextDestination: '',
+    passportExpiryDate: '',
+    passportIssueDate: '',
+    passportIssuePlace: '',
+    passportNumber: '',
+    pinCode: '',
+    purposeOfVisit: '',
+    state: '',
+    visaExpiryDate: '',
+    visaIssueDate: '',
+    visaNumber: '',
+    visaType: '',
+  });
+
+  const isForeignGuest = !isIndia(registration.nationality);
+  const registrationComplete =
+    requiredRegistrationFields.every((field) => registration[field].trim().length > 0) &&
+    (!isForeignGuest ||
+      Boolean(
+        registration.passportNumber &&
+          registration.passportIssuePlace &&
+          registration.passportIssueDate &&
+          registration.passportExpiryDate &&
+          registration.visaNumber &&
+          registration.visaType &&
+          registration.visaIssueDate &&
+          registration.visaExpiryDate,
+      ));
+  const identityComplete = identity.verified && identity.idType.trim() && identity.idNumber.trim();
+  const roomReady =
+    readiness.roomAssigned &&
+    readiness.roomReady &&
+    readiness.housekeepingClear &&
+    readiness.maintenanceClear &&
+    readiness.notOccupied;
+
+  const blockers = useMemo(() => {
+    const items: string[] = [];
+    if (!registrationComplete) items.push('Guest registration incomplete.');
+    if (!identityComplete) items.push('ID verification is required.');
+    if (!paymentReviewed) items.push('Payment review is required.');
+    if (!roomReady) items.push('Room is not ready.');
+    if (room?.status === 'occupied' || reservation?.status === 'Checked-in') {
+      items.push('Check-in already completed.');
+    }
+    return items;
+  }, [identityComplete, paymentReviewed, registrationComplete, reservation?.status, room?.status, roomReady]);
+
+  const stepStatuses: Record<StepKey, StepStatus> = {
+    booking: readiness.roomAssigned ? 'complete' : 'blocked',
+    registration: registrationComplete && registrationSaved ? 'complete' : 'warning',
+    identity: identityComplete ? 'complete' : 'blocked',
+    payment: paymentReviewed ? 'complete' : 'warning',
+    room: roomReady ? 'complete' : 'blocked',
+    review: blockers.length === 0 ? 'complete' : 'blocked',
+  };
+
+  const canCheckIn = blockers.length === 0;
+  const activeIndex = steps.findIndex((step) => step.key === activeStep);
+  const activeTitle = steps[activeIndex]?.title ?? 'Check In';
+
+  const updateRegistration = (field: keyof RegistrationForm, value: string) => {
+    setRegistration((current) => ({ ...current, [field]: value }));
+    setRegistrationSaved(false);
+  };
+
+  const continueTo = (step: StepKey) => setActiveStep(step);
+  const nextStep = () => setActiveStep(steps[Math.min(activeIndex + 1, steps.length - 1)].key);
 
   return (
     <Modal
       opened={opened}
       onClose={onClose}
-      centered
-      size="min(94vw, 920px)"
-      title={
-        <Box>
-          <Text className={styles.modalTitle}>Check In</Text>
-          <Text mt={3} className={styles.modalSubtitle}>
-            Complete guest arrival steps before marking the room occupied.
-          </Text>
-        </Box>
-      }
+      fullScreen
+      withCloseButton={false}
+      padding={0}
+      styles={{ body: { background: '#f8fafc', minHeight: '100vh' } }}
     >
-      <Stack gap={spacing[4]}>
-        <Paper radius={radius.lg} p={14} className={styles.surfaceCard}>
-          <Group gap={8} wrap="wrap">
-            {['Booking', 'Guest', 'Payment', 'Room', 'Review'].map((step, index) => (
-              <Badge
-                key={step}
-                color={index === 0 ? 'stayosBrand' : 'gray'}
-                variant={index === 0 ? 'filled' : 'light'}
+      <Stack gap={0} mih="100vh">
+        <Box bg="white" px={{ base: 16, md: 28 }} py={16} style={{ borderBottom: '1px solid #e5e7eb' }}>
+          <Group justify="space-between" align="flex-start" gap={spacing[3]}>
+            <Box>
+              <Group gap={10} wrap="wrap">
+                <Title order={1} c="#101828" style={{ fontSize: 24, lineHeight: '30px' }}>
+                  Check In
+                </Title>
+                <Badge color="stayosBrand" variant="light">
+                  {reservation?.id ?? room?.reservation ?? 'No reservation code'}
+                </Badge>
+              </Group>
+              <Text c="#475569" mt={4} size="sm" fw={550}>
+                {reservation?.guest ?? room?.guest ?? 'Guest'} · Room {room?.number ?? 'Unassigned'}
+              </Text>
+            </Box>
+            <Button variant="subtle" color="gray" leftSection={<X size={16} />} onClick={onClose}>
+              Close
+            </Button>
+          </Group>
+
+          <Group mt={16} gap={8} wrap="wrap">
+            {steps.map((step) => (
+              <Button
+                key={step.key}
+                variant={activeStep === step.key ? 'filled' : 'light'}
+                color={activeStep === step.key ? 'stayosBrand' : 'gray'}
+                size="xs"
                 radius={radius.full}
-                style={{ textTransform: 'none' }}
+                rightSection={<StatusBadge status={stepStatuses[step.key]} />}
+                onClick={() => continueTo(step.key)}
+                styles={{ label: { gap: 8 } }}
               >
-                {step}
-              </Badge>
+                {step.label}
+              </Button>
             ))}
           </Group>
-        </Paper>
+        </Box>
 
-        {!hasAssignment ? (
-          <Alert color="red" variant="light" radius={radius.lg}>
-            This booking does not have an assigned room. Please assign a room before check-in.
-          </Alert>
-        ) : null}
+        <Box px={{ base: 16, md: 28 }} py={20} style={{ flex: 1 }}>
+          <SimpleGrid cols={{ base: 1, lg: 12 }} spacing={spacing[4]}>
+            <Box style={{ gridColumn: 'span 8' }}>
+              <Paper radius={radius.lg} p={{ base: 16, md: 20 }} className={styles.surfaceCard}>
+                <Stack gap={spacing[4]}>
+                  <Group justify="space-between" align="flex-start">
+                    <SectionHeader
+                      icon={
+                        activeStep === 'booking' ? (
+                          <FileCheck2 size={17} />
+                        ) : activeStep === 'registration' ? (
+                          <UserRound size={17} />
+                        ) : activeStep === 'identity' ? (
+                          <IdCard size={17} />
+                        ) : activeStep === 'payment' ? (
+                          <CreditCard size={17} />
+                        ) : activeStep === 'room' ? (
+                          <Hotel size={17} />
+                        ) : (
+                          <CheckCircle2 size={17} />
+                        )
+                      }
+                      title={activeTitle}
+                      detail="Complete each desk check before marking the guest in-house."
+                    />
+                    <StatusBadge status={stepStatuses[activeStep]} />
+                  </Group>
 
-        {room?.status === 'occupied' ? (
-          <Alert color="yellow" variant="light" radius={radius.lg}>
-            This guest is already checked in.
-          </Alert>
-        ) : null}
+                  {activeStep === 'booking' ? (
+                    <Stack gap={spacing[3]}>
+                      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+                        <DetailTile label="Guest name" value={reservation?.guest ?? room?.guest ?? 'Guest'} />
+                        <DetailTile label="Reservation code" value={reservation?.id ?? room?.reservation ?? 'Not recorded'} />
+                        <DetailTile label="Arrival date" value={reservation?.arrivalDate ?? room?.reservationArrivalDate ?? 'Not recorded'} />
+                        <DetailTile label="Departure date" value={reservation?.departureDate ?? room?.reservationDepartureDate ?? 'Not recorded'} />
+                        <DetailTile label="Adults" value={guests.adults} />
+                        <DetailTile label="Children" value={guests.children} />
+                        <DetailTile label="Room number" value={room?.number ?? 'Unassigned'} />
+                        <DetailTile label="Room type" value={room?.roomType ?? reservation?.roomType ?? 'Not recorded'} />
+                      </SimpleGrid>
+                      <DetailTile
+                        label="Special requests"
+                        value={reservation?.requests?.length ? reservation.requests.join(', ') : 'No special requests'}
+                      />
+                      <Group justify="flex-end">
+                        <Button color="stayosBrand" onClick={nextStep}>Continue</Button>
+                      </Group>
+                    </Stack>
+                  ) : null}
 
-        <Paper radius={radius.lg} p={16} className={styles.surfaceCard}>
-          <Stack gap={spacing[3]}>
-            <SectionHeader
-              icon={<FileCheck2 size={17} />}
-              title="Booking Review"
-              detail="Confirm the booking and stay details."
-            />
+                  {activeStep === 'registration' ? (
+                    <Stack gap={spacing[4]}>
+                      <SimpleGrid cols={{ base: 1, md: 2 }} spacing={spacing[3]}>
+                        <TextInput label="Full name" required value={registration.fullName} onChange={(event) => updateRegistration('fullName', event.currentTarget.value)} />
+                        <TextInput label="Mobile" required value={registration.mobile} onChange={(event) => updateRegistration('mobile', event.currentTarget.value)} />
+                        <TextInput label="Email" value={registration.email} onChange={(event) => updateRegistration('email', event.currentTarget.value)} />
+                        <TextInput label="Date of birth" type="date" value={registration.dateOfBirth} onChange={(event) => updateRegistration('dateOfBirth', event.currentTarget.value)} />
+                        <Select label="Gender" data={['Female', 'Male', 'Non-binary', 'Prefer not to say']} value={registration.gender || null} onChange={(value) => updateRegistration('gender', value ?? '')} />
+                        <TextInput label="Nationality" value={registration.nationality} onChange={(event) => updateRegistration('nationality', event.currentTarget.value)} />
+                      </SimpleGrid>
 
-            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
-              <DetailTile label="Guest" value={reservation?.guest ?? room?.guest ?? 'Guest'} />
-              <DetailTile
-                label="Booking"
-                value={reservation?.id ?? room?.reservation ?? 'Not recorded'}
-              />
-              <DetailTile label="Room" value={room ? `Room ${room.number}` : 'Not recorded'} />
-              <DetailTile
-                label="Room type"
-                value={room?.roomType ?? reservation?.roomType ?? 'Not recorded'}
-              />
-              <DetailTile
-                label="Arrival Date"
-                value={reservation?.arrivalDate ?? room?.reservationArrivalDate ?? 'Not recorded'}
-              />
-              <DetailTile
-                label="Departure Date"
-                value={
-                  reservation?.departureDate ?? room?.reservationDepartureDate ?? 'Not recorded'
-                }
-              />
-              <DetailTile label="Adults" value={guests.adults} />
-              <DetailTile label="Children" value={guests.children} />
-            </SimpleGrid>
+                      <Divider label="Address" labelPosition="left" />
+                      <SimpleGrid cols={{ base: 1, md: 2 }} spacing={spacing[3]}>
+                        <TextInput label="Address line 1" required value={registration.address1} onChange={(event) => updateRegistration('address1', event.currentTarget.value)} />
+                        <TextInput label="Address line 2" value={registration.address2} onChange={(event) => updateRegistration('address2', event.currentTarget.value)} />
+                        <TextInput label="City" required value={registration.city} onChange={(event) => updateRegistration('city', event.currentTarget.value)} />
+                        <TextInput label="State" required value={registration.state} onChange={(event) => updateRegistration('state', event.currentTarget.value)} />
+                        <TextInput label="Country" required value={registration.country} onChange={(event) => updateRegistration('country', event.currentTarget.value)} />
+                        <TextInput label="PIN / postal code" required value={registration.pinCode} onChange={(event) => updateRegistration('pinCode', event.currentTarget.value)} />
+                      </SimpleGrid>
 
-            <DetailTile
-              label="Special Requests"
-              value={
-                reservation?.requests && reservation.requests.length > 0
-                  ? reservation.requests.join(', ')
-                  : 'No special requests'
-              }
-            />
-          </Stack>
-        </Paper>
+                      <Divider label="Travel details" labelPosition="left" />
+                      <SimpleGrid cols={{ base: 1, md: 3 }} spacing={spacing[3]}>
+                        <TextInput label="Purpose of visit" required value={registration.purposeOfVisit} onChange={(event) => updateRegistration('purposeOfVisit', event.currentTarget.value)} />
+                        <TextInput label="Arrival from" value={registration.arrivalFrom} onChange={(event) => updateRegistration('arrivalFrom', event.currentTarget.value)} />
+                        <TextInput label="Next destination" value={registration.nextDestination} onChange={(event) => updateRegistration('nextDestination', event.currentTarget.value)} />
+                      </SimpleGrid>
 
-        <Paper radius={radius.lg} p={16} className={styles.surfaceCard}>
-          <Stack gap={spacing[3]}>
-            <SectionHeader
-              icon={<IdCard size={17} />}
-              title="Guest Verification"
-              detail="Document capture will be connected here later."
-            />
+                      {isForeignGuest ? (
+                        <Paper radius={radius.md} p={14} bg="#fffbeb" style={{ border: '1px solid #fde68a' }}>
+                          <Stack gap={spacing[3]}>
+                            <Group justify="space-between">
+                              <Text fw={700} c="#92400e">Foreign guest details</Text>
+                              <Badge color="yellow" variant="filled">C-Form required</Badge>
+                            </Group>
+                            <SimpleGrid cols={{ base: 1, md: 2 }} spacing={spacing[3]}>
+                              <TextInput label="Passport number" required value={registration.passportNumber} onChange={(event) => updateRegistration('passportNumber', event.currentTarget.value)} />
+                              <TextInput label="Passport issue place" required value={registration.passportIssuePlace} onChange={(event) => updateRegistration('passportIssuePlace', event.currentTarget.value)} />
+                              <TextInput label="Passport issue date" type="date" required value={registration.passportIssueDate} onChange={(event) => updateRegistration('passportIssueDate', event.currentTarget.value)} />
+                              <TextInput label="Passport expiry date" type="date" required value={registration.passportExpiryDate} onChange={(event) => updateRegistration('passportExpiryDate', event.currentTarget.value)} />
+                              <TextInput label="Visa number" required value={registration.visaNumber} onChange={(event) => updateRegistration('visaNumber', event.currentTarget.value)} />
+                              <TextInput label="Visa type" required value={registration.visaType} onChange={(event) => updateRegistration('visaType', event.currentTarget.value)} />
+                              <TextInput label="Visa issue date" type="date" required value={registration.visaIssueDate} onChange={(event) => updateRegistration('visaIssueDate', event.currentTarget.value)} />
+                              <TextInput label="Visa expiry date" type="date" required value={registration.visaExpiryDate} onChange={(event) => updateRegistration('visaExpiryDate', event.currentTarget.value)} />
+                            </SimpleGrid>
+                          </Stack>
+                        </Paper>
+                      ) : null}
 
-            <SimpleGrid cols={{ base: 1, sm: 3 }} spacing={spacing[3]}>
-              <Paper
-                radius={radius.md}
-                p={13}
-                style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}
-              >
-                <Group gap={8}>
-                  <UserRound size={16} color="#475569" />
-                  <Box>
-                    <Text c="#101828" style={{ fontSize: 13, fontWeight: 650 }}>
-                      Lead Guest
-                    </Text>
-                    <Text c="#64748b" mt={2} style={{ fontSize: 12 }}>
-                      {reservation?.guest ?? room?.guest ?? 'Guest'}
-                    </Text>
-                  </Box>
-                </Group>
+                      {!registrationComplete ? <Alert color="yellow">Guest registration incomplete.</Alert> : null}
+                      <Group justify="flex-end">
+                        <Button variant="light" color="gray" onClick={() => setRegistrationSaved(true)} disabled={!registrationComplete}>Save registration</Button>
+                        <Button color="stayosBrand" onClick={nextStep} disabled={!registrationComplete}>Continue</Button>
+                      </Group>
+                    </Stack>
+                  ) : null}
+
+                  {activeStep === 'identity' ? (
+                    <Stack gap={spacing[4]}>
+                      <SimpleGrid cols={{ base: 1, md: 2 }} spacing={spacing[3]}>
+                        <Select
+                          label="ID type"
+                          data={['Aadhaar', 'Passport', 'Driving Licence', 'Voter ID', 'PAN', 'Other']}
+                          value={identity.idType}
+                          onChange={(value) => setIdentity((current) => ({ ...current, idType: value ?? 'Aadhaar', verified: false }))}
+                        />
+                        <TextInput
+                          label="ID number"
+                          value={identity.idNumber}
+                          onChange={(event) => {
+                            const idNumber = event.currentTarget.value;
+                            setIdentity((current) => ({ ...current, idNumber, verified: false }));
+                          }}
+                        />
+                      </SimpleGrid>
+                      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+                        <Button variant="light" color="gray" leftSection={<Upload size={15} />} disabled>Upload front placeholder</Button>
+                        <Button variant="light" color="gray" leftSection={<Upload size={15} />} disabled>Upload back placeholder</Button>
+                      </SimpleGrid>
+                      <Alert color="blue" variant="light">Manual verification by receptionist.</Alert>
+                      <Checkbox
+                        label="Mark ID verified"
+                        checked={identity.verified}
+                        disabled={!identity.idNumber.trim()}
+                        onChange={(event) => {
+                          const verified = event.currentTarget.checked;
+                          setIdentity((current) => ({ ...current, verified }));
+                        }}
+                      />
+                      {identityComplete ? (
+                        <Alert color="green" variant="light">ID verified.</Alert>
+                      ) : (
+                        <Alert color="yellow" variant="light">ID verification is required before check-in.</Alert>
+                      )}
+                      <Group justify="flex-end">
+                        <Button color="stayosBrand" onClick={nextStep} disabled={!identityComplete}>Continue</Button>
+                      </Group>
+                    </Stack>
+                  ) : null}
+
+                  {activeStep === 'payment' ? (
+                    <Stack gap={spacing[3]}>
+                      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+                        <DetailTile label="Payment status" value={paymentStatus} />
+                        <DetailTile label="Outstanding amount" value={paymentDue ? reservation?.amount ?? 'Pending' : '0'} />
+                        <DetailTile label="Payment method" value="Not recorded" />
+                        <DetailTile label="Deposit status" value="Not available" />
+                      </SimpleGrid>
+                      {paymentDue ? (
+                        <Alert color="yellow" variant="light">Payment pending. Collection will be handled in billing.</Alert>
+                      ) : (
+                        <Alert color="green" variant="light">Payment complete.</Alert>
+                      )}
+                      <Group justify="space-between">
+                        <Button variant="light" color="gray" leftSection={<CreditCard size={15} />} disabled>Collect Payment</Button>
+                        <Group>
+                          <Checkbox label="Mark payment reviewed" checked={paymentReviewed} onChange={(event) => setPaymentReviewed(event.currentTarget.checked)} />
+                          <Button color="stayosBrand" onClick={nextStep} disabled={!paymentReviewed}>Continue</Button>
+                        </Group>
+                      </Group>
+                    </Stack>
+                  ) : null}
+
+                  {activeStep === 'room' ? (
+                    <Stack gap={spacing[3]}>
+                      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+                        <DetailTile label="Current room" value={room ? `Room ${room.number}` : 'Unassigned'} />
+                        <DetailTile label="Room type" value={room?.roomType ?? reservation?.roomType ?? 'Not recorded'} />
+                        <DetailTile label="Floor" value={room?.floor ?? 'Not recorded'} />
+                        <DetailTile label="Room operational status" value={readiness.operationalStatus} />
+                        <DetailTile label="Capacity" value={room?.capacity ?? 'Not recorded'} />
+                        <DetailTile label="Bed type" value={room?.bedType ?? 'Not recorded'} />
+                      </SimpleGrid>
+                      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[2]}>
+                        <CheckItem label="Room assigned" complete={readiness.roomAssigned} blocked={!readiness.roomAssigned} />
+                        <CheckItem label="Room ready" complete={readiness.roomReady} blocked={!readiness.roomReady} />
+                        <CheckItem label="Housekeeping clear" complete={readiness.housekeepingClear} blocked={!readiness.housekeepingClear} />
+                        <CheckItem label="Maintenance clear" complete={readiness.maintenanceClear} blocked={!readiness.maintenanceClear} />
+                        <CheckItem label="Not occupied" complete={readiness.notOccupied} blocked={!readiness.notOccupied} />
+                      </SimpleGrid>
+                      {!roomReady ? (
+                        <Alert color="red" variant="light">Room {room?.number ?? ''} is not ready for check-in.</Alert>
+                      ) : null}
+                      <Alert color="blue" variant="light">Room can still be changed before completing check-in.</Alert>
+                      <Group justify="flex-end">
+                        <Button color="stayosBrand" onClick={nextStep} disabled={!roomReady}>Continue</Button>
+                      </Group>
+                    </Stack>
+                  ) : null}
+
+                  {activeStep === 'review' ? (
+                    <Stack gap={spacing[4]}>
+                      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[2]}>
+                        <CheckItem label="Booking reviewed" complete={stepStatuses.booking === 'complete'} blocked={stepStatuses.booking === 'blocked'} />
+                        <CheckItem label="Guest registration complete" complete={registrationComplete && registrationSaved} blocked={false} />
+                        <CheckItem label="Identity verified" complete={Boolean(identityComplete)} blocked={!identityComplete} />
+                        <CheckItem label="Payment reviewed" complete={paymentReviewed} blocked={false} />
+                        <CheckItem label="Room ready" complete={roomReady} blocked={!roomReady} />
+                      </SimpleGrid>
+                      {blockers.length > 0 ? (
+                        <Alert color="red" variant="light" title="Check-in blockers">
+                          <Stack gap={4}>
+                            {blockers.map((blocker) => (
+                              <Text key={blocker} size="sm">{blocker}</Text>
+                            ))}
+                          </Stack>
+                        </Alert>
+                      ) : (
+                        <Alert color="green" variant="light">All checks are complete.</Alert>
+                      )}
+                      <Group justify="flex-end">
+                        <Button
+                          color="stayosBrand"
+                          disabled={!canCheckIn}
+                          loading={loading}
+                          leftSection={<DoorOpen size={16} />}
+                          onClick={onConfirm}
+                          className={styles.primaryButtonText}
+                        >
+                          Complete Check-in
+                        </Button>
+                      </Group>
+                    </Stack>
+                  ) : null}
+                </Stack>
               </Paper>
+            </Box>
 
-              <Button variant="light" color="gray" leftSection={<Upload size={15} />} disabled>
-                Upload ID
-              </Button>
+            <Box style={{ gridColumn: 'span 4' }}>
+              <Stack gap={spacing[3]}>
+                <Paper radius={radius.lg} p={16} className={styles.surfaceCard}>
+                  <Stack gap={spacing[3]}>
+                    <Group gap={10}>
+                      <ThemeIcon color="stayosBrand" variant="light" radius={radius.full}>
+                        <BedDouble size={17} />
+                      </ThemeIcon>
+                      <Box>
+                        <Text fw={700} c="#101828">Desk summary</Text>
+                        <Text c="#64748b" size="xs">Fast scan for the receptionist.</Text>
+                      </Box>
+                    </Group>
+                    <DetailTile label="Guest" value={registration.fullName || reservation?.guest || 'Guest'} />
+                    <DetailTile label="Reservation" value={reservation?.id ?? room?.reservation ?? 'Not recorded'} />
+                    <DetailTile label="Room" value={room ? `Room ${room.number}` : 'Unassigned'} />
+                    <DetailTile label="Payment" value={paymentDue ? 'Payment pending' : 'Payment complete'} />
+                  </Stack>
+                </Paper>
 
-              <Button variant="light" color="gray" leftSection={<Smartphone size={15} />} disabled>
-                Use Mobile
-              </Button>
-            </SimpleGrid>
-
-            <Alert color="yellow" variant="light" radius={radius.lg}>
-              ID verification is not completed yet. For now, StayOS allows check-in while document
-              capture is being built.
-            </Alert>
-          </Stack>
-        </Paper>
-
-        <Paper radius={radius.lg} p={16} className={styles.surfaceCard}>
-          <Stack gap={spacing[3]}>
-            <SectionHeader
-              icon={<CreditCard size={17} />}
-              title="Payment Status"
-              detail="Review payment before completing check-in."
-            />
-
-            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
-              <DetailTile label="Payment Status" value={paymentStatus} />
-              <DetailTile label="Outstanding Amount" value={paymentDue ? 'Pending' : 'None'} />
-            </SimpleGrid>
-
-            {paymentDue ? (
-              <Alert color="yellow" variant="light" radius={radius.lg}>
-                Payment is still pending. Billing will handle collection in the payment workflow.
-              </Alert>
-            ) : (
-              <Alert color="green" variant="light" radius={radius.lg}>
-                Payment verified.
-              </Alert>
-            )}
-
-            <Button variant="light" color="gray" disabled>
-              Collect Payment
-            </Button>
-          </Stack>
-        </Paper>
-
-        <Paper radius={radius.lg} p={16} className={styles.surfaceCard}>
-          <Stack gap={spacing[3]}>
-            <SectionHeader
-              icon={<Hotel size={17} />}
-              title="Room Assignment"
-              detail="Confirm the room before completing check-in."
-            />
-
-            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
-              <DetailTile
-                label="Current Room"
-                value={room ? `Room ${room.number}` : 'Not recorded'}
-              />
-              <DetailTile label="Room Status" value={room?.status ?? 'Not recorded'} />
-              <DetailTile label="Capacity" value={room?.capacity ?? 'Not recorded'} />
-              <DetailTile label="Bed" value={room?.bedType ?? 'Not recorded'} />
-            </SimpleGrid>
-
-            <Alert color="blue" variant="light" radius={radius.lg}>
-              Room can still be changed before completing check-in. Close this workspace and use
-              Change Room if needed.
-            </Alert>
-          </Stack>
-        </Paper>
-
-        <Paper radius={radius.lg} p={16} className={styles.surfaceCard}>
-          <Stack gap={spacing[3]}>
-            <SectionHeader
-              icon={<CheckCircle2 size={17} />}
-              title="Final Review"
-              detail="Complete check-in only when the guest is ready to occupy the room."
-            />
-
-            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[2]}>
-              <ReviewItem label="Booking reviewed" />
-              <ReviewItem label="Guest verification reviewed" tone="yellow" />
-              <ReviewItem label="Room assigned" />
-              <ReviewItem
-                label={paymentDue ? 'Payment pending reviewed' : 'Payment reviewed'}
-                tone={paymentDue ? 'yellow' : 'green'}
-              />
-            </SimpleGrid>
-          </Stack>
-        </Paper>
-
-        <Divider />
-
-        <Group justify="space-between" align="center">
-          <Text c="#64748b" style={{ fontSize: 13, fontWeight: 450 }}>
-            Completing check-in will mark this room as occupied.
-          </Text>
-
-          <Group>
-            <Button variant="subtle" color="gray" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              color="stayosBrand"
-              disabled={!canComplete}
-              loading={loading}
-              onClick={onConfirm}
-              className={styles.primaryButtonText}
-            >
-              Complete Check In
-            </Button>
-          </Group>
-        </Group>
+                <Paper radius={radius.lg} p={16} className={styles.surfaceCard}>
+                  <Stack gap={spacing[2]}>
+                    {steps.map((step) => (
+                      <Group key={step.key} justify="space-between" wrap="nowrap">
+                        <Group gap={8} wrap="nowrap">
+                          {activeStep === step.key ? <Circle size={10} fill="#2563eb" color="#2563eb" /> : <Circle size={10} color="#cbd5e1" />}
+                          <Text size="sm" fw={600} c="#334155">{step.title}</Text>
+                        </Group>
+                        <StatusBadge status={stepStatuses[step.key]} />
+                      </Group>
+                    ))}
+                  </Stack>
+                </Paper>
+              </Stack>
+            </Box>
+          </SimpleGrid>
+        </Box>
       </Stack>
     </Modal>
   );
