@@ -12,6 +12,7 @@ import {
 } from 'react';
 import type { ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import { API_BASE_URL } from '../../lib/api-base';
 
 type AuthRole =
   | 'FRONT_DESK'
@@ -57,7 +58,7 @@ type AuthContextValue = {
 type ApiResponse<T> = T | { data?: T } | { user?: T };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api/v1';
+//const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api/v1';
 const accessTokenKey = 'stayos.accessToken';
 const refreshTokenKey = 'stayos.refreshToken';
 const rememberDeviceKey = 'stayos.rememberDevice';
@@ -65,7 +66,10 @@ const publicPaths = new Set(['/login']);
 
 function isPublicPath(pathname: string | null) {
   return Boolean(
-    pathname && (publicPaths.has(pathname) || pathname.startsWith('/housekeeping/staff/')),
+    pathname &&
+    (publicPaths.has(pathname) ||
+      pathname.startsWith('/housekeeping/staff/') ||
+      pathname.startsWith('/check-in-capture/')),
   );
 }
 
@@ -157,8 +161,11 @@ function mapUser(payload: unknown): AuthUser {
       stringValue(profile, ['email'], 'StayOS User'),
     permissions: stringArray(profile.permissions ?? record.permissions),
     propertyId:
-      stringValue(property, ['id', '_id', 'uuid', 'propertyId'], stringValue(profile, ['propertyId'])) ||
-      undefined,
+      stringValue(
+        property,
+        ['id', '_id', 'uuid', 'propertyId'],
+        stringValue(profile, ['propertyId']),
+      ) || undefined,
     propertyName:
       stringValue(property, ['name'], stringValue(profile, ['propertyName'])) || undefined,
     role: normalizeRole(profile.role ?? record.role),

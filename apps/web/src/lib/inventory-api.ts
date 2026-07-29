@@ -1,12 +1,26 @@
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api/v1';
+import { API_BASE_URL } from './api-base';
+
+export { API_BASE_URL };
 
 type ApiResponse<T> = T | { data?: T } | { items?: T } | { results?: T };
 
+function authHeaders() {
+  const headers = new Headers({ Accept: 'application/json' });
+
+  if (typeof window !== 'undefined') {
+    const token =
+      window.localStorage.getItem('stayos.accessToken') ??
+      window.sessionStorage.getItem('stayos.accessToken');
+
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  return headers;
+}
+
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      Accept: 'application/json',
-    },
+    headers: authHeaders(),
     signal,
   });
 
@@ -19,9 +33,7 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
 
 async function patch<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      Accept: 'application/json',
-    },
+    headers: authHeaders(),
     method: 'PATCH',
     signal,
   });

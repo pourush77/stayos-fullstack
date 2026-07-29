@@ -1,4 +1,6 @@
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api/v1';
+import { API_BASE_URL } from './api-base';
+
+export { API_BASE_URL };
 
 type ApiResponse<T> = T | { data?: T } | { items?: T } | { results?: T };
 

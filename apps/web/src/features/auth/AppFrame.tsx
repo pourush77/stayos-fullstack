@@ -147,7 +147,10 @@ export function AppFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const auth = useAuth();
-  const isPublicRoute = pathname === '/login' || pathname.startsWith('/housekeeping/staff/');
+  const isPublicRoute =
+    pathname === '/login' ||
+    pathname.startsWith('/housekeeping/staff/') ||
+    pathname.startsWith('/check-in-capture/');
   const role = String(auth.user?.role ?? 'FRONT_DESK').toUpperCase();
   const shellUser: ShellUser | undefined = auth.user
     ? {

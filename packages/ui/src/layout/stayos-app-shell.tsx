@@ -132,9 +132,12 @@ const emptyPropertyStatus: PropertyStatus[] = [
 type ApiResponse<T> = T | { data?: T } | { items?: T } | { results?: T };
 
 function apiBaseUrl() {
-  const env = (globalThis as unknown as { process?: { env?: { NEXT_PUBLIC_API_URL?: string } } })
-    .process?.env;
-  return env?.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api/v1';
+  const env = (
+    globalThis as unknown as {
+      process?: { env?: { NEXT_PUBLIC_API_BASE_URL?: string; NEXT_PUBLIC_API_URL?: string } };
+    }
+  ).process?.env;
+  return env?.NEXT_PUBLIC_API_BASE_URL ?? env?.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api/v1';
 }
 
 function unwrapResponse<T>(response: ApiResponse<T>): T {
@@ -148,9 +151,19 @@ function unwrapResponse<T>(response: ApiResponse<T>): T {
 }
 
 async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const headers = new Headers({ Accept: 'application/json' });
+
+  if (typeof window !== 'undefined') {
+    const token =
+      window.localStorage.getItem('stayos.accessToken') ??
+      window.sessionStorage.getItem('stayos.accessToken');
+
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+  }
+
   const response = await fetch(`${apiBaseUrl()}${path}`, {
     cache: 'no-store',
-    headers: { Accept: 'application/json' },
+    headers,
     signal,
   });
   const payload = (await response.json().catch(() => undefined)) as
@@ -311,12 +324,15 @@ function useActiveProperty(enabled = true) {
     if (!enabled) return undefined;
 
     const controller = new AbortController();
-    const env = (globalThis as unknown as { process?: { env?: { NEXT_PUBLIC_API_URL?: string } } })
-      .process?.env;
-    const apiBaseUrl = env?.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api/v1';
+    const headers = new Headers({ Accept: 'application/json' });
+    const token =
+      window.localStorage.getItem('stayos.accessToken') ??
+      window.sessionStorage.getItem('stayos.accessToken');
 
-    fetch(`${apiBaseUrl}/properties`, {
-      headers: { Accept: 'application/json' },
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+
+    fetch(`${apiBaseUrl()}/properties`, {
+      headers,
       signal: controller.signal,
     })
       .then((response) => {

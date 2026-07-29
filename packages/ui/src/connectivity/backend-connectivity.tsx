@@ -25,7 +25,11 @@ let sharedHealthResult:
   | undefined;
 
 function apiBaseUrl() {
-  return process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api/v1';
+  return (
+    process.env.NEXT_PUBLIC_API_BASE_URL ??
+    process.env.NEXT_PUBLIC_API_URL ??
+    'http://localhost:3002/api/v1'
+  );
 }
 
 function statusFromResponse(response: Response): BackendConnectionStatus {
