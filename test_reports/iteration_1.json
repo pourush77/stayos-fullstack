@@ -1,0 +1,31 @@
+{
+  "summary": "Verified the git-flatten fix for /app/stayos-api (read-only, no commits, no file mutations). Created /app/tests/backend_test.py (pytest, 23 tests) covering git structure state, data-loss checks, supervisor/runtime health, and auth + billing (folios) endpoints locally and via the preview URL. All 23 tests passed. Nested .git removed, no gitlink (160000) entries remain, 266 stayos-api paths staged as regular 100644 blobs with the old submodule entry staged as 'D stayos-api', .env/node_modules/dist untracked, no leftover .gitmodules or submodule.* git config. Runtime unaffected: postgres/stayos_api/frontend RUNNING, /api/v1/health returns status 'ok' locally and through preview ingress, admin+accounts login return tokens/propertyId, GET /api/v1/properties/:pid/folios returns 4 seeded folios with totals/guest/reservation/charges, 401 for unauthenticated and wrong password, /login and /billing return 200.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "supervisor program 'backend'", "issue": "Stale supervisor program 'backend' is FATAL ('couldn't chdir to /app/backend: ENOENT') - leftover from the default FastAPI template; unrelated to this fix but creates permanent error noise in supervisorctl status. Consider removing the program block."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Nothing required for the git fix - it is correct and complete. User can now 'Save to GitHub'; the commit will replace the gitlink with a real tree (D stayos-api + A stayos-api/* are both staged, so both must go in the SAME commit).",
+    "Optional cleanup: remove the dead 'backend' supervisor program that points to the non-existent /app/backend directory."
+  ],
+  "critical_code_review_comments": [
+    "stayos-api/.gitignore correctly excludes .env, node_modules and dist - verified zero tracked entries for all three, so no secrets are being flattened into the main repo.",
+    "No .gitmodules file and no submodule.* entries in .git/config remain, and .git/modules/stayos-api was removed - clean flatten with no orphan submodule metadata."
+  ],
+  "updated_files": ["/app/tests/backend_test.py", "/app/test_reports/iteration_1.json"],
+  "success_rate": {"backend": "100%", "frontend": "100% (route reachability only; UI not in scope)"},
+  "seed_data_creation": "None. Used existing seeded demo data (property 3d1aa719-fa47-4a1b-9e62-f913be887c81, 4 folios).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "/app/memory/test_credentials.md - admin@stayos.local / accounts@stayos.local, password Password123!",
+  "context_for_next_testing_agent": "Real backend is NestJS at /app/stayos-api on port 8001 with prefix /api/v1 (supervisor: stayos_api); Postgres under supervisor 'postgres'; frontend Next.js on 3000. The 'backend' supervisor program is a dead template stub (always FATAL) - ignore it. Reusable pytest suite at /app/tests/backend_test.py; propertyId rotates per bootstrap so always read it from login response data.user.propertyId. Billing/folios UI was not exercised in this iteration (backend-only request).",
+  "rca_of_the_issue": "Original issue: /app/stayos-api contained its own .git, so the outer repo recorded it as a mode 160000 gitlink (empty submodule, arrow icon, no files visible). Fix (delete nested .git, git rm --cached stayos-api, delete .git/modules/stayos-api, git add stayos-api/) is verified effective: index now holds 266 regular blob entries under stayos-api/ and no gitlink."
+}

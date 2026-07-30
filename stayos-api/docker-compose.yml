@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: stayos-postgres
+    environment:
+      POSTGRES_DB: stayos_dev
+      POSTGRES_USER: stayos
+      POSTGRES_PASSWORD: StayOS@2026
+    ports:
+      - '5432:5432'
+    volumes:
+      - stayos_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U stayos -d stayos_dev']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: stayos-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@stayos.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - '5050:80'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - stayos_pgadmin_data:/var/lib/pgadmin
+
+volumes:
+  stayos_postgres_data:
+  stayos_pgadmin_data:

@@ -1,0 +1,5 @@
+export enum CFormStatus {
+  NOT_REQUIRED = 'NOT_REQUIRED',
+  PENDING = 'PENDING',
+  SUBMITTED = 'SUBMITTED',
+}
