@@ -17,6 +17,7 @@ import { HousekeepingModule } from './core/housekeeping/housekeeping.module';
 import { BillingModule } from './core/billing/billing.module';
 import { GuestRequestsModule } from './core/guest-requests/guest-requests.module';
 import { ReportsModule } from './core/reports/reports.module';
+import { MaintenanceModule } from './core/maintenance/maintenance.module';
 import configuration from './core/config/configuration';
 import { validateEnvironment } from './core/config/environment.validation';
 
@@ -59,6 +60,7 @@ import { validateEnvironment } from './core/config/environment.validation';
     GuestRequestsModule,
     BillingModule,
     ReportsModule,
+    MaintenanceModule,
   ],
 })
 export class AppModule {}

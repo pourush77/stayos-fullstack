@@ -21,10 +21,10 @@ const roleLabels: Record<string, string> = {
 const roleNavigation: Record<string, string[]> = {
   ACCOUNTS: ['/rooms', '/billing', '/reports', '/marketplace'],
   ADMIN: ['*'],
-  FRONT_DESK: ['/', '/reservations', '/rooms', '/guests', '/housekeeping', '/marketplace'],
+  FRONT_DESK: ['/', '/reservations', '/rooms', '/guests', '/housekeeping', '/maintenance', '/marketplace'],
   HOUSEKEEPING: ['/housekeeping', '/marketplace'],
-  MAINTENANCE: ['/rooms', '/housekeeping', '/marketplace'],
-  MANAGER: ['/', '/reservations', '/rooms', '/guests', '/housekeeping', '/reports', '/marketplace', '/settings/employees'],
+  MAINTENANCE: ['/rooms', '/maintenance', '/marketplace'],
+  MANAGER: ['/', '/reservations', '/rooms', '/guests', '/housekeeping', '/maintenance', '/reports', '/marketplace', '/settings/employees'],
   OWNER: ['*'],
   READ_ONLY: ['/', '/rooms', '/marketplace'],
 };
@@ -45,6 +45,7 @@ function navigationForRole(role: string, permissions: string[] | undefined) {
     : primaryNavigation.filter((item) => allowed.includes(item.href));
   return base.filter((item) => {
     if (item.href === '/settings/employees') return hasPermission(permissions, 'employees.view');
+    if (item.href === '/maintenance') return hasPermission(permissions, 'maintenance.view');
     return true;
   });
 }

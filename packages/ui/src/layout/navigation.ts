@@ -9,6 +9,7 @@ import {
   ShoppingBag,
   Settings,
   Users,
+  Wrench,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -26,6 +27,7 @@ export const primaryNavigation: ShellNavigationItem[] = [
   { label: 'Rooms', icon: BedDouble, href: '/rooms' },
   { label: 'Guests', icon: Users, href: '/guests' },
   { label: 'Housekeeping', icon: Activity, href: '/housekeeping', badge: '4' },
+  { label: 'Maintenance', icon: Wrench, href: '/maintenance' },
   { label: 'Employees', icon: ContactRound, href: '/settings/employees' },
   { label: 'Billing', icon: ReceiptText, href: '/billing', badge: '2' },
   { label: 'Reports', icon: BarChart3, href: '/reports' },
