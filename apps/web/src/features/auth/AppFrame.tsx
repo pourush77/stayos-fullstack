@@ -19,14 +19,14 @@ const roleLabels: Record<string, string> = {
 };
 
 const roleNavigation: Record<string, string[]> = {
-  ACCOUNTS: ['/rooms', '/billing', '/reports'],
+  ACCOUNTS: ['/rooms', '/billing', '/reports', '/marketplace'],
   ADMIN: ['*'],
-  FRONT_DESK: ['/', '/reservations', '/rooms', '/guests', '/housekeeping'],
-  HOUSEKEEPING: ['/housekeeping'],
-  MAINTENANCE: ['/rooms', '/housekeeping'],
-  MANAGER: ['/', '/reservations', '/rooms', '/guests', '/housekeeping', '/reports', '/settings/employees'],
+  FRONT_DESK: ['/', '/reservations', '/rooms', '/guests', '/housekeeping', '/marketplace'],
+  HOUSEKEEPING: ['/housekeeping', '/marketplace'],
+  MAINTENANCE: ['/rooms', '/housekeeping', '/marketplace'],
+  MANAGER: ['/', '/reservations', '/rooms', '/guests', '/housekeeping', '/reports', '/marketplace', '/settings/employees'],
   OWNER: ['*'],
-  READ_ONLY: ['/', '/rooms'],
+  READ_ONLY: ['/', '/rooms', '/marketplace'],
 };
 
 function initials(name: string) {
