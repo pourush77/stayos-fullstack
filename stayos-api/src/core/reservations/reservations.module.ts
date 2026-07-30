@@ -12,6 +12,7 @@ import { ReservationsController } from './reservations.controller';
 import { ReservationsService } from './reservations.service';
 import { CheckInService } from './services/check-in.service';
 import { ReservationWorkflowService } from './services/reservation-workflow.service';
+import { StaysController } from './stays.controller';
 
 @Module({
   imports: [
@@ -26,7 +27,7 @@ import { ReservationWorkflowService } from './services/reservation-workflow.serv
     ]),
     PropertiesModule,
   ],
-  controllers: [ReservationsController],
+  controllers: [ReservationsController, StaysController],
   providers: [ReservationsService, ReservationWorkflowService, CheckInService],
 })
 export class ReservationsModule {}

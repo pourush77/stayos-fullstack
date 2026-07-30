@@ -8,6 +8,7 @@ import { RoomTypeEntity } from '../../room-types/infrastructure/room-type.entity
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
 import { AssignRoomDto } from '../dto/assign-room.dto';
+import { ExtendReservationDto } from '../dto/extend-reservation.dto';
 import { ReservationWorkflowResponseDto } from '../dto/reservation-workflow-response.dto';
 import { ReservationStatus } from '../domain/reservation-status.enum';
 import { ReservationEntity } from '../infrastructure/reservation.entity';
@@ -274,6 +275,69 @@ export class ReservationWorkflowService {
       });
 
       return this.toWorkflowResponse(updatedReservation, updatedRoom);
+    });
+  }
+
+  async extendStay(
+    propertyId: string,
+    reservationId: string,
+    dto: ExtendReservationDto,
+    actorContext: WorkflowActorContext = {},
+  ): Promise<ReservationWorkflowResponseDto> {
+    return this.dataSource.transaction(async (manager) => {
+      const reservationRepository = manager.getRepository(ReservationEntity);
+      const roomRepository = manager.getRepository(RoomEntity);
+
+      const reservation = await this.findReservation(
+        reservationRepository,
+        propertyId,
+        reservationId,
+      );
+      this.ensureReservationStatus(
+        reservation,
+        ReservationStatus.CHECKED_IN,
+        ApiErrorCode.RESERVATION_NOT_CHECKED_IN,
+        'Only checked-in reservations can be extended',
+      );
+
+      if (dto.departureDate <= reservation.departureDate) {
+        throw this.badRequest(
+          ApiErrorCode.VALIDATION_ERROR,
+          'New departure date must be after the current departure date',
+        );
+      }
+
+      if (!reservation.roomId) {
+        throw this.badRequest(
+          ApiErrorCode.ROOM_NOT_FOUND,
+          'Reservation must have an assigned room before extending stay',
+        );
+      }
+
+      const room = await this.findRoom(roomRepository, reservation.roomId);
+      this.ensureRoomBelongsToProperty(room, propertyId);
+
+      const previousState = this.workflowAuditState(reservation, room);
+      const previousDepartureDate = reservation.departureDate;
+      reservation.departureDate = dto.departureDate;
+      await this.ensureNoOverlappingAssignment(reservationRepository, reservation, room);
+
+      const updatedReservation = await reservationRepository.save(reservation);
+
+      await this.createEvents(manager, {
+        propertyId,
+        action: 'RESERVATION_STAY_EXTENDED',
+        previousState,
+        nextState: this.workflowAuditState(updatedReservation, room),
+        activityType: 'STAY_EXTENDED',
+        activityTitle: 'Stay extended',
+        activityDescription: `Reservation ${reservation.reservationCode} extended from ${previousDepartureDate} to ${updatedReservation.departureDate}.`,
+        reservation: updatedReservation,
+        room,
+        actorId: actorContext.actorId ?? null,
+      });
+
+      return this.toWorkflowResponse(updatedReservation, room);
     });
   }
 

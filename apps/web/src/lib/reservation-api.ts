@@ -162,3 +162,19 @@ export function checkOutReservation(
     },
   );
 }
+
+export function extendReservationStay(
+  propertyId: string,
+  reservationId: string,
+  departureDate: string,
+  signal?: AbortSignal,
+) {
+  return request<ReservationWorkflowResponseDto>(
+    `/properties/${propertyId}/reservations/${reservationId}/extend`,
+    {
+      body: JSON.stringify({ departureDate }),
+      method: 'PATCH',
+      signal,
+    },
+  );
+}

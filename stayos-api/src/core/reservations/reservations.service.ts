@@ -12,12 +12,15 @@ import {
   PaginationQueryDto,
   paginateQuery,
 } from '../../common/dto/pagination.dto';
+import { ActivityEventEntity } from '../activity/infrastructure/activity-event.entity';
 import { GuestEntity } from '../guests/infrastructure/guest.entity';
 import { PropertiesService } from '../properties/properties.service';
 import { RoomTypeEntity } from '../room-types/infrastructure/room-type.entity';
 import { RoomEntity } from '../rooms/infrastructure/room.entity';
 import { CreateReservationDto } from './dto/create-reservation.dto';
 import { UpdateReservationDto } from './dto/update-reservation.dto';
+import { ReservationPaymentStatus } from './domain/reservation-payment-status.enum';
+import { ReservationStatus } from './domain/reservation-status.enum';
 import { ReservationEntity } from './infrastructure/reservation.entity';
 
 export interface PaginatedReservations {
@@ -47,6 +50,8 @@ export class ReservationsService {
     private readonly roomTypesRepository: Repository<RoomTypeEntity>,
     @InjectRepository(RoomEntity)
     private readonly roomsRepository: Repository<RoomEntity>,
+    @InjectRepository(ActivityEventEntity)
+    private readonly activityRepository: Repository<ActivityEventEntity>,
     private readonly propertiesService: PropertiesService,
   ) {}
 
@@ -104,6 +109,52 @@ export class ReservationsService {
     }
 
     return reservation;
+  }
+
+  async getStayWorkspace(propertyId: string, id: string): Promise<Record<string, unknown>> {
+    await this.propertiesService.findOne(propertyId);
+
+    const reservation = await this.reservationsRepository.findOne({
+      where: { id, propertyId },
+      relations: { guest: true, room: { floor: true, roomType: true }, roomType: true },
+    });
+
+    if (!reservation) {
+      throw new NotFoundException(`Reservation ${id} was not found`);
+    }
+
+    const activity = await this.activityRepository.find({
+      where: { propertyId, entityType: 'RESERVATION', entityId: reservation.id },
+      order: { createdAt: 'DESC' },
+      take: 20,
+    });
+
+    return {
+      reservation,
+      guest: reservation.guest,
+      room: reservation.room,
+      activity: activity.map((event) => ({
+        title: event.title,
+        description: event.description,
+        timestamp: event.createdAt,
+        entity: {
+          type: event.entityType,
+          id: event.entityId,
+        },
+        metadata: event.metadata,
+      })),
+      payment: {
+        status: reservation.paymentStatus,
+        reviewed: reservation.paymentReviewed ?? false,
+        method: reservation.paymentMethod ?? null,
+      },
+      allowedActions: {
+        canCheckOut: reservation.status === ReservationStatus.CHECKED_IN,
+        canExtendStay: reservation.status === ReservationStatus.CHECKED_IN,
+        canMoveRoom: reservation.status === ReservationStatus.CHECKED_IN,
+      },
+      warnings: this.getStayWorkspaceWarnings(reservation),
+    };
   }
 
   async create(
@@ -249,6 +300,36 @@ export class ReservationsService {
     }
 
     return sortColumn;
+  }
+
+  private getStayWorkspaceWarnings(reservation: ReservationEntity): Record<string, unknown>[] {
+    const warnings: Record<string, unknown>[] = [];
+
+    if (reservation.paymentStatus === ReservationPaymentStatus.PAYMENT_DUE) {
+      warnings.push({
+        type: 'PAYMENT_DUE',
+        title: 'Payment due',
+        description: 'This stay has an outstanding payment status.',
+      });
+    }
+
+    if (reservation.guest?.vipStatus) {
+      warnings.push({
+        type: 'VIP_GUEST',
+        title: 'VIP guest',
+        description: 'Review preferences and service notes before taking stay actions.',
+      });
+    }
+
+    if (reservation.guest?.blacklistStatus) {
+      warnings.push({
+        type: 'GUEST_RESTRICTED',
+        title: 'Guest restricted',
+        description: 'Guest profile is flagged and needs manager review.',
+      });
+    }
+
+    return warnings;
   }
 
   private toCreatePersistenceFields(dto: CreateReservationDto): Partial<ReservationEntity> {

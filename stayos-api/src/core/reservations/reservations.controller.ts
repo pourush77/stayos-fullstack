@@ -21,6 +21,7 @@ import {
 import { CreateReservationDto } from './dto/create-reservation.dto';
 import { AssignRoomDto } from './dto/assign-room.dto';
 import { CheckInWorkspaceResponseDto } from './dto/check-in-workspace-response.dto';
+import { ExtendReservationDto } from './dto/extend-reservation.dto';
 import { PaymentReviewDto } from './dto/payment-review.dto';
 import { ReservationResponseDto } from './dto/reservation-response.dto';
 import { ReservationWorkflowResponseDto } from './dto/reservation-workflow-response.dto';
@@ -145,6 +146,23 @@ export class ReservationsController {
     @CurrentUser() user?: AuthenticatedRequest['currentUser'],
   ): Promise<ReservationWorkflowResponseDto> {
     return this.reservationWorkflowService.unassignRoom(propertyId, reservationId, {
+      actorId: user?.id ?? null,
+    });
+  }
+
+  @Patch(':reservationId/extend')
+  @RequirePermissions(Permissions.BookingsManage)
+  @ApiOperation({ summary: 'Extend a checked-in reservation departure date' })
+  @ApiStandardOkResponse(ReservationWorkflowResponseDto)
+  @ApiBadRequestResponse({ description: 'Invalid departure date or reservation state' })
+  @ApiNotFoundResponse({ description: 'Reservation or room not found' })
+  async extendStay(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('reservationId', ParseUUIDPipe) reservationId: string,
+    @Body() dto: ExtendReservationDto,
+    @CurrentUser() user?: AuthenticatedRequest['currentUser'],
+  ): Promise<ReservationWorkflowResponseDto> {
+    return this.reservationWorkflowService.extendStay(propertyId, reservationId, dto, {
       actorId: user?.id ?? null,
     });
   }

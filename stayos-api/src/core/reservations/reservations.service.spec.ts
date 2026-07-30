@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
+import { ActivityEventEntity } from '../activity/infrastructure/activity-event.entity';
 import { GuestStatus } from '../guests/domain/guest-status.enum';
 import { GuestEntity } from '../guests/infrastructure/guest.entity';
 import { PropertiesService } from '../properties/properties.service';
@@ -114,6 +115,7 @@ describe('ReservationsService', () => {
   let guestsRepository: MockRepository<GuestEntity>;
   let roomTypesRepository: MockRepository<RoomTypeEntity>;
   let roomsRepository: MockRepository<RoomEntity>;
+  let activityRepository: MockRepository<ActivityEventEntity>;
   const propertiesService = { findOne: jest.fn() };
 
   beforeEach(async () => {
@@ -129,6 +131,7 @@ describe('ReservationsService', () => {
     guestsRepository = { findOne: jest.fn().mockResolvedValue(guestEntity) };
     roomTypesRepository = { findOne: jest.fn().mockResolvedValue(roomTypeEntity) };
     roomsRepository = { findOne: jest.fn().mockResolvedValue(roomEntity) };
+    activityRepository = { find: jest.fn().mockResolvedValue([]) };
     propertiesService.findOne.mockResolvedValue({ id: propertyId });
 
     const module: TestingModule = await Test.createTestingModule({
@@ -138,6 +141,7 @@ describe('ReservationsService', () => {
         { provide: getRepositoryToken(GuestEntity), useValue: guestsRepository },
         { provide: getRepositoryToken(RoomTypeEntity), useValue: roomTypesRepository },
         { provide: getRepositoryToken(RoomEntity), useValue: roomsRepository },
+        { provide: getRepositoryToken(ActivityEventEntity), useValue: activityRepository },
         { provide: PropertiesService, useValue: propertiesService },
       ],
     }).compile();
@@ -318,6 +322,54 @@ describe('ReservationsService', () => {
     await expect(service.findOne(propertyId, reservationId)).resolves.toEqual(reservationEntity);
     expect(reservationsRepository.findOne).toHaveBeenCalledWith({
       where: { id: reservationId, propertyId },
+    });
+  });
+
+  it('builds a stay workspace read model for a checked-in reservation', async () => {
+    const activityCreatedAt = new Date('2026-07-16T09:30:00.000Z');
+    reservationsRepository.findOne?.mockResolvedValue({
+      ...reservationEntity,
+      roomId,
+      room: roomEntity,
+      status: ReservationStatus.CHECKED_IN,
+    });
+    activityRepository.find?.mockResolvedValue([
+      {
+        id: 'a175c8fa-f36e-4f40-a3ef-2e9dbb1f0677',
+        propertyId,
+        type: 'CHECK_IN_COMPLETED',
+        title: 'Checked in',
+        description: 'Guest checked in',
+        entityType: 'RESERVATION',
+        entityId: reservationId,
+        metadata: { source: 'front_desk' },
+        createdAt: activityCreatedAt,
+      },
+    ]);
+
+    await expect(service.getStayWorkspace(propertyId, reservationId)).resolves.toMatchObject({
+      reservation: { id: reservationId, status: ReservationStatus.CHECKED_IN },
+      guest: { id: guestId, displayName: 'Ananya Rao' },
+      room: { id: roomId, roomNumber: '201' },
+      activity: [
+        {
+          title: 'Checked in',
+          timestamp: activityCreatedAt,
+          entity: { type: 'RESERVATION', id: reservationId },
+        },
+      ],
+      payment: { status: ReservationPaymentStatus.PAYMENT_DUE, reviewed: false },
+      allowedActions: { canCheckOut: true, canExtendStay: true, canMoveRoom: true },
+      warnings: expect.arrayContaining([expect.objectContaining({ type: 'PAYMENT_DUE' })]),
+    });
+    expect(reservationsRepository.findOne).toHaveBeenCalledWith({
+      where: { id: reservationId, propertyId },
+      relations: { guest: true, room: { floor: true, roomType: true }, roomType: true },
+    });
+    expect(activityRepository.find).toHaveBeenCalledWith({
+      where: { propertyId, entityType: 'RESERVATION', entityId: reservationId },
+      order: { createdAt: 'DESC' },
+      take: 20,
     });
   });
 

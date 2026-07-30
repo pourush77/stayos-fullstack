@@ -40,6 +40,7 @@ import {
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
 import { useAuth } from '../../auth/auth-context';
+import { extendReservationStay } from '../../../lib/reservation-api';
 import { useStayWorkspace } from '../hooks/useStayWorkspace';
 import { StayBillingPanel } from './StayBillingPanel';
 import type { Stay } from '../types/stay.types';
@@ -293,6 +294,8 @@ export default function StayWorkspace() {
   const [checkoutOpened, setCheckoutOpened] = useState(false);
   const [extendOpened, setExtendOpened] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [isExtending, setIsExtending] = useState(false);
+  const [extendDepartureDate, setExtendDepartureDate] = useState('');
 
   const retryBackend = () => void backend.retry();
   const checkBackendStatus = () => void backend.checkHealth();
@@ -323,10 +326,31 @@ export default function StayWorkspace() {
     }
   };
 
+  const openExtendStay = () => {
+    setExtendDepartureDate(stay.departureDate);
+    setExtendOpened(true);
+  };
+
+  const extendStay = async () => {
+    if (!stayState.propertyId || !params.stayId || !extendDepartureDate) return;
+
+    setIsExtending(true);
+    try {
+      await extendReservationStay(stayState.propertyId, params.stayId, extendDepartureDate);
+      await stayState.refreshStay();
+      showToast({ color: 'green', title: 'Stay extended', message: `Departure updated to ${formatDisplayDate(extendDepartureDate)}.` });
+      setExtendOpened(false);
+    } catch {
+      showToast({ color: 'red', title: 'Extend stay failed', message: 'Unable to extend this stay. Check room availability and try again.' });
+    } finally {
+      setIsExtending(false);
+    }
+  };
+
   return (
     <Stack gap={spacing[3]}>
       {stayState.error ? <Alert color="yellow" variant="light" icon={<AlertCircle size={17} />} radius={radius.lg}>{stayState.error}</Alert> : null}
-      <StayHeader stay={stay} onMoveRoom={moveRoom} onExtendStay={() => setExtendOpened(true)} onCheckOut={() => setCheckoutOpened(true)} />
+      <StayHeader stay={stay} onMoveRoom={moveRoom} onExtendStay={openExtendStay} onCheckOut={() => setCheckoutOpened(true)} />
       <AttentionPanel stay={stay} />
       <Card radius={radius.lg} p={16} style={cardStyle}>
         <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 800 }}>Overview</Title>
@@ -353,11 +377,23 @@ export default function StayWorkspace() {
 
       <Modal opened={extendOpened} onClose={() => setExtendOpened(false)} centered title="Extend stay">
         <Stack gap={spacing[4]}>
-          <TextInput label="New departure date" placeholder="Select date in future workspace" disabled />
-          <Text c="#64748b" size="sm">TODO: Extend Stay workflow will save a new departure date here.</Text>
+          <TextInput
+            label="New departure date"
+            min={stay.departureDate}
+            onChange={(event) => setExtendDepartureDate(event.currentTarget.value)}
+            type="date"
+            value={extendDepartureDate}
+          />
           <Group justify="flex-end">
             <Button variant="subtle" color="gray" onClick={() => setExtendOpened(false)}>Close</Button>
-            <Button disabled color="stayosBrand">Save</Button>
+            <Button
+              color="stayosBrand"
+              disabled={!extendDepartureDate || extendDepartureDate <= stay.departureDate}
+              loading={isExtending}
+              onClick={() => void extendStay()}
+            >
+              Save
+            </Button>
           </Group>
         </Stack>
       </Modal>
