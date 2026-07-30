@@ -15,6 +15,7 @@ import { AuthModule } from './core/auth/auth.module';
 import { EmployeesModule } from './core/employees/employees.module';
 import { HousekeepingModule } from './core/housekeeping/housekeeping.module';
 import { BillingModule } from './core/billing/billing.module';
+import { GuestRequestsModule } from './core/guest-requests/guest-requests.module';
 import configuration from './core/config/configuration';
 import { validateEnvironment } from './core/config/environment.validation';
 
@@ -54,6 +55,7 @@ import { validateEnvironment } from './core/config/environment.validation';
     ReservationsModule,
     OperationsModule,
     HousekeepingModule,
+    GuestRequestsModule,
     BillingModule,
   ],
 })

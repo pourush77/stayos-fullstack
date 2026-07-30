@@ -1,0 +1,8 @@
+export enum GuestRequestDepartment {
+  HOUSEKEEPING = 'HOUSEKEEPING',
+  MAINTENANCE = 'MAINTENANCE',
+  LAUNDRY = 'LAUNDRY',
+  RECEPTION = 'RECEPTION',
+  CONCIERGE = 'CONCIERGE',
+  F_AND_B = 'F_AND_B',
+}
