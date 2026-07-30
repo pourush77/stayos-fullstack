@@ -1,0 +1,4 @@
+apt-transport-https=2.6.1
+gnupg=2.2.40-1.1+deb12u2
+postgresql=15+248+deb12u1
+postgresql-contrib=15+248+deb12u1
