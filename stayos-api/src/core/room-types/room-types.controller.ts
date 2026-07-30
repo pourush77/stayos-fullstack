@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiBadRequestResponse,
@@ -16,6 +16,7 @@ import {
   ApiStandardListResponse,
   ApiStandardOkResponse,
 } from '../../common/decorators/api-standard-response.decorator';
+import { SetRoomTypeAmenitiesDto } from '../amenities/dto/amenity.dto';
 import { CreateRoomTypeDto } from './dto/create-room-type.dto';
 import { RoomTypeResponseDto } from './dto/room-type-response.dto';
 import { UpdateRoomTypeDto } from './dto/update-room-type.dto';
@@ -97,6 +98,20 @@ export class RoomTypesController {
     @Body() updateRoomTypeDto: UpdateRoomTypeDto,
   ): Promise<RoomTypeResponseDto> {
     const roomType = await this.roomTypesService.update(propertyId, id, updateRoomTypeDto);
+
+    return RoomTypesMapper.toResponse(roomType);
+  }
+
+  @Put(':id/amenities')
+  @RequirePermissions(Permissions.RoomsManage)
+  @ApiOperation({ summary: 'Replace room type amenities' })
+  @ApiStandardOkResponse(RoomTypeResponseDto)
+  async setAmenities(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetRoomTypeAmenitiesDto,
+  ): Promise<RoomTypeResponseDto> {
+    const roomType = await this.roomTypesService.setAmenities(propertyId, id, dto);
 
     return RoomTypesMapper.toResponse(roomType);
   }

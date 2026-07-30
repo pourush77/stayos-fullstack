@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { AmenityResponseDto } from '../../amenities/dto/amenity.dto';
 import { RoomOperationalStatus } from '../domain/room-operational-status.enum';
 import { RoomStatus } from '../domain/room-status.enum';
 
@@ -35,6 +36,9 @@ export class RoomResponseDto {
 
   @ApiPropertyOptional()
   operationalStatusNote!: string | null;
+
+  @ApiProperty({ type: [AmenityResponseDto] })
+  amenities!: AmenityResponseDto[];
 
   @ApiProperty({ type: String, format: 'date-time' })
   createdAt!: Date;

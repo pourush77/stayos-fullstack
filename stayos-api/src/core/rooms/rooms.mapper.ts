@@ -1,3 +1,4 @@
+import { AmenitiesMapper } from '../amenities/amenities.mapper';
 import { RoomResponseDto } from './dto/room-response.dto';
 import { RoomEntity } from './infrastructure/room.entity';
 
@@ -15,6 +16,7 @@ export class RoomsMapper {
       operationalStatus: entity.operationalStatus,
       operationalStatusReason: entity.operationalStatusReason,
       operationalStatusNote: entity.operationalStatusNote,
+      amenities: entity.roomType?.amenities?.map(AmenitiesMapper.toResponse) ?? [],
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
     };

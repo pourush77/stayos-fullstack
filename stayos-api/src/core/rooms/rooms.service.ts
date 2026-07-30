@@ -53,6 +53,8 @@ export class RoomsService {
     const limit = query.limit;
     const qb = this.roomsRepository
       .createQueryBuilder('room')
+      .leftJoinAndSelect('room.roomType', 'roomType')
+      .leftJoinAndSelect('roomType.amenities', 'amenity')
       .where('room.propertyId = :propertyId', { propertyId });
 
     if (query.search) {
@@ -85,6 +87,7 @@ export class RoomsService {
     await this.propertiesService.findOne(propertyId);
     const room = await this.roomsRepository.findOne({
       where: { id, propertyId },
+      relations: ['roomType', 'roomType.amenities'],
     });
 
     if (!room) {

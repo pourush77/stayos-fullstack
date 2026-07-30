@@ -12,6 +12,8 @@ import {
   PaginationQueryDto,
   paginateQuery,
 } from '../../common/dto/pagination.dto';
+import { AmenitiesService } from '../amenities/amenities.service';
+import { SetRoomTypeAmenitiesDto } from '../amenities/dto/amenity.dto';
 import { PropertiesService } from '../properties/properties.service';
 import { CreateRoomTypeDto } from './dto/create-room-type.dto';
 import { UpdateRoomTypeDto } from './dto/update-room-type.dto';
@@ -37,6 +39,7 @@ export class RoomTypesService {
     @InjectRepository(RoomTypeEntity)
     private readonly roomTypesRepository: Repository<RoomTypeEntity>,
     private readonly propertiesService: PropertiesService,
+    private readonly amenitiesService: AmenitiesService,
   ) {}
 
   async findAll(propertyId: string, query: PaginationQueryDto): Promise<PaginatedRoomTypes> {
@@ -46,6 +49,7 @@ export class RoomTypesService {
     const limit = query.limit;
     const qb = this.roomTypesRepository
       .createQueryBuilder('roomType')
+      .leftJoinAndSelect('roomType.amenities', 'amenity')
       .where('roomType.propertyId = :propertyId', { propertyId });
 
     if (query.search) {
@@ -78,6 +82,7 @@ export class RoomTypesService {
     await this.propertiesService.findOne(propertyId);
     const roomType = await this.roomTypesRepository.findOne({
       where: { id, propertyId },
+      relations: ['amenities'],
     });
 
     if (!roomType) {
@@ -121,6 +126,17 @@ export class RoomTypesService {
     } catch (error) {
       this.handlePersistenceError(error);
     }
+  }
+
+  async setAmenities(
+    propertyId: string,
+    id: string,
+    dto: SetRoomTypeAmenitiesDto,
+  ): Promise<RoomTypeEntity> {
+    const roomType = await this.findOne(propertyId, id);
+    roomType.amenities = await this.amenitiesService.findActiveByIds(propertyId, dto.amenityIds);
+    await this.roomTypesRepository.save(roomType);
+    return this.findOne(propertyId, id);
   }
 
   private validateOccupancy(values: { baseOccupancy: number; maxOccupancy: number }): void {

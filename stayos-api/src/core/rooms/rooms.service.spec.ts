@@ -111,6 +111,7 @@ describe('RoomsService', () => {
   it('lists rooms with pagination', async () => {
     const queryBuilder = {
       andWhere: jest.fn().mockReturnThis(),
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
@@ -132,6 +133,7 @@ describe('RoomsService', () => {
     const queryBuilder = {
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
       getMany: jest.fn().mockResolvedValue([roomEntity]),
     };
@@ -176,6 +178,7 @@ describe('RoomsService', () => {
       operationalStatusNote: null,
     });
     expect(roomsRepository.findOne).toHaveBeenCalledWith({
+      relations: ['roomType', 'roomType.amenities'],
       where: { id: roomEntity.id, propertyId },
     });
   });

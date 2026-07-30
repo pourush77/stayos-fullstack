@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
+import { AmenitiesService } from '../amenities/amenities.service';
 import { PropertiesService } from '../properties/properties.service';
 import { RoomTypeStatus } from './domain/room-type-status.enum';
 import { RoomTypeEntity } from './infrastructure/room-type.entity';
@@ -24,6 +25,7 @@ const roomTypeEntity: RoomTypeEntity = {
   bedType: 'King',
   sizeSqFt: 320,
   status: RoomTypeStatus.ACTIVE,
+  amenities: [],
   createdAt: new Date('2026-06-30T00:00:00.000Z'),
   updatedAt: new Date('2026-06-30T00:00:00.000Z'),
 };
@@ -32,6 +34,7 @@ describe('RoomTypesService', () => {
   let service: RoomTypesService;
   let repository: MockRepository<RoomTypeEntity>;
   const propertiesService = { findOne: jest.fn() };
+  const amenitiesService = { findActiveByIds: jest.fn() };
 
   beforeEach(async () => {
     repository = {
@@ -48,6 +51,7 @@ describe('RoomTypesService', () => {
         RoomTypesService,
         { provide: getRepositoryToken(RoomTypeEntity), useValue: repository },
         { provide: PropertiesService, useValue: propertiesService },
+        { provide: AmenitiesService, useValue: amenitiesService },
       ],
     }).compile();
 
@@ -57,6 +61,7 @@ describe('RoomTypesService', () => {
   it('lists room types with pagination', async () => {
     const queryBuilder = {
       andWhere: jest.fn().mockReturnThis(),
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
@@ -76,6 +81,7 @@ describe('RoomTypesService', () => {
   it('returns all room types when page and limit are omitted', async () => {
     const queryBuilder = {
       andWhere: jest.fn().mockReturnThis(),
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
       getMany: jest.fn().mockResolvedValue([roomTypeEntity]),

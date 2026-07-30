@@ -5,11 +5,14 @@ import {
   Entity,
   Index,
   JoinColumn,
+  JoinTable,
+  ManyToMany,
   ManyToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { PropertyEntity } from '../../properties/infrastructure/property.entity';
+import { AmenityEntity } from '../../amenities/infrastructure/amenity.entity';
 import { RoomTypeStatus } from '../domain/room-type-status.enum';
 
 @Entity({ name: 'room_types' })
@@ -63,6 +66,14 @@ export class RoomTypeEntity {
     default: RoomTypeStatus.ACTIVE,
   })
   status!: RoomTypeStatus;
+
+  @ManyToMany(() => AmenityEntity, (amenity) => amenity.roomTypes)
+  @JoinTable({
+    name: 'room_type_amenities',
+    joinColumn: { name: 'room_type_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'amenity_id', referencedColumnName: 'id' },
+  })
+  amenities?: AmenityEntity[];
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt!: Date;

@@ -1,3 +1,4 @@
+import { AmenitiesMapper } from '../amenities/amenities.mapper';
 import { RoomTypeResponseDto } from './dto/room-type-response.dto';
 import { RoomTypeEntity } from './infrastructure/room-type.entity';
 
@@ -16,6 +17,7 @@ export class RoomTypesMapper {
       bedType: entity.bedType,
       sizeSqFt: entity.sizeSqFt,
       status: entity.status,
+      amenities: entity.amenities?.map(AmenitiesMapper.toResponse) ?? [],
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
     };

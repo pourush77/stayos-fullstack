@@ -48,6 +48,7 @@ type RoomDetail = {
   maintenance: string;
   notes: string;
   timeline: string[];
+  amenities: string[];
 };
 
 const fallbackRoom: RoomDetail = {
@@ -66,6 +67,7 @@ const fallbackRoom: RoomDetail = {
     '11:05 Housekeeping completed',
     '17:30 Laundry requested',
   ],
+  amenities: ['WiFi', 'AC', 'TV'],
 };
 
 function getString(record: Record<string, unknown> | undefined, keys: string[], fallback = '') {
@@ -101,6 +103,11 @@ function mapRoomDetail(room: InventoryRoomDto, roomTypes: InventoryRoomTypeDto[]
   const roomType = typeLookup(roomTypes).get(getString(room, ['roomTypeId', 'room_type_id']));
   const roomNumber = getString(room, ['roomNumber', 'number', 'displayName'], 'Room');
   const roomTypeName = getString(roomType, ['name'], 'Room');
+  const roomAmenities = Array.isArray(room.amenities) ? room.amenities : undefined;
+  const typeAmenities = Array.isArray(roomType?.amenities) ? roomType.amenities : [];
+  const amenities = (roomAmenities ?? typeAmenities)
+    .map((amenity) => getString(amenity as Record<string, unknown>, ['label', 'code']))
+    .filter(Boolean);
 
   return {
     number: roomNumber,
@@ -113,6 +120,7 @@ function mapRoomDetail(room: InventoryRoomDto, roomTypes: InventoryRoomTypeDto[]
     maintenance: 'No active issues',
     notes: getString(room, ['description'], `${roomTypeName} room loaded from Hillston inventory.`),
     timeline: [`Room ${roomNumber} loaded from backend inventory`, `${displayStatus(room)} operational status`],
+    amenities,
   };
 }
 
@@ -128,6 +136,7 @@ function loadingRoom(roomId: string): RoomDetail {
     maintenance: 'Loading',
     notes: 'Loading live Hillston room inventory.',
     timeline: ['Loading live Hillston room inventory'],
+    amenities: [],
   };
 }
 
@@ -204,10 +213,19 @@ export default function RoomWorkspacePlaceholderPage() {
               <Title order={1} className={styles.roomTitle}>
                 Room {room.number}
               </Title>
-              <Text mt={spacing[1]} className={styles.roomType}>
-                {room.type}
-              </Text>
-            </Box>
+          <Text mt={spacing[1]} className={styles.roomType}>
+            {room.type}
+          </Text>
+          {room.amenities.length > 0 ? (
+            <Group mt={spacing[3]} gap={spacing[2]}>
+              {room.amenities.map((amenity) => (
+                <Badge key={amenity} radius={radius.full} variant="light" color="gray">
+                  {amenity}
+                </Badge>
+              ))}
+            </Group>
+          ) : null}
+        </Box>
           </Group>
           <Badge
             radius={radius.full}

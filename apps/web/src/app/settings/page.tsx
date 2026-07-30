@@ -17,6 +17,7 @@ import {
   ChevronRight,
   ContactRound,
   KeyRound,
+  ListChecks,
   Settings2,
   ShieldCheck,
   Users,
@@ -115,6 +116,14 @@ export default function SettingsHomePage() {
       icon: <ContactRound size={22} />,
       href: '/settings/employees',
       permission: 'employees.view',
+    },
+    {
+      key: 'room-types',
+      title: 'Room Types',
+      description: 'Assign standard amenities to room categories.',
+      icon: <ListChecks size={22} />,
+      href: '/settings/room-types',
+      permission: 'rooms.manage',
     },
     {
       key: 'property',

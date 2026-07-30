@@ -51,6 +51,29 @@ async function patch<T>(path: string, signal?: AbortSignal): Promise<T> {
   return unwrapResponse<T>(payload as ApiResponse<T>);
 }
 
+async function put<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const headers = authHeaders();
+  headers.set('Content-Type', 'application/json');
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    body: JSON.stringify(body),
+    headers,
+    method: 'PUT',
+    signal,
+  });
+
+  const payload = (await response.json().catch(() => undefined)) as ApiResponse<T> | { message?: unknown; error?: unknown } | undefined;
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string'
+        ? payload.message
+        : `Inventory API request failed: ${response.status} ${response.statusText}`;
+    throw new Error(message);
+  }
+
+  return unwrapResponse<T>(payload as ApiResponse<T>);
+}
+
 function unwrapResponse<T>(response: ApiResponse<T>): T {
   if (response && typeof response === 'object') {
     if ('data' in response && response.data !== undefined) return response.data;
@@ -65,6 +88,7 @@ export type InventoryPropertyDto = Record<string, unknown>;
 export type InventoryFloorDto = Record<string, unknown>;
 export type InventoryRoomTypeDto = Record<string, unknown>;
 export type InventoryRoomDto = Record<string, unknown>;
+export type InventoryAmenityDto = Record<string, unknown>;
 
 export function getProperties(signal?: AbortSignal) {
   return get<InventoryPropertyDto[]>('/properties', signal);
@@ -80,6 +104,14 @@ export function getPropertyRoomTypes(propertyId: string, signal?: AbortSignal) {
 
 export function getPropertyRooms(propertyId: string, signal?: AbortSignal) {
   return get<InventoryRoomDto[]>(`/properties/${propertyId}/rooms`, signal);
+}
+
+export function getPropertyAmenities(propertyId: string, signal?: AbortSignal) {
+  return get<InventoryAmenityDto[]>(`/properties/${propertyId}/amenities`, signal);
+}
+
+export function setRoomTypeAmenities(propertyId: string, roomTypeId: string, amenityIds: string[], signal?: AbortSignal) {
+  return put<InventoryRoomTypeDto>(`/properties/${propertyId}/room-types/${roomTypeId}/amenities`, { amenityIds }, signal);
 }
 
 export function markRoomReady(propertyId: string, roomId: string, signal?: AbortSignal) {
