@@ -24,6 +24,8 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     Permissions.MaintenanceView,
     Permissions.MaintenanceManage,
     Permissions.OperationsView,
+    Permissions.GuestRequestsView,
+    Permissions.GuestRequestsManage,
     Permissions.ReportsView,
     Permissions.UsersView,
     Permissions.SessionsView,
@@ -43,6 +45,8 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     Permissions.BillingView,
     Permissions.BillingManage,
     Permissions.OperationsView,
+    Permissions.GuestRequestsView,
+    Permissions.GuestRequestsManage,
   ],
   [UserRole.HOUSEKEEPING]: [
     Permissions.RoomsView,
@@ -51,6 +55,8 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     Permissions.HousekeepingManage,
     Permissions.EmployeesView,
     Permissions.OperationsView,
+    Permissions.GuestRequestsView,
+    Permissions.GuestRequestsManage,
   ],
   [UserRole.MAINTENANCE]: [
     Permissions.RoomsView,
@@ -58,6 +64,8 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     Permissions.MaintenanceView,
     Permissions.MaintenanceManage,
     Permissions.OperationsView,
+    Permissions.GuestRequestsView,
+    Permissions.GuestRequestsManage,
   ],
   [UserRole.ACCOUNTS]: [
     Permissions.GuestsView,
@@ -77,7 +85,7 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     Permissions.EmployeesView,
     Permissions.MaintenanceView,
     Permissions.OperationsView,
-    Permissions.ReportsView,
+    Permissions.GuestRequestsView,
   ],
 };
 

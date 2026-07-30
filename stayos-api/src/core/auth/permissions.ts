@@ -23,6 +23,8 @@ export const Permissions = {
   MaintenanceManage: 'maintenance.manage',
   OperationsView: 'operations.view',
   OperationsManage: 'operations.manage',
+  GuestRequestsView: 'guest-requests.view',
+  GuestRequestsManage: 'guest-requests.manage',
   ReportsView: 'reports.view',
   UsersView: 'users.view',
   UsersManage: 'users.manage',

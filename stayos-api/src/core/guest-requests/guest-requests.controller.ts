@@ -22,7 +22,7 @@ export class GuestRequestsController {
   constructor(private readonly guestRequestsService: GuestRequestsService) {}
 
   @Get()
-  @RequirePermissions(Permissions.OperationsView)
+  @RequirePermissions(Permissions.GuestRequestsView)
   @ApiOperation({ summary: 'List guest requests' })
   @ApiStandardListResponse(GuestRequestResponseDto)
   findAll(
@@ -33,7 +33,7 @@ export class GuestRequestsController {
   }
 
   @Get('summary')
-  @RequirePermissions(Permissions.OperationsView)
+  @RequirePermissions(Permissions.GuestRequestsView)
   @ApiOperation({ summary: 'Get guest request summary' })
   @ApiStandardOkResponse(GuestRequestSummaryDto)
   getSummary(@Param('propertyId', ParseUUIDPipe) propertyId: string) {
@@ -41,14 +41,14 @@ export class GuestRequestsController {
   }
 
   @Get('suggestions')
-  @RequirePermissions(Permissions.OperationsView)
+  @RequirePermissions(Permissions.GuestRequestsView)
   @ApiOperation({ summary: 'Get request suggestions with server-owned assignment' })
   getSuggestions() {
     return this.guestRequestsService.getSuggestions();
   }
 
   @Get(':requestId')
-  @RequirePermissions(Permissions.OperationsView)
+  @RequirePermissions(Permissions.GuestRequestsView)
   @ApiOperation({ summary: 'Get guest request by id' })
   @ApiStandardOkResponse(GuestRequestResponseDto)
   findOne(
@@ -59,7 +59,7 @@ export class GuestRequestsController {
   }
 
   @Post()
-  @RequirePermissions(Permissions.OperationsManage)
+  @RequirePermissions(Permissions.GuestRequestsManage)
   @ApiOperation({ summary: 'Create guest request' })
   @ApiStandardOkResponse(GuestRequestResponseDto)
   create(
@@ -70,7 +70,7 @@ export class GuestRequestsController {
   }
 
   @Patch(':requestId')
-  @RequirePermissions(Permissions.OperationsManage)
+  @RequirePermissions(Permissions.GuestRequestsManage)
   @ApiOperation({ summary: 'Update guest request' })
   @ApiStandardOkResponse(GuestRequestResponseDto)
   update(
@@ -82,31 +82,31 @@ export class GuestRequestsController {
   }
 
   @Patch(':requestId/accept')
-  @RequirePermissions(Permissions.OperationsManage)
+  @RequirePermissions(Permissions.GuestRequestsManage)
   accept(@Param('propertyId', ParseUUIDPipe) propertyId: string, @Param('requestId', ParseUUIDPipe) requestId: string) {
     return this.guestRequestsService.transition(propertyId, requestId, 'accept');
   }
 
   @Patch(':requestId/start')
-  @RequirePermissions(Permissions.OperationsManage)
+  @RequirePermissions(Permissions.GuestRequestsManage)
   start(@Param('propertyId', ParseUUIDPipe) propertyId: string, @Param('requestId', ParseUUIDPipe) requestId: string) {
     return this.guestRequestsService.transition(propertyId, requestId, 'start');
   }
 
   @Patch(':requestId/complete')
-  @RequirePermissions(Permissions.OperationsManage)
+  @RequirePermissions(Permissions.GuestRequestsManage)
   complete(@Param('propertyId', ParseUUIDPipe) propertyId: string, @Param('requestId', ParseUUIDPipe) requestId: string) {
     return this.guestRequestsService.transition(propertyId, requestId, 'complete');
   }
 
   @Patch(':requestId/cancel')
-  @RequirePermissions(Permissions.OperationsManage)
+  @RequirePermissions(Permissions.GuestRequestsManage)
   cancel(@Param('propertyId', ParseUUIDPipe) propertyId: string, @Param('requestId', ParseUUIDPipe) requestId: string) {
     return this.guestRequestsService.transition(propertyId, requestId, 'cancel');
   }
 
   @Post(':requestId/note')
-  @RequirePermissions(Permissions.OperationsManage)
+  @RequirePermissions(Permissions.GuestRequestsManage)
   addNote(
     @Param('propertyId', ParseUUIDPipe) propertyId: string,
     @Param('requestId', ParseUUIDPipe) requestId: string,

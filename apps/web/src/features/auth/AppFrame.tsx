@@ -24,9 +24,9 @@ const roleNavigation: Record<string, string[]> = {
   FRONT_DESK: ['/', '/reservations', '/rooms', '/guests', '/housekeeping'],
   HOUSEKEEPING: ['/housekeeping'],
   MAINTENANCE: ['/rooms', '/housekeeping'],
-  MANAGER: ['/', '/reservations', '/rooms', '/guests', '/housekeeping', '/settings/employees'],
+  MANAGER: ['/', '/reservations', '/rooms', '/guests', '/housekeeping', '/reports', '/settings/employees'],
   OWNER: ['*'],
-  READ_ONLY: ['/', '/rooms', '/reports'],
+  READ_ONLY: ['/', '/rooms'],
 };
 
 function initials(name: string) {
