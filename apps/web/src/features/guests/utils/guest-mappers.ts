@@ -22,6 +22,14 @@ function getBoolean(record: Record<string, unknown>, keys: string[]) {
   return false;
 }
 
+function getArray(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) return value;
+  }
+  return [];
+}
+
 function normalizeStatus(value: string, blacklistStatus: boolean): GuestStatus {
   if (blacklistStatus) return 'BLACKLISTED';
   const normalized = value.toUpperCase();
@@ -56,6 +64,14 @@ export function mapGuest(dto: GuestDto): Guest {
     status,
     upcomingBooking: getString(dto, ['upcomingBooking', 'nextReservation'], 'Not connected'),
     vipStatus: getBoolean(dto, ['vipStatus', 'vip', 'isVip']),
+    reservations: getArray(dto, ['reservations'])
+      .map((item) => (item && typeof item === 'object' ? item as Record<string, unknown> : undefined))
+      .filter((item): item is Record<string, unknown> => Boolean(item))
+      .map((item) => ({
+        arrivalDate: getString(item, ['arrivalDate']),
+        id: getString(item, ['id', 'reservationId']),
+      }))
+      .filter((item) => item.id),
   };
 }
 

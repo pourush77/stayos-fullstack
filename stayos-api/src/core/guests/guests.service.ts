@@ -13,6 +13,7 @@ import {
   paginateQuery,
 } from '../../common/dto/pagination.dto';
 import { PropertiesService } from '../properties/properties.service';
+import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 import { CreateGuestDto } from './dto/create-guest.dto';
 import { UpdateGuestDto } from './dto/update-guest.dto';
 import { GuestEntity } from './infrastructure/guest.entity';
@@ -39,6 +40,8 @@ export class GuestsService {
   constructor(
     @InjectRepository(GuestEntity)
     private readonly guestsRepository: Repository<GuestEntity>,
+    @InjectRepository(ReservationEntity)
+    private readonly reservationsRepository: Repository<ReservationEntity>,
     private readonly propertiesService: PropertiesService,
   ) {}
 
@@ -93,7 +96,13 @@ export class GuestsService {
       throw new NotFoundException(`Guest ${id} was not found`);
     }
 
-    return guest;
+    const reservations = await this.reservationsRepository.find({
+      where: { guestId: guest.id, propertyId },
+      order: { arrivalDate: 'DESC' },
+      select: { arrivalDate: true, id: true },
+    });
+
+    return Object.assign(guest, { reservations });
   }
 
   async create(propertyId: string, createGuestDto: CreateGuestDto): Promise<GuestEntity> {

@@ -1,8 +1,13 @@
 import { GuestResponseDto } from './dto/guest-response.dto';
 import { GuestEntity } from './infrastructure/guest.entity';
+import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
+
+type GuestWithReservations = GuestEntity & {
+  reservations?: Pick<ReservationEntity, 'arrivalDate' | 'id'>[];
+};
 
 export class GuestsMapper {
-  static toResponse(entity: GuestEntity): GuestResponseDto {
+  static toResponse(entity: GuestWithReservations): GuestResponseDto {
     return {
       id: entity.id,
       propertyId: entity.propertyId,
@@ -25,6 +30,10 @@ export class GuestsMapper {
       status: entity.status,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
+      reservations: (entity.reservations ?? []).map((reservation) => ({
+        id: reservation.id,
+        arrivalDate: reservation.arrivalDate,
+      })),
     };
   }
 }

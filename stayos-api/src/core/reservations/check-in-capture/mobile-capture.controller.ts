@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -37,12 +38,22 @@ export class MobileCaptureController {
   constructor(private readonly mobileCaptureService: MobileCaptureService) {}
 
   @Post('properties/:propertyId/reservations/:reservationId/check-in/mobile-capture')
-  @RequirePermissions(Permissions.CheckinManage)
+  @RequirePermissions(Permissions.CheckinManage, Permissions.GuestsManage)
   createReservationSession(
     @Param('propertyId', ParseUUIDPipe) propertyId: string,
     @Param('reservationId', ParseUUIDPipe) reservationId: string,
   ) {
     return this.mobileCaptureService.createSession(propertyId, reservationId);
+  }
+
+  @Delete('properties/:propertyId/reservations/:reservationId/check-in/documents/:documentId')
+  @RequirePermissions(Permissions.CheckinManage, Permissions.GuestsManage)
+  deleteReceptionistDocument(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('reservationId', ParseUUIDPipe) reservationId: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+  ) {
+    return this.mobileCaptureService.deleteDocument(propertyId, reservationId, documentId);
   }
 
   @Get('properties/:propertyId/reservations/:reservationId/check-in/mobile-capture/status')

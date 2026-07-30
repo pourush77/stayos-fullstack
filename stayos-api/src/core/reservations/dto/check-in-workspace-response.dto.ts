@@ -76,6 +76,21 @@ export class CheckInIdentityDto {
   verifiedAt!: Date | null;
 }
 
+export class CheckInDocumentDto {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+  @ApiProperty()
+  side!: string;
+  @ApiProperty()
+  originalFilename!: string;
+  @ApiProperty()
+  mimeType!: string;
+  @ApiProperty()
+  sizeBytes!: number;
+  @ApiProperty({ type: String, format: 'date-time' })
+  createdAt!: Date;
+}
+
 export class CheckInForeignGuestDto {
   @ApiProperty()
   isForeignNational!: boolean;
@@ -151,6 +166,8 @@ export class CheckInWorkspaceResponseDto {
   guest!: CheckInGuestDto;
   @ApiProperty({ type: CheckInIdentityDto })
   identity!: CheckInIdentityDto;
+  @ApiProperty({ type: [CheckInDocumentDto] })
+  documents!: CheckInDocumentDto[];
   @ApiProperty({ type: CheckInForeignGuestDto })
   foreignGuest!: CheckInForeignGuestDto;
   @ApiProperty({ type: CheckInPaymentDto })

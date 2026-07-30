@@ -1,6 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { GuestStatus } from '../domain/guest-status.enum';
 
+export class GuestReservationSummaryDto {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ type: String, format: 'date' })
+  arrivalDate!: string;
+}
+
 export class GuestResponseDto {
   @ApiProperty({ format: 'uuid' })
   id!: string;
@@ -64,4 +72,7 @@ export class GuestResponseDto {
 
   @ApiProperty({ type: String, format: 'date-time' })
   updatedAt!: Date;
+
+  @ApiProperty({ type: [GuestReservationSummaryDto] })
+  reservations!: GuestReservationSummaryDto[];
 }

@@ -14,6 +14,7 @@ import { ReservationSource } from '../domain/reservation-source.enum';
 import { ReservationStatus } from '../domain/reservation-status.enum';
 import { GuestIdentityDocumentEntity } from '../infrastructure/guest-identity-document.entity';
 import { ReservationEntity } from '../infrastructure/reservation.entity';
+import { GuestDocumentEntity } from '../check-in-capture/guest-document.entity';
 import { CheckInService } from './check-in.service';
 
 type MockRepository<T extends object = object> = Partial<Record<keyof Repository<T>, jest.Mock>>;
@@ -142,6 +143,7 @@ describe('CheckInService', () => {
   let reservationsRepository: MockRepository<ReservationEntity>;
   let guestsRepository: MockRepository<GuestEntity>;
   let identityRepository: MockRepository<GuestIdentityDocumentEntity>;
+  let documentsRepository: MockRepository<GuestDocumentEntity>;
   let auditRepository: MockRepository<AuditEventEntity>;
   let activityRepository: MockRepository<ActivityEventEntity>;
 
@@ -153,6 +155,9 @@ describe('CheckInService', () => {
       create: jest.fn((entity) => entity),
       save: jest.fn(async (entity) => entity),
     };
+    documentsRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    };
     auditRepository = { save: jest.fn(async (entity) => entity) };
     activityRepository = { save: jest.fn(async (entity) => entity) };
 
@@ -161,6 +166,7 @@ describe('CheckInService', () => {
         if (entity === ReservationEntity) return reservationsRepository;
         if (entity === GuestEntity) return guestsRepository;
         if (entity === GuestIdentityDocumentEntity) return identityRepository;
+        if (entity === GuestDocumentEntity) return documentsRepository;
         if (entity === AuditEventEntity) return auditRepository;
         if (entity === ActivityEventEntity) return activityRepository;
         return { findOne: jest.fn() };

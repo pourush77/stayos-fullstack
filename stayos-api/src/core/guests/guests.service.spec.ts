@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import { PropertiesService } from '../properties/properties.service';
+import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 import { GuestStatus } from './domain/guest-status.enum';
 import { GuestEntity } from './infrastructure/guest.entity';
 import { GuestsService } from './guests.service';
@@ -40,6 +41,7 @@ const guestEntity: GuestEntity = {
 describe('GuestsService', () => {
   let service: GuestsService;
   let guestsRepository: MockRepository<GuestEntity>;
+  let reservationsRepository: MockRepository<ReservationEntity>;
   const propertiesService = { findOne: jest.fn() };
 
   beforeEach(async () => {
@@ -51,12 +53,16 @@ describe('GuestsService', () => {
       merge: jest.fn(),
       save: jest.fn(),
     };
+    reservationsRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    };
     propertiesService.findOne.mockResolvedValue({ id: propertyId });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         GuestsService,
         { provide: getRepositoryToken(GuestEntity), useValue: guestsRepository },
+        { provide: getRepositoryToken(ReservationEntity), useValue: reservationsRepository },
         { provide: PropertiesService, useValue: propertiesService },
       ],
     }).compile();
@@ -176,15 +182,24 @@ describe('GuestsService', () => {
       ...guestEntity,
       lastName: 'Sharma',
       displayName: 'Aarav Sharma',
+      reservations: [],
     });
   });
 
   it('gets a guest by id within the property', async () => {
     guestsRepository.findOne?.mockResolvedValue(guestEntity);
 
-    await expect(service.findOne(propertyId, guestId)).resolves.toEqual(guestEntity);
+    await expect(service.findOne(propertyId, guestId)).resolves.toEqual({
+      ...guestEntity,
+      reservations: [],
+    });
     expect(guestsRepository.findOne).toHaveBeenCalledWith({
       where: { id: guestId, propertyId },
+    });
+    expect(reservationsRepository.find).toHaveBeenCalledWith({
+      where: { guestId, propertyId },
+      order: { arrivalDate: 'DESC' },
+      select: { arrivalDate: true, id: true },
     });
   });
 

@@ -138,6 +138,27 @@ export class MobileCaptureService {
     return this.complete(session);
   }
 
+  async deleteDocument(propertyId: string, reservationId: string, documentId: string) {
+    return this.dataSource.transaction(async (manager) => {
+      const { reservation } = await this.loadReservation(propertyId, reservationId, manager);
+      const repository = manager.getRepository(GuestDocumentEntity);
+      const document = await repository.findOne({
+        where: { id: documentId, propertyId, reservationId: reservation.id },
+      });
+      if (!document) throw this.invalid();
+      await repository.delete(document.id);
+      const identity = await manager.getRepository(GuestIdentityDocumentEntity).findOne({
+        where: { reservationId: reservation.id, propertyId },
+      });
+      if (identity) {
+        if (document.side === 'ID_FRONT') identity.documentFrontUrl = null;
+        if (document.side === 'ID_BACK') identity.documentBackUrl = null;
+        await manager.getRepository(GuestIdentityDocumentEntity).save(identity);
+      }
+      return { deleted: true, documentId };
+    });
+  }
+
   private async uploadForSession(
     session: MobileCaptureSessionEntity,
     side: GuestDocumentSide,

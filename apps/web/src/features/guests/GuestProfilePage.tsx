@@ -1,12 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { Alert, Avatar, Box, Button, Card, Group, Paper, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core';
+import { Alert, Avatar, Box, Button, Card, FileButton, Group, Paper, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core';
 import { useParams } from 'next/navigation';
-import { AlertCircle, CalendarDays, ChevronLeft, Edit, FileText, IdCard, Languages, NotebookText, Sparkles, UserRound } from 'lucide-react';
+import { AlertCircle, CalendarDays, ChevronLeft, Edit, FileText, IdCard, Languages, NotebookText, Sparkles, Trash2, Upload, UserRound } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
-import { BackendUnavailable, GenericError, ServerStarting, useBackendStatus } from '@stayos/ui';
+import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
 import { useGuestDetails } from '../../lib/guest-hooks';
+import { deleteIdentityDocument, getCheckInWorkspace, uploadIdentityDocument, type LooseRecord } from '../check-in/check-in-api';
+import { useAuth } from '../auth/auth-context';
 import { documentPlaceholders, preferencePlaceholders } from './constants/guest.constants';
 import { GuestStatusBadge } from './components/GuestStatusBadge';
 import type { Guest } from './types/guest.types';
@@ -96,22 +99,151 @@ function Preferences() {
   );
 }
 
-function Documents() {
+type GuestDocument = {
+  createdAt: string;
+  id: string;
+  mimeType: string;
+  originalFilename: string;
+  side: string;
+};
+
+function getArray(record: LooseRecord | undefined, keys: string[]) {
+  for (const key of keys) {
+    const value = record?.[key];
+    if (Array.isArray(value)) return value;
+  }
+  return [];
+}
+
+function mapDocuments(workspace: LooseRecord | undefined): GuestDocument[] {
+  return getArray(workspace, ['documents'])
+    .map((item) => (item && typeof item === 'object' ? item as LooseRecord : undefined))
+    .filter((item): item is LooseRecord => Boolean(item))
+    .map((item) => ({
+      createdAt: typeof item.createdAt === 'string' ? item.createdAt : '',
+      id: typeof item.id === 'string' ? item.id : '',
+      mimeType: typeof item.mimeType === 'string' ? item.mimeType : '',
+      originalFilename: typeof item.originalFilename === 'string' ? item.originalFilename : 'Identity document',
+      side: typeof item.side === 'string' ? item.side : '',
+    }))
+    .filter((item) => item.id);
+}
+
+function Documents({
+  canManageGuests,
+  guest,
+  onRefreshGuest,
+  propertyId,
+}: {
+  canManageGuests: boolean;
+  guest: Guest;
+  onRefreshGuest: () => Promise<void>;
+  propertyId?: string;
+}) {
+  const latestReservation = useMemo(
+    () => [...(guest.reservations ?? [])].sort((a, b) => b.arrivalDate.localeCompare(a.arrivalDate))[0],
+    [guest.reservations],
+  );
+  const [documents, setDocuments] = useState<GuestDocument[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const canUpload = Boolean(propertyId && latestReservation?.id && canManageGuests);
+
+  const refreshDocuments = useCallback(async () => {
+    if (!propertyId || !latestReservation?.id) {
+      setDocuments([]);
+      return;
+    }
+    const workspace = await getCheckInWorkspace(propertyId, latestReservation.id).catch(() => undefined);
+    setDocuments(mapDocuments(workspace));
+  }, [latestReservation?.id, propertyId]);
+
+  useEffect(() => {
+    void refreshDocuments();
+  }, [refreshDocuments]);
+
+  const uploadDocument = async (file: File | null) => {
+    if (!file || !propertyId || !latestReservation?.id) return;
+    setIsUploading(true);
+    try {
+      await uploadIdentityDocument(propertyId, latestReservation.id, 'front', file);
+      await Promise.all([refreshDocuments(), onRefreshGuest()]);
+      showToast({ color: 'green', title: 'Document uploaded', message: 'Identity document uploaded successfully.' });
+    } catch {
+      showToast({ color: 'red', title: 'Upload failed', message: 'Unable to upload this document.' });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const deleteDocument = async (documentId: string) => {
+    if (!propertyId || !latestReservation?.id) return;
+    setIsDeleting(documentId);
+    try {
+      await deleteIdentityDocument(propertyId, latestReservation.id, documentId);
+      await refreshDocuments();
+      showToast({ color: 'green', title: 'Document deleted', message: 'Identity document removed.' });
+    } catch {
+      showToast({ color: 'red', title: 'Delete failed', message: 'Unable to delete this document.' });
+    } finally {
+      setIsDeleting(null);
+    }
+  };
+
   return (
     <Section title="Documents" icon={<IdCard size={17} />}>
       <Stack gap={spacing[2]}>
-        {documentPlaceholders.map((document) => (
-          <Paper key={document} radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
-            <Group justify="space-between">
-              <Box>
-                <Text fw={700} size="sm">{document}</Text>
-                <Text c="#64748b" size="xs">Not uploaded</Text>
-              </Box>
-              <Button disabled variant="light" color="gray" size="compact-sm">Upload</Button>
-            </Group>
-          </Paper>
-        ))}
-        <Text c="#64748b" size="xs">This section will power Check-In document verification.</Text>
+        <Paper radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
+          <Group justify="space-between">
+            <Box>
+              <Text fw={700} size="sm">Identity document</Text>
+              <Text c="#64748b" size="xs">
+                {latestReservation ? `Linked to latest reservation from ${latestReservation.arrivalDate}` : 'No reservation available'}
+              </Text>
+            </Box>
+            <FileButton onChange={(file) => void uploadDocument(file)} accept="image/*,application/pdf">
+              {(props) => (
+                <Button
+                  {...props}
+                  disabled={!canUpload}
+                  loading={isUploading}
+                  variant="light"
+                  color="stayosBrand"
+                  size="compact-sm"
+                  leftSection={<Upload size={14} />}
+                >
+                  Upload
+                </Button>
+              )}
+            </FileButton>
+          </Group>
+        </Paper>
+        {documents.length > 0 ? (
+          documents.map((document) => (
+            <Paper key={document.id} radius={radius.md} p={12} style={{ background: '#ffffff', border: '1px solid #eef2f7' }}>
+              <Group justify="space-between">
+                <Box>
+                  <Text fw={700} size="sm">{document.originalFilename}</Text>
+                  <Text c="#64748b" size="xs">{document.side.replace('ID_', '')} - {document.mimeType || 'Uploaded document'}</Text>
+                </Box>
+                <Button
+                  disabled={!canManageGuests}
+                  loading={isDeleting === document.id}
+                  variant="subtle"
+                  color="red"
+                  size="compact-sm"
+                  leftSection={<Trash2 size={14} />}
+                  onClick={() => void deleteDocument(document.id)}
+                >
+                  Delete
+                </Button>
+              </Group>
+            </Paper>
+          ))
+        ) : (
+          <Text c="#64748b" size="xs">{documentPlaceholders.join(', ')} not uploaded.</Text>
+        )}
+        {!canManageGuests ? <Text c="#64748b" size="xs">Guests manage permission is required to upload or delete documents.</Text> : null}
       </Stack>
     </Section>
   );
@@ -131,6 +263,7 @@ function Reservations({ guest }: { guest: Guest }) {
 export default function GuestProfilePage() {
   const params = useParams<{ guestId: string }>();
   const backend = useBackendStatus();
+  const auth = useAuth();
   const allowMockFallback = process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
   const canLoadGuest = backend.isOnline || (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
   const guestState = useGuestDetails({ allowMockFallback, enabled: canLoadGuest, guestId: params.guestId });
@@ -146,6 +279,7 @@ export default function GuestProfilePage() {
   }
 
   const guest = guestState.guest;
+  const canManageGuests = Boolean(auth.user?.permissions.includes('guests.manage') || auth.user?.permissions.includes('*'));
 
   return (
     <Stack gap={spacing[3]}>
@@ -157,7 +291,12 @@ export default function GuestProfilePage() {
         <Stack gap={spacing[3]} style={{ gridColumn: 'span 8' }}>
           <ProfileDetails guest={guest} />
           <Preferences />
-          <Documents />
+          <Documents
+            canManageGuests={canManageGuests}
+            guest={guest}
+            onRefreshGuest={guestState.refreshGuest}
+            propertyId={guestState.propertyId}
+          />
           <Reservations guest={guest} />
         </Stack>
         <Stack gap={spacing[3]} style={{ gridColumn: 'span 4' }}>

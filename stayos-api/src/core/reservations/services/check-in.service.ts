@@ -15,6 +15,7 @@ import { UpdateGuestRegistrationDto } from '../dto/update-guest-registration.dto
 import { UpdateIdentityVerificationDto } from '../dto/update-identity-verification.dto';
 import { GuestIdentityDocumentEntity } from '../infrastructure/guest-identity-document.entity';
 import { ReservationEntity } from '../infrastructure/reservation.entity';
+import { GuestDocumentEntity } from '../check-in-capture/guest-document.entity';
 
 interface ActorContext {
   actorId?: string | null;
@@ -25,6 +26,7 @@ interface WorkspaceParts {
   guest: GuestEntity;
   room: RoomEntity | null;
   identity: GuestIdentityDocumentEntity | null;
+  documents?: GuestDocumentEntity[];
 }
 
 @Injectable()
@@ -235,6 +237,10 @@ export class CheckInService {
         order: { updatedAt: 'DESC' },
       }),
     ]);
+    const documents = await manager.getRepository(GuestDocumentEntity).find({
+      where: { reservationId: reservation.id, propertyId },
+      order: { createdAt: 'DESC' },
+    });
 
     if (!guest) {
       throw new NotFoundException({
@@ -243,7 +249,7 @@ export class CheckInService {
       });
     }
 
-    return { reservation, guest, room, identity };
+    return { reservation, guest, room, identity, documents };
   }
 
   toWorkspace(parts: WorkspaceParts): CheckInWorkspaceResponseDto {
@@ -289,6 +295,14 @@ export class CheckInService {
         verifiedBy: identity?.verifiedByUserId ?? null,
         verifiedAt: identity?.verifiedAt ?? null,
       },
+      documents: (parts.documents ?? []).map((document) => ({
+        id: document.id,
+        side: document.side,
+        originalFilename: document.originalFilename,
+        mimeType: document.mimeType,
+        sizeBytes: document.sizeBytes,
+        createdAt: document.createdAt,
+      })),
       foreignGuest: {
         isForeignNational: reservation.isForeignNational ?? false,
         passportNumberMasked: reservation.passportNumberMasked ?? null,

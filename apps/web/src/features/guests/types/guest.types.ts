@@ -18,6 +18,12 @@ export type Guest = {
   status: GuestStatus;
   upcomingBooking: string;
   vipStatus: boolean;
+  reservations?: GuestReservationSummary[];
+};
+
+export type GuestReservationSummary = {
+  arrivalDate: string;
+  id: string;
 };
 
 export type GuestFormValues = {
