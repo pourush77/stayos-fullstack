@@ -14,3 +14,8 @@ coverage/
 npm-debug.log*
 .DS_Store
 Thumbs.db
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
