@@ -117,7 +117,7 @@ function CreateGuestQuickForm({
     await onSubmit(
       {
         alternatePhone,
-        bedPreference: 'Any',
+        bedPreference: '',
         blacklistStatus,
         dietaryNotes: '',
         displayName: nameParts.displayName,
@@ -130,7 +130,7 @@ function CreateGuestQuickForm({
         phone,
         preferredLanguage: language,
         roomPreference: '',
-        smokingPreference: 'No preference',
+        smokingPreference: '',
         status: 'ACTIVE',
         vipStatus,
       },
