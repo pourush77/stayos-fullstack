@@ -80,7 +80,9 @@ export function mapGuestOption(dto: GuestDto): GuestOption {
 
 export function mapRoomTypeOption(dto: InventoryRoomTypeDto): RoomTypeOption {
   const label = getString(dto, ['name', 'displayName', 'title', 'code'], 'Room Type');
+  const fallbackRate = label.toLowerCase().includes('suite') ? 6500 : label.toLowerCase().includes('deluxe') ? 3500 : 2800;
   return {
+    baseRate: getNumber(dto, ['baseRate', 'base_rate', 'rate', 'nightlyRate', 'price'], fallbackRate),
     capacity: getNumber(dto, ['capacity', 'maxOccupancy', 'occupancy'], label.toLowerCase().includes('suite') ? 3 : 2),
     id: getString(dto, ['id', '_id', 'uuid', 'roomTypeId'], label.toLowerCase().replace(/[^a-z0-9]+/g, '-')),
     label,

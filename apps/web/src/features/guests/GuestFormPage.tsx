@@ -145,6 +145,7 @@ function CreateGuestQuickForm({
       style={{
         background: 'linear-gradient(180deg, #fafbff 0%, #ffffff 100%)',
         minHeight: 'calc(100vh - 180px)',
+        paddingTop: '10vh',
       }}
     >
       <Stack gap={spacing[3]} maw={560} mx="auto">
@@ -239,7 +240,7 @@ function CreateGuestQuickForm({
                 Save & Create Booking →
               </Button>
               <Text c="#64748b" size="xs" ta="center">Guest saved. Booking form opens next.</Text>
-              <Button variant="subtle" color="gray" loading={isSubmitting} onClick={() => void submit(false)}>
+              <Button variant="subtle" color="gray" loading={isSubmitting} onClick={() => void submit(false)} size="sm">
                 Save only
               </Button>
               <Button

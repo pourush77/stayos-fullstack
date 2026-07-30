@@ -60,6 +60,7 @@ export type GuestOption = {
 };
 
 export type RoomTypeOption = {
+  baseRate: number;
   capacity: number;
   id: string;
   label: string;

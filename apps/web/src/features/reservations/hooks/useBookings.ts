@@ -127,8 +127,8 @@ export function useBookings({ allowMockFallback, enabled }: { allowMockFallback:
           isFallback: true,
           isLoading: false,
           roomTypes: [
-            { capacity: 2, id: 'deluxe', label: 'Deluxe' },
-            { capacity: 3, id: 'suite', label: 'Suite' },
+            { baseRate: 3500, capacity: 2, id: 'deluxe', label: 'Deluxe' },
+            { baseRate: 6500, capacity: 3, id: 'suite', label: 'Suite' },
           ],
         });
         return;
@@ -209,8 +209,8 @@ export function useBookingDetails({
           isFallback: true,
           isLoading: false,
           roomTypes: [
-            { capacity: 2, id: 'deluxe', label: 'Deluxe' },
-            { capacity: 3, id: 'suite', label: 'Suite' },
+            { baseRate: 3500, capacity: 2, id: 'deluxe', label: 'Deluxe' },
+            { baseRate: 6500, capacity: 3, id: 'suite', label: 'Suite' },
           ],
         });
         return;
