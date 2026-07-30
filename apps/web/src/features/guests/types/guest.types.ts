@@ -3,9 +3,12 @@ export type GuestStatus = 'ACTIVE' | 'INACTIVE' | 'BLACKLISTED';
 export type Guest = {
   alternatePhone: string;
   blacklistStatus: boolean;
+  bedPreference: string;
+  dietaryNotes: string;
   displayName: string;
   email: string;
   firstName: string;
+  floorPreference: string;
   fullName: string;
   id: string;
   initials: string;
@@ -15,6 +18,8 @@ export type Guest = {
   notes: string;
   phone: string;
   preferredLanguage: string;
+  roomPreference: string;
+  smokingPreference: string;
   status: GuestStatus;
   upcomingBooking: string;
   vipStatus: boolean;
@@ -24,17 +29,25 @@ export type Guest = {
 export type GuestReservationSummary = {
   arrivalDate: string;
   id: string;
+  status: string;
 };
 
 export type GuestFormValues = {
   alternatePhone: string;
+  bedPreference: string;
   blacklistStatus: boolean;
+  dietaryNotes: string;
+  displayName: string;
   email: string;
   firstName: string;
+  floorPreference: string;
   lastName: string;
   nationality: string;
+  notes: string;
   phone: string;
   preferredLanguage: string;
+  roomPreference: string;
+  smokingPreference: string;
   status: GuestStatus;
   vipStatus: boolean;
 };

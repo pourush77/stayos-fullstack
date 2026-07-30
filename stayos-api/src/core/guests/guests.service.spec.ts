@@ -186,6 +186,30 @@ describe('GuestsService', () => {
     });
   });
 
+  it('updates guest preference fields', async () => {
+    guestsRepository.findOne?.mockResolvedValue(guestEntity);
+    guestsRepository.merge?.mockImplementation((guest, update) => ({ ...guest, ...update }));
+    guestsRepository.save?.mockImplementation(async (guest) => guest);
+
+    await expect(
+      service.update(propertyId, guestId, {
+        bedPreference: 'King',
+        dietaryNotes: 'Vegetarian',
+        floorPreference: 'High floor',
+        roomPreference: 'Quiet room',
+        smokingPreference: 'Non-smoking',
+      }),
+    ).resolves.toEqual({
+      ...guestEntity,
+      bedPreference: 'King',
+      dietaryNotes: 'Vegetarian',
+      floorPreference: 'High floor',
+      reservations: [],
+      roomPreference: 'Quiet room',
+      smokingPreference: 'Non-smoking',
+    });
+  });
+
   it('gets a guest by id within the property', async () => {
     guestsRepository.findOne?.mockResolvedValue(guestEntity);
 
@@ -199,7 +223,7 @@ describe('GuestsService', () => {
     expect(reservationsRepository.find).toHaveBeenCalledWith({
       where: { guestId, propertyId },
       order: { arrivalDate: 'DESC' },
-      select: { arrivalDate: true, id: true },
+      select: { arrivalDate: true, id: true, status: true },
     });
   });
 

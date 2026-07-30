@@ -85,6 +85,21 @@ export class GuestEntity {
   @Column({ type: 'varchar', length: 64, name: 'preferred_language', nullable: true })
   preferredLanguage!: string | null;
 
+  @Column({ type: 'varchar', length: 160, name: 'room_preference', nullable: true })
+  roomPreference?: string | null;
+
+  @Column({ type: 'varchar', length: 64, name: 'bed_preference', nullable: true })
+  bedPreference?: string | null;
+
+  @Column({ type: 'varchar', length: 64, name: 'smoking_preference', nullable: true })
+  smokingPreference?: string | null;
+
+  @Column({ type: 'varchar', length: 160, name: 'floor_preference', nullable: true })
+  floorPreference?: string | null;
+
+  @Column({ type: 'text', name: 'dietary_notes', nullable: true })
+  dietaryNotes?: string | null;
+
   @Column({ type: 'varchar', length: 160, name: 'company_name', nullable: true })
   companyName!: string | null;
 

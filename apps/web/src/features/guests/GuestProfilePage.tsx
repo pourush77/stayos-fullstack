@@ -10,9 +10,9 @@ import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackend
 import { useGuestDetails } from '../../lib/guest-hooks';
 import { deleteIdentityDocument, getCheckInWorkspace, uploadIdentityDocument, type LooseRecord } from '../check-in/check-in-api';
 import { useAuth } from '../auth/auth-context';
-import { documentPlaceholders, preferencePlaceholders } from './constants/guest.constants';
+import { documentPlaceholders } from './constants/guest.constants';
 import { GuestStatusBadge } from './components/GuestStatusBadge';
-import type { Guest } from './types/guest.types';
+import type { Guest, GuestReservationSummary } from './types/guest.types';
 
 const cardStyle = {
   background: '#ffffff',
@@ -41,7 +41,44 @@ function Section({ children, icon, title }: { children: React.ReactNode; icon: R
   );
 }
 
+function normalizeReservationStatus(reservation: GuestReservationSummary) {
+  return reservation.status.toUpperCase().replace(/[\s-]/g, '_');
+}
+
+function getGuestActionState(guest: Guest) {
+  const reservations = [...(guest.reservations ?? [])].sort((a, b) => b.arrivalDate.localeCompare(a.arrivalDate));
+  const checkedIn = reservations.find((reservation) => normalizeReservationStatus(reservation) === 'CHECKED_IN');
+  const activeBooking = reservations.find((reservation) => ['RESERVED', 'CONFIRMED', 'PENDING', 'CHECKED_IN'].includes(normalizeReservationStatus(reservation)));
+
+  if (checkedIn) {
+    return {
+      helper: 'Next step: view the active stay for this guest.',
+      primary: { href: `/guest-stay/${checkedIn.id}`, label: 'View Stay' },
+      secondary: { href: `/guests/${guest.id}/edit`, label: 'Edit Guest' },
+      tertiary: undefined,
+    };
+  }
+
+  if (activeBooking) {
+    return {
+      helper: 'Next step: start check-in for the active booking.',
+      primary: { href: `/check-in?reservation=${activeBooking.id}`, label: 'Start Check-In' },
+      secondary: { href: `/guests/${guest.id}/edit`, label: 'Edit Guest' },
+      tertiary: { href: `/reservations/${activeBooking.id}`, label: 'View Booking' },
+    };
+  }
+
+  return {
+    helper: 'Next step: create a booking for this guest.',
+    primary: { href: `/reservations/new?guestId=${guest.id}`, label: 'Create Booking' },
+    secondary: { href: `/guests/${guest.id}/edit`, label: 'Edit Guest' },
+    tertiary: undefined,
+  };
+}
+
 function Header({ guest }: { guest: Guest }) {
+  const actionState = getGuestActionState(guest);
+
   return (
     <Card radius={radius.lg} p={20} style={cardStyle}>
       <Group justify="space-between" align="flex-start" gap={spacing[4]}>
@@ -60,11 +97,22 @@ function Header({ guest }: { guest: Guest }) {
             <Text c="#64748b" style={{ fontSize: 13 }}>Preferred language: {guest.preferredLanguage}</Text>
           </Stack>
         </Group>
-        <Group gap={8}>
-          <Button component={Link} href={`/guests/${guest.id}/edit`} color="stayosBrand" leftSection={<Edit size={16} />}>Edit Guest</Button>
-          <Button component={Link} href="/reservations/availability" variant="light" color="stayosBrand">Create Booking</Button>
-          <Button component={Link} href="/check-in" variant="subtle" color="gray">Start Check-In</Button>
-        </Group>
+        <Stack gap={6} align="flex-end">
+          <Group gap={8} justify="flex-end">
+            <Button component={Link} href={actionState.primary.href} color="stayosBrand">
+              {actionState.primary.label}
+            </Button>
+            <Button component={Link} href={actionState.secondary.href} variant="light" color="stayosBrand" leftSection={<Edit size={16} />}>
+              {actionState.secondary.label}
+            </Button>
+            {actionState.tertiary ? (
+              <Button component={Link} href={actionState.tertiary.href} variant="subtle" color="gray">
+                {actionState.tertiary.label}
+              </Button>
+            ) : null}
+          </Group>
+          <Text c="#64748b" size="xs">{actionState.helper}</Text>
+        </Stack>
       </Group>
     </Card>
   );
@@ -89,11 +137,20 @@ function ProfileDetails({ guest }: { guest: Guest }) {
   );
 }
 
-function Preferences() {
+function Preferences({ guest }: { guest: Guest }) {
+  const preferences = [
+    ['Room preference', guest.roomPreference],
+    ['Bed preference', guest.bedPreference],
+    ['Smoking preference', guest.smokingPreference],
+    ['Floor preference', guest.floorPreference],
+    ['Dietary notes', guest.dietaryNotes],
+    ['Special notes', guest.notes],
+  ];
+
   return (
     <Section title="Preferences" icon={<Sparkles size={17} />}>
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing={spacing[3]}>
-        {preferencePlaceholders.map(([label, value]) => <DetailTile key={label} label={label} value={value} />)}
+        {preferences.map(([label, value]) => <DetailTile key={label} label={label} value={value} />)}
       </SimpleGrid>
     </Section>
   );
@@ -290,7 +347,7 @@ export default function GuestProfilePage() {
       <SimpleGrid cols={{ base: 1, lg: 12 }} spacing={spacing[3]}>
         <Stack gap={spacing[3]} style={{ gridColumn: 'span 8' }}>
           <ProfileDetails guest={guest} />
-          <Preferences />
+          <Preferences guest={guest} />
           <Documents
             canManageGuests={canManageGuests}
             guest={guest}

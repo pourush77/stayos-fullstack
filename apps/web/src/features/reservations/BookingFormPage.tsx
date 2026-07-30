@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Alert, Button, Card, Stack, Title } from '@mantine/core';
 import { ChevronLeft, CalendarDays } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
@@ -19,6 +19,8 @@ const cardStyle = {
 export function BookingFormPage({ mode }: { mode: 'create' | 'edit' }) {
   const params = useParams<{ reservationId?: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialGuestId = mode === 'create' ? searchParams.get('guestId') ?? undefined : undefined;
   const backend = useBackendStatus();
   const allowMockFallback = process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
   const enabled = backend.isOnline || (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
@@ -54,6 +56,7 @@ export function BookingFormPage({ mode }: { mode: 'create' | 'edit' }) {
         <BookingForm
           booking={details.booking}
           guests={mode === 'create' ? bookings.guests : details.guests}
+          initialGuestId={initialGuestId}
           isEdit={mode === 'edit'}
           isSubmitting={isSubmitting}
           onCancel={() => router.back()}

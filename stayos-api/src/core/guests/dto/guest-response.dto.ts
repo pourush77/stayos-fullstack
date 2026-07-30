@@ -7,6 +7,9 @@ export class GuestReservationSummaryDto {
 
   @ApiProperty({ type: String, format: 'date' })
   arrivalDate!: string;
+
+  @ApiProperty()
+  status!: string;
 }
 
 export class GuestResponseDto {
@@ -48,6 +51,21 @@ export class GuestResponseDto {
 
   @ApiPropertyOptional()
   preferredLanguage!: string | null;
+
+  @ApiPropertyOptional()
+  roomPreference!: string | null;
+
+  @ApiPropertyOptional()
+  bedPreference!: string | null;
+
+  @ApiPropertyOptional()
+  smokingPreference!: string | null;
+
+  @ApiPropertyOptional()
+  floorPreference!: string | null;
+
+  @ApiPropertyOptional()
+  dietaryNotes!: string | null;
 
   @ApiPropertyOptional()
   companyName!: string | null;

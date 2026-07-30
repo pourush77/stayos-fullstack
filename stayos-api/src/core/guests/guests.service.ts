@@ -99,7 +99,7 @@ export class GuestsService {
     const reservations = await this.reservationsRepository.find({
       where: { guestId: guest.id, propertyId },
       order: { arrivalDate: 'DESC' },
-      select: { arrivalDate: true, id: true },
+      select: { arrivalDate: true, id: true, status: true },
     });
 
     return Object.assign(guest, { reservations });
@@ -198,6 +198,11 @@ export class GuestsService {
       anniversaryDate: dto.anniversaryDate ?? null,
       nationality: dto.nationality ?? null,
       preferredLanguage: dto.preferredLanguage ?? null,
+      roomPreference: dto.roomPreference ?? null,
+      bedPreference: dto.bedPreference ?? null,
+      smokingPreference: dto.smokingPreference ?? null,
+      floorPreference: dto.floorPreference ?? null,
+      dietaryNotes: dto.dietaryNotes ?? null,
       companyName: dto.companyName ?? null,
       gstNumber: dto.gstNumber ?? null,
       notes: dto.notes ?? null,
@@ -216,6 +221,11 @@ export class GuestsService {
       'anniversaryDate',
       'nationality',
       'preferredLanguage',
+      'roomPreference',
+      'bedPreference',
+      'smokingPreference',
+      'floorPreference',
+      'dietaryNotes',
       'companyName',
       'gstNumber',
       'notes',

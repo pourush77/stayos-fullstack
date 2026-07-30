@@ -98,6 +98,41 @@ export class CreateGuestDto {
   @Length(1, 64)
   preferredLanguage?: string;
 
+  @ApiPropertyOptional({ example: 'Quiet room away from elevator', maxLength: 160 })
+  @Transform(trim)
+  @IsOptional()
+  @IsString()
+  @Length(1, 160)
+  roomPreference?: string;
+
+  @ApiPropertyOptional({ example: 'King', maxLength: 64 })
+  @Transform(trim)
+  @IsOptional()
+  @IsString()
+  @Length(1, 64)
+  bedPreference?: string;
+
+  @ApiPropertyOptional({ example: 'Non-smoking', maxLength: 64 })
+  @Transform(trim)
+  @IsOptional()
+  @IsString()
+  @Length(1, 64)
+  smokingPreference?: string;
+
+  @ApiPropertyOptional({ example: 'High floor', maxLength: 160 })
+  @Transform(trim)
+  @IsOptional()
+  @IsString()
+  @Length(1, 160)
+  floorPreference?: string;
+
+  @ApiPropertyOptional({ example: 'Vegetarian meals preferred' })
+  @Transform(trim)
+  @IsOptional()
+  @IsString()
+  @Length(1, 2000)
+  dietaryNotes?: string;
+
   @ApiPropertyOptional({ example: 'Acme Travels Pvt Ltd', maxLength: 160 })
   @Transform(trim)
   @IsOptional()

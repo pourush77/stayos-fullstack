@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button, Group, NumberInput, Select, SimpleGrid, Stack, Text, Textarea } from '@mantine/core';
 import { DateInput } from '@mantine/dates';
 import { Plus, Save } from 'lucide-react';
@@ -27,6 +27,7 @@ function valueToDate(value: Date | string | null) {
 export function BookingForm({
   booking,
   guests,
+  initialGuestId,
   isEdit = false,
   isSubmitting,
   onCancel,
@@ -35,6 +36,7 @@ export function BookingForm({
 }: {
   booking?: Booking;
   guests: GuestOption[];
+  initialGuestId?: string;
   isEdit?: boolean;
   isSubmitting: boolean;
   onCancel: () => void;
@@ -50,6 +52,12 @@ export function BookingForm({
     setValues((current) => ({ ...current, [key]: value }));
     setErrors((current) => ({ ...current, [key]: undefined }));
   };
+
+  useEffect(() => {
+    if (isEdit || !initialGuestId) return;
+    if (!guests.some((guest) => guest.id === initialGuestId)) return;
+    setValues((current) => (current.guestId ? current : { ...current, guestId: initialGuestId }));
+  }, [guests, initialGuestId, isEdit]);
 
   const submit = async () => {
     const nextErrors = validateBookingForm(values, roomTypes);

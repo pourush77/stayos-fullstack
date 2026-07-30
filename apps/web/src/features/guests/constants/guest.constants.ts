@@ -47,10 +47,13 @@ function createMockGuest(
 
   return {
     alternatePhone: 'Not recorded',
+    bedPreference: 'Not recorded',
     blacklistStatus: false,
+    dietaryNotes: 'Not recorded',
     displayName: fullName,
     email,
     firstName,
+    floorPreference: 'Not recorded',
     fullName,
     id,
     initials: `${firstName[0]}${lastName[0]}`.toUpperCase(),
@@ -60,6 +63,8 @@ function createMockGuest(
     notes: vipStatus ? 'Prefers quiet rooms and a high-touch arrival experience.' : 'No notes added.',
     phone,
     preferredLanguage: 'English',
+    roomPreference: 'Not recorded',
+    smokingPreference: 'Not recorded',
     status: 'ACTIVE',
     upcomingBooking,
     vipStatus,

@@ -49,9 +49,12 @@ export function mapGuest(dto: GuestDto): Guest {
   return {
     alternatePhone: getString(dto, ['alternatePhone', 'alternate_phone'], 'Not recorded'),
     blacklistStatus: status === 'BLACKLISTED',
+    bedPreference: getString(dto, ['bedPreference', 'bed_preference'], 'Not recorded'),
+    dietaryNotes: getString(dto, ['dietaryNotes', 'dietary_notes'], 'Not recorded'),
     displayName: fullName,
     email: getString(dto, ['email'], 'Not recorded'),
     firstName: firstName || fullName.split(' ')[0] || '',
+    floorPreference: getString(dto, ['floorPreference', 'floor_preference'], 'Not recorded'),
     fullName,
     id: getString(dto, ['id', '_id', 'uuid', 'guestId'], fullName.toLowerCase().replace(/[^a-z0-9]+/g, '-')),
     initials: initialsFor(firstName, lastName, fullName),
@@ -61,6 +64,8 @@ export function mapGuest(dto: GuestDto): Guest {
     notes: getString(dto, ['notes', 'note'], 'No notes added.'),
     phone: getString(dto, ['phone', 'mobile', 'phoneNumber'], 'Not recorded'),
     preferredLanguage: getString(dto, ['preferredLanguage', 'language'], 'Not recorded'),
+    roomPreference: getString(dto, ['roomPreference', 'room_preference'], 'Not recorded'),
+    smokingPreference: getString(dto, ['smokingPreference', 'smoking_preference'], 'Not recorded'),
     status,
     upcomingBooking: getString(dto, ['upcomingBooking', 'nextReservation'], 'Not connected'),
     vipStatus: getBoolean(dto, ['vipStatus', 'vip', 'isVip']),
@@ -70,6 +75,7 @@ export function mapGuest(dto: GuestDto): Guest {
       .map((item) => ({
         arrivalDate: getString(item, ['arrivalDate']),
         id: getString(item, ['id', 'reservationId']),
+        status: getString(item, ['status']),
       }))
       .filter((item) => item.id),
   };
@@ -78,13 +84,20 @@ export function mapGuest(dto: GuestDto): Guest {
 export function guestToFormValues(guest?: Guest): GuestFormValues {
   return {
     alternatePhone: guest?.alternatePhone === 'Not recorded' ? '' : guest?.alternatePhone ?? '',
+    bedPreference: guest?.bedPreference === 'Not recorded' ? 'Any' : guest?.bedPreference ?? 'Any',
     blacklistStatus: guest?.blacklistStatus ?? false,
+    dietaryNotes: guest?.dietaryNotes === 'Not recorded' ? '' : guest?.dietaryNotes ?? '',
+    displayName: guest?.displayName ?? '',
     email: guest?.email === 'Not recorded' ? '' : guest?.email ?? '',
     firstName: guest?.firstName ?? '',
+    floorPreference: guest?.floorPreference === 'Not recorded' ? '' : guest?.floorPreference ?? '',
     lastName: guest?.lastName ?? '',
     nationality: guest?.nationality === 'Not recorded' ? '' : guest?.nationality ?? '',
+    notes: guest?.notes === 'No notes added.' ? '' : guest?.notes ?? '',
     phone: guest?.phone === 'Not recorded' ? '' : guest?.phone ?? '',
     preferredLanguage: guest?.preferredLanguage === 'Not recorded' ? '' : guest?.preferredLanguage ?? 'English',
+    roomPreference: guest?.roomPreference === 'Not recorded' ? '' : guest?.roomPreference ?? '',
+    smokingPreference: guest?.smokingPreference === 'Not recorded' ? 'No preference' : guest?.smokingPreference ?? 'No preference',
     status: guest?.status ?? 'ACTIVE',
     vipStatus: guest?.vipStatus ?? false,
   };
@@ -93,14 +106,20 @@ export function guestToFormValues(guest?: Guest): GuestFormValues {
 export function formValuesToPayload(values: GuestFormValues): GuestPayloadDto {
   return {
     alternatePhone: values.alternatePhone.trim() || undefined,
+    bedPreference: values.bedPreference.trim() || undefined,
     blacklistStatus: values.blacklistStatus,
-    displayName: `${values.firstName.trim()} ${values.lastName.trim()}`.trim(),
+    dietaryNotes: values.dietaryNotes.trim() || undefined,
+    displayName: values.displayName.trim() || `${values.firstName.trim()} ${values.lastName.trim()}`.trim(),
     email: values.email.trim() || undefined,
     firstName: values.firstName.trim(),
+    floorPreference: values.floorPreference.trim() || undefined,
     lastName: values.lastName.trim(),
     nationality: values.nationality.trim() || undefined,
+    notes: values.notes.trim() || undefined,
     phone: values.phone.trim(),
     preferredLanguage: values.preferredLanguage.trim() || undefined,
+    roomPreference: values.roomPreference.trim() || undefined,
+    smokingPreference: values.smokingPreference.trim() || undefined,
     status: values.blacklistStatus ? 'BLACKLISTED' : values.status,
     vipStatus: values.vipStatus,
   };

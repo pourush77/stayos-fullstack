@@ -3,7 +3,7 @@ import { GuestEntity } from './infrastructure/guest.entity';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 
 type GuestWithReservations = GuestEntity & {
-  reservations?: Pick<ReservationEntity, 'arrivalDate' | 'id'>[];
+  reservations?: Pick<ReservationEntity, 'arrivalDate' | 'id' | 'status'>[];
 };
 
 export class GuestsMapper {
@@ -22,6 +22,11 @@ export class GuestsMapper {
       anniversaryDate: entity.anniversaryDate,
       nationality: entity.nationality,
       preferredLanguage: entity.preferredLanguage,
+      roomPreference: entity.roomPreference ?? null,
+      bedPreference: entity.bedPreference ?? null,
+      smokingPreference: entity.smokingPreference ?? null,
+      floorPreference: entity.floorPreference ?? null,
+      dietaryNotes: entity.dietaryNotes ?? null,
       companyName: entity.companyName,
       gstNumber: entity.gstNumber,
       vipStatus: entity.vipStatus,
@@ -33,6 +38,7 @@ export class GuestsMapper {
       reservations: (entity.reservations ?? []).map((reservation) => ({
         id: reservation.id,
         arrivalDate: reservation.arrivalDate,
+        status: reservation.status,
       })),
     };
   }

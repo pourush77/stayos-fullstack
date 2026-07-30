@@ -1,10 +1,12 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Button, Checkbox, Group, Select, SimpleGrid, Stack, TextInput } from '@mantine/core';
+import { Autocomplete, Button, Checkbox, Group, Select, SimpleGrid, Stack, Text, Textarea, TextInput } from '@mantine/core';
 import { Save } from 'lucide-react';
 import { spacing } from '@stayos/theme';
 import { guestStatusOptions } from '../constants/guest.constants';
+import { preferredLanguageOptions } from '../constants/languages';
+import { nationalityOptions } from '../constants/nationalities';
 import type { Guest, GuestFormValues, GuestStatus } from '../types/guest.types';
 import { guestToFormValues } from '../utils/guest-mappers';
 import { hasGuestFormErrors, validateGuestForm, type GuestFormErrors } from '../utils/guest-validation';
@@ -29,6 +31,18 @@ export function GuestForm({
     setErrors((current) => ({ ...current, [key]: undefined }));
   };
 
+  const updateNameValue = (key: 'firstName' | 'lastName', value: string) => {
+    setValues((current) => {
+      const next = { ...current, [key]: value };
+      const currentGeneratedName = `${current.firstName.trim()} ${current.lastName.trim()}`.trim();
+      if (!guest && (!current.displayName.trim() || current.displayName.trim() === currentGeneratedName)) {
+        next.displayName = `${next.firstName.trim()} ${next.lastName.trim()}`.trim();
+      }
+      return next;
+    });
+    setErrors((current) => ({ ...current, [key]: undefined }));
+  };
+
   const submit = async () => {
     const nextErrors = validateGuestForm(values);
     setErrors(nextErrors);
@@ -44,16 +58,21 @@ export function GuestForm({
         <TextInput
           error={errors.firstName}
           label="First name"
-          onChange={(event) => updateValue('firstName', event.currentTarget.value)}
+          onChange={(event) => updateNameValue('firstName', event.currentTarget.value)}
           required
           value={values.firstName}
         />
         <TextInput
           error={errors.lastName}
           label="Last name"
-          onChange={(event) => updateValue('lastName', event.currentTarget.value)}
+          onChange={(event) => updateNameValue('lastName', event.currentTarget.value)}
           required
           value={values.lastName}
+        />
+        <TextInput
+          label="Display name"
+          onChange={(event) => updateValue('displayName', event.currentTarget.value)}
+          value={values.displayName}
         />
         <TextInput
           error={errors.phone}
@@ -73,14 +92,16 @@ export function GuestForm({
           onChange={(event) => updateValue('alternatePhone', event.currentTarget.value)}
           value={values.alternatePhone}
         />
-        <TextInput
+        <Autocomplete
+          data={nationalityOptions}
           label="Nationality"
-          onChange={(event) => updateValue('nationality', event.currentTarget.value)}
+          onChange={(value) => updateValue('nationality', value)}
           value={values.nationality}
         />
-        <TextInput
+        <Autocomplete
+          data={preferredLanguageOptions}
           label="Preferred language"
-          onChange={(event) => updateValue('preferredLanguage', event.currentTarget.value)}
+          onChange={(value) => updateValue('preferredLanguage', value)}
           value={values.preferredLanguage}
         />
         <Select
@@ -103,6 +124,46 @@ export function GuestForm({
           onChange={(event) => updateValue('blacklistStatus', event.currentTarget.checked)}
         />
       </Group>
+
+      <Stack gap={spacing[2]}>
+        <Text c="#101828" fw={800}>Preferences</Text>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+          <TextInput
+            label="Room preference"
+            onChange={(event) => updateValue('roomPreference', event.currentTarget.value)}
+            value={values.roomPreference}
+          />
+          <Select
+            data={['King', 'Queen', 'Twin', 'Any']}
+            label="Bed preference"
+            onChange={(value) => updateValue('bedPreference', value ?? 'Any')}
+            value={values.bedPreference}
+          />
+          <Select
+            data={['Non-smoking', 'Smoking', 'No preference']}
+            label="Smoking preference"
+            onChange={(value) => updateValue('smokingPreference', value ?? 'No preference')}
+            value={values.smokingPreference}
+          />
+          <TextInput
+            label="Floor preference"
+            onChange={(event) => updateValue('floorPreference', event.currentTarget.value)}
+            value={values.floorPreference}
+          />
+          <Textarea
+            label="Dietary notes"
+            minRows={3}
+            onChange={(event) => updateValue('dietaryNotes', event.currentTarget.value)}
+            value={values.dietaryNotes}
+          />
+          <Textarea
+            label="Notes"
+            minRows={3}
+            onChange={(event) => updateValue('notes', event.currentTarget.value)}
+            value={values.notes}
+          />
+        </SimpleGrid>
+      </Stack>
 
       <Group justify="flex-end">
         <Button variant="subtle" color="gray" onClick={onCancel}>
