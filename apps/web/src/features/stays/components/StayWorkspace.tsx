@@ -39,7 +39,9 @@ import {
 } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
+import { useAuth } from '../../auth/auth-context';
 import { useStayWorkspace } from '../hooks/useStayWorkspace';
+import { StayBillingPanel } from './StayBillingPanel';
 import type { Stay } from '../types/stay.types';
 import { formatDisplayDate } from '../utils/stay-formatters';
 
@@ -170,7 +172,21 @@ function OperationalSection({
   );
 }
 
-function OperationalSections({ onMoveRoom, stay }: { onMoveRoom: () => void; stay: Stay }) {
+function OperationalSections({
+  billingReservationId,
+  billingPropertyId,
+  canManageBilling,
+  canViewBilling,
+  onMoveRoom,
+  stay,
+}: {
+  billingReservationId: string;
+  billingPropertyId: string;
+  canManageBilling: boolean;
+  canViewBilling: boolean;
+  onMoveRoom: () => void;
+  stay: Stay;
+}) {
   const [openSection, setOpenSection] = useState<SectionKey>('guest');
   const toggle = (section: SectionKey) => setOpenSection((current) => (current === section ? 'guest' : section));
 
@@ -200,15 +216,16 @@ function OperationalSections({ onMoveRoom, stay }: { onMoveRoom: () => void; sta
       </OperationalSection>
 
       <OperationalSection title="Billing" icon={<ReceiptText size={17} />} isOpen={openSection === 'billing'} onToggle={() => toggle('billing')}>
-        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing={spacing[3]}>
-          <DetailTile label="Payment Status" value={stay.billing.paymentStatus} />
-          <DetailTile label="Outstanding Amount" value={stay.billing.outstandingAmount} />
-          <DetailTile label="Deposit" value={stay.billing.deposit} />
-          <DetailTile label="Balance" value={stay.billing.balance} />
-          <DetailTile label="Room Charges" value={stay.billing.roomCharges} />
-          <DetailTile label="Collect Payment" value={<Button disabled size="compact-sm" variant="light" color="gray" leftSection={<CreditCard size={14} />}>Collect Payment</Button>} />
-        </SimpleGrid>
-        {!stay.billing.isConnected ? <Text c="#64748b" mt={spacing[3]} size="sm">Billing module coming soon.</Text> : null}
+        {billingReservationId && billingPropertyId ? (
+          <StayBillingPanel
+            canManage={canManageBilling}
+            canView={canViewBilling}
+            propertyId={billingPropertyId}
+            reservationId={billingReservationId}
+          />
+        ) : (
+          <Text c="#64748b" size="sm">Billing unavailable for this stay.</Text>
+        )}
       </OperationalSection>
 
       <OperationalSection title="Documents" icon={<IdCard size={17} />} isOpen={openSection === 'documents'} onToggle={() => toggle('documents')}>
@@ -267,6 +284,10 @@ export default function StayWorkspace() {
   const params = useParams<{ stayId?: string }>();
   const router = useRouter();
   const backend = useBackendStatus();
+  const auth = useAuth();
+  const permissions = auth.user?.permissions ?? [];
+  const canViewBilling = permissions.includes('billing.view') || permissions.includes('*');
+  const canManageBilling = permissions.includes('billing.manage') || permissions.includes('*');
   const enabled = backend.isOnline || (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
   const stayState = useStayWorkspace({ enabled, stayId: params.stayId });
   const [checkoutOpened, setCheckoutOpened] = useState(false);
@@ -311,7 +332,14 @@ export default function StayWorkspace() {
         <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 800 }}>Overview</Title>
         <Box mt={spacing[3]}><OverviewPanel stay={stay} /></Box>
       </Card>
-      <OperationalSections stay={stay} onMoveRoom={moveRoom} />
+      <OperationalSections
+        billingPropertyId={stayState.propertyId ?? ''}
+        billingReservationId={params.stayId ?? ''}
+        canManageBilling={canManageBilling}
+        canViewBilling={canViewBilling}
+        onMoveRoom={moveRoom}
+        stay={stay}
+      />
 
       <Modal opened={checkoutOpened} onClose={() => setCheckoutOpened(false)} centered title="Check out guest?">
         <Stack gap={spacing[4]}>
