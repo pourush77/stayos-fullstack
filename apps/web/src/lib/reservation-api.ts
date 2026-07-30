@@ -178,3 +178,20 @@ export function extendReservationStay(
     },
   );
 }
+
+export function moveReservationRoom(
+  propertyId: string,
+  reservationId: string,
+  roomId: string,
+  reason?: string,
+  signal?: AbortSignal,
+) {
+  return request<ReservationWorkflowResponseDto>(
+    `/properties/${propertyId}/reservations/${reservationId}/move-room`,
+    {
+      body: JSON.stringify({ roomId, reason }),
+      method: 'PATCH',
+      signal,
+    },
+  );
+}

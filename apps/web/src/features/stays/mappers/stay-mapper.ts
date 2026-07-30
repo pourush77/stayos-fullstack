@@ -149,6 +149,17 @@ function roomTypeName(room: Record<string, unknown> | OperationsRoomBoardItemDto
   );
 }
 
+function roomTypeId(room: Record<string, unknown> | OperationsRoomBoardItemDto | undefined, reservation: ReservationDto) {
+  const roomType = getRecord(room as Record<string, unknown> | undefined, ['roomType']);
+  const reservationRoomType = getRecord(reservation, ['roomType']);
+  return (
+    getString(reservation, ['roomTypeId']) ||
+    getString(roomType, ['id', '_id', 'uuid']) ||
+    getString(reservationRoomType, ['id', '_id', 'uuid']) ||
+    undefined
+  );
+}
+
 function floorName(room: Record<string, unknown> | OperationsRoomBoardItemDto | undefined) {
   const floor = getRecord(room as Record<string, unknown> | undefined, ['floor']);
   return roomValue(room, ['floorName'], getString(floor, ['name', 'code'], 'Floor not recorded'));
@@ -269,6 +280,7 @@ export function mapStayWorkspace(dto: StayWorkspaceDto): Stay {
     roomNumber: roomNumber(room, reservation),
     roomStatus: roomValue(room, ['operationalStatus', 'status', 'uiStatus'], 'Room status not recorded'),
     roomType: roomTypeName(room, reservation),
+    roomTypeId: roomTypeId(room, reservation),
     status: normalizeStatus(getString(reservation, ['status'], 'CHECKED_IN')),
   };
 

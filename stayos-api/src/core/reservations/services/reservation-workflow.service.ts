@@ -9,6 +9,7 @@ import { RoomOperationalStatus } from '../../rooms/domain/room-operational-statu
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
 import { AssignRoomDto } from '../dto/assign-room.dto';
 import { ExtendReservationDto } from '../dto/extend-reservation.dto';
+import { MoveRoomDto } from '../dto/move-room.dto';
 import { ReservationWorkflowResponseDto } from '../dto/reservation-workflow-response.dto';
 import { ReservationStatus } from '../domain/reservation-status.enum';
 import { ReservationEntity } from '../infrastructure/reservation.entity';
@@ -341,6 +342,94 @@ export class ReservationWorkflowService {
     });
   }
 
+  async moveRoom(
+    propertyId: string,
+    reservationId: string,
+    dto: MoveRoomDto,
+    actorContext: WorkflowActorContext = {},
+  ): Promise<ReservationWorkflowResponseDto> {
+    return this.dataSource.transaction(async (manager) => {
+      const reservationRepository = manager.getRepository(ReservationEntity);
+      const roomRepository = manager.getRepository(RoomEntity);
+
+      const reservation = await this.findReservation(
+        reservationRepository,
+        propertyId,
+        reservationId,
+      );
+
+      if (reservation.status !== ReservationStatus.CHECKED_IN) {
+        throw this.badRequest(ApiErrorCode.INVALID_STATE, 'Only checked-in stays can be moved');
+      }
+
+      if (!reservation.roomId) {
+        throw this.badRequest(
+          ApiErrorCode.ROOM_NOT_ASSIGNED,
+          'Reservation must have an assigned room before moving',
+        );
+      }
+
+      if (reservation.roomId === dto.roomId) {
+        throw this.badRequest(ApiErrorCode.SAME_ROOM, 'Target room must be different');
+      }
+
+      const [oldRoom, targetRoom] = await Promise.all([
+        this.findRoom(roomRepository, reservation.roomId),
+        this.findRoom(roomRepository, dto.roomId),
+      ]);
+      this.ensureRoomBelongsToProperty(oldRoom, propertyId);
+      this.ensureRoomBelongsToProperty(targetRoom, propertyId);
+
+      if (targetRoom.operationalStatus !== RoomOperationalStatus.READY) {
+        throw this.badRequest(ApiErrorCode.ROOM_UNAVAILABLE, 'Target room must be ready');
+      }
+
+      const previousState = this.moveRoomAuditState(reservation, oldRoom, targetRoom);
+      reservation.roomId = targetRoom.id;
+      await this.ensureNoOverlappingAssignment(
+        reservationRepository,
+        reservation,
+        targetRoom,
+        ApiErrorCode.ROOM_OVERLAP,
+      );
+
+      oldRoom.operationalStatus = RoomOperationalStatus.NEEDS_CLEANING;
+      oldRoom.operationalStatusReason = 'ROOM_MOVE';
+      oldRoom.operationalStatusNote = dto.reason?.trim()
+        ? `Guest moved rooms. Reason: ${dto.reason.trim()}`
+        : 'Guest moved rooms. Room marked for cleaning.';
+      targetRoom.operationalStatus = RoomOperationalStatus.OCCUPIED;
+      targetRoom.operationalStatusReason = null;
+      targetRoom.operationalStatusNote = null;
+
+      const [updatedReservation, updatedOldRoom, updatedTargetRoom] = await Promise.all([
+        reservationRepository.save(reservation),
+        roomRepository.save(oldRoom),
+        roomRepository.save(targetRoom),
+      ]);
+
+      await this.createEvents(manager, {
+        propertyId,
+        action: 'RESERVATION_ROOM_MOVED',
+        previousState,
+        nextState: this.moveRoomAuditState(updatedReservation, updatedOldRoom, updatedTargetRoom),
+        activityType: 'ROOM_MOVED',
+        activityTitle: 'Room moved',
+        activityDescription: `Reservation ${reservation.reservationCode} moved from Room ${updatedOldRoom.roomNumber} to Room ${updatedTargetRoom.roomNumber}.`,
+        reservation: updatedReservation,
+        room: updatedTargetRoom,
+        actorId: actorContext.actorId ?? null,
+        metadata: {
+          fromRoomId: updatedOldRoom.id,
+          fromRoomNumber: updatedOldRoom.roomNumber,
+          reason: dto.reason?.trim() || null,
+        },
+      });
+
+      return this.toWorkflowResponse(updatedReservation, updatedTargetRoom);
+    });
+  }
+
   private async findReservation(
     repository: Repository<ReservationEntity>,
     propertyId: string,
@@ -466,6 +555,7 @@ export class ReservationWorkflowService {
     repository: Repository<ReservationEntity>,
     reservation: ReservationEntity,
     room: RoomEntity,
+    code: ApiErrorCode = ApiErrorCode.ROOM_ALREADY_ASSIGNED,
   ): Promise<void> {
     const overlapCount = await repository.count({
       where: {
@@ -480,7 +570,7 @@ export class ReservationWorkflowService {
 
     if (overlapCount > 0) {
       throw this.badRequest(
-        ApiErrorCode.ROOM_ALREADY_ASSIGNED,
+        code,
         'Room is already assigned to another active overlapping reservation',
       );
     }
@@ -499,6 +589,7 @@ export class ReservationWorkflowService {
       reservation: ReservationEntity;
       room: RoomEntity;
       actorId: string | null;
+      metadata?: Record<string, unknown>;
     },
   ): Promise<void> {
     const auditRepository = manager.getRepository(AuditEventEntity);
@@ -507,6 +598,7 @@ export class ReservationWorkflowService {
       reservationCode: input.reservation.reservationCode,
       roomId: input.room.id,
       roomNumber: input.room.roomNumber,
+      ...(input.metadata ?? {}),
     };
 
     await Promise.all([
@@ -554,6 +646,26 @@ export class ReservationWorkflowService {
         id: room.id,
         operationalStatus: room.operationalStatus,
         operationalStatusReason: room.operationalStatusReason,
+      },
+    };
+  }
+
+  private moveRoomAuditState(
+    reservation: ReservationEntity,
+    oldRoom: RoomEntity,
+    targetRoom: RoomEntity,
+  ): Record<string, unknown> {
+    return {
+      reservation: this.reservationAuditState(reservation),
+      oldRoom: {
+        id: oldRoom.id,
+        operationalStatus: oldRoom.operationalStatus,
+        operationalStatusReason: oldRoom.operationalStatusReason,
+      },
+      targetRoom: {
+        id: targetRoom.id,
+        operationalStatus: targetRoom.operationalStatus,
+        operationalStatusReason: targetRoom.operationalStatusReason,
       },
     };
   }

@@ -64,6 +64,7 @@ export type Stay = {
   roomNumber: string;
   roomStatus: string;
   roomType: string;
+  roomTypeId?: string;
   status: string;
   warnings: StayAttentionItem[];
 };

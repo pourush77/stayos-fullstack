@@ -66,6 +66,8 @@ describe('ReservationsController', () => {
   const reservationWorkflowService = {
     assignRoom: jest.fn(),
     unassignRoom: jest.fn(),
+    extendStay: jest.fn(),
+    moveRoom: jest.fn(),
     checkIn: jest.fn(),
     checkOut: jest.fn(),
   };
@@ -159,6 +161,30 @@ describe('ReservationsController', () => {
       reservationId,
       {
         roomId: 'room-id',
+      },
+      { actorId: null },
+    );
+  });
+
+  it('delegates move-room workflow requests', async () => {
+    const workflowResponse = {
+      reservation: { ...reservationResponse, roomId: 'target-room-id' },
+      room: { id: 'target-room-id' },
+    };
+    reservationWorkflowService.moveRoom.mockResolvedValue(workflowResponse);
+
+    await expect(
+      controller.moveRoom(propertyId, reservationId, {
+        roomId: 'target-room-id',
+        reason: 'Guest requested quieter room',
+      }),
+    ).resolves.toEqual(workflowResponse);
+    expect(reservationWorkflowService.moveRoom).toHaveBeenCalledWith(
+      propertyId,
+      reservationId,
+      {
+        roomId: 'target-room-id',
+        reason: 'Guest requested quieter room',
       },
       { actorId: null },
     );

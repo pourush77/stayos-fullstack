@@ -15,6 +15,7 @@ import {
   SimpleGrid,
   Stack,
   Text,
+  Textarea,
   TextInput,
   ThemeIcon,
   Title,
@@ -25,7 +26,6 @@ import {
   BedDouble,
   ChevronDown,
   ChevronLeft,
-  CreditCard,
   DoorOpen,
   FileText,
   IdCard,
@@ -40,7 +40,8 @@ import {
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
 import { useAuth } from '../../auth/auth-context';
-import { extendReservationStay } from '../../../lib/reservation-api';
+import { getAvailableRooms, type OperationsAvailableRoomDto } from '../../../lib/operations-api';
+import { extendReservationStay, moveReservationRoom } from '../../../lib/reservation-api';
 import { useStayWorkspace } from '../hooks/useStayWorkspace';
 import { StayBillingPanel } from './StayBillingPanel';
 import type { Stay } from '../types/stay.types';
@@ -281,6 +282,118 @@ function OperationalSections({
   );
 }
 
+function roomTypeLabel(room: OperationsAvailableRoomDto) {
+  return room.roomType.name || room.roomType.code || 'Room type not recorded';
+}
+
+function MoveRoomModal({
+  isMoving,
+  onClose,
+  onConfirm,
+  opened,
+  reason,
+  rooms,
+  search,
+  selectedRoomId,
+  setReason,
+  setSearch,
+  setSelectedRoomId,
+  stay,
+}: {
+  isMoving: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  opened: boolean;
+  reason: string;
+  rooms: OperationsAvailableRoomDto[];
+  search: string;
+  selectedRoomId: string;
+  setReason: (value: string) => void;
+  setSearch: (value: string) => void;
+  setSelectedRoomId: (value: string) => void;
+  stay: Stay;
+}) {
+  const normalizedSearch = search.trim().toLowerCase();
+  const visibleRooms = rooms.filter((room) => {
+    if (room.roomId === stay.roomId) return false;
+    if (room.operationalStatus !== 'READY' && room.uiStatus !== 'READY') return false;
+    if (!normalizedSearch) return true;
+
+    return [room.roomNumber, room.floor.name, room.floor.code, roomTypeLabel(room)]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(normalizedSearch));
+  });
+  const selectedRoom = rooms.find((room) => room.roomId === selectedRoomId);
+  const changesRoomType = Boolean(
+    selectedRoom && stay.roomTypeId && selectedRoom.roomType.id !== stay.roomTypeId,
+  );
+
+  return (
+    <Modal opened={opened} onClose={onClose} centered size="lg" title="Move room">
+      <Stack gap={spacing[4]}>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+          <DetailTile label="Current room" value={`Room ${stay.roomNumber} - ${stay.roomType}`} />
+          <DetailTile label="Stay dates" value={`${formatDisplayDate(stay.arrivalDate)} to ${formatDisplayDate(stay.departureDate)}`} />
+        </SimpleGrid>
+        <TextInput
+          label="Search rooms"
+          onChange={(event) => setSearch(event.currentTarget.value)}
+          placeholder="Room number, floor, or type"
+          value={search}
+        />
+        <Stack gap={8} mah={300} style={{ overflowY: 'auto' }}>
+          {visibleRooms.length > 0 ? (
+            visibleRooms.map((room) => (
+              <UnstyledButton
+                key={room.roomId}
+                onClick={() => setSelectedRoomId(room.roomId)}
+                style={{
+                  background: selectedRoomId === room.roomId ? '#eef2ff' : '#ffffff',
+                  border: selectedRoomId === room.roomId ? '1px solid #4f46e5' : '1px solid #e2e8f0',
+                  borderRadius: radius.md,
+                  padding: 12,
+                  textAlign: 'left',
+                }}
+              >
+                <Group justify="space-between" align="flex-start">
+                  <Stack gap={2}>
+                    <Text c="#101828" fw={800}>Room {room.roomNumber}</Text>
+                    <Text c="#64748b" size="sm">
+                      {roomTypeLabel(room)} - {room.floor.name || room.floor.code || 'Floor not recorded'}
+                    </Text>
+                  </Stack>
+                  <Badge color="green" variant="light" radius={radius.full}>Ready</Badge>
+                </Group>
+              </UnstyledButton>
+            ))
+          ) : (
+            <Alert color="yellow" variant="light" radius={radius.md}>
+              No ready rooms match this stay. Adjust the search or check room availability.
+            </Alert>
+          )}
+        </Stack>
+        {changesRoomType ? (
+          <Alert color="yellow" variant="light" icon={<AlertCircle size={17} />} radius={radius.md}>
+            This move changes the room type from {stay.roomType} to {selectedRoom ? roomTypeLabel(selectedRoom) : 'the selected room type'}.
+          </Alert>
+        ) : null}
+        <Textarea
+          label="Reason"
+          maxLength={500}
+          minRows={3}
+          onChange={(event) => setReason(event.currentTarget.value)}
+          placeholder="Optional operational note"
+          value={reason}
+        />
+        <Group justify="flex-end">
+          <Button variant="subtle" color="gray" onClick={onClose}>Close</Button>
+          <Button color="stayosBrand" disabled={!selectedRoomId} loading={isMoving} onClick={onConfirm}>Move Room</Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
 export default function StayWorkspace() {
   const params = useParams<{ stayId?: string }>();
   const router = useRouter();
@@ -295,7 +408,13 @@ export default function StayWorkspace() {
   const [extendOpened, setExtendOpened] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [isExtending, setIsExtending] = useState(false);
+  const [isMoving, setIsMoving] = useState(false);
   const [extendDepartureDate, setExtendDepartureDate] = useState('');
+  const [moveOpened, setMoveOpened] = useState(false);
+  const [moveReason, setMoveReason] = useState('');
+  const [moveRooms, setMoveRooms] = useState<OperationsAvailableRoomDto[]>([]);
+  const [moveSearch, setMoveSearch] = useState('');
+  const [selectedMoveRoomId, setSelectedMoveRoomId] = useState('');
 
   const retryBackend = () => void backend.retry();
   const checkBackendStatus = () => void backend.checkHealth();
@@ -307,9 +426,40 @@ export default function StayWorkspace() {
 
   const stay = stayState.stay;
 
-  const moveRoom = () => {
-    showToast({ color: 'blue', title: 'Move room', message: 'Use Rooms to change an assigned room before check-out.' });
-    router.push('/rooms');
+  const openMoveRoom = async () => {
+    if (!stayState.propertyId) return;
+
+    setMoveOpened(true);
+    setMoveSearch('');
+    setMoveReason('');
+    setSelectedMoveRoomId('');
+    try {
+      const rooms = await getAvailableRooms(stayState.propertyId, {
+        arrivalDate: stay.arrivalDate,
+        departureDate: stay.departureDate,
+        guestCount: stay.adults + stay.children,
+      });
+      setMoveRooms(rooms);
+    } catch {
+      setMoveRooms([]);
+      showToast({ color: 'red', title: 'Rooms unavailable', message: 'Unable to load available rooms.' });
+    }
+  };
+
+  const moveRoom = async () => {
+    if (!stayState.propertyId || !params.stayId || !selectedMoveRoomId) return;
+
+    setIsMoving(true);
+    try {
+      await moveReservationRoom(stayState.propertyId, params.stayId, selectedMoveRoomId, moveReason);
+      await stayState.refreshStay();
+      setMoveOpened(false);
+      showToast({ color: 'green', title: 'Room moved', message: 'Guest room was updated successfully.' });
+    } catch {
+      showToast({ color: 'red', title: 'Move room failed', message: 'Unable to move this guest. Check room availability and try again.' });
+    } finally {
+      setIsMoving(false);
+    }
   };
 
   const checkOut = async () => {
@@ -350,7 +500,7 @@ export default function StayWorkspace() {
   return (
     <Stack gap={spacing[3]}>
       {stayState.error ? <Alert color="yellow" variant="light" icon={<AlertCircle size={17} />} radius={radius.lg}>{stayState.error}</Alert> : null}
-      <StayHeader stay={stay} onMoveRoom={moveRoom} onExtendStay={openExtendStay} onCheckOut={() => setCheckoutOpened(true)} />
+      <StayHeader stay={stay} onMoveRoom={() => void openMoveRoom()} onExtendStay={openExtendStay} onCheckOut={() => setCheckoutOpened(true)} />
       <AttentionPanel stay={stay} />
       <Card radius={radius.lg} p={16} style={cardStyle}>
         <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 800 }}>Overview</Title>
@@ -361,7 +511,7 @@ export default function StayWorkspace() {
         billingReservationId={params.stayId ?? ''}
         canManageBilling={canManageBilling}
         canViewBilling={canViewBilling}
-        onMoveRoom={moveRoom}
+        onMoveRoom={() => void openMoveRoom()}
         stay={stay}
       />
 
@@ -397,6 +547,21 @@ export default function StayWorkspace() {
           </Group>
         </Stack>
       </Modal>
+
+      <MoveRoomModal
+        isMoving={isMoving}
+        onClose={() => setMoveOpened(false)}
+        onConfirm={() => void moveRoom()}
+        opened={moveOpened}
+        reason={moveReason}
+        rooms={moveRooms}
+        search={moveSearch}
+        selectedRoomId={selectedMoveRoomId}
+        setReason={setMoveReason}
+        setSearch={setMoveSearch}
+        setSelectedRoomId={setSelectedMoveRoomId}
+        stay={stay}
+      />
     </Stack>
   );
 }

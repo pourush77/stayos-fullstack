@@ -22,6 +22,7 @@ import { CreateReservationDto } from './dto/create-reservation.dto';
 import { AssignRoomDto } from './dto/assign-room.dto';
 import { CheckInWorkspaceResponseDto } from './dto/check-in-workspace-response.dto';
 import { ExtendReservationDto } from './dto/extend-reservation.dto';
+import { MoveRoomDto } from './dto/move-room.dto';
 import { PaymentReviewDto } from './dto/payment-review.dto';
 import { ReservationResponseDto } from './dto/reservation-response.dto';
 import { ReservationWorkflowResponseDto } from './dto/reservation-workflow-response.dto';
@@ -163,6 +164,23 @@ export class ReservationsController {
     @CurrentUser() user?: AuthenticatedRequest['currentUser'],
   ): Promise<ReservationWorkflowResponseDto> {
     return this.reservationWorkflowService.extendStay(propertyId, reservationId, dto, {
+      actorId: user?.id ?? null,
+    });
+  }
+
+  @Patch(':reservationId/move-room')
+  @RequirePermissions(Permissions.BookingsManage)
+  @ApiOperation({ summary: 'Move a checked-in reservation to another room' })
+  @ApiStandardOkResponse(ReservationWorkflowResponseDto)
+  @ApiBadRequestResponse({ description: 'Invalid move state or unavailable target room' })
+  @ApiNotFoundResponse({ description: 'Reservation or room not found' })
+  async moveRoom(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('reservationId', ParseUUIDPipe) reservationId: string,
+    @Body() dto: MoveRoomDto,
+    @CurrentUser() user?: AuthenticatedRequest['currentUser'],
+  ): Promise<ReservationWorkflowResponseDto> {
+    return this.reservationWorkflowService.moveRoom(propertyId, reservationId, dto, {
       actorId: user?.id ?? null,
     });
   }

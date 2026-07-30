@@ -24,6 +24,7 @@ const guestId = '6075c8fa-f36e-4f40-a3ef-2e9dbb1f0672';
 const roomTypeId = '7075c8fa-f36e-4f40-a3ef-2e9dbb1f0673';
 const otherRoomTypeId = '7175c8fa-f36e-4f40-a3ef-2e9dbb1f0673';
 const roomId = '8075c8fa-f36e-4f40-a3ef-2e9dbb1f0674';
+const targetRoomId = '8175c8fa-f36e-4f40-a3ef-2e9dbb1f0674';
 const reservationId = '9075c8fa-f36e-4f40-a3ef-2e9dbb1f0675';
 
 const guestEntity = (): GuestEntity => ({
@@ -374,6 +375,117 @@ describe('ReservationWorkflowService', () => {
       expect(activityRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'GUEST_CHECKED_OUT' }),
       );
+    });
+  });
+
+  describe('moveRoom', () => {
+    beforeEach(() => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ roomId, status: ReservationStatus.CHECKED_IN }),
+      );
+      roomsRepository.findOne?.mockImplementation(async ({ where }: { where: { id: string } }) =>
+        where.id === targetRoomId
+          ? roomEntity({ id: targetRoomId, roomNumber: '305' })
+          : roomEntity({ id: roomId, operationalStatus: RoomOperationalStatus.OCCUPIED }),
+      );
+    });
+
+    it('moves checked-in reservation to ready target room', async () => {
+      await expect(
+        service.moveRoom(propertyId, reservationId, { roomId: targetRoomId, reason: 'Guest requested quieter room' }),
+      ).resolves.toMatchObject({
+        reservation: { id: reservationId, roomId: targetRoomId },
+        room: { id: targetRoomId, operationalStatus: RoomOperationalStatus.OCCUPIED },
+      });
+    });
+
+    it('marks old room for cleaning', async () => {
+      await service.moveRoom(propertyId, reservationId, { roomId: targetRoomId });
+
+      expect(roomsRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: roomId,
+          operationalStatus: RoomOperationalStatus.NEEDS_CLEANING,
+          operationalStatusReason: 'ROOM_MOVE',
+        }),
+      );
+    });
+
+    it('creates audit and activity events', async () => {
+      await service.moveRoom(propertyId, reservationId, { roomId: targetRoomId });
+
+      expect(auditRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'RESERVATION_ROOM_MOVED' }),
+      );
+      expect(activityRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'ROOM_MOVED' }),
+      );
+    });
+
+    it('rejects reservation that is not checked in', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(reservationEntity({ roomId }));
+
+      await expect(
+        service.moveRoom(propertyId, reservationId, { roomId: targetRoomId }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects missing room assignment', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ status: ReservationStatus.CHECKED_IN }),
+      );
+
+      await expect(
+        service.moveRoom(propertyId, reservationId, { roomId: targetRoomId }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects same target room', async () => {
+      await expect(
+        service.moveRoom(propertyId, reservationId, { roomId }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects missing target room', async () => {
+      roomsRepository.findOne?.mockImplementation(async ({ where }: { where: { id: string } }) =>
+        where.id === targetRoomId ? null : roomEntity({ id: roomId }),
+      );
+
+      await expect(
+        service.moveRoom(propertyId, reservationId, { roomId: targetRoomId }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('rejects target room from another property', async () => {
+      roomsRepository.findOne?.mockImplementation(async ({ where }: { where: { id: string } }) =>
+        where.id === targetRoomId
+          ? roomEntity({ id: targetRoomId, propertyId: otherPropertyId })
+          : roomEntity({ id: roomId }),
+      );
+
+      await expect(
+        service.moveRoom(propertyId, reservationId, { roomId: targetRoomId }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects unavailable target room', async () => {
+      roomsRepository.findOne?.mockImplementation(async ({ where }: { where: { id: string } }) =>
+        where.id === targetRoomId
+          ? roomEntity({ id: targetRoomId, operationalStatus: RoomOperationalStatus.NEEDS_CLEANING })
+          : roomEntity({ id: roomId }),
+      );
+
+      await expect(
+        service.moveRoom(propertyId, reservationId, { roomId: targetRoomId }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects overlapping target room assignment', async () => {
+      reservationsRepository.count?.mockResolvedValue(1);
+
+      await expect(
+        service.moveRoom(propertyId, reservationId, { roomId: targetRoomId }),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 });
