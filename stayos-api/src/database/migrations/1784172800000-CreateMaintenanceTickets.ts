@@ -4,6 +4,10 @@ export class CreateMaintenanceTickets1784172800000 implements MigrationInterface
   name = 'CreateMaintenanceTickets1784172800000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (await queryRunner.hasTable('maintenance_tickets')) {
+      return;
+    }
+
     await queryRunner.query(`CREATE TYPE "public"."maintenance_tickets_category_enum" AS ENUM('PLUMBING', 'ELECTRICAL', 'HVAC', 'APPLIANCE', 'OTHER')`);
     await queryRunner.query(`CREATE TYPE "public"."maintenance_tickets_priority_enum" AS ENUM('LOW', 'NORMAL', 'HIGH')`);
     await queryRunner.query(`CREATE TYPE "public"."maintenance_tickets_status_enum" AS ENUM('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CANCELLED')`);

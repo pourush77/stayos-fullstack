@@ -4,6 +4,13 @@ export class CreateAmenities1784265600000 implements MigrationInterface {
   name = 'CreateAmenities1784265600000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (
+      (await queryRunner.hasTable('amenities')) &&
+      (await queryRunner.hasTable('room_type_amenities'))
+    ) {
+      return;
+    }
+
     await queryRunner.query(`CREATE TYPE "public"."amenities_category_enum" AS ENUM('CONNECTIVITY', 'COMFORT', 'ENTERTAINMENT', 'SAFETY', 'SERVICE', 'ACCESSIBILITY')`);
     await queryRunner.query(`
       CREATE TABLE "amenities" (

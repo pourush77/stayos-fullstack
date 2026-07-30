@@ -4,6 +4,13 @@ export class CreateMobileCaptureDocuments1784000000000 implements MigrationInter
   name = 'CreateMobileCaptureDocuments1784000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (
+      (await queryRunner.hasTable('mobile_capture_sessions')) &&
+      (await queryRunner.hasTable('guest_documents'))
+    ) {
+      return;
+    }
+
     await queryRunner.query(`
       CREATE TABLE "mobile_capture_sessions" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),

@@ -4,6 +4,13 @@ export class CreateGuestRequests1784086400000 implements MigrationInterface {
   name = 'CreateGuestRequests1784086400000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (
+      (await queryRunner.hasTable('guest_requests')) &&
+      (await queryRunner.hasTable('guest_request_notes'))
+    ) {
+      return;
+    }
+
     await queryRunner.query(`CREATE TYPE "public"."guest_requests_status_enum" AS ENUM('REQUESTED', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED')`);
     await queryRunner.query(`CREATE TYPE "public"."guest_requests_priority_enum" AS ENUM('NORMAL', 'HIGH', 'VIP')`);
     await queryRunner.query(`CREATE TYPE "public"."guest_requests_department_enum" AS ENUM('HOUSEKEEPING', 'MAINTENANCE', 'LAUNDRY', 'RECEPTION', 'CONCIERGE', 'F_AND_B')`);
