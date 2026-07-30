@@ -6,6 +6,7 @@ import {
   Button,
   Checkbox,
   Divider,
+  FileButton,
   Group,
   Modal,
   Paper,
@@ -34,6 +35,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { Reservation } from '../../../lib/reservation-hooks';
+import { uploadIdentityDocument } from '../../check-in/check-in-api';
 import styles from '../RoomsPage.module.css';
 import type { Room } from '../types';
 import { DetailTile } from './DetailTile';
@@ -118,7 +120,9 @@ function readinessFor(room: Room | null) {
   const roomAssigned = Boolean(room?.reservationId);
   const roomReady = status === 'ready' || status === 'reserved';
   const housekeepingClear = !['dirty', 'cleaning', 'inspection'].includes(status ?? '');
-  const maintenanceClear = !['maintenance', 'out-of-order', 'out-of-service'].includes(status ?? '');
+  const maintenanceClear = !['maintenance', 'out-of-order', 'out-of-service'].includes(
+    status ?? '',
+  );
   const notOccupied = status !== 'occupied';
 
   return {
@@ -208,6 +212,7 @@ export function CheckInModal({
   onClose,
   onConfirm,
   opened,
+  propertyId,
   reservation,
   room,
 }: {
@@ -215,6 +220,7 @@ export function CheckInModal({
   onClose: () => void;
   onConfirm: () => void;
   opened: boolean;
+  propertyId?: string;
   reservation?: Reservation;
   room: Room | null;
 }) {
@@ -225,6 +231,7 @@ export function CheckInModal({
   const [activeStep, setActiveStep] = useState<StepKey>('booking');
   const [registrationSaved, setRegistrationSaved] = useState(false);
   const [paymentReviewed, setPaymentReviewed] = useState(!paymentDue);
+  const [uploadingSide, setUploadingSide] = useState<'front' | 'back' | null>(null);
   const [identity, setIdentity] = useState<IdentityForm>({
     idNumber: '',
     idType: 'Aadhaar',
@@ -262,13 +269,13 @@ export function CheckInModal({
     (!isForeignGuest ||
       Boolean(
         registration.passportNumber &&
-          registration.passportIssuePlace &&
-          registration.passportIssueDate &&
-          registration.passportExpiryDate &&
-          registration.visaNumber &&
-          registration.visaType &&
-          registration.visaIssueDate &&
-          registration.visaExpiryDate,
+        registration.passportIssuePlace &&
+        registration.passportIssueDate &&
+        registration.passportExpiryDate &&
+        registration.visaNumber &&
+        registration.visaType &&
+        registration.visaIssueDate &&
+        registration.visaExpiryDate,
       ));
   const identityComplete = identity.verified && identity.idType.trim() && identity.idNumber.trim();
   const roomReady =
@@ -288,7 +295,14 @@ export function CheckInModal({
       items.push('Check-in already completed.');
     }
     return items;
-  }, [identityComplete, paymentReviewed, registrationComplete, reservation?.status, room?.status, roomReady]);
+  }, [
+    identityComplete,
+    paymentReviewed,
+    registrationComplete,
+    reservation?.status,
+    room?.status,
+    roomReady,
+  ]);
 
   const stepStatuses: Record<StepKey, StepStatus> = {
     booking: readiness.roomAssigned ? 'complete' : 'blocked',
@@ -310,6 +324,15 @@ export function CheckInModal({
 
   const continueTo = (step: StepKey) => setActiveStep(step);
   const nextStep = () => setActiveStep(steps[Math.min(activeIndex + 1, steps.length - 1)].key);
+  const handleIdentityUpload = async (side: 'front' | 'back', file: File | null) => {
+    if (!file || !propertyId || !reservation?.backendId) return;
+    setUploadingSide(side);
+    try {
+      await uploadIdentityDocument(propertyId, reservation.backendId, side, file);
+    } finally {
+      setUploadingSide(null);
+    }
+  };
 
   return (
     <Modal
@@ -321,7 +344,12 @@ export function CheckInModal({
       styles={{ body: { background: '#f8fafc', minHeight: '100vh' } }}
     >
       <Stack gap={0} mih="100vh">
-        <Box bg="white" px={{ base: 16, md: 28 }} py={16} style={{ borderBottom: '1px solid #e5e7eb' }}>
+        <Box
+          bg="white"
+          px={{ base: 16, md: 28 }}
+          py={16}
+          style={{ borderBottom: '1px solid #e5e7eb' }}
+        >
           <Group justify="space-between" align="flex-start" gap={spacing[3]}>
             <Box>
               <Group gap={10} wrap="wrap">
@@ -390,21 +418,50 @@ export function CheckInModal({
                   {activeStep === 'booking' ? (
                     <Stack gap={spacing[3]}>
                       <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
-                        <DetailTile label="Guest name" value={reservation?.guest ?? room?.guest ?? 'Guest'} />
-                        <DetailTile label="Reservation code" value={reservation?.id ?? room?.reservation ?? 'Not recorded'} />
-                        <DetailTile label="Arrival date" value={reservation?.arrivalDate ?? room?.reservationArrivalDate ?? 'Not recorded'} />
-                        <DetailTile label="Departure date" value={reservation?.departureDate ?? room?.reservationDepartureDate ?? 'Not recorded'} />
+                        <DetailTile
+                          label="Guest name"
+                          value={reservation?.guest ?? room?.guest ?? 'Guest'}
+                        />
+                        <DetailTile
+                          label="Reservation code"
+                          value={reservation?.id ?? room?.reservation ?? 'Not recorded'}
+                        />
+                        <DetailTile
+                          label="Arrival date"
+                          value={
+                            reservation?.arrivalDate ??
+                            room?.reservationArrivalDate ??
+                            'Not recorded'
+                          }
+                        />
+                        <DetailTile
+                          label="Departure date"
+                          value={
+                            reservation?.departureDate ??
+                            room?.reservationDepartureDate ??
+                            'Not recorded'
+                          }
+                        />
                         <DetailTile label="Adults" value={guests.adults} />
                         <DetailTile label="Children" value={guests.children} />
                         <DetailTile label="Room number" value={room?.number ?? 'Unassigned'} />
-                        <DetailTile label="Room type" value={room?.roomType ?? reservation?.roomType ?? 'Not recorded'} />
+                        <DetailTile
+                          label="Room type"
+                          value={room?.roomType ?? reservation?.roomType ?? 'Not recorded'}
+                        />
                       </SimpleGrid>
                       <DetailTile
                         label="Special requests"
-                        value={reservation?.requests?.length ? reservation.requests.join(', ') : 'No special requests'}
+                        value={
+                          reservation?.requests?.length
+                            ? reservation.requests.join(', ')
+                            : 'No special requests'
+                        }
                       />
                       <Group justify="flex-end">
-                        <Button color="stayosBrand" onClick={nextStep}>Continue</Button>
+                        <Button color="stayosBrand" onClick={nextStep}>
+                          Continue
+                        </Button>
                       </Group>
                     </Stack>
                   ) : null}
@@ -412,56 +469,244 @@ export function CheckInModal({
                   {activeStep === 'registration' ? (
                     <Stack gap={spacing[4]}>
                       <SimpleGrid cols={{ base: 1, md: 2 }} spacing={spacing[3]}>
-                        <TextInput label="Full name" required value={registration.fullName} onChange={(event) => updateRegistration('fullName', event.currentTarget.value)} />
-                        <TextInput label="Mobile" required value={registration.mobile} onChange={(event) => updateRegistration('mobile', event.currentTarget.value)} />
-                        <TextInput label="Email" value={registration.email} onChange={(event) => updateRegistration('email', event.currentTarget.value)} />
-                        <TextInput label="Date of birth" type="date" value={registration.dateOfBirth} onChange={(event) => updateRegistration('dateOfBirth', event.currentTarget.value)} />
-                        <Select label="Gender" data={['Female', 'Male', 'Non-binary', 'Prefer not to say']} value={registration.gender || null} onChange={(value) => updateRegistration('gender', value ?? '')} />
-                        <TextInput label="Nationality" value={registration.nationality} onChange={(event) => updateRegistration('nationality', event.currentTarget.value)} />
+                        <TextInput
+                          label="Full name"
+                          required
+                          value={registration.fullName}
+                          onChange={(event) =>
+                            updateRegistration('fullName', event.currentTarget.value)
+                          }
+                        />
+                        <TextInput
+                          label="Mobile"
+                          required
+                          value={registration.mobile}
+                          onChange={(event) =>
+                            updateRegistration('mobile', event.currentTarget.value)
+                          }
+                        />
+                        <TextInput
+                          label="Email"
+                          value={registration.email}
+                          onChange={(event) =>
+                            updateRegistration('email', event.currentTarget.value)
+                          }
+                        />
+                        <TextInput
+                          label="Date of birth"
+                          type="date"
+                          value={registration.dateOfBirth}
+                          onChange={(event) =>
+                            updateRegistration('dateOfBirth', event.currentTarget.value)
+                          }
+                        />
+                        <Select
+                          label="Gender"
+                          data={['Female', 'Male', 'Non-binary', 'Prefer not to say']}
+                          value={registration.gender || null}
+                          onChange={(value) => updateRegistration('gender', value ?? '')}
+                        />
+                        <TextInput
+                          label="Nationality"
+                          value={registration.nationality}
+                          onChange={(event) =>
+                            updateRegistration('nationality', event.currentTarget.value)
+                          }
+                        />
                       </SimpleGrid>
 
                       <Divider label="Address" labelPosition="left" />
                       <SimpleGrid cols={{ base: 1, md: 2 }} spacing={spacing[3]}>
-                        <TextInput label="Address line 1" required value={registration.address1} onChange={(event) => updateRegistration('address1', event.currentTarget.value)} />
-                        <TextInput label="Address line 2" value={registration.address2} onChange={(event) => updateRegistration('address2', event.currentTarget.value)} />
-                        <TextInput label="City" required value={registration.city} onChange={(event) => updateRegistration('city', event.currentTarget.value)} />
-                        <TextInput label="State" required value={registration.state} onChange={(event) => updateRegistration('state', event.currentTarget.value)} />
-                        <TextInput label="Country" required value={registration.country} onChange={(event) => updateRegistration('country', event.currentTarget.value)} />
-                        <TextInput label="PIN / postal code" required value={registration.pinCode} onChange={(event) => updateRegistration('pinCode', event.currentTarget.value)} />
+                        <TextInput
+                          label="Address line 1"
+                          required
+                          value={registration.address1}
+                          onChange={(event) =>
+                            updateRegistration('address1', event.currentTarget.value)
+                          }
+                        />
+                        <TextInput
+                          label="Address line 2"
+                          value={registration.address2}
+                          onChange={(event) =>
+                            updateRegistration('address2', event.currentTarget.value)
+                          }
+                        />
+                        <TextInput
+                          label="City"
+                          required
+                          value={registration.city}
+                          onChange={(event) =>
+                            updateRegistration('city', event.currentTarget.value)
+                          }
+                        />
+                        <TextInput
+                          label="State"
+                          required
+                          value={registration.state}
+                          onChange={(event) =>
+                            updateRegistration('state', event.currentTarget.value)
+                          }
+                        />
+                        <TextInput
+                          label="Country"
+                          required
+                          value={registration.country}
+                          onChange={(event) =>
+                            updateRegistration('country', event.currentTarget.value)
+                          }
+                        />
+                        <TextInput
+                          label="PIN / postal code"
+                          required
+                          value={registration.pinCode}
+                          onChange={(event) =>
+                            updateRegistration('pinCode', event.currentTarget.value)
+                          }
+                        />
                       </SimpleGrid>
 
                       <Divider label="Travel details" labelPosition="left" />
                       <SimpleGrid cols={{ base: 1, md: 3 }} spacing={spacing[3]}>
-                        <TextInput label="Purpose of visit" required value={registration.purposeOfVisit} onChange={(event) => updateRegistration('purposeOfVisit', event.currentTarget.value)} />
-                        <TextInput label="Arrival from" value={registration.arrivalFrom} onChange={(event) => updateRegistration('arrivalFrom', event.currentTarget.value)} />
-                        <TextInput label="Next destination" value={registration.nextDestination} onChange={(event) => updateRegistration('nextDestination', event.currentTarget.value)} />
+                        <TextInput
+                          label="Purpose of visit"
+                          required
+                          value={registration.purposeOfVisit}
+                          onChange={(event) =>
+                            updateRegistration('purposeOfVisit', event.currentTarget.value)
+                          }
+                        />
+                        <TextInput
+                          label="Arrival from"
+                          value={registration.arrivalFrom}
+                          onChange={(event) =>
+                            updateRegistration('arrivalFrom', event.currentTarget.value)
+                          }
+                        />
+                        <TextInput
+                          label="Next destination"
+                          value={registration.nextDestination}
+                          onChange={(event) =>
+                            updateRegistration('nextDestination', event.currentTarget.value)
+                          }
+                        />
                       </SimpleGrid>
 
                       {isForeignGuest ? (
-                        <Paper radius={radius.md} p={14} bg="#fffbeb" style={{ border: '1px solid #fde68a' }}>
+                        <Paper
+                          radius={radius.md}
+                          p={14}
+                          bg="#fffbeb"
+                          style={{ border: '1px solid #fde68a' }}
+                        >
                           <Stack gap={spacing[3]}>
                             <Group justify="space-between">
-                              <Text fw={700} c="#92400e">Foreign guest details</Text>
-                              <Badge color="yellow" variant="filled">C-Form required</Badge>
+                              <Text fw={700} c="#92400e">
+                                Foreign guest details
+                              </Text>
+                              <Badge color="yellow" variant="filled">
+                                C-Form required
+                              </Badge>
                             </Group>
                             <SimpleGrid cols={{ base: 1, md: 2 }} spacing={spacing[3]}>
-                              <TextInput label="Passport number" required value={registration.passportNumber} onChange={(event) => updateRegistration('passportNumber', event.currentTarget.value)} />
-                              <TextInput label="Passport issue place" required value={registration.passportIssuePlace} onChange={(event) => updateRegistration('passportIssuePlace', event.currentTarget.value)} />
-                              <TextInput label="Passport issue date" type="date" required value={registration.passportIssueDate} onChange={(event) => updateRegistration('passportIssueDate', event.currentTarget.value)} />
-                              <TextInput label="Passport expiry date" type="date" required value={registration.passportExpiryDate} onChange={(event) => updateRegistration('passportExpiryDate', event.currentTarget.value)} />
-                              <TextInput label="Visa number" required value={registration.visaNumber} onChange={(event) => updateRegistration('visaNumber', event.currentTarget.value)} />
-                              <TextInput label="Visa type" required value={registration.visaType} onChange={(event) => updateRegistration('visaType', event.currentTarget.value)} />
-                              <TextInput label="Visa issue date" type="date" required value={registration.visaIssueDate} onChange={(event) => updateRegistration('visaIssueDate', event.currentTarget.value)} />
-                              <TextInput label="Visa expiry date" type="date" required value={registration.visaExpiryDate} onChange={(event) => updateRegistration('visaExpiryDate', event.currentTarget.value)} />
+                              <TextInput
+                                label="Passport number"
+                                required
+                                value={registration.passportNumber}
+                                onChange={(event) =>
+                                  updateRegistration('passportNumber', event.currentTarget.value)
+                                }
+                              />
+                              <TextInput
+                                label="Passport issue place"
+                                required
+                                value={registration.passportIssuePlace}
+                                onChange={(event) =>
+                                  updateRegistration(
+                                    'passportIssuePlace',
+                                    event.currentTarget.value,
+                                  )
+                                }
+                              />
+                              <TextInput
+                                label="Passport issue date"
+                                type="date"
+                                required
+                                value={registration.passportIssueDate}
+                                onChange={(event) =>
+                                  updateRegistration('passportIssueDate', event.currentTarget.value)
+                                }
+                              />
+                              <TextInput
+                                label="Passport expiry date"
+                                type="date"
+                                required
+                                value={registration.passportExpiryDate}
+                                onChange={(event) =>
+                                  updateRegistration(
+                                    'passportExpiryDate',
+                                    event.currentTarget.value,
+                                  )
+                                }
+                              />
+                              <TextInput
+                                label="Visa number"
+                                required
+                                value={registration.visaNumber}
+                                onChange={(event) =>
+                                  updateRegistration('visaNumber', event.currentTarget.value)
+                                }
+                              />
+                              <TextInput
+                                label="Visa type"
+                                required
+                                value={registration.visaType}
+                                onChange={(event) =>
+                                  updateRegistration('visaType', event.currentTarget.value)
+                                }
+                              />
+                              <TextInput
+                                label="Visa issue date"
+                                type="date"
+                                required
+                                value={registration.visaIssueDate}
+                                onChange={(event) =>
+                                  updateRegistration('visaIssueDate', event.currentTarget.value)
+                                }
+                              />
+                              <TextInput
+                                label="Visa expiry date"
+                                type="date"
+                                required
+                                value={registration.visaExpiryDate}
+                                onChange={(event) =>
+                                  updateRegistration('visaExpiryDate', event.currentTarget.value)
+                                }
+                              />
                             </SimpleGrid>
                           </Stack>
                         </Paper>
                       ) : null}
 
-                      {!registrationComplete ? <Alert color="yellow">Guest registration incomplete.</Alert> : null}
+                      {!registrationComplete ? (
+                        <Alert color="yellow">Guest registration incomplete.</Alert>
+                      ) : null}
                       <Group justify="flex-end">
-                        <Button variant="light" color="gray" onClick={() => setRegistrationSaved(true)} disabled={!registrationComplete}>Save registration</Button>
-                        <Button color="stayosBrand" onClick={nextStep} disabled={!registrationComplete}>Continue</Button>
+                        <Button
+                          variant="light"
+                          color="gray"
+                          onClick={() => setRegistrationSaved(true)}
+                          disabled={!registrationComplete}
+                        >
+                          Save registration
+                        </Button>
+                        <Button
+                          color="stayosBrand"
+                          onClick={nextStep}
+                          disabled={!registrationComplete}
+                        >
+                          Continue
+                        </Button>
                       </Group>
                     </Stack>
                   ) : null}
@@ -471,9 +716,22 @@ export function CheckInModal({
                       <SimpleGrid cols={{ base: 1, md: 2 }} spacing={spacing[3]}>
                         <Select
                           label="ID type"
-                          data={['Aadhaar', 'Passport', 'Driving Licence', 'Voter ID', 'PAN', 'Other']}
+                          data={[
+                            'Aadhaar',
+                            'Passport',
+                            'Driving Licence',
+                            'Voter ID',
+                            'PAN',
+                            'Other',
+                          ]}
                           value={identity.idType}
-                          onChange={(value) => setIdentity((current) => ({ ...current, idType: value ?? 'Aadhaar', verified: false }))}
+                          onChange={(value) =>
+                            setIdentity((current) => ({
+                              ...current,
+                              idType: value ?? 'Aadhaar',
+                              verified: false,
+                            }))
+                          }
                         />
                         <TextInput
                           label="ID number"
@@ -485,10 +743,48 @@ export function CheckInModal({
                         />
                       </SimpleGrid>
                       <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
-                        <Button variant="light" color="gray" leftSection={<Upload size={15} />} disabled>Upload front placeholder</Button>
-                        <Button variant="light" color="gray" leftSection={<Upload size={15} />} disabled>Upload back placeholder</Button>
+                        <FileButton
+                          onChange={(file) => void handleIdentityUpload('front', file)}
+                          accept="image/png,image/jpeg,image/webp,application/pdf"
+                        >
+                          {(props) => (
+                            <Button
+                              {...props}
+                              variant="light"
+                              color="gray"
+                              leftSection={<Upload size={15} />}
+                              disabled={
+                                !propertyId || !reservation?.backendId || uploadingSide !== null
+                              }
+                              loading={uploadingSide === 'front'}
+                            >
+                              Upload front
+                            </Button>
+                          )}
+                        </FileButton>
+                        <FileButton
+                          onChange={(file) => void handleIdentityUpload('back', file)}
+                          accept="image/png,image/jpeg,image/webp,application/pdf"
+                        >
+                          {(props) => (
+                            <Button
+                              {...props}
+                              variant="light"
+                              color="gray"
+                              leftSection={<Upload size={15} />}
+                              disabled={
+                                !propertyId || !reservation?.backendId || uploadingSide !== null
+                              }
+                              loading={uploadingSide === 'back'}
+                            >
+                              Upload back
+                            </Button>
+                          )}
+                        </FileButton>
                       </SimpleGrid>
-                      <Alert color="blue" variant="light">Manual verification by receptionist.</Alert>
+                      <Alert color="blue" variant="light">
+                        Manual verification by receptionist.
+                      </Alert>
                       <Checkbox
                         label="Mark ID verified"
                         checked={identity.verified}
@@ -499,12 +795,18 @@ export function CheckInModal({
                         }}
                       />
                       {identityComplete ? (
-                        <Alert color="green" variant="light">ID verified.</Alert>
+                        <Alert color="green" variant="light">
+                          ID verified.
+                        </Alert>
                       ) : (
-                        <Alert color="yellow" variant="light">ID verification is required before check-in.</Alert>
+                        <Alert color="yellow" variant="light">
+                          ID verification is required before check-in.
+                        </Alert>
                       )}
                       <Group justify="flex-end">
-                        <Button color="stayosBrand" onClick={nextStep} disabled={!identityComplete}>Continue</Button>
+                        <Button color="stayosBrand" onClick={nextStep} disabled={!identityComplete}>
+                          Continue
+                        </Button>
                       </Group>
                     </Stack>
                   ) : null}
@@ -513,20 +815,44 @@ export function CheckInModal({
                     <Stack gap={spacing[3]}>
                       <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
                         <DetailTile label="Payment status" value={paymentStatus} />
-                        <DetailTile label="Outstanding amount" value={paymentDue ? reservation?.amount ?? 'Pending' : '0'} />
+                        <DetailTile
+                          label="Outstanding amount"
+                          value={paymentDue ? (reservation?.amount ?? 'Pending') : '0'}
+                        />
                         <DetailTile label="Payment method" value="Not recorded" />
                         <DetailTile label="Deposit status" value="Not available" />
                       </SimpleGrid>
                       {paymentDue ? (
-                        <Alert color="yellow" variant="light">Payment pending. Collection will be handled in billing.</Alert>
+                        <Alert color="yellow" variant="light">
+                          Payment pending. Collection will be handled in billing.
+                        </Alert>
                       ) : (
-                        <Alert color="green" variant="light">Payment complete.</Alert>
+                        <Alert color="green" variant="light">
+                          Payment complete.
+                        </Alert>
                       )}
                       <Group justify="space-between">
-                        <Button variant="light" color="gray" leftSection={<CreditCard size={15} />} disabled>Collect Payment</Button>
+                        <Button
+                          variant="light"
+                          color="gray"
+                          leftSection={<CreditCard size={15} />}
+                          disabled
+                        >
+                          Collect Payment
+                        </Button>
                         <Group>
-                          <Checkbox label="Mark payment reviewed" checked={paymentReviewed} onChange={(event) => setPaymentReviewed(event.currentTarget.checked)} />
-                          <Button color="stayosBrand" onClick={nextStep} disabled={!paymentReviewed}>Continue</Button>
+                          <Checkbox
+                            label="Mark payment reviewed"
+                            checked={paymentReviewed}
+                            onChange={(event) => setPaymentReviewed(event.currentTarget.checked)}
+                          />
+                          <Button
+                            color="stayosBrand"
+                            onClick={nextStep}
+                            disabled={!paymentReviewed}
+                          >
+                            Continue
+                          </Button>
                         </Group>
                       </Group>
                     </Stack>
@@ -535,26 +861,61 @@ export function CheckInModal({
                   {activeStep === 'room' ? (
                     <Stack gap={spacing[3]}>
                       <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
-                        <DetailTile label="Current room" value={room ? `Room ${room.number}` : 'Unassigned'} />
-                        <DetailTile label="Room type" value={room?.roomType ?? reservation?.roomType ?? 'Not recorded'} />
+                        <DetailTile
+                          label="Current room"
+                          value={room ? `Room ${room.number}` : 'Unassigned'}
+                        />
+                        <DetailTile
+                          label="Room type"
+                          value={room?.roomType ?? reservation?.roomType ?? 'Not recorded'}
+                        />
                         <DetailTile label="Floor" value={room?.floor ?? 'Not recorded'} />
-                        <DetailTile label="Room operational status" value={readiness.operationalStatus} />
+                        <DetailTile
+                          label="Room operational status"
+                          value={readiness.operationalStatus}
+                        />
                         <DetailTile label="Capacity" value={room?.capacity ?? 'Not recorded'} />
                         <DetailTile label="Bed type" value={room?.bedType ?? 'Not recorded'} />
                       </SimpleGrid>
                       <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[2]}>
-                        <CheckItem label="Room assigned" complete={readiness.roomAssigned} blocked={!readiness.roomAssigned} />
-                        <CheckItem label="Room ready" complete={readiness.roomReady} blocked={!readiness.roomReady} />
-                        <CheckItem label="Housekeeping clear" complete={readiness.housekeepingClear} blocked={!readiness.housekeepingClear} />
-                        <CheckItem label="Maintenance clear" complete={readiness.maintenanceClear} blocked={!readiness.maintenanceClear} />
-                        <CheckItem label="Not occupied" complete={readiness.notOccupied} blocked={!readiness.notOccupied} />
+                        <CheckItem
+                          label="Room assigned"
+                          complete={readiness.roomAssigned}
+                          blocked={!readiness.roomAssigned}
+                        />
+                        <CheckItem
+                          label="Room ready"
+                          complete={readiness.roomReady}
+                          blocked={!readiness.roomReady}
+                        />
+                        <CheckItem
+                          label="Housekeeping clear"
+                          complete={readiness.housekeepingClear}
+                          blocked={!readiness.housekeepingClear}
+                        />
+                        <CheckItem
+                          label="Maintenance clear"
+                          complete={readiness.maintenanceClear}
+                          blocked={!readiness.maintenanceClear}
+                        />
+                        <CheckItem
+                          label="Not occupied"
+                          complete={readiness.notOccupied}
+                          blocked={!readiness.notOccupied}
+                        />
                       </SimpleGrid>
                       {!roomReady ? (
-                        <Alert color="red" variant="light">Room {room?.number ?? ''} is not ready for check-in.</Alert>
+                        <Alert color="red" variant="light">
+                          Room {room?.number ?? ''} is not ready for check-in.
+                        </Alert>
                       ) : null}
-                      <Alert color="blue" variant="light">Room can still be changed before completing check-in.</Alert>
+                      <Alert color="blue" variant="light">
+                        Room can still be changed before completing check-in.
+                      </Alert>
                       <Group justify="flex-end">
-                        <Button color="stayosBrand" onClick={nextStep} disabled={!roomReady}>Continue</Button>
+                        <Button color="stayosBrand" onClick={nextStep} disabled={!roomReady}>
+                          Continue
+                        </Button>
                       </Group>
                     </Stack>
                   ) : null}
@@ -562,22 +923,42 @@ export function CheckInModal({
                   {activeStep === 'review' ? (
                     <Stack gap={spacing[4]}>
                       <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[2]}>
-                        <CheckItem label="Booking reviewed" complete={stepStatuses.booking === 'complete'} blocked={stepStatuses.booking === 'blocked'} />
-                        <CheckItem label="Guest registration complete" complete={registrationComplete && registrationSaved} blocked={false} />
-                        <CheckItem label="Identity verified" complete={Boolean(identityComplete)} blocked={!identityComplete} />
-                        <CheckItem label="Payment reviewed" complete={paymentReviewed} blocked={false} />
+                        <CheckItem
+                          label="Booking reviewed"
+                          complete={stepStatuses.booking === 'complete'}
+                          blocked={stepStatuses.booking === 'blocked'}
+                        />
+                        <CheckItem
+                          label="Guest registration complete"
+                          complete={registrationComplete && registrationSaved}
+                          blocked={false}
+                        />
+                        <CheckItem
+                          label="Identity verified"
+                          complete={Boolean(identityComplete)}
+                          blocked={!identityComplete}
+                        />
+                        <CheckItem
+                          label="Payment reviewed"
+                          complete={paymentReviewed}
+                          blocked={false}
+                        />
                         <CheckItem label="Room ready" complete={roomReady} blocked={!roomReady} />
                       </SimpleGrid>
                       {blockers.length > 0 ? (
                         <Alert color="red" variant="light" title="Check-in blockers">
                           <Stack gap={4}>
                             {blockers.map((blocker) => (
-                              <Text key={blocker} size="sm">{blocker}</Text>
+                              <Text key={blocker} size="sm">
+                                {blocker}
+                              </Text>
                             ))}
                           </Stack>
                         </Alert>
                       ) : (
-                        <Alert color="green" variant="light">All checks are complete.</Alert>
+                        <Alert color="green" variant="light">
+                          All checks are complete.
+                        </Alert>
                       )}
                       <Group justify="flex-end">
                         <Button
@@ -606,14 +987,27 @@ export function CheckInModal({
                         <BedDouble size={17} />
                       </ThemeIcon>
                       <Box>
-                        <Text fw={700} c="#101828">Desk summary</Text>
-                        <Text c="#64748b" size="xs">Fast scan for the receptionist.</Text>
+                        <Text fw={700} c="#101828">
+                          Desk summary
+                        </Text>
+                        <Text c="#64748b" size="xs">
+                          Fast scan for the receptionist.
+                        </Text>
                       </Box>
                     </Group>
-                    <DetailTile label="Guest" value={registration.fullName || reservation?.guest || 'Guest'} />
-                    <DetailTile label="Reservation" value={reservation?.id ?? room?.reservation ?? 'Not recorded'} />
+                    <DetailTile
+                      label="Guest"
+                      value={registration.fullName || reservation?.guest || 'Guest'}
+                    />
+                    <DetailTile
+                      label="Reservation"
+                      value={reservation?.id ?? room?.reservation ?? 'Not recorded'}
+                    />
                     <DetailTile label="Room" value={room ? `Room ${room.number}` : 'Unassigned'} />
-                    <DetailTile label="Payment" value={paymentDue ? 'Payment pending' : 'Payment complete'} />
+                    <DetailTile
+                      label="Payment"
+                      value={paymentDue ? 'Payment pending' : 'Payment complete'}
+                    />
                   </Stack>
                 </Paper>
 
@@ -622,8 +1016,14 @@ export function CheckInModal({
                     {steps.map((step) => (
                       <Group key={step.key} justify="space-between" wrap="nowrap">
                         <Group gap={8} wrap="nowrap">
-                          {activeStep === step.key ? <Circle size={10} fill="#2563eb" color="#2563eb" /> : <Circle size={10} color="#cbd5e1" />}
-                          <Text size="sm" fw={600} c="#334155">{step.title}</Text>
+                          {activeStep === step.key ? (
+                            <Circle size={10} fill="#2563eb" color="#2563eb" />
+                          ) : (
+                            <Circle size={10} color="#cbd5e1" />
+                          )}
+                          <Text size="sm" fw={600} c="#334155">
+                            {step.title}
+                          </Text>
                         </Group>
                         <StatusBadge status={stepStatuses[step.key]} />
                       </Group>

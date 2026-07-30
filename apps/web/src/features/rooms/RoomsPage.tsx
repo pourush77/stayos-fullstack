@@ -2444,6 +2444,7 @@ export default function RoomsPage() {
         onClose={closeCheckInModal}
         onConfirm={handleCheckIn}
         opened={checkInOpened}
+        propertyId={inventory.propertyId}
         reservation={reservationForRoom(checkInRoom)}
         room={checkInRoom}
       />
