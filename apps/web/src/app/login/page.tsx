@@ -158,11 +158,19 @@ export default function LoginPage() {
                   type="button"
                   size="sm"
                   onClick={() => setForgotOpen(true)}
+                  data-testid="forgot-password-link"
                 >
-                  Forgot Password
+                  Forgot Password?
                 </Anchor>
               </Group>
-              {forgotOpen ? <Text className={styles.comingSoon}>Coming Soon</Text> : null}
+              {forgotOpen ? (
+                <Text
+                  className={styles.comingSoon}
+                  data-testid="forgot-password-hint"
+                >
+                  Please contact your administrator to reset your password.
+                </Text>
+              ) : null}
               {errors.form ? <Text className={styles.formError}>{errors.form}</Text> : null}
               <Button fullWidth size="md" type="submit" loading={submitting}>
                 Sign In
