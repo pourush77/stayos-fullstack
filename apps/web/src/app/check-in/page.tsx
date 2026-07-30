@@ -44,7 +44,6 @@ import {
   ShieldCheck,
   Trash2,
   Upload,
-  UserPlus,
   XCircle,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -1152,14 +1151,7 @@ export default function CheckInPage() {
                 <ThemeIcon color="stayosBrand" variant="light"><IdCard size={18} /></ThemeIcon>
                 <Title order={2}>Guest & Identity</Title>
               </Group>
-              <Group justify="space-between" align="center">
-                <Box>
-                  <Title order={3} size="h4">Guest Summary</Title>
-                </Box>
-                <Button variant="light" color="stayosBrand" size="xs" disabled>
-                  Edit Guest Details
-                </Button>
-              </Group>
+              <Title order={3} size="h4">Guest Summary</Title>
               <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
                 <Tile label="Full name" value={guestName} />
                 <Tile label="Phone" value={getString(guest, ['phone', 'mobile'])} />
@@ -1296,15 +1288,6 @@ export default function CheckInPage() {
                   {identityStatus.label}
                 </Badge>
               </Group>
-              <Divider label="Family members" labelPosition="left" />
-              <Group>
-                <Button variant="light" leftSection={<UserPlus size={16} />} disabled>Add Adult</Button>
-                <Button variant="light" leftSection={<UserPlus size={16} />} disabled>Add Child</Button>
-                <Button variant="subtle" color="gray" disabled>Travelling Alone</Button>
-              </Group>
-              <Alert color="blue" variant="light">
-                Companion persistence is not available from the implemented check-in backend yet.
-              </Alert>
             </Stack>
           ) : null}
 

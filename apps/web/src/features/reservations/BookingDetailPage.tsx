@@ -198,7 +198,6 @@ export default function BookingDetailPage() {
             <Stack gap={spacing[2]}>
               <PaymentStatusBadge status={booking.paymentStatus} />
               {booking.paymentStatus === 'PAYMENT_DUE' ? <Alert color="yellow" variant="light" radius={radius.md}>Payment is still pending.</Alert> : null}
-              <Button disabled variant="light" color="gray">Collect Payment</Button>
             </Stack>
           </Section>
           <Section title="Notes" icon={<NotebookText size={17} />}><Text size="sm" c="#334155">{booking.notes}</Text></Section>

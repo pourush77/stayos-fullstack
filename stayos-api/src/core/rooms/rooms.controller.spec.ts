@@ -26,6 +26,22 @@ const roomEntity: RoomEntity = {
   createdAt: new Date('2026-06-30T00:00:00.000Z'),
   updatedAt: new Date('2026-06-30T00:00:00.000Z'),
 };
+const roomResponse = {
+  id: roomEntity.id,
+  propertyId: roomEntity.propertyId,
+  floorId: roomEntity.floorId,
+  roomTypeId: roomEntity.roomTypeId,
+  roomNumber: roomEntity.roomNumber,
+  displayName: roomEntity.displayName,
+  description: roomEntity.description,
+  status: roomEntity.status,
+  operationalStatus: roomEntity.operationalStatus,
+  operationalStatusReason: roomEntity.operationalStatusReason,
+  operationalStatusNote: roomEntity.operationalStatusNote,
+  amenities: [],
+  createdAt: roomEntity.createdAt,
+  updatedAt: roomEntity.updatedAt,
+};
 
 describe('RoomsController', () => {
   let controller: RoomsController;
@@ -65,7 +81,7 @@ describe('RoomsController', () => {
     ).resolves.toEqual({
       success: true,
       message: 'Records fetched successfully.',
-      data: [roomEntity],
+      data: [roomResponse],
       pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
     });
   });
@@ -74,7 +90,7 @@ describe('RoomsController', () => {
     roomsService.create.mockResolvedValue(roomEntity);
     const payload = { floorId, roomTypeId, roomNumber: '101' };
 
-    await expect(controller.create(propertyId, payload)).resolves.toEqual(roomEntity);
+    await expect(controller.create(propertyId, payload)).resolves.toEqual(roomResponse);
     expect(roomsService.create).toHaveBeenCalledWith(propertyId, payload);
   });
 
@@ -84,7 +100,7 @@ describe('RoomsController', () => {
       operationalStatus: RoomOperationalStatus.READY,
     });
 
-    await expect(controller.markReady(propertyId, roomEntity.id)).resolves.toEqual(roomEntity);
+    await expect(controller.markReady(propertyId, roomEntity.id)).resolves.toEqual(roomResponse);
     expect(roomsService.markReady).toHaveBeenCalledWith(propertyId, roomEntity.id);
   });
 
@@ -99,10 +115,16 @@ describe('RoomsController', () => {
       operationalStatusReason: payload.reason,
       operationalStatusNote: payload.note,
     };
+    const updatedRoomResponse = {
+      ...roomResponse,
+      operationalStatus: RoomOperationalStatus.OUT_OF_ORDER,
+      operationalStatusReason: payload.reason,
+      operationalStatusNote: payload.note,
+    };
     roomsService.markOutOfOrder.mockResolvedValue(updatedRoom);
 
     await expect(controller.markOutOfOrder(propertyId, roomEntity.id, payload)).resolves.toEqual(
-      updatedRoom,
+      updatedRoomResponse,
     );
     expect(roomsService.markOutOfOrder).toHaveBeenCalledWith(propertyId, roomEntity.id, payload);
   });

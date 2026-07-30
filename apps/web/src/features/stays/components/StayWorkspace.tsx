@@ -517,7 +517,7 @@ export default function StayWorkspace() {
 
       <Modal opened={checkoutOpened} onClose={() => setCheckoutOpened(false)} centered title="Check out guest?">
         <Stack gap={spacing[4]}>
-          <Text>This keeps the existing confirmation flow for now. TODO: Future Checkout Workspace.</Text>
+          <Text c="#64748b" size="sm">Confirm to check out. Outstanding folio balance settleable via Billing panel.</Text>
           <Group justify="flex-end">
             <Button variant="subtle" color="gray" onClick={() => setCheckoutOpened(false)}>Cancel</Button>
             <Button color="red" loading={isCheckingOut} onClick={() => void checkOut()}>Check Out</Button>

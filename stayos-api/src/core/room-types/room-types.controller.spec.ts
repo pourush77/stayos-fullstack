@@ -22,6 +22,23 @@ const roomTypeEntity: RoomTypeEntity = {
   createdAt: new Date('2026-06-30T00:00:00.000Z'),
   updatedAt: new Date('2026-06-30T00:00:00.000Z'),
 };
+const roomTypeResponse = {
+  id: roomTypeEntity.id,
+  propertyId: roomTypeEntity.propertyId,
+  code: roomTypeEntity.code,
+  name: roomTypeEntity.name,
+  description: roomTypeEntity.description,
+  baseOccupancy: roomTypeEntity.baseOccupancy,
+  maxOccupancy: roomTypeEntity.maxOccupancy,
+  maxAdults: roomTypeEntity.maxAdults,
+  maxChildren: roomTypeEntity.maxChildren,
+  bedType: roomTypeEntity.bedType,
+  sizeSqFt: roomTypeEntity.sizeSqFt,
+  status: roomTypeEntity.status,
+  amenities: [],
+  createdAt: roomTypeEntity.createdAt,
+  updatedAt: roomTypeEntity.updatedAt,
+};
 
 describe('RoomTypesController', () => {
   let controller: RoomTypesController;
@@ -54,7 +71,7 @@ describe('RoomTypesController', () => {
     ).resolves.toEqual({
       success: true,
       message: 'Records fetched successfully.',
-      data: [roomTypeEntity],
+      data: [roomTypeResponse],
       pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
     });
   });
@@ -70,7 +87,7 @@ describe('RoomTypesController', () => {
       maxChildren: 1,
     };
 
-    await expect(controller.create(propertyId, payload)).resolves.toEqual(roomTypeEntity);
+    await expect(controller.create(propertyId, payload)).resolves.toEqual(roomTypeResponse);
     expect(roomTypesService.create).toHaveBeenCalledWith(propertyId, payload);
   });
 });

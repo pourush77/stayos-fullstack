@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { Badge, Box, Button, Drawer, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
 import { DoorOpen, History } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
@@ -20,6 +21,9 @@ export function StayDrawer({
   reservation?: Reservation;
   room: Room | null;
 }) {
+  const stayHref = reservation?.stayHref ?? room?.stayHref ?? (reservation?.backendId ? `/guest-stay/${reservation.backendId}` : undefined);
+  const housekeepingHref = `/housekeeping?room=${encodeURIComponent(room?.id ?? room?.number ?? '')}`;
+
   return (
     <Drawer
       opened={opened}
@@ -75,17 +79,17 @@ export function StayDrawer({
               View History
             </Button>
             <Group gap={8}>
-              <Button variant="subtle" color="gray" disabled>
-                Billing
-              </Button>
-              <Button variant="subtle" color="gray" disabled>
-                Charges
-              </Button>
-              <Button variant="subtle" color="gray" disabled>
+              {stayHref ? (
+                <Button component={Link} href={stayHref} variant="subtle" color="gray">
+                  Billing
+                </Button>
+              ) : (
+                <Button variant="subtle" color="gray" disabled>
+                  Billing
+                </Button>
+              )}
+              <Button component={Link} href={housekeepingHref} variant="subtle" color="gray">
                 Housekeeping
-              </Button>
-              <Button variant="subtle" color="gray" disabled>
-                Notes
               </Button>
             </Group>
           </Stack>

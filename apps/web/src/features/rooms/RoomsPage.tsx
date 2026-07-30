@@ -2228,7 +2228,7 @@ export default function RoomsPage() {
         </Alert>
       ) : null}
 
-      {inventory.isFallback && inventory.error ? (
+      {process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true' && inventory.isFallback && inventory.error ? (
         <Alert color="yellow" variant="light" icon={<AlertCircle size={17} />} radius={radius.lg}>
           Demo fallback is enabled, so Rooms is showing mock inventory while the backend is
           unavailable.
