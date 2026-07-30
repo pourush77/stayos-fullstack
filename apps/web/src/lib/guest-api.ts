@@ -70,8 +70,9 @@ export function getProperties(signal?: AbortSignal) {
   return request<GuestPropertyDto[]>('/properties', { signal });
 }
 
-export function getPropertyGuests(propertyId: string, signal?: AbortSignal) {
-  return request<GuestDto[]>(`/properties/${propertyId}/guests`, { signal });
+export function getPropertyGuests(propertyId: string, signal?: AbortSignal, search?: string) {
+  const query = search?.trim() ? `?search=${encodeURIComponent(search.trim())}` : '';
+  return request<GuestDto[]>(`/properties/${propertyId}/guests${query}`, { signal });
 }
 
 export function getPropertyGuest(propertyId: string, guestId: string, signal?: AbortSignal) {

@@ -87,6 +87,7 @@ export function friendlyGuestError(error: unknown) {
 export function useGuests({ allowMockFallback, enabled }: GuestHookOptions): GuestState & {
   createGuest: (values: GuestFormValues) => Promise<Guest>;
   refreshGuests: () => Promise<void>;
+  searchGuests: (search: string, signal?: AbortSignal) => Promise<Guest[]>;
 } {
   const [state, setState] = useState<GuestState>({
     guests: [],
@@ -166,7 +167,15 @@ export function useGuests({ allowMockFallback, enabled }: GuestHookOptions): Gue
     [loadGuests, state.propertyId],
   );
 
-  return { ...state, createGuest, refreshGuests };
+  const searchGuests = useCallback(
+    async (search: string, signal?: AbortSignal) => {
+      const propertyId = state.propertyId || (await getCurrentProperty(signal)).propertyId;
+      return (await getPropertyGuests(propertyId, signal, search)).map(mapGuest);
+    },
+    [state.propertyId],
+  );
+
+  return { ...state, createGuest, refreshGuests, searchGuests };
 }
 
 export function useGuestDetails({
