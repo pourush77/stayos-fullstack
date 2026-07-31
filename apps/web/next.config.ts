@@ -1,6 +1,9 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  experimental: {
+    useTypeScriptCli: true,
+  },
   allowedDevOrigins: [
     '192.168.1.31',
     '192.168.112.1',

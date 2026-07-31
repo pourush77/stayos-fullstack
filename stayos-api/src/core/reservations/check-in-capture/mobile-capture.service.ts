@@ -159,6 +159,20 @@ export class MobileCaptureService {
     });
   }
 
+  async getDocumentPreview(
+    propertyId: string,
+    reservationId: string,
+    documentId: string,
+  ): Promise<{ buffer: Buffer; mimeType: string; filename: string }> {
+    const { reservation } = await this.loadReservation(propertyId, reservationId);
+    const document = await this.dataSource
+      .getRepository(GuestDocumentEntity)
+      .findOne({ where: { id: documentId, propertyId, reservationId: reservation.id } });
+    if (!document) throw new NotFoundException('Document not found');
+    const buffer = await this.storage.read(document.storagePath);
+    return { buffer, mimeType: document.mimeType, filename: document.originalFilename };
+  }
+
   private async uploadForSession(
     session: MobileCaptureSessionEntity,
     side: GuestDocumentSide,

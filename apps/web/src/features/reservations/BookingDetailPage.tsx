@@ -164,7 +164,7 @@ function NextActionHero({
               <Button data-testid="booking-next-action-cta" variant="white" color="red" h={56} loading={isActing} onClick={() => void onCheckOut()}>Check Out</Button>
             </>
           ) : (
-            <Button data-testid="booking-next-action-cta" color="white" c="#5b21b6" h={56} loading={isActing} onClick={() => void onCheckIn()}>Start Check-In</Button>
+            <Button component={Link} href={`/reservations/${booking.backendId}/check-in`} data-testid="booking-next-action-cta" color="white" c="#5b21b6" h={56}>Start Check-In</Button>
           )}
         </Group>
       </Group>
@@ -380,6 +380,10 @@ export default function BookingDetailPage() {
           <Group gap={8}>
             {booking.status === 'CHECKED_IN' ? (
               <Button component={Link} href={`/guest-stay/${booking.backendId}`} color="stayosBrand">
+                {primaryAction(booking)}
+              </Button>
+            ) : booking.status === 'CONFIRMED' && booking.room !== 'Unassigned' ? (
+              <Button component={Link} href={`/reservations/${booking.backendId}/check-in`} color="stayosBrand">
                 {primaryAction(booking)}
               </Button>
             ) : (
