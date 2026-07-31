@@ -232,25 +232,14 @@ function RoomStep({ arrival }: { arrival: ReturnType<typeof useArrival> }) {
   );
 }
 
-function CheckInStep({ arrival, onComplete }: { arrival: ReturnType<typeof useArrival>; onComplete: () => void }) {
-  const [loading, setLoading] = useState(false);
-
-  const complete = async () => {
+function CheckInStep({ arrival, onStart }: { arrival: ReturnType<typeof useArrival>; onStart: () => void }) {
+  const start = () => {
     if (!arrival.booking || arrival.booking.room === 'Unassigned') {
       showToast({ color: 'yellow', title: 'Room required', message: 'Assign a room before check-in.' });
       return;
     }
 
-    setLoading(true);
-    try {
-      await arrival.checkIn();
-      showToast({ color: 'green', title: 'Guest successfully checked in', message: 'Opening the active stay workspace.' });
-      onComplete();
-    } catch {
-      showToast({ color: 'red', title: 'Check-in failed', message: 'Unable to check in this guest. Please try again.' });
-    } finally {
-      setLoading(false);
-    }
+    onStart();
   };
 
   return (
@@ -269,7 +258,7 @@ function CheckInStep({ arrival, onComplete }: { arrival: ReturnType<typeof useAr
         </Paper>
       </SimpleGrid>
       <Group justify="flex-end">
-        <Button color="stayosBrand" loading={loading} onClick={() => void complete()} leftSection={<DoorOpen size={16} />}>Complete Check In</Button>
+        <Button color="stayosBrand" onClick={start} leftSection={<DoorOpen size={16} />}>Start Check In</Button>
       </Group>
     </Stack>
   );
@@ -346,10 +335,10 @@ export function ArrivalWorkspace({
         {arrival.step === 'check-in' ? (
           <CheckInStep
             arrival={arrival}
-            onComplete={() => {
-              const stayId = arrival.booking?.backendId;
+            onStart={() => {
+              const reservationId = arrival.booking?.backendId;
               close();
-              if (stayId) router.push(`/guest-stay/${stayId}`);
+              if (reservationId) router.push(`/check-in?reservation=${reservationId}`);
             }}
           />
         ) : null}

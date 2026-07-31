@@ -951,8 +951,8 @@ export default function CheckInPage() {
     if (!propertyId || !reservationId || !documentNumberValid || !confirmed) return;
     try {
       await saveIdentity(propertyId, reservationId, {
-        documentType: normalizeDocumentType(docType),
-        documentNumber: aadhaarSelected ? aadhaarDigits : docNumber.trim(),
+        idType: normalizeDocumentType(docType),
+        idNumber: aadhaarSelected ? aadhaarDigits : docNumber.trim(),
         verified: true,
       });
       showToast({ color: 'green', title: 'Identity verified', message: 'Identity verified by receptionist.' });

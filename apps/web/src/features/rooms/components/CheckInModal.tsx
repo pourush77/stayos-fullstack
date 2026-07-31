@@ -19,6 +19,7 @@ import {
   Title,
 } from '@mantine/core';
 import { radius, spacing } from '@stayos/theme';
+import { showToast } from '@stayos/ui';
 import {
   AlertTriangle,
   BedDouble,
@@ -35,7 +36,12 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { Reservation } from '../../../lib/reservation-hooks';
-import { uploadIdentityDocument } from '../../check-in/check-in-api';
+import {
+  markPaymentReviewed,
+  saveGuestRegistration,
+  saveIdentity,
+  uploadIdentityDocument,
+} from '../../check-in/check-in-api';
 import styles from '../RoomsPage.module.css';
 import type { Room } from '../types';
 import { DetailTile } from './DetailTile';
@@ -94,6 +100,15 @@ const requiredRegistrationFields: Array<keyof RegistrationForm> = [
   'pinCode',
   'purposeOfVisit',
 ];
+
+const identityTypeByLabel: Record<string, string> = {
+  Aadhaar: 'AADHAAR',
+  'Driving Licence': 'DRIVING_LICENSE',
+  Other: 'OTHER',
+  PAN: 'PAN',
+  Passport: 'PASSPORT',
+  'Voter ID': 'VOTER_ID',
+};
 
 function guestBreakdown(occupancy: string) {
   const adults = occupancy.match(/(\d+)\s+Adult/i)?.[1] ?? 'Not recorded';
@@ -230,6 +245,9 @@ export function CheckInModal({
   const readiness = readinessFor(room);
   const [activeStep, setActiveStep] = useState<StepKey>('booking');
   const [registrationSaved, setRegistrationSaved] = useState(false);
+  const [savingRegistration, setSavingRegistration] = useState(false);
+  const [savingIdentity, setSavingIdentity] = useState(false);
+  const [savingPayment, setSavingPayment] = useState(false);
   const [paymentReviewed, setPaymentReviewed] = useState(!paymentDue);
   const [uploadingSide, setUploadingSide] = useState<'front' | 'back' | null>(null);
   const [identity, setIdentity] = useState<IdentityForm>({
@@ -313,7 +331,7 @@ export function CheckInModal({
     review: blockers.length === 0 ? 'complete' : 'blocked',
   };
 
-  const canCheckIn = blockers.length === 0;
+  const canCheckIn = blockers.length === 0 && registrationSaved;
   const activeIndex = steps.findIndex((step) => step.key === activeStep);
   const activeTitle = steps[activeIndex]?.title ?? 'Check In';
 
@@ -331,6 +349,95 @@ export function CheckInModal({
       await uploadIdentityDocument(propertyId, reservation.backendId, side, file);
     } finally {
       setUploadingSide(null);
+    }
+  };
+
+  const handleSaveRegistration = async () => {
+    if (!propertyId || !reservation?.backendId || !registrationComplete) return;
+
+    setSavingRegistration(true);
+    try {
+      await saveGuestRegistration(propertyId, reservation.backendId, {
+        addressLine1: registration.address1,
+        addressLine2: registration.address2 || undefined,
+        arrivalFrom: registration.arrivalFrom || undefined,
+        cFormRequired: isForeignGuest,
+        city: registration.city,
+        country: registration.country,
+        dateOfBirth: registration.dateOfBirth || undefined,
+        email: registration.email || undefined,
+        fullName: registration.fullName,
+        gender: registration.gender || undefined,
+        isForeignNational: isForeignGuest,
+        mobile: registration.mobile,
+        nationality: registration.nationality,
+        nextDestination: registration.nextDestination || undefined,
+        passportExpiryDate: registration.passportExpiryDate || undefined,
+        passportIssueDate: registration.passportIssueDate || undefined,
+        passportIssuePlace: registration.passportIssuePlace || undefined,
+        passportNumber: registration.passportNumber || undefined,
+        postalCode: registration.pinCode,
+        purposeOfVisit: registration.purposeOfVisit,
+        state: registration.state,
+        visaExpiryDate: registration.visaExpiryDate || undefined,
+        visaIssueDate: registration.visaIssueDate || undefined,
+        visaNumber: registration.visaNumber || undefined,
+        visaType: registration.visaType || undefined,
+      });
+      setRegistrationSaved(true);
+      showToast({
+        color: 'green',
+        message: 'Guest registration saved.',
+        title: 'Registration updated',
+      });
+    } catch (error) {
+      showToast({
+        color: 'red',
+        message: error instanceof Error ? error.message : 'Unable to save guest registration.',
+        title: 'Registration failed',
+      });
+    } finally {
+      setSavingRegistration(false);
+    }
+  };
+
+  const handleSaveIdentityAndContinue = async () => {
+    if (!propertyId || !reservation?.backendId || !identityComplete) return;
+
+    setSavingIdentity(true);
+    try {
+      await saveIdentity(propertyId, reservation.backendId, {
+        idNumber: identity.idNumber,
+        idType: identityTypeByLabel[identity.idType] ?? 'OTHER',
+        verified: identity.verified,
+      });
+      nextStep();
+    } catch (error) {
+      showToast({
+        color: 'red',
+        message: error instanceof Error ? error.message : 'Unable to save identity verification.',
+        title: 'Identity save failed',
+      });
+    } finally {
+      setSavingIdentity(false);
+    }
+  };
+
+  const handleSavePaymentAndContinue = async () => {
+    if (!propertyId || !reservation?.backendId || !paymentReviewed) return;
+
+    setSavingPayment(true);
+    try {
+      await markPaymentReviewed(propertyId, reservation.backendId);
+      nextStep();
+    } catch (error) {
+      showToast({
+        color: 'red',
+        message: error instanceof Error ? error.message : 'Unable to save payment review.',
+        title: 'Payment save failed',
+      });
+    } finally {
+      setSavingPayment(false);
     }
   };
 
@@ -695,15 +802,16 @@ export function CheckInModal({
                         <Button
                           variant="light"
                           color="gray"
-                          onClick={() => setRegistrationSaved(true)}
-                          disabled={!registrationComplete}
+                          onClick={() => void handleSaveRegistration()}
+                          disabled={!registrationComplete || savingRegistration}
+                          loading={savingRegistration}
                         >
                           Save registration
                         </Button>
                         <Button
                           color="stayosBrand"
                           onClick={nextStep}
-                          disabled={!registrationComplete}
+                          disabled={!registrationComplete || !registrationSaved}
                         >
                           Continue
                         </Button>
@@ -804,7 +912,12 @@ export function CheckInModal({
                         </Alert>
                       )}
                       <Group justify="flex-end">
-                        <Button color="stayosBrand" onClick={nextStep} disabled={!identityComplete}>
+                        <Button
+                          color="stayosBrand"
+                          onClick={() => void handleSaveIdentityAndContinue()}
+                          disabled={!identityComplete || savingIdentity}
+                          loading={savingIdentity}
+                        >
                           Continue
                         </Button>
                       </Group>
@@ -848,8 +961,9 @@ export function CheckInModal({
                           />
                           <Button
                             color="stayosBrand"
-                            onClick={nextStep}
-                            disabled={!paymentReviewed}
+                            onClick={() => void handleSavePaymentAndContinue()}
+                            disabled={!paymentReviewed || savingPayment}
+                            loading={savingPayment}
                           >
                             Continue
                           </Button>

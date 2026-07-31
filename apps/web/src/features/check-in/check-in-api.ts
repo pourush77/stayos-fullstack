@@ -240,10 +240,24 @@ export function uploadIdentityDocument(
   );
 }
 
+export function saveGuestRegistration(
+  propertyId: string,
+  reservationId: string,
+  payload: LooseRecord,
+) {
+  return request<LooseRecord>(
+    `/properties/${propertyId}/reservations/${reservationId}/check-in/guest-registration`,
+    {
+      body: JSON.stringify(payload),
+      method: 'PATCH',
+    },
+  );
+}
+
 export function saveIdentity(
   propertyId: string,
   reservationId: string,
-  payload: { documentType: string; documentNumber: string; verified?: boolean },
+  payload: { idType: string; idNumber: string; verified: boolean },
 ) {
   return request<LooseRecord>(
     `/properties/${propertyId}/reservations/${reservationId}/check-in/identity`,
@@ -258,6 +272,7 @@ export function markPaymentReviewed(propertyId: string, reservationId: string) {
   return request<LooseRecord>(
     `/properties/${propertyId}/reservations/${reservationId}/check-in/payment-review`,
     {
+      body: JSON.stringify({ paymentReviewed: true }),
       method: 'PATCH',
     },
   );

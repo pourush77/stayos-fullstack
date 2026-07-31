@@ -56,6 +56,18 @@ export function friendlyCheckInError(error: unknown) {
   if (normalized.includes('ALREADY') || normalized.includes('CHECKED_IN')) {
     return 'This guest is already checked in.';
   }
+  if (normalized.includes('GUEST_REGISTRATION_INCOMPLETE')) {
+    return 'Save the guest registration before completing check-in.';
+  }
+  if (normalized.includes('IDENTITY_NOT_VERIFIED')) {
+    return 'Save a verified identity document before completing check-in.';
+  }
+  if (normalized.includes('PAYMENT_NOT_REVIEWED')) {
+    return 'Mark payment reviewed before completing check-in.';
+  }
+  if (normalized.includes('ROOM_NOT_READY') || normalized.includes('ROOM_UNAVAILABLE')) {
+    return 'The assigned room is not ready for check-in.';
+  }
   if (normalized.includes('NOT_ASSIGNED') || normalized.includes('ROOM')) {
     return 'Assign a room before checking in this guest.';
   }

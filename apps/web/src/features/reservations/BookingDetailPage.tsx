@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Alert, Box, Button, Card, Group, Loader, Modal, Paper, Popover, Select, SimpleGrid, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { AlertCircle, BedDouble, CalendarDays, Check, ChevronLeft, CreditCard, Edit, IdCard, NotebookText, ReceiptIndianRupee, UserRound, XCircle } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
@@ -290,6 +290,7 @@ function AssignRoomModal({
 }
 
 export default function BookingDetailPage() {
+  const router = useRouter();
   const params = useParams<{ reservationId: string }>();
   const backend = useBackendStatus();
   const allowMockFallback = process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
@@ -337,16 +338,8 @@ export default function BookingDetailPage() {
     }
   };
 
-  const checkInBooking = async () => {
-    setIsActing(true);
-    try {
-      await bookingState.checkInBooking();
-      showToast({ color: 'green', title: 'Checked in', message: 'The guest is now checked in.' });
-    } catch (error) {
-      showToast({ color: 'red', title: 'Unable to check in', message: friendlyBookingError(error) });
-    } finally {
-      setIsActing(false);
-    }
+  const startCheckIn = async () => {
+    router.push(`/check-in?reservation=${booking.backendId}`);
   };
 
   const checkOutBooking = async () => {
@@ -403,7 +396,7 @@ export default function BookingDetailPage() {
         booking={booking}
         isActing={isActing}
         onAssignRoom={() => setAssignOpened(true)}
-        onCheckIn={checkInBooking}
+        onCheckIn={startCheckIn}
         onCheckOut={checkOutBooking}
       />
 
