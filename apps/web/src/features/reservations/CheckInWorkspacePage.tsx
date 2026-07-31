@@ -340,21 +340,35 @@ export function CheckInWorkspacePage() {
       applyWorkspace(next);
       showToast({ color: 'green', title: 'Photo uploaded', message: `${side === 'front' ? 'Front' : 'Back'} of ID saved.` });
 
-      // Auto-detect ID type + number from the front photo (client-side OCR — Tesseract.js).
+      // Auto-detect ID type + number + name from the front photo (client-side OCR — Tesseract.js).
       if (side === 'front' && file.type.startsWith('image/')) {
         try {
           setIsDetecting(true);
           const detected = await detectIdFromImage(file);
-          if (detected && detected.idType !== 'OTHER' && detected.idNumber) {
-            setIdType(detected.idType);
-            setIdNumber(detected.idNumber);
-            showToast({
-              color: 'blue',
-              title: `Detected: ${detected.idType.replace('_', ' ')}`,
-              message: `${detected.idNumber} — please confirm.`,
-            });
-          } else if (detected) {
-            showToast({ color: 'yellow', title: 'Could not auto-detect', message: 'Please enter the ID type and number manually.' });
+          if (detected) {
+            const bits: string[] = [];
+            if (detected.idType !== 'OTHER' && detected.idNumber) {
+              setIdType(detected.idType);
+              setIdNumber(detected.idNumber);
+              bits.push(`${detected.idType.replace('_', ' ')}: ${detected.idNumber}`);
+            }
+            if (detected.fullName && !fullName.trim()) {
+              // Only auto-fill the guest name if the receptionist hasn't already picked or typed one.
+              setFullName(detected.fullName);
+              bits.push(`Name: ${detected.fullName}`);
+            } else if (detected.fullName && detected.fullName.toLowerCase() !== fullName.trim().toLowerCase()) {
+              // Guest already has a name — don't overwrite, just surface the detected one so front desk can compare.
+              bits.push(`ID name: ${detected.fullName}`);
+            }
+            if (bits.length > 0) {
+              showToast({
+                color: 'blue',
+                title: 'Auto-detected from ID',
+                message: `${bits.join(' · ')} — please confirm.`,
+              });
+            } else {
+              showToast({ color: 'yellow', title: 'Could not auto-detect', message: 'Please enter the ID type and number manually.' });
+            }
           }
         } catch (ocrError) {
           console.warn('OCR failed', ocrError);

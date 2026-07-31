@@ -9,6 +9,7 @@ export type DetectedIdType = 'AADHAAR' | 'PAN' | 'PASSPORT' | 'VOTER_ID' | 'DRIV
 export type IdDetectionResult = {
   idType: DetectedIdType;
   idNumber: string;
+  fullName?: string;
   rawText: string;
   confidence: number;
 };
@@ -42,6 +43,92 @@ function looksLikePanContext(rawText: string): boolean {
   return upper.includes('INCOME TAX') || upper.includes('PERMANENT ACCOUNT') || upper.includes('GOVT. OF INDIA');
 }
 
+// Lines we never want to accept as the person's name — these show up on every Indian ID card
+const NAME_STOPWORDS = [
+  'GOVERNMENT OF INDIA', 'GOVT OF INDIA', 'GOVT. OF INDIA', 'REPUBLIC OF INDIA',
+  'INCOME TAX DEPARTMENT', 'INCOME TAX', 'PERMANENT ACCOUNT NUMBER', 'PERMANENT ACCOUNT',
+  'UNIQUE IDENTIFICATION', 'UIDAI', 'AADHAAR', 'AADHAR', 'ELECTION COMMISSION',
+  'DRIVING LICENCE', 'DRIVING LICENSE', 'PASSPORT', 'IDENTITY CARD',
+  'DEPARTMENT', 'REGISTRAR', 'HOLDER', 'MALE', 'FEMALE', 'TRANSGENDER',
+  'FATHER', 'MOTHER', 'HUSBAND', 'SPOUSE', 'GUARDIAN',
+  'DATE OF BIRTH', 'DOB', 'YEAR OF BIRTH', 'ADDRESS',
+];
+
+function isPlausibleName(candidate: string): boolean {
+  const trimmed = candidate.trim();
+  if (trimmed.length < 3 || trimmed.length > 50) return false;
+  // Must contain letters, no digits, and not be a stopword line
+  if (/\d/.test(trimmed)) return false;
+  const upper = trimmed.toUpperCase();
+  if (NAME_STOPWORDS.some((stop) => upper === stop || upper.includes(stop))) return false;
+  // At least one space (multi-word name) OR at least 4 alpha chars for a single word
+  const alpha = trimmed.replace(/[^A-Za-z]/g, '');
+  if (alpha.length < 3) return false;
+  // Reject strings dominated by non-letter characters
+  if (alpha.length / trimmed.length < 0.6) return false;
+  return true;
+}
+
+function titleCase(input: string): string {
+  return input
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => (word.length <= 2 ? word.toUpperCase() : word.charAt(0).toUpperCase() + word.slice(1)))
+    .join(' ');
+}
+
+function extractName(rawText: string, idType: DetectedIdType): string | undefined {
+  const lines = rawText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+  // Passport: combine Surname + Given Names FIRST, before the generic "Name" matcher
+  // (otherwise "Given Name(s)" alone captures only the first name).
+  if (idType === 'PASSPORT') {
+    let surname: string | undefined;
+    let givenName: string | undefined;
+    for (let i = 0; i < lines.length - 1; i += 1) {
+      const label = lines[i].toLowerCase();
+      const value = lines[i + 1];
+      if (!isPlausibleName(value)) continue;
+      if (label.includes('surname')) surname = value;
+      if (label.includes('given')) givenName = value;
+    }
+    if (givenName && surname) return titleCase(`${givenName} ${surname}`);
+    if (surname) return titleCase(surname);
+    if (givenName) return titleCase(givenName);
+  }
+
+  // Strategy 1: "Name: XXXX" or "Name  XXXX" on the same line.
+  for (const line of lines) {
+    const match = line.match(/^\s*(?:Full\s+Name|Name)\s*[:\-]?\s+(.{2,})$/i);
+    if (match && isPlausibleName(match[1])) {
+      return titleCase(match[1]);
+    }
+  }
+
+  // Strategy 2: "Name" on one line, actual name on the next.
+  for (let i = 0; i < lines.length - 1; i += 1) {
+    if (/^(?:Full\s+Name|Name)\s*$/i.test(lines[i])) {
+      const next = lines[i + 1];
+      if (isPlausibleName(next)) return titleCase(next);
+    }
+  }
+
+  // Strategy 3 (Aadhaar): the line immediately before DOB / Year of Birth is usually the name.
+  if (idType === 'AADHAAR') {
+    for (let i = 1; i < lines.length; i += 1) {
+      const upper = lines[i].toUpperCase();
+      if (upper.includes('DOB') || upper.includes('DATE OF BIRTH') || upper.includes('YEAR OF BIRTH')) {
+        for (let j = i - 1; j >= 0; j -= 1) {
+          if (isPlausibleName(lines[j])) return titleCase(lines[j]);
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
 export async function detectIdFromImage(imageBlob: Blob): Promise<IdDetectionResult | null> {
   const worker = await createWorker('eng');
   try {
@@ -73,12 +160,13 @@ export async function detectIdFromImage(imageBlob: Blob): Promise<IdDetectionRes
       return {
         idType: pattern.type,
         idNumber,
+        fullName: extractName(text, pattern.type),
         rawText: text,
         confidence,
       };
     }
 
-    return { idType: 'OTHER', idNumber: '', rawText: text, confidence };
+    return { idType: 'OTHER', idNumber: '', fullName: extractName(text, 'OTHER'), rawText: text, confidence };
   } finally {
     await worker.terminate();
   }
