@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { Alert, Badge, Button, Divider, Group, Loader, Modal, NumberInput, Paper, Select, Stack, Table, Text, TextInput, ThemeIcon } from '@mantine/core';
-import { AlertTriangle, CheckCircle2, CreditCard, Receipt, Smartphone } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CreditCard, Download, Mail, MessageCircle, Receipt, Smartphone } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
+import { API_BASE_URL } from '../../../lib/api-base';
 import { showToast } from '@stayos/ui';
 import { addPayment, createRazorpayOrder, getFolioForReservation, verifyRazorpayPayment } from '../../billing/api/billing-api';
 import type { Folio, FolioPaymentMethod } from '../../billing/types/billing.types';
@@ -56,6 +57,7 @@ export function CheckoutModal({ opened, onClose, propertyId, reservationId, gues
   const [isLoading, setIsLoading] = useState(false);
   const [isPaying, setIsPaying] = useState(false);
   const [isRazorpaying, setIsRazorpaying] = useState(false);
+  const [lastPaymentId, setLastPaymentId] = useState<string | undefined>(undefined);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<FolioPaymentMethod>('CASH');
@@ -102,6 +104,7 @@ export function CheckoutModal({ opened, onClose, propertyId, reservationId, gues
       setFolio(next);
       setPaymentAmount(Math.max(0, Number(next.totals.balance)));
       setPaymentReference('');
+      setLastPaymentId(next.payments?.[next.payments.length - 1]?.id);
       showToast({ color: 'green', title: 'Payment recorded', message: `${formatCurrency(paymentAmount)} received via ${paymentMethod}.` });
     } catch (error) {
       showToast({ color: 'red', title: 'Payment failed', message: error instanceof Error ? error.message : 'Please try again.' });
@@ -146,6 +149,7 @@ export function CheckoutModal({ opened, onClose, propertyId, reservationId, gues
             });
             setFolio(nextFolio);
             setPaymentAmount(Math.max(0, Number(nextFolio.totals.balance)));
+            setLastPaymentId(nextFolio.payments?.[nextFolio.payments.length - 1]?.id);
             showToast({ color: 'green', title: 'Payment captured', message: `Razorpay confirmed ${formatCurrency(paymentAmount)}.` });
           } catch (verifyError) {
             showToast({ color: 'red', title: 'Verification failed', message: verifyError instanceof Error ? verifyError.message : 'Please try again.' });
@@ -210,6 +214,61 @@ export function CheckoutModal({ opened, onClose, propertyId, reservationId, gues
               </Table.Tbody>
             </Table>
           </Paper>
+
+          {/* Receipt actions (visible after a successful payment) */}
+          {lastPaymentId && folio ? (
+            <Paper p={12} radius={radius.md} style={{ background: '#ecfdf5', border: '1px solid #bbf7d0' }}>
+              <Group justify="space-between" wrap="wrap" gap={8}>
+                <Group gap={8}>
+                  <ThemeIcon color="green" variant="light" size={28}><CheckCircle2 size={14} /></ThemeIcon>
+                  <Text fw={700} c="#166534" size="sm">Receipt ready to share</Text>
+                </Group>
+                <Group gap={6}>
+                  <Button
+                    variant="light"
+                    color="green"
+                    size="xs"
+                    leftSection={<Download size={13} />}
+                    component="a"
+                    href={`${API_BASE_URL}/properties/${propertyId}/folios/${folio.id}/payments/${lastPaymentId}/receipt.pdf`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-testid="receipt-download"
+                  >
+                    Download PDF
+                  </Button>
+                  <Button
+                    variant="light"
+                    color="green"
+                    size="xs"
+                    leftSection={<Mail size={13} />}
+                    component="a"
+                    href={`mailto:?subject=${encodeURIComponent(`Payment receipt · Folio ${folio.folioNumber}`)}&body=${encodeURIComponent(
+                      `Hi ${guestName},\n\nThank you for your payment. Your receipt is available at:\n${API_BASE_URL}/properties/${propertyId}/folios/${folio.id}/payments/${lastPaymentId}/receipt.pdf\n\n— StayOS`,
+                    )}`}
+                    data-testid="receipt-email"
+                  >
+                    Email
+                  </Button>
+                  <Button
+                    variant="light"
+                    color="green"
+                    size="xs"
+                    leftSection={<MessageCircle size={13} />}
+                    component="a"
+                    href={`https://wa.me/?text=${encodeURIComponent(
+                      `Thank you for your payment to StayOS. Your receipt: ${API_BASE_URL}/properties/${propertyId}/folios/${folio.id}/payments/${lastPaymentId}/receipt.pdf`,
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-testid="receipt-whatsapp"
+                  >
+                    WhatsApp
+                  </Button>
+                </Group>
+              </Group>
+            </Paper>
+          ) : null}
 
           {/* Payment collector */}
           {hasBalance ? (

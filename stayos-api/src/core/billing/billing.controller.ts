@@ -2,23 +2,27 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Param,
   ParseUUIDPipe,
   Post,
   Query,
   Req,
+  Res,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import {
   ApiStandardListResponse,
   ApiStandardOkResponse,
 } from '../../common/decorators/api-standard-response.decorator';
+import { RawResponse } from '../../common/decorators/raw-response.decorator';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
 import { Permissions } from '../auth/permissions';
 import { BillingService } from './billing.service';
 import { BillingMapper } from './billing.mapper';
 import { RazorpayService } from './razorpay.service';
+import { ReceiptPdfService } from './receipt-pdf.service';
 import { CreateFolioChargeDto } from './dto/create-folio-charge.dto';
 import { CreateFolioPaymentDto } from './dto/create-folio-payment.dto';
 import { FolioResponseDto } from './dto/folio-response.dto';
@@ -34,6 +38,7 @@ export class BillingController {
   constructor(
     private readonly billingService: BillingService,
     private readonly razorpayService: RazorpayService,
+    private readonly receiptPdfService: ReceiptPdfService,
   ) {}
 
   @Get('folios')
@@ -123,6 +128,53 @@ export class BillingController {
   ): Promise<FolioResponseDto> {
     const folio = await this.billingService.settleFolio(propertyId, folioId);
     return BillingMapper.toResponse(folio);
+  }
+
+  @Get('folios/:folioId/payments/:paymentId/receipt.pdf')
+  @RequirePermissions(Permissions.BillingManage)
+  @RawResponse()
+  @Header('Cache-Control', 'private, max-age=0, no-cache')
+  async downloadReceipt(
+    @Param('propertyId', new ParseUUIDPipe()) propertyId: string,
+    @Param('folioId', new ParseUUIDPipe()) folioId: string,
+    @Param('paymentId', new ParseUUIDPipe()) paymentId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const folio = await this.billingService.getFolio(propertyId, folioId);
+    const payment = (folio.payments ?? []).find((p) => p.id === paymentId);
+    if (!payment) {
+      res.status(404).json({ success: false, error: { code: 'PAYMENT_NOT_FOUND' } });
+      return;
+    }
+    let buffer: Buffer;
+    try {
+      const response = BillingMapper.toResponse(folio);
+      const guest = folio.guest;
+      const reservation = folio.reservation;
+      buffer = await this.receiptPdfService.generate({
+        folio,
+        totals: {
+          total: response.totals.total,
+          paid: response.totals.paid,
+          balance: response.totals.balance,
+        },
+        charges: folio.charges ?? [],
+        payments: folio.payments ?? [],
+        payment,
+        hotelName: 'StayOS Hotel',
+        guestName: guest?.displayName ?? [guest?.firstName, guest?.lastName].filter(Boolean).join(' ') ?? 'Guest',
+        reservationCode: reservation?.reservationCode ?? '-',
+        stay: reservation ? { arrival: reservation.arrivalDate, departure: reservation.departureDate } : undefined,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[receipt.pdf]', err instanceof Error ? err.stack : err);
+      res.status(500).json({ success: false, error: { code: 'PDF_GENERATION_FAILED', message: err instanceof Error ? err.message : 'Unknown' } });
+      return;
+    }
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="receipt-${payment.id.slice(0, 8)}.pdf"`);
+    res.send(buffer);
   }
 
   @Get('folios/:folioId/razorpay/config')
