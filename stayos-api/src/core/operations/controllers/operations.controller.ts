@@ -87,6 +87,8 @@ export class OperationsController {
   @ApiQuery({ name: 'departureDate', required: false, type: String, example: '2026-07-17' })
   @ApiQuery({ name: 'roomTypeId', required: false, type: String })
   @ApiQuery({ name: 'guestCount', required: false, type: Number })
+  @ApiQuery({ name: 'adults', required: false, type: Number })
+  @ApiQuery({ name: 'children', required: false, type: Number })
   @ApiQuery({ name: 'accessible', required: false, type: Boolean })
   @ApiQuery({ name: 'connecting', required: false, type: Boolean })
   @ApiQuery({ name: 'vipPreferred', required: false, type: Boolean })

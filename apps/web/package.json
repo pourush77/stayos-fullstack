@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --webpack --port 3000",
+    "dev": "next dev --turbo",
     "dev:turbo": "next dev --turbo --port 3000",
+    "dev:webpack": "next dev --webpack",
     "build": "next build",
     "start": "next dev --port 3000 -H 0.0.0.0",
     "typecheck": "tsc --noEmit"

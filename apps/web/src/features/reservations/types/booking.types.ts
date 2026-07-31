@@ -64,6 +64,8 @@ export type RoomTypeOption = {
   capacity: number;
   id: string;
   label: string;
+  maxAdults: number;
+  maxChildren: number;
 };
 
 export type AvailableRoomOption = {

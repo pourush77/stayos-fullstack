@@ -120,6 +120,8 @@ export function getAvailableRooms(
     departureDate?: string;
     roomTypeId?: string;
     guestCount?: number;
+    adults?: number;
+    children?: number;
     accessible?: boolean;
     connecting?: boolean;
     vipPreferred?: boolean;

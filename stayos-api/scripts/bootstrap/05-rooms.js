@@ -6,8 +6,8 @@ const floors = [
 ];
 
 const roomTypes = [
-  ['DLX', 'Deluxe', 'King bed Deluxe room for two adults.', 2, 2, 2, 0, 'King', 251],
-  ['STE', 'Suite', 'Suite for three adults and one child.', 2, 4, 3, 1, 'King', 523],
+  ['DLX', 'Deluxe', 'King bed Deluxe room for two adults and one child.', 2, 3, 2, 1, 'King', 251],
+  ['STE', 'Suite', 'Suite for two adults and two children.', 2, 4, 2, 2, 'King', 523],
 ];
 
 const statusByRoom = {

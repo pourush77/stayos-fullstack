@@ -93,7 +93,7 @@ function CreateGuestQuickForm({
   const [showMore, setShowMore] = useState(false);
   const [email, setEmail] = useState('');
   const [alternatePhone, setAlternatePhone] = useState('');
-  const [nationality, setNationality] = useState('');
+  const [nationality, setNationality] = useState('Indian');
   const [vipStatus, setVipStatus] = useState(false);
   const [blacklistStatus, setBlacklistStatus] = useState(false);
   const [errors, setErrors] = useState<{ fullName?: string; phone?: string }>({});

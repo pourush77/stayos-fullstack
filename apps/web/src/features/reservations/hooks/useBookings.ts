@@ -129,8 +129,8 @@ export function useBookings({ allowMockFallback, enabled }: { allowMockFallback:
           isFallback: true,
           isLoading: false,
           roomTypes: [
-            { baseRate: 3500, capacity: 2, id: 'deluxe', label: 'Deluxe' },
-            { baseRate: 6500, capacity: 3, id: 'suite', label: 'Suite' },
+            { baseRate: 3500, capacity: 3, id: 'deluxe', label: 'Deluxe', maxAdults: 2, maxChildren: 1 },
+            { baseRate: 6500, capacity: 4, id: 'suite', label: 'Suite', maxAdults: 2, maxChildren: 2 },
           ],
         });
         return;
@@ -217,8 +217,8 @@ export function useBookingDetails({
           isFallback: true,
           isLoading: false,
           roomTypes: [
-            { baseRate: 3500, capacity: 2, id: 'deluxe', label: 'Deluxe' },
-            { baseRate: 6500, capacity: 3, id: 'suite', label: 'Suite' },
+            { baseRate: 3500, capacity: 3, id: 'deluxe', label: 'Deluxe', maxAdults: 2, maxChildren: 1 },
+            { baseRate: 6500, capacity: 4, id: 'suite', label: 'Suite', maxAdults: 2, maxChildren: 2 },
           ],
         });
         return;
@@ -280,7 +280,9 @@ export function useBookingDetails({
     if (!booking) return [];
     const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
     const rooms = await getAvailableRooms(propertyId, {
+      adults: booking.adults,
       arrivalDate: booking.arrivalDate,
+      children: booking.children,
       departureDate: booking.departureDate,
       guestCount: booking.adults + booking.children,
       roomTypeId: booking.roomTypeId,

@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
-import { Alert, Box, Button, Card, Group, Modal, Paper, Popover, Select, SimpleGrid, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
+import { useEffect, useState } from 'react';
+import { Alert, Box, Button, Card, Group, Loader, Modal, Paper, Popover, Select, SimpleGrid, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
 import { useParams } from 'next/navigation';
 import { AlertCircle, BedDouble, CalendarDays, Check, ChevronLeft, CreditCard, Edit, IdCard, NotebookText, ReceiptIndianRupee, UserRound, XCircle } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
@@ -194,12 +194,14 @@ function primaryAction(booking: Booking) {
 }
 
 function AssignRoomModal({
+  booking,
   loading,
   onAssign,
   onClose,
   onLoadRooms,
   opened,
 }: {
+  booking: Booking;
   loading: boolean;
   onAssign: (roomId: string) => Promise<void>;
   onClose: () => void;
@@ -208,17 +210,76 @@ function AssignRoomModal({
 }) {
   const [rooms, setRooms] = useState<AvailableRoomOption[]>([]);
   const [roomId, setRoomId] = useState<string | null>(null);
+  const [isLoadingRooms, setIsLoadingRooms] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
-  const loadRooms = async () => {
-    const nextRooms = await onLoadRooms();
-    setRooms(nextRooms);
+  useEffect(() => {
+    if (!opened) return;
+
+    let mounted = true;
+    setIsLoadingRooms(true);
+    setLoadError('');
+    setRoomId(null);
+
+    onLoadRooms()
+      .then((nextRooms) => {
+        if (!mounted) return;
+        setRooms(nextRooms);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setRooms([]);
+        setLoadError('Unable to load available rooms. Try again.');
+      })
+      .finally(() => {
+        if (mounted) setIsLoadingRooms(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [onLoadRooms, opened]);
+
+  const emptyMessage = `${booking.roomType} has no ready rooms available for ${booking.adults + booking.children} guest${booking.adults + booking.children === 1 ? '' : 's'} from ${booking.arrivalDate} to ${booking.departureDate}. Try a different room type, reduce guest count, or mark a suitable room Ready from Rooms/Housekeeping.`;
+
+  const retry = async () => {
+    setIsLoadingRooms(true);
+    setLoadError('');
+    try {
+      const nextRooms = await onLoadRooms();
+      setRooms(nextRooms);
+      setRoomId(null);
+    } catch {
+      setRooms([]);
+      setLoadError('Unable to load available rooms. Try again.');
+    } finally {
+      setIsLoadingRooms(false);
+    }
   };
 
   return (
     <Modal opened={opened} onClose={onClose} title="Assign Room" centered>
       <Stack gap={spacing[4]}>
-        <Button variant="light" color="stayosBrand" onClick={() => void loadRooms()}>Load Available Rooms</Button>
-        <Select data={rooms.map((room) => ({ label: `${room.label} - ${room.roomType}`, value: room.id }))} label="Room" onChange={setRoomId} value={roomId} />
+        <Paper radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+          <Text fw={800} size="sm">{booking.roomType}</Text>
+          <Text c="#64748b" size="xs">{booking.arrivalDate} to {booking.departureDate} - {booking.adults} adult{booking.adults === 1 ? '' : 's'}{booking.children ? `, ${booking.children} child${booking.children === 1 ? '' : 'ren'}` : ''}</Text>
+        </Paper>
+        {isLoadingRooms ? (
+          <Group gap={10}><Loader color="stayosBrand" size="sm" /><Text c="#64748b" size="sm">Checking ready rooms...</Text></Group>
+        ) : loadError ? (
+          <Alert color="red" radius={radius.md} title="Rooms could not be loaded">
+            <Stack gap={spacing[2]}>
+              <Text size="sm">{loadError}</Text>
+              <Button color="red" variant="light" w="fit-content" onClick={() => void retry()}>Retry</Button>
+            </Stack>
+          </Alert>
+        ) : rooms.length === 0 ? (
+          <Alert color="yellow" radius={radius.md} title="No assignable rooms">
+            {emptyMessage}
+          </Alert>
+        ) : (
+          <Select data={rooms.map((room) => ({ label: `${room.label} - ${room.roomType}`, value: room.id }))} label="Room" onChange={setRoomId} placeholder="Choose a ready room" value={roomId} />
+        )}
         <Group justify="flex-end">
           <Button variant="subtle" color="gray" onClick={onClose}>Cancel</Button>
           <Button color="stayosBrand" loading={loading} disabled={!roomId} onClick={() => roomId && void onAssign(roomId)}>Assign Room</Button>
@@ -413,7 +474,7 @@ export default function BookingDetailPage() {
         </Stack>
       </Modal>
 
-      <AssignRoomModal loading={isActing} opened={assignOpened} onAssign={assignRoom} onClose={() => setAssignOpened(false)} onLoadRooms={bookingState.getRooms} />
+      <AssignRoomModal booking={booking} loading={isActing} opened={assignOpened} onAssign={assignRoom} onClose={() => setAssignOpened(false)} onLoadRooms={bookingState.getRooms} />
     </Stack>
   );
 }

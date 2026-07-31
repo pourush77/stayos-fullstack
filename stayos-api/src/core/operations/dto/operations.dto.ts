@@ -167,6 +167,20 @@ export class AvailableRoomsQueryDto {
   @Min(1)
   guestCount?: number;
 
+  @ApiPropertyOptional({ minimum: 1 })
+  @Transform(({ value }: { value: unknown }) => (value === undefined ? undefined : Number(value)))
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  adults?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @Transform(({ value }: { value: unknown }) => (value === undefined ? undefined : Number(value)))
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  children?: number;
+
   @ApiPropertyOptional()
   @Transform(toBoolean)
   @IsOptional()

@@ -29,7 +29,7 @@ const room = (overrides: Partial<RoomEntity> = {}): RoomEntity => ({
   floorId: 'floor-id',
   floor: { name: 'Second', floorNumber: 2 } as never,
   roomTypeId,
-  roomType: { code: 'DLX', name: 'Deluxe', maxOccupancy: 3 } as never,
+  roomType: { code: 'DLX', name: 'Deluxe', maxOccupancy: 3, maxAdults: 2, maxChildren: 1 } as never,
   roomNumber: '204',
   displayName: '204',
   description: null,
@@ -148,6 +148,40 @@ describe('Operations services', () => {
       service.getAvailableRooms(propertyId, {
         arrivalDate: '2026-07-02',
         departureDate: '2026-07-04',
+      }),
+    ).resolves.toEqual([]);
+  });
+
+  it('allows Deluxe availability for two adults and one child', async () => {
+    const service = new RoomAvailabilityService(
+      asRepository(roomsRepository),
+      asRepository(reservationsRepository),
+      propertiesService,
+    );
+
+    await expect(
+      service.getAvailableRooms(propertyId, {
+        adults: 2,
+        children: 1,
+        guestCount: 3,
+        roomTypeId,
+      }),
+    ).resolves.toHaveLength(1);
+  });
+
+  it('rejects Deluxe availability when child capacity is exceeded', async () => {
+    const service = new RoomAvailabilityService(
+      asRepository(roomsRepository),
+      asRepository(reservationsRepository),
+      propertiesService,
+    );
+
+    await expect(
+      service.getAvailableRooms(propertyId, {
+        adults: 1,
+        children: 2,
+        guestCount: 3,
+        roomTypeId,
       }),
     ).resolves.toEqual([]);
   });

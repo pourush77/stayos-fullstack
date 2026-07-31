@@ -81,11 +81,14 @@ export function mapGuestOption(dto: GuestDto): GuestOption {
 export function mapRoomTypeOption(dto: InventoryRoomTypeDto): RoomTypeOption {
   const label = getString(dto, ['name', 'displayName', 'title', 'code'], 'Room Type');
   const fallbackRate = label.toLowerCase().includes('suite') ? 6500 : label.toLowerCase().includes('deluxe') ? 3500 : 2800;
+  const maxOccupancy = getNumber(dto, ['maxOccupancy', 'capacity', 'maxGuests', 'occupancy'], label.toLowerCase().includes('suite') ? 4 : 3);
   return {
     baseRate: getNumber(dto, ['baseRate', 'base_rate', 'rate', 'nightlyRate', 'price'], fallbackRate),
-    capacity: getNumber(dto, ['capacity', 'maxOccupancy', 'occupancy'], label.toLowerCase().includes('suite') ? 3 : 2),
+    capacity: maxOccupancy,
     id: getString(dto, ['id', '_id', 'uuid', 'roomTypeId'], label.toLowerCase().replace(/[^a-z0-9]+/g, '-')),
     label,
+    maxAdults: getNumber(dto, ['maxAdults', 'adultCapacity'], Math.min(2, maxOccupancy)),
+    maxChildren: getNumber(dto, ['maxChildren', 'childCapacity'], Math.max(0, maxOccupancy - 2)),
   };
 }
 
@@ -114,15 +117,15 @@ export function mapBooking(dto: ReservationDto): Booking {
     bookingId: getString(dto, ['reservationCode', 'bookingCode', 'code', 'id'], 'Booking'),
     children: getNumber(dto, ['children', 'numChildren', 'childCount'], 0),
     departureDate,
-    email: getString(dto, ['email'], getString(guest, ['email'], 'Not recorded')),
+    email: getString(dto, ['guestEmail', 'email'], getString(guest, ['email'], 'Not recorded')),
     guestId: getString(dto, ['guestId'], getString(guest, ['id', '_id', 'uuid'])) || undefined,
     guestName,
     isVip: getBoolean(dto, ['isVip', 'vip']) || getBoolean(guest, ['vipStatus', 'vip', 'isVip']),
-    nationality: getString(dto, ['nationality'], getString(guest, ['nationality'], 'Not recorded')),
+    nationality: getString(dto, ['guestNationality', 'nationality'], getString(guest, ['nationality'], 'Indian')),
     nights: calculateNights(arrivalDate, departureDate),
     notes: getString(dto, ['notes', 'note'], 'No notes added.'),
     paymentStatus: normalizePayment(getString(dto, ['paymentStatus'], 'PAYMENT_DUE')),
-    phone: getString(dto, ['phone', 'mobile'], getString(guest, ['phone', 'mobile', 'phoneNumber'], 'Not recorded')),
+    phone: getString(dto, ['guestPhone', 'phone', 'mobile'], getString(guest, ['phone', 'mobile', 'phoneNumber'], 'Not recorded')),
     room: roomNumber ? `Room ${roomNumber}` : 'Unassigned',
     roomId: getString(dto, ['roomId'], getString(room, ['id', '_id', 'uuid'])) || undefined,
     roomType: roomTypeName,

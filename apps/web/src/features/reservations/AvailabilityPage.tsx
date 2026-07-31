@@ -92,7 +92,7 @@ export function AvailabilityPage() {
     }
     setIsLoading(true);
     const controller = new AbortController();
-    getAvailableRooms(propertyId, { arrivalDate, departureDate, guestCount: adults + children }, controller.signal)
+    getAvailableRooms(propertyId, { adults, arrivalDate, children, departureDate, guestCount: adults + children }, controller.signal)
       .then((rooms) => {
         const counts: Record<string, number> = {};
         rooms.forEach((room) => {

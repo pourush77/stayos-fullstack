@@ -92,7 +92,7 @@ export function guestToFormValues(guest?: Guest): GuestFormValues {
     firstName: guest?.firstName ?? '',
     floorPreference: guest?.floorPreference === 'Not recorded' ? '' : guest?.floorPreference ?? '',
     lastName: guest?.lastName ?? '',
-    nationality: guest?.nationality === 'Not recorded' ? '' : guest?.nationality ?? '',
+    nationality: guest?.nationality === 'Not recorded' ? 'Indian' : guest?.nationality ?? 'Indian',
     notes: guest?.notes === 'No notes added.' ? '' : guest?.notes ?? '',
     phone: guest?.phone === 'Not recorded' ? '' : guest?.phone ?? '',
     preferredLanguage: guest?.preferredLanguage === 'Not recorded' ? '' : guest?.preferredLanguage ?? 'English',

@@ -60,6 +60,8 @@ export class RoomAvailabilityService {
       .filter((room) => !conflictedRoomIds.has(room.id))
       .filter((room) => !query.roomTypeId || room.roomTypeId === query.roomTypeId)
       .filter((room) => !query.guestCount || (room.roomType?.maxOccupancy ?? 0) >= query.guestCount)
+      .filter((room) => !query.adults || (room.roomType?.maxAdults ?? 0) >= query.adults)
+      .filter((room) => query.children === undefined || (room.roomType?.maxChildren ?? 0) >= query.children)
       .map(OperationsMapper.toAvailableRoom);
   }
 }

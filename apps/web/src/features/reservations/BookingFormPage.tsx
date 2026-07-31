@@ -2,14 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { Alert, Avatar, Badge, Box, Button, Card, Collapse, Group, NumberInput, Paper, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title, UnstyledButton } from '@mantine/core';
+import { Alert, Autocomplete, Avatar, Badge, Box, Button, Card, Collapse, Group, NumberInput, Paper, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title, UnstyledButton } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
-import { Baby, BedDouble, CalendarDays, Check, ChevronDown, ChevronLeft, Phone, Users } from 'lucide-react';
+import { Baby, BedDouble, CalendarDays, Check, ChevronDown, ChevronLeft, Mail, Phone, Users } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
 import { createPropertyGuest } from '../../lib/guest-api';
 import { friendlyGuestError } from '../../lib/guest-hooks';
 import { getAvailableRooms } from '../../lib/operations-api';
+import { nationalityOptions } from '../guests/constants/nationalities';
 import { BookingForm } from './components/BookingForm';
 import { friendlyBookingError, useBookingDetails, useBookings } from './hooks/useBookings';
 import type { BookingFormValues, BookingPaymentStatus, BookingSource, GuestOption, RoomTypeOption } from './types/booking.types';
@@ -170,6 +171,19 @@ function calculateNights(arrivalDate: string, departureDate: string) {
   return Math.max(0, Math.round((end.getTime() - start.getTime()) / 86_400_000));
 }
 
+function capacityMessage(roomType: RoomTypeOption, adults: number, children: number) {
+  if (adults + children > roomType.capacity) {
+    return `${roomType.label} fits up to ${roomType.capacity} guest${roomType.capacity === 1 ? '' : 's'}.`;
+  }
+  if (adults > roomType.maxAdults) {
+    return `${roomType.label} allows up to ${roomType.maxAdults} adult${roomType.maxAdults === 1 ? '' : 's'}.`;
+  }
+  if (children > roomType.maxChildren) {
+    return `${roomType.label} allows up to ${roomType.maxChildren} child${roomType.maxChildren === 1 ? '' : 'ren'}.`;
+  }
+  return undefined;
+}
+
 function today() {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -244,6 +258,8 @@ function QuickBookingForm({
   const [newGuestLastName, setNewGuestLastName] = useState('');
   const [newGuestCountry, setNewGuestCountry] = useState('IN');
   const [newGuestPhone, setNewGuestPhone] = useState('');
+  const [newGuestEmail, setNewGuestEmail] = useState('');
+  const [newGuestNationality, setNewGuestNationality] = useState('Indian');
   const [newGuestError, setNewGuestError] = useState('');
   const [isCreatingGuest, setIsCreatingGuest] = useState(false);
   const [dateRange, setDateRange] = useState<[Date | null, Date | null]>(() => {
@@ -295,7 +311,7 @@ function QuickBookingForm({
     }
 
     const controller = new AbortController();
-    void getAvailableRooms(propertyId, { arrivalDate, departureDate, guestCount: adults + children }, controller.signal)
+    void getAvailableRooms(propertyId, { adults, arrivalDate, children, departureDate, guestCount: adults + children }, controller.signal)
       .then((rooms) => {
         const counts: Record<string, number> = {};
         rooms.forEach((room) => {
@@ -320,6 +336,10 @@ function QuickBookingForm({
       setNewGuestError(`${selectedPhoneCountry.label} mobile numbers must be ${selectedPhoneCountry.length} digits.`);
       return;
     }
+    if (newGuestEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newGuestEmail.trim())) {
+      setNewGuestError('Enter a valid email address.');
+      return;
+    }
     if (!propertyId) {
       setNewGuestError('Property is still loading. Try again in a moment.');
       return;
@@ -329,12 +349,20 @@ function QuickBookingForm({
     setNewGuestError('');
     try {
       const phone = `${selectedPhoneCountry.code}${phoneDigits}`;
-      const createdGuest = mapGuestOption(await createPropertyGuest(propertyId, { firstName, lastName, phone }));
+      const createdGuest = mapGuestOption(await createPropertyGuest(propertyId, {
+        email: newGuestEmail.trim().toLowerCase() || undefined,
+        firstName,
+        lastName,
+        nationality: newGuestNationality.trim() || 'Indian',
+        phone,
+      }));
       setCreatedGuests((current) => [createdGuest, ...current.filter((item) => item.id !== createdGuest.id)]);
       setGuestId(createdGuest.id);
       setNewGuestOpen(false);
       setNewGuestFirstName('');
       setNewGuestLastName('');
+      setNewGuestEmail('');
+      setNewGuestNationality('Indian');
       setNewGuestPhone('');
       showToast({ color: 'green', title: 'Guest created', message: `${createdGuest.label} added to this booking.` });
     } catch (error) {
@@ -349,7 +377,11 @@ function QuickBookingForm({
   const submit = async () => {
     const nextErrors = {
       dates: datesComplete ? undefined : 'Pick arrival and departure dates.',
-      roomTypeId: roomTypeId ? undefined : 'Choose a room type.',
+      roomTypeId: !roomTypeId
+        ? 'Choose a room type.'
+        : selectedRoomType
+          ? capacityMessage(selectedRoomType, adults, children)
+          : undefined,
     };
     setErrors(nextErrors);
     if (nextErrors.dates || nextErrors.roomTypeId || !guestId) return;
@@ -448,6 +480,24 @@ function QuickBookingForm({
                   onChange={(event) => setNewGuestLastName(event.currentTarget.value)}
                   required
                   value={newGuestLastName}
+                />
+                <TextInput
+                  data-testid="booking-new-guest-email"
+                  label="Email"
+                  leftSection={<Mail size={16} />}
+                  onChange={(event) => {
+                    setNewGuestEmail(event.currentTarget.value);
+                    setNewGuestError('');
+                  }}
+                  type="email"
+                  value={newGuestEmail}
+                />
+                <Autocomplete
+                  data={nationalityOptions}
+                  data-testid="booking-new-guest-nationality"
+                  label="Nationality"
+                  onChange={(value) => setNewGuestNationality(value)}
+                  value={newGuestNationality}
                 />
               </SimpleGrid>
               <Box>
@@ -552,7 +602,8 @@ function QuickBookingForm({
                 const selected = roomType.id === roomTypeId;
                 const available = availabilityCounts[roomType.id] ?? 0;
                 const showAvailability = datesComplete && Object.keys(availabilityCounts).length > 0;
-                const soldOut = showAvailability && available === 0;
+                const unavailableByCapacity = Boolean(capacityMessage(roomType, adults, children));
+                const soldOut = unavailableByCapacity || (showAvailability && available === 0);
                 return (
                   <UnstyledButton
                     key={roomType.id}
@@ -600,7 +651,7 @@ function QuickBookingForm({
                             variant="light"
                             color={soldOut ? 'gray' : available <= 2 ? 'orange' : 'green'}
                           >
-                            {soldOut ? 'Sold out' : `${available} left`}
+                            {unavailableByCapacity ? `Max ${roomType.maxAdults}A/${roomType.maxChildren}C` : soldOut ? 'Sold out' : `${available} left`}
                           </Badge>
                         ) : null}
                         <Box
