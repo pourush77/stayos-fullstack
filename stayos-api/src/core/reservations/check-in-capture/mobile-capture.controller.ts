@@ -3,13 +3,17 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   ParseUUIDPipe,
   Post,
+  Res,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { RawResponse } from '../../../common/decorators/raw-response.decorator';
 import { RequirePermissions } from '../../auth/decorators/require-permissions.decorator';
 import { Permissions } from '../../auth/permissions';
 import { MobileCaptureService } from './mobile-capture.service';
@@ -54,6 +58,22 @@ export class MobileCaptureController {
     @Param('documentId', ParseUUIDPipe) documentId: string,
   ) {
     return this.mobileCaptureService.deleteDocument(propertyId, reservationId, documentId);
+  }
+
+  @Get('properties/:propertyId/reservations/:reservationId/check-in/documents/:documentId/preview')
+  @RequirePermissions(Permissions.CheckinManage, Permissions.BookingsView)
+  @RawResponse()
+  @Header('Cache-Control', 'private, max-age=0, no-cache')
+  async previewReceptionistDocument(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('reservationId', ParseUUIDPipe) reservationId: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @Res() res: Response,
+  ) {
+    const doc = await this.mobileCaptureService.getDocumentPreview(propertyId, reservationId, documentId);
+    res.setHeader('Content-Type', doc.mimeType);
+    res.setHeader('Content-Disposition', `inline; filename="${doc.filename}"`);
+    res.send(doc.buffer);
   }
 
   @Get('properties/:propertyId/reservations/:reservationId/check-in/mobile-capture/status')

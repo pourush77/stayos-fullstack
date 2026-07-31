@@ -234,6 +234,14 @@ export type CheckInWorkspaceDto = {
     verifiedBy: string | null;
     verifiedAt: string | null;
   };
+  documents: Array<{
+    id: string;
+    side: string;
+    originalFilename: string;
+    mimeType: string;
+    sizeBytes: number;
+    createdAt: string;
+  }>;
   foreignGuest: {
     isForeignNational: boolean;
     passportNumberMasked: string | null;
@@ -313,4 +321,40 @@ export function reviewCheckInPayment(
     `/properties/${propertyId}/reservations/${reservationId}/check-in/payment-review`,
     { body: JSON.stringify(payload), method: 'PATCH', signal },
   );
+}
+
+export async function uploadCheckInDocument(
+  propertyId: string,
+  reservationId: string,
+  side: 'front' | 'back',
+  file: File,
+): Promise<unknown> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('type', side);
+  const response = await fetch(
+    `${API_BASE_URL}/properties/${propertyId}/reservations/${reservationId}/check-in/documents`,
+    { method: 'POST', body: form },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => undefined);
+    throw new Error((body && typeof body === 'object' && 'message' in body && typeof body.message === 'string') ? body.message : 'Upload failed');
+  }
+  return response.json();
+}
+
+export async function deleteCheckInDocument(
+  propertyId: string,
+  reservationId: string,
+  documentId: string,
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/properties/${propertyId}/reservations/${reservationId}/check-in/documents/${documentId}`,
+    { method: 'DELETE' },
+  );
+  if (!response.ok) throw new Error('Delete failed');
+}
+
+export function getCheckInDocumentPreviewUrl(propertyId: string, reservationId: string, documentId: string) {
+  return `${API_BASE_URL}/properties/${propertyId}/reservations/${reservationId}/check-in/documents/${documentId}/preview`;
 }

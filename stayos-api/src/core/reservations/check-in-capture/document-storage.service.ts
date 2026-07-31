@@ -21,6 +21,10 @@ export class DocumentStorageService {
     return path;
   }
 
+  async read(storagePath: string): Promise<Buffer> {
+    return fs.readFile(storagePath);
+  }
+
   private extensionFor(mimeType: string): string {
     const map: Record<string, string> = {
       'application/pdf': 'pdf',

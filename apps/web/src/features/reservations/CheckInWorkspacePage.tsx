@@ -1,19 +1,22 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Alert, Badge, Box, Button, Card, Checkbox, Group, Paper, Select, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
-import { AlertTriangle, BedDouble, Check, ChevronLeft, CreditCard, IdCard, ShieldCheck, UserRound, X } from 'lucide-react';
+import { Alert, Badge, Box, Button, Card, Checkbox, Group, Loader, Paper, Select, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
+import { AlertTriangle, BedDouble, Camera, Check, ChevronLeft, CreditCard, IdCard, ShieldCheck, Trash2, Upload, UserRound, X } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { showToast } from '@stayos/ui';
 import { getProperties } from '../../lib/guest-api';
 import {
   checkInReservation,
+  deleteCheckInDocument,
+  getCheckInDocumentPreviewUrl,
   getCheckInWorkspace,
   reviewCheckInPayment,
   updateGuestRegistration,
   updateIdentityVerification,
+  uploadCheckInDocument,
   type CheckInWorkspaceDto,
 } from '../../lib/reservation-api';
 
@@ -58,13 +61,158 @@ function StepCard({ icon, title, complete, children }: { icon: React.ReactNode; 
   );
 }
 
+function IdPhotoTile({
+  side,
+  label,
+  document,
+  propertyId,
+  reservationId,
+  onUpload,
+  onDelete,
+  uploading,
+}: {
+  side: 'front' | 'back';
+  label: string;
+  document?: { id: string; mimeType: string; originalFilename: string };
+  propertyId: string;
+  reservationId: string;
+  onUpload: (side: 'front' | 'back', file: File) => Promise<void>;
+  onDelete: (documentId: string) => Promise<void>;
+  uploading: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | undefined>(undefined);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  useEffect(() => {
+    if (!document) {
+      setPreviewUrl(undefined);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | undefined;
+    setPreviewLoading(true);
+    (async () => {
+      try {
+        const url = getCheckInDocumentPreviewUrl(propertyId, reservationId, document.id);
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('preview failed');
+        const blob = await response.blob();
+        objectUrl = URL.createObjectURL(blob);
+        if (!cancelled) setPreviewUrl(objectUrl);
+      } catch {
+        if (!cancelled) setPreviewUrl(undefined);
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [document, propertyId, reservationId]);
+
+  const handleFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      showToast({ color: 'red', title: 'File too large', message: 'Please pick an image under 10 MB.' });
+      return;
+    }
+    await onUpload(side, file);
+  };
+
+  const hasImage = Boolean(document && previewUrl);
+  const isPdf = document?.mimeType === 'application/pdf';
+
+  return (
+    <Paper
+      radius={radius.md}
+      p={12}
+      style={{
+        background: hasImage || isPdf ? '#ffffff' : '#f8fafc',
+        border: `1px dashed ${hasImage || isPdf ? '#7d4dd6' : '#cbd5e1'}`,
+        minHeight: 180,
+      }}
+      data-testid={`id-photo-tile-${side}`}
+    >
+      <Stack gap={8} align="center" justify="center" style={{ minHeight: 156 }}>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*,application/pdf"
+          capture={side === 'front' ? 'environment' : undefined}
+          onChange={(e) => void handleFile(e)}
+          style={{ display: 'none' }}
+          data-testid={`id-photo-input-${side}`}
+        />
+        {previewLoading ? (
+          <Loader size="sm" color="stayosBrand" />
+        ) : hasImage ? (
+          <Box
+            component="img"
+            src={previewUrl}
+            alt={`${label} preview`}
+            style={{
+              maxHeight: 120,
+              maxWidth: '100%',
+              objectFit: 'contain',
+              borderRadius: 8,
+              border: '1px solid #e2e8f0',
+            }}
+          />
+        ) : isPdf ? (
+          <Stack align="center" gap={4}>
+            <ThemeIcon color="stayosBrand" variant="light" size={40}><IdCard size={20} /></ThemeIcon>
+            <Text size="xs" c="#64748b" ta="center" lineClamp={1}>{document?.originalFilename ?? 'PDF uploaded'}</Text>
+          </Stack>
+        ) : (
+          <Stack align="center" gap={4}>
+            <ThemeIcon color="stayosBrand" variant="light" size={44}>
+              <Camera size={22} />
+            </ThemeIcon>
+            <Text fw={700} size="sm" c="#101828">{label}</Text>
+            <Text size="xs" c="#64748b">Tap to snap or upload</Text>
+          </Stack>
+        )}
+        <Group gap={6} mt={4}>
+          <Button
+            variant="light"
+            color="stayosBrand"
+            size="xs"
+            leftSection={hasImage || isPdf ? <Upload size={14} /> : <Camera size={14} />}
+            loading={uploading}
+            onClick={() => inputRef.current?.click()}
+            data-testid={`id-photo-upload-${side}`}
+          >
+            {hasImage || isPdf ? 'Replace' : 'Snap / Upload'}
+          </Button>
+          {document ? (
+            <Button
+              variant="subtle"
+              color="red"
+              size="xs"
+              leftSection={<Trash2 size={14} />}
+              onClick={() => void onDelete(document.id)}
+              data-testid={`id-photo-delete-${side}`}
+            >
+              Remove
+            </Button>
+          ) : null}
+        </Group>
+      </Stack>
+    </Paper>
+  );
+}
+
 export function CheckInWorkspacePage() {
   const params = useParams<{ reservationId: string }>();
   const router = useRouter();
   const [propertyId, setPropertyId] = useState('');
   const [workspace, setWorkspace] = useState<CheckInWorkspaceDto | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
-  const [isSubmitting, setIsSubmitting] = useState<'guest' | 'identity' | 'payment' | 'complete' | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState<'guest' | 'identity' | 'payment' | 'complete' | 'id-front' | 'id-back' | 'id-delete' | null>(null);
 
   // Guest form state
   const [fullName, setFullName] = useState('');
@@ -181,6 +329,36 @@ export function CheckInWorkspacePage() {
     }
   };
 
+  const uploadIdPhoto = async (side: 'front' | 'back', file: File) => {
+    if (!propertyId) return;
+    setIsSubmitting(side === 'front' ? 'id-front' : 'id-back');
+    try {
+      await uploadCheckInDocument(propertyId, workspace.booking.reservationId, side, file);
+      const next = await getCheckInWorkspace(propertyId, workspace.booking.reservationId);
+      applyWorkspace(next);
+      showToast({ color: 'green', title: 'Photo uploaded', message: `${side === 'front' ? 'Front' : 'Back'} of ID saved.` });
+    } catch (error) {
+      showToast({ color: 'red', title: 'Upload failed', message: error instanceof Error ? error.message : 'Please try again.' });
+    } finally {
+      setIsSubmitting(null);
+    }
+  };
+
+  const deleteIdPhoto = async (documentId: string) => {
+    if (!propertyId) return;
+    setIsSubmitting('id-delete');
+    try {
+      await deleteCheckInDocument(propertyId, workspace.booking.reservationId, documentId);
+      const next = await getCheckInWorkspace(propertyId, workspace.booking.reservationId);
+      applyWorkspace(next);
+      showToast({ color: 'green', title: 'Photo removed', message: 'ID photo deleted.' });
+    } catch (error) {
+      showToast({ color: 'red', title: 'Delete failed', message: error instanceof Error ? error.message : 'Please try again.' });
+    } finally {
+      setIsSubmitting(null);
+    }
+  };
+
   const savePayment = async () => {
     if (!propertyId) return;
     setIsSubmitting('payment');
@@ -272,6 +450,28 @@ export function CheckInWorkspacePage() {
 
       <StepCard icon={<IdCard size={17} />} title="Identity verification" complete={c.identityVerified}>
         <Stack gap={spacing[3]}>
+          <Group grow align="stretch">
+            <IdPhotoTile
+              side="front"
+              label="ID front"
+              document={workspace.documents.find((d) => d.side === 'ID_FRONT')}
+              propertyId={propertyId}
+              reservationId={workspace.booking.reservationId}
+              onUpload={uploadIdPhoto}
+              onDelete={deleteIdPhoto}
+              uploading={isSubmitting === 'id-front'}
+            />
+            <IdPhotoTile
+              side="back"
+              label="ID back"
+              document={workspace.documents.find((d) => d.side === 'ID_BACK')}
+              propertyId={propertyId}
+              reservationId={workspace.booking.reservationId}
+              onUpload={uploadIdPhoto}
+              onDelete={deleteIdPhoto}
+              uploading={isSubmitting === 'id-back'}
+            />
+          </Group>
           <Group grow>
             <Select
               label="ID type"
