@@ -6,8 +6,8 @@ import {
   Button,
   Card,
   Group,
+  Menu,
   Paper,
-  SimpleGrid,
   Stack,
   Text,
   ThemeIcon,
@@ -36,17 +36,17 @@ import styles from './front-desk.module.css';
 
 type Tone = 'red' | 'amber' | 'green' | 'blue' | 'purple' | 'neutral';
 type QuickAction = {
-  label: string;
-  icon: ReactNode;
   href?: string;
+  icon: ReactNode;
+  label: string;
   onClick?: () => void;
+  subtitle?: string;
   tone: Tone;
 };
 
 type SummaryMetric = {
   label: string;
   value: string;
-  detail: string;
   icon: ReactNode;
   tone: Tone;
   href?: string;
@@ -54,18 +54,17 @@ type SummaryMetric = {
 
 function buildQuickActions(onNewArrival: () => void): QuickAction[] {
   return [
-  { label: 'New Arrival', icon: <UserPlus size={18} />, onClick: onNewArrival, tone: 'green' },
-  { label: 'New Booking', icon: <CalendarPlus size={18} />, href: '/reservations/new', tone: 'purple' },
-  { label: 'Find Guest', icon: <Users size={18} />, href: '/guests', tone: 'neutral' },
-  { label: 'View Rooms', icon: <DoorOpen size={18} />, href: '/rooms', tone: 'blue' },
-  {
-    label: 'Availability',
-    icon: <ClipboardCheck size={18} />,
-    href: '/reservations/availability',
-    tone: 'blue',
-  },
-  { label: 'Check Out', icon: <LogOut size={18} />, href: '/rooms', tone: 'amber' },
-  { label: 'More Actions', icon: <Plus size={18} />, tone: 'neutral' },
+    { label: 'New Arrival', subtitle: 'Guest is here now - book + check in', icon: <UserPlus size={18} />, onClick: onNewArrival, tone: 'green' },
+    { label: 'New Booking', subtitle: 'Future reservation', icon: <CalendarPlus size={18} />, href: '/reservations/new', tone: 'purple' },
+    { label: 'Check Out', subtitle: 'Departing guests', icon: <LogOut size={18} />, href: '/rooms', tone: 'amber' },
+  ];
+}
+
+function buildSecondaryActions(): QuickAction[] {
+  return [
+    { label: 'Availability', icon: <ClipboardCheck size={18} />, href: '/reservations/availability', tone: 'blue' },
+    { label: 'Find Guest', icon: <Users size={18} />, href: '/guests', tone: 'neutral' },
+    { label: 'View Rooms', icon: <DoorOpen size={18} />, href: '/rooms', tone: 'blue' },
   ];
 }
 
@@ -146,7 +145,6 @@ function buildSummaryMetrics({
     {
       label: 'Arrivals Today',
       value: loadingValue ?? String(arrivalsToday),
-      detail: arrivalsToday === 0 && !isLoading ? 'No arrivals today' : 'Expected check-ins today',
       icon: <Users size={16} />,
       tone: 'blue',
       href: '/reservations',
@@ -154,7 +152,6 @@ function buildSummaryMetrics({
     {
       label: 'Departures Today',
       value: loadingValue ?? String(departuresToday),
-      detail: departuresToday === 0 && !isLoading ? 'No departures today' : 'Scheduled check-outs today',
       icon: <Users size={16} />,
       tone: 'neutral',
       href: '/rooms',
@@ -162,7 +159,6 @@ function buildSummaryMetrics({
     {
       label: 'Guests In House',
       value: loadingValue ?? String(guestsInHouse),
-      detail: 'Active checked-in stays',
       icon: <Users size={16} />,
       tone: 'blue',
       href: '/guests',
@@ -170,7 +166,6 @@ function buildSummaryMetrics({
     {
       label: 'Rooms To Clean',
       value: loadingValue ?? String(roomsToClean),
-      detail: roomsToClean === 0 && !isLoading ? 'Housekeeping clear' : 'Dirty or cleaning rooms',
       icon: <ClipboardCheck size={16} />,
       tone: 'amber',
       href: '/rooms',
@@ -185,7 +180,10 @@ function QuickActionCard({ action }: { action: QuickAction }) {
         <ThemeIcon className={styles.quickIcon} variant="light" radius={radius.md} size={34}>
           {action.icon}
         </ThemeIcon>
-        <Text className={styles.quickLabel}>{action.label}</Text>
+        <Box className={styles.quickText}>
+          <Text className={styles.quickLabel}>{action.label}</Text>
+          {action.subtitle ? <Text className={styles.quickSubtitle}>{action.subtitle}</Text> : null}
+        </Box>
       </Group>
     </Paper>
   );
@@ -205,56 +203,54 @@ function QuickActionCard({ action }: { action: QuickAction }) {
 
 function QuickActions({ onNewArrival }: { onNewArrival: () => void }) {
   const quickActions = buildQuickActions(onNewArrival);
+  const secondaryActions = buildSecondaryActions();
 
   return (
-    <SimpleGrid
-      cols={{ base: 2, sm: 3, lg: 4, xl: 4 }}
-      spacing={spacing[3]}
-      className={styles.quickActionsGrid}
-    >
+    <Box className={styles.quickActionsGrid}>
       {quickActions.map((action) => (
         <QuickActionCard key={action.label} action={action} />
       ))}
-    </SimpleGrid>
+      <Menu shadow="md" width={220}>
+        <Menu.Target>
+          <UnstyledButton className={styles.cardLink}>
+            <Paper className={`${styles.quickActionCard} ${toneClass('neutral')}`} radius={radius.lg}>
+              <Group gap={spacing[3]} wrap="nowrap">
+                <ThemeIcon className={styles.quickIcon} variant="light" radius={radius.md} size={34}>
+                  <Plus size={18} />
+                </ThemeIcon>
+                <Box className={styles.quickText}>
+                  <Text className={styles.quickLabel}>More</Text>
+                  <Text className={styles.quickSubtitle}>Availability, guests, rooms</Text>
+                </Box>
+              </Group>
+            </Paper>
+          </UnstyledButton>
+        </Menu.Target>
+        <Menu.Dropdown>
+          {secondaryActions.map((action) => (
+            <Menu.Item key={action.label} component={Link} href={action.href ?? '#'} leftSection={action.icon}>
+              {action.label}
+            </Menu.Item>
+          ))}
+        </Menu.Dropdown>
+      </Menu>
+    </Box>
   );
 }
 
-function SummaryCard({ metric }: { metric: SummaryMetric }) {
-  const card = (
-    <Paper className={`${styles.summaryCard} ${toneClass(metric.tone)}`} radius={radius.lg}>
-      <Group justify="space-between" align="flex-start" wrap="nowrap">
-        <Box>
-          <Text className={styles.summaryLabel}>{metric.label}</Text>
-          <Text className={styles.summaryValue}>{metric.value}</Text>
-          <Text className={styles.summaryDetail}>{metric.detail}</Text>
-        </Box>
-        <ThemeIcon className={styles.summaryIcon} variant="light" radius={radius.full} size={34}>
-          {metric.icon}
-        </ThemeIcon>
-      </Group>
-    </Paper>
-  );
-
-  return metric.href ? (
-    <Link href={metric.href} className={styles.cardLink}>
-      {card}
-    </Link>
-  ) : (
-    card
-  );
-}
-
-function SummaryCards({ metrics }: { metrics: SummaryMetric[] }) {
+function SummaryStrip({ metrics }: { metrics: SummaryMetric[] }) {
   return (
-    <SimpleGrid
-      cols={{ base: 1, sm: 2, xl: 3 }}
-      spacing={spacing[3]}
-      className={styles.summaryGrid}
-    >
+    <Paper className={styles.summaryStrip} data-testid="front-desk-stats-strip" radius={radius.lg}>
       {metrics.map((metric) => (
-        <SummaryCard key={metric.label} metric={metric} />
+        <Link key={metric.label} href={metric.href ?? '#'} className={styles.summaryStripItem}>
+          <ThemeIcon className={`${styles.summaryStripIcon} ${toneClass(metric.tone)}`} variant="light" radius={radius.full} size={30}>
+            {metric.icon}
+          </ThemeIcon>
+          <Text className={styles.summaryStripValue}>{metric.value}</Text>
+          <Text className={styles.summaryStripLabel}>{metric.label}</Text>
+        </Link>
       ))}
-    </SimpleGrid>
+    </Paper>
   );
 }
 
@@ -369,7 +365,7 @@ export default function HomePage() {
 
       <Box className={styles.desktopGrid}>
         <Stack gap={spacing[3]} className={styles.mainColumn}>
-          <SummaryCards metrics={summaryMetrics} />
+          <SummaryStrip metrics={summaryMetrics} />
           <NeedsAttention
             error={frontDesk.error}
             isLoading={frontDesk.isLoading}

@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { Alert, Box, Button, Card, Group, Modal, Paper, Select, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core';
+import { Alert, Box, Button, Card, Group, Modal, Paper, Popover, Select, SimpleGrid, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
 import { useParams } from 'next/navigation';
-import { AlertCircle, BedDouble, CalendarDays, ChevronLeft, CreditCard, Edit, IdCard, NotebookText, UserRound, XCircle } from 'lucide-react';
+import { AlertCircle, BedDouble, CalendarDays, Check, ChevronLeft, CreditCard, Edit, IdCard, NotebookText, ReceiptIndianRupee, UserRound, XCircle } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
+import { updatePropertyGuest } from '../../lib/guest-api';
+import { friendlyGuestError } from '../../lib/guest-hooks';
 import { BookingStatusBadge, PaymentStatusBadge } from './components/BookingBadges';
 import { friendlyBookingError, useBookingDetails } from './hooks/useBookings';
 import type { AvailableRoomOption, Booking } from './types/booking.types';
@@ -24,6 +26,149 @@ function DetailTile({ label, value }: { label: string; value: React.ReactNode })
       <Text c="#64748b" size="xs" fw={700}>{label}</Text>
       <Text c="#182230" mt={3} size="sm" fw={700}>{value}</Text>
     </Paper>
+  );
+}
+
+function isMissing(value: string) {
+  const normalized = value.trim().toLowerCase();
+  return !normalized || normalized === 'not recorded' || normalized === 'guest not connected';
+}
+
+function BookingProgressStepper({ booking }: { booking: Booking }) {
+  const hasRoom = booking.room !== 'Unassigned';
+  const steps = [
+    { complete: booking.status !== 'PENDING', current: booking.status === 'PENDING', label: 'Booked' },
+    { complete: hasRoom, current: booking.status === 'CONFIRMED' && !hasRoom, label: 'Room Assigned' },
+    { complete: booking.status === 'CHECKED_IN' || booking.status === 'CHECKED_OUT', current: booking.status === 'CONFIRMED' && hasRoom, label: 'Checked In' },
+    { complete: booking.status === 'CHECKED_OUT', current: booking.status === 'CHECKED_IN', label: 'Checked Out' },
+  ];
+
+  return (
+    <Paper data-testid="booking-progress-stepper" radius={radius.lg} p={10} style={{ background: '#ffffff', border: '1px solid #e2e8f0' }}>
+      <SimpleGrid cols={{ base: 1, sm: 4 }} spacing={8}>
+        {steps.map((step) => (
+          <Group
+            key={step.label}
+            gap={8}
+            wrap="nowrap"
+            p={10}
+            style={{
+              background: step.complete ? '#ecfdf3' : step.current ? '#f5f3ff' : '#f8fafc',
+              border: `1px solid ${step.complete ? '#bbf7d0' : step.current ? '#ddd6fe' : '#e2e8f0'}`,
+              borderRadius: radius.md,
+            }}
+          >
+            <ThemeIcon color={step.complete ? 'green' : step.current ? 'stayosBrand' : 'gray'} radius="xl" size={24} variant={step.complete || step.current ? 'filled' : 'light'}>
+              {step.complete ? <Check size={14} /> : null}
+            </ThemeIcon>
+            <Text c={step.complete ? '#166534' : step.current ? '#5b21b6' : '#64748b'} fw={800} size="sm">{step.label}</Text>
+          </Group>
+        ))}
+      </SimpleGrid>
+    </Paper>
+  );
+}
+
+function GuestFieldEditor({
+  disabled,
+  field,
+  label,
+  onSave,
+  value,
+}: {
+  disabled: boolean;
+  field: 'phone' | 'email' | 'nationality';
+  label: string;
+  onSave: (field: 'phone' | 'email' | 'nationality', value: string) => Promise<void>;
+  value: string;
+}) {
+  const [opened, setOpened] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  if (!isMissing(value)) return <>{value}</>;
+
+  const save = async () => {
+    if (!draft.trim()) return;
+    setSaving(true);
+    try {
+      await onSave(field, draft.trim());
+      setOpened(false);
+      setDraft('');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Popover opened={opened} onChange={setOpened} position="bottom-start" shadow="md" width={260}>
+      <Popover.Target>
+        <Button
+          data-testid={`booking-guest-add-${field}`}
+          disabled={disabled}
+          size="compact-sm"
+          variant="subtle"
+          color="stayosBrand"
+          px={0}
+          onClick={() => setOpened((current) => !current)}
+        >
+          + Add {label.toLowerCase()}
+        </Button>
+      </Popover.Target>
+      <Popover.Dropdown>
+        <Stack gap={spacing[2]}>
+          <TextInput autoFocus label={label} onChange={(event) => setDraft(event.currentTarget.value)} value={draft} />
+          <Button color="stayosBrand" loading={saving} disabled={!draft.trim()} onClick={() => void save()}>Save</Button>
+        </Stack>
+      </Popover.Dropdown>
+    </Popover>
+  );
+}
+
+function NextActionHero({
+  booking,
+  isActing,
+  onAssignRoom,
+  onCheckIn,
+  onCheckOut,
+}: {
+  booking: Booking;
+  isActing: boolean;
+  onAssignRoom: () => void;
+  onCheckIn: () => Promise<void>;
+  onCheckOut: () => Promise<void>;
+}) {
+  if (booking.status === 'CHECKED_OUT' || booking.status === 'CANCELLED') return null;
+
+  const unassigned = booking.room === 'Unassigned';
+  const title = unassigned ? 'Assign a room' : booking.status === 'CHECKED_IN' ? 'Ready for stay actions' : 'Start check-in';
+  const explainer = unassigned
+    ? 'Guest is expected today. Assign a room to continue.'
+    : booking.status === 'CHECKED_IN'
+      ? 'Guest is in-house. Keep billing and checkout close at hand.'
+      : 'Room is assigned. Start check-in when the guest arrives.';
+
+  return (
+    <Card radius={radius.lg} p={20} style={{ background: '#6d28d9', border: '1px solid #5b21b6', color: '#ffffff' }}>
+      <Group justify="space-between" align="center" gap={spacing[3]}>
+        <Box>
+          <Text fw={900} size="xl">{title}</Text>
+          <Text c="rgba(255,255,255,0.82)" size="sm">{explainer}</Text>
+        </Box>
+        <Group gap={8}>
+          {unassigned ? (
+            <Button data-testid="booking-next-action-cta" color="white" c="#5b21b6" h={56} onClick={onAssignRoom}>Assign Room</Button>
+          ) : booking.status === 'CHECKED_IN' ? (
+            <>
+              <Button component={Link} href={`/guest-stay/${booking.backendId}`} color="white" c="#5b21b6" h={56}>Add Charge</Button>
+              <Button data-testid="booking-next-action-cta" variant="white" color="red" h={56} loading={isActing} onClick={() => void onCheckOut()}>Check Out</Button>
+            </>
+          ) : (
+            <Button data-testid="booking-next-action-cta" color="white" c="#5b21b6" h={56} loading={isActing} onClick={() => void onCheckIn()}>Start Check-In</Button>
+          )}
+        </Group>
+      </Group>
+    </Card>
   );
 }
 
@@ -103,6 +248,7 @@ export default function BookingDetailPage() {
   const booking = bookingState.booking;
   const canCancel = booking.status === 'PENDING' || booking.status === 'CONFIRMED';
   const canChangeRoom = booking.status !== 'CHECKED_IN' && booking.status !== 'CHECKED_OUT' && booking.status !== 'CANCELLED';
+  const guestFieldsDisabled = !booking.guestId || !bookingState.propertyId || bookingState.isFallback;
 
   const cancelBooking = async () => {
     setIsActing(true);
@@ -127,6 +273,41 @@ export default function BookingDetailPage() {
       showToast({ color: 'red', title: 'Unable to assign room', message: friendlyBookingError(error) });
     } finally {
       setIsActing(false);
+    }
+  };
+
+  const checkInBooking = async () => {
+    setIsActing(true);
+    try {
+      await bookingState.checkInBooking();
+      showToast({ color: 'green', title: 'Checked in', message: 'The guest is now checked in.' });
+    } catch (error) {
+      showToast({ color: 'red', title: 'Unable to check in', message: friendlyBookingError(error) });
+    } finally {
+      setIsActing(false);
+    }
+  };
+
+  const checkOutBooking = async () => {
+    setIsActing(true);
+    try {
+      await bookingState.checkOutBooking();
+      showToast({ color: 'green', title: 'Checked out', message: 'The guest is now checked out.' });
+    } catch (error) {
+      showToast({ color: 'red', title: 'Unable to check out', message: friendlyBookingError(error) });
+    } finally {
+      setIsActing(false);
+    }
+  };
+
+  const saveGuestField = async (field: 'phone' | 'email' | 'nationality', value: string) => {
+    if (!bookingState.propertyId || !booking.guestId) return;
+    try {
+      await updatePropertyGuest(bookingState.propertyId, booking.guestId, { [field]: value });
+      await bookingState.refreshBooking();
+      showToast({ color: 'green', title: 'Guest updated', message: `${field[0].toUpperCase()}${field.slice(1)} saved.` });
+    } catch (error) {
+      showToast({ color: 'red', title: 'Unable to update guest', message: friendlyGuestError(error) });
     }
   };
 
@@ -156,14 +337,23 @@ export default function BookingDetailPage() {
         </Group>
       </Card>
 
+      <BookingProgressStepper booking={booking} />
+      <NextActionHero
+        booking={booking}
+        isActing={isActing}
+        onAssignRoom={() => setAssignOpened(true)}
+        onCheckIn={checkInBooking}
+        onCheckOut={checkOutBooking}
+      />
+
       <SimpleGrid cols={{ base: 1, lg: 12 }} spacing={spacing[3]}>
         <Stack gap={spacing[3]} style={{ gridColumn: 'span 8' }}>
           <Section title="Guest" icon={<UserRound size={17} />}>
             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
               <DetailTile label="Guest name" value={booking.guestName} />
-              <DetailTile label="Phone" value={booking.phone} />
-              <DetailTile label="Email" value={booking.email} />
-              <DetailTile label="Nationality" value={booking.nationality} />
+              <DetailTile label="Phone" value={<GuestFieldEditor disabled={guestFieldsDisabled} field="phone" label="Phone" onSave={saveGuestField} value={booking.phone} />} />
+              <DetailTile label="Email" value={<GuestFieldEditor disabled={guestFieldsDisabled} field="email" label="Email" onSave={saveGuestField} value={booking.email} />} />
+              <DetailTile label="Nationality" value={<GuestFieldEditor disabled={guestFieldsDisabled} field="nationality" label="Nationality" onSave={saveGuestField} value={booking.nationality} />} />
             </SimpleGrid>
             <Button component={Link} href={booking.guestId ? `/guests/${booking.guestId}` : '/guests'} mt={spacing[3]} variant="light" color="stayosBrand">Open Guest Profile</Button>
           </Section>
@@ -197,7 +387,11 @@ export default function BookingDetailPage() {
           <Section title="Payment" icon={<CreditCard size={17} />}>
             <Stack gap={spacing[2]}>
               <PaymentStatusBadge status={booking.paymentStatus} />
-              {booking.paymentStatus === 'PAYMENT_DUE' ? <Alert color="yellow" variant="light" radius={radius.md}>Payment is still pending.</Alert> : null}
+              {booking.paymentStatus === 'PAYMENT_DUE' ? (
+                <Button component={Link} href="/billing" data-testid="booking-collect-payment" color="stayosBrand" leftSection={<ReceiptIndianRupee size={16} />}>
+                  Collect payment
+                </Button>
+              ) : null}
             </Stack>
           </Section>
           <Section title="Notes" icon={<NotebookText size={17} />}><Text size="sm" c="#334155">{booking.notes}</Text></Section>

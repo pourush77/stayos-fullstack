@@ -7,6 +7,8 @@ import { getAvailableRooms } from '../../../lib/operations-api';
 import {
   assignRoomToReservation,
   cancelReservation,
+  checkInReservation,
+  checkOutReservation,
   createPropertyReservation,
   getProperties,
   getPropertyReservation,
@@ -168,6 +170,8 @@ export function useBookingDetails({
 }): BookingDetailsState & {
   assignRoom: (roomId: string) => Promise<void>;
   cancelBooking: () => Promise<void>;
+  checkInBooking: () => Promise<void>;
+  checkOutBooking: () => Promise<void>;
   getRooms: () => Promise<AvailableRoomOption[]>;
   refreshBooking: () => Promise<void>;
   updateBooking: (values: BookingFormValues) => Promise<Booking>;
@@ -257,6 +261,20 @@ export function useBookingDetails({
     await loadBooking();
   }, [bookingId, loadBooking, state.propertyId]);
 
+  const checkInBooking = useCallback(async () => {
+    if (!bookingId) throw new Error('Booking missing.');
+    const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
+    await checkInReservation(propertyId, bookingId);
+    await loadBooking();
+  }, [bookingId, loadBooking, state.propertyId]);
+
+  const checkOutBooking = useCallback(async () => {
+    if (!bookingId) throw new Error('Booking missing.');
+    const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
+    await checkOutReservation(propertyId, bookingId);
+    await loadBooking();
+  }, [bookingId, loadBooking, state.propertyId]);
+
   const getRooms = useCallback(async () => {
     const booking = state.booking;
     if (!booking) return [];
@@ -270,5 +288,5 @@ export function useBookingDetails({
     return rooms.map(mapAvailableRoom);
   }, [state.booking, state.propertyId]);
 
-  return { ...state, assignRoom, cancelBooking, getRooms, refreshBooking, updateBooking };
+  return { ...state, assignRoom, cancelBooking, checkInBooking, checkOutBooking, getRooms, refreshBooking, updateBooking };
 }
