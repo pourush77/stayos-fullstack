@@ -19,6 +19,7 @@ import {
   uploadCheckInDocument,
   type CheckInWorkspaceDto,
 } from '../../lib/reservation-api';
+import { detectIdFromImage } from './utils/id-detection';
 
 const cardStyle = {
   background: '#ffffff',
@@ -229,6 +230,7 @@ export function CheckInWorkspacePage() {
   const [idType, setIdType] = useState<string>('AADHAAR');
   const [idNumber, setIdNumber] = useState('');
   const [idVerified, setIdVerified] = useState(false);
+  const [isDetecting, setIsDetecting] = useState(false);
 
   // Payment form state
   const [paymentMethod, setPaymentMethod] = useState<string>('CASH');
@@ -337,6 +339,29 @@ export function CheckInWorkspacePage() {
       const next = await getCheckInWorkspace(propertyId, workspace.booking.reservationId);
       applyWorkspace(next);
       showToast({ color: 'green', title: 'Photo uploaded', message: `${side === 'front' ? 'Front' : 'Back'} of ID saved.` });
+
+      // Auto-detect ID type + number from the front photo (client-side OCR — Tesseract.js).
+      if (side === 'front' && file.type.startsWith('image/')) {
+        try {
+          setIsDetecting(true);
+          const detected = await detectIdFromImage(file);
+          if (detected && detected.idType !== 'OTHER' && detected.idNumber) {
+            setIdType(detected.idType);
+            setIdNumber(detected.idNumber);
+            showToast({
+              color: 'blue',
+              title: `Detected: ${detected.idType.replace('_', ' ')}`,
+              message: `${detected.idNumber} — please confirm.`,
+            });
+          } else if (detected) {
+            showToast({ color: 'yellow', title: 'Could not auto-detect', message: 'Please enter the ID type and number manually.' });
+          }
+        } catch (ocrError) {
+          console.warn('OCR failed', ocrError);
+        } finally {
+          setIsDetecting(false);
+        }
+      }
     } catch (error) {
       showToast({ color: 'red', title: 'Upload failed', message: error instanceof Error ? error.message : 'Please try again.' });
     } finally {
@@ -486,7 +511,14 @@ export function CheckInWorkspacePage() {
                 { label: 'Other', value: 'OTHER' },
               ]}
             />
-            <TextInput label={workspace.identity.idNumberMasked ? `ID number (on file: ${workspace.identity.idNumberMasked})` : 'ID number'} value={idNumber} onChange={(e) => setIdNumber(e.currentTarget.value)} data-testid="checkin-id-number" />
+            <TextInput
+              label={workspace.identity.idNumberMasked ? `ID number (on file: ${workspace.identity.idNumberMasked})` : 'ID number'}
+              value={idNumber}
+              onChange={(e) => setIdNumber(e.currentTarget.value)}
+              rightSection={isDetecting ? <Loader size="xs" color="stayosBrand" /> : undefined}
+              placeholder={isDetecting ? 'Reading ID…' : undefined}
+              data-testid="checkin-id-number"
+            />
           </Group>
           <Checkbox label="I have physically verified the ID matches the guest" checked={idVerified} onChange={(e) => setIdVerified(e.currentTarget.checked)} data-testid="checkin-id-verified" />
           <Group justify="flex-end">
