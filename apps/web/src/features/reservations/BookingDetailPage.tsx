@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Alert, Box, Button, Card, Group, Loader, Modal, Paper, Popover, Select, SimpleGrid, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
 import { useParams, useRouter } from 'next/navigation';
-import { AlertCircle, BedDouble, CalendarDays, Check, ChevronLeft, CreditCard, Edit, IdCard, NotebookText, ReceiptIndianRupee, UserRound, XCircle } from 'lucide-react';
+import { AlertCircle, BedDouble, CalendarDays, Check, ChevronLeft, CircleDollarSign, CreditCard, Edit, IdCard, NotebookText, ReceiptIndianRupee, UserRound, XCircle } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
 import { updatePropertyGuest } from '../../lib/guest-api';
@@ -13,6 +13,9 @@ import { BookingStatusBadge, PaymentStatusBadge } from './components/BookingBadg
 import { friendlyBookingError, useBookingDetails } from './hooks/useBookings';
 import type { AvailableRoomOption, Booking } from './types/booking.types';
 import { bookingStatusLabel, formatStayDates, paymentStatusLabel, sourceLabel } from './utils/booking-formatters';
+import { CheckoutModal } from './components/CheckoutModal';
+import { getFolioForReservation } from '../billing/api/billing-api';
+import type { Folio } from '../billing/types/billing.types';
 
 const cardStyle = {
   background: '#ffffff',
@@ -128,12 +131,14 @@ function GuestFieldEditor({
 function NextActionHero({
   booking,
   isActing,
+  folioBalance,
   onAssignRoom,
   onCheckIn,
   onCheckOut,
 }: {
   booking: Booking;
   isActing: boolean;
+  folioBalance?: number;
   onAssignRoom: () => void;
   onCheckIn: () => Promise<void>;
   onCheckOut: () => Promise<void>;
@@ -148,6 +153,11 @@ function NextActionHero({
       ? 'Guest is in-house. Keep billing and checkout close at hand.'
       : 'Room is assigned. Start check-in when the guest arrives.';
 
+  const hasBalance = typeof folioBalance === 'number' && folioBalance > 0.01;
+  const balanceLabel = hasBalance
+    ? new Intl.NumberFormat('en-IN', { currency: 'INR', maximumFractionDigits: 0, style: 'currency' }).format(folioBalance)
+    : undefined;
+
   return (
     <Card radius={radius.lg} p={20} style={{ background: '#6d28d9', border: '1px solid #5b21b6', color: '#ffffff' }}>
       <Group justify="space-between" align="center" gap={spacing[3]}>
@@ -160,6 +170,12 @@ function NextActionHero({
             <Button data-testid="booking-next-action-cta" color="white" c="#5b21b6" h={56} onClick={onAssignRoom}>Assign Room</Button>
           ) : booking.status === 'CHECKED_IN' ? (
             <>
+              {hasBalance ? (
+                <Group gap={6} px={12} py={6} style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 999, alignSelf: 'center' }} data-testid="booking-balance-chip">
+                  <CircleDollarSign size={16} color="#ffffff" />
+                  <Text c="#ffffff" fw={800} size="sm">{balanceLabel} to collect</Text>
+                </Group>
+              ) : null}
               <Button component={Link} href={`/guest-stay/${booking.backendId}`} color="white" c="#5b21b6" h={56}>Add Charge</Button>
               <Button data-testid="booking-next-action-cta" variant="white" color="red" h={56} loading={isActing} onClick={() => void onCheckOut()}>Check Out</Button>
             </>
@@ -298,9 +314,26 @@ export default function BookingDetailPage() {
   const bookingState = useBookingDetails({ allowMockFallback, bookingId: params.reservationId, enabled });
   const [cancelOpened, setCancelOpened] = useState(false);
   const [assignOpened, setAssignOpened] = useState(false);
+  const [checkoutOpened, setCheckoutOpened] = useState(false);
+  const [folioBalance, setFolioBalance] = useState<number | undefined>(undefined);
   const [isActing, setIsActing] = useState(false);
   const retryBackend = () => void backend.retry();
   const checkBackendStatus = () => void backend.checkHealth();
+
+  const currentBooking = bookingState.booking;
+  const currentPropertyId = bookingState.propertyId;
+  useEffect(() => {
+    if (!currentBooking || !currentPropertyId) return;
+    if (currentBooking.status !== 'CHECKED_IN' && currentBooking.status !== 'CHECKED_OUT') {
+      setFolioBalance(undefined);
+      return;
+    }
+    const controller = new AbortController();
+    getFolioForReservation(currentPropertyId, currentBooking.backendId, controller.signal)
+      .then((f: Folio) => setFolioBalance(Number(f.totals.balance) || 0))
+      .catch(() => setFolioBalance(undefined));
+    return () => controller.abort();
+  }, [currentPropertyId, currentBooking?.backendId, currentBooking?.status]);
 
   if (!allowMockFallback && backend.status === 'SERVER_STARTING') return <ServerStarting onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
   if (!allowMockFallback && !backend.isOnline && backend.status !== 'CONNECTING') return <BackendUnavailable onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
@@ -346,13 +379,16 @@ export default function BookingDetailPage() {
     setIsActing(true);
     try {
       await bookingState.checkOutBooking();
-      showToast({ color: 'green', title: 'Checked out', message: 'The guest is now checked out.' });
+      showToast({ color: 'green', title: 'Checked out', message: 'The guest is now checked out. Room sent to housekeeping.' });
+      setFolioBalance(undefined);
     } catch (error) {
       showToast({ color: 'red', title: 'Unable to check out', message: friendlyBookingError(error) });
     } finally {
       setIsActing(false);
     }
   };
+
+  const openCheckoutFlow = () => setCheckoutOpened(true);
 
   const saveGuestField = async (field: 'phone' | 'email' | 'nationality', value: string) => {
     if (!bookingState.propertyId || !booking.guestId) return;
@@ -399,9 +435,10 @@ export default function BookingDetailPage() {
       <NextActionHero
         booking={booking}
         isActing={isActing}
+        folioBalance={folioBalance}
         onAssignRoom={() => setAssignOpened(true)}
         onCheckIn={startCheckIn}
-        onCheckOut={checkOutBooking}
+        onCheckOut={openCheckoutFlow}
       />
 
       <SimpleGrid cols={{ base: 1, lg: 12 }} spacing={spacing[3]}>
@@ -472,6 +509,16 @@ export default function BookingDetailPage() {
       </Modal>
 
       <AssignRoomModal booking={booking} loading={isActing} opened={assignOpened} onAssign={assignRoom} onClose={() => setAssignOpened(false)} onLoadRooms={bookingState.getRooms} />
+      {bookingState.propertyId ? (
+        <CheckoutModal
+          opened={checkoutOpened}
+          onClose={() => setCheckoutOpened(false)}
+          propertyId={bookingState.propertyId}
+          reservationId={booking.backendId}
+          guestName={booking.guestName || 'Guest'}
+          onConfirmCheckout={checkOutBooking}
+        />
+      ) : null}
     </Stack>
   );
 }
