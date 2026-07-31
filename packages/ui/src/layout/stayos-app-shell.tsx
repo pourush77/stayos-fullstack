@@ -1016,31 +1016,6 @@ function TopHeader({
 
         <Stack gap={6} visibleFrom="md" style={{ flex: 1, maxWidth: 760 }}>
           <GlobalSearch />
-          <Group gap={6} style={{ color: '#8a97ad', fontSize: 12, fontWeight: 500 }}>
-            <Text inherit>Try:</Text>
-            {commandSuggestions.map((suggestion) => (
-              <Button
-                key={suggestion.label}
-                component={Link}
-                href={suggestion.href}
-                variant="subtle"
-                size="compact-xs"
-                color="gray"
-                radius={radius.full}
-                styles={{
-                  root: {
-                    border: '1px solid #e6eaf2',
-                    color: '#52627a',
-                    fontWeight: 600,
-                    height: 24,
-                    paddingInline: 10,
-                  },
-                }}
-              >
-                {suggestion.label}
-              </Button>
-            ))}
-          </Group>
         </Stack>
 
         <Group gap={spacing[2]} wrap="nowrap">

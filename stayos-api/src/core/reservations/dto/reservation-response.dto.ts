@@ -54,4 +54,19 @@ export class ReservationResponseDto {
 
   @ApiProperty({ type: String, format: 'date-time' })
   updatedAt!: Date;
+
+  @ApiPropertyOptional()
+  guestName?: string;
+
+  @ApiPropertyOptional()
+  guestPhone?: string;
+
+  @ApiPropertyOptional()
+  guestEmail?: string;
+
+  @ApiPropertyOptional()
+  roomTypeName?: string;
+
+  @ApiPropertyOptional()
+  roomNumber?: string;
 }

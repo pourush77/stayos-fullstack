@@ -3,6 +3,11 @@ import { ReservationEntity } from './infrastructure/reservation.entity';
 
 export class ReservationsMapper {
   static toResponse(entity: ReservationEntity): ReservationResponseDto {
+    const guest = entity.guest;
+    const guestName =
+      guest?.displayName?.trim() ||
+      [guest?.firstName, guest?.lastName].filter(Boolean).join(' ').trim() ||
+      undefined;
     return {
       id: entity.id,
       propertyId: entity.propertyId,
@@ -21,6 +26,11 @@ export class ReservationsMapper {
       specialRequests: entity.specialRequests,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
+      guestName,
+      guestPhone: guest?.phone ?? undefined,
+      guestEmail: guest?.email ?? undefined,
+      roomTypeName: entity.roomType?.name ?? undefined,
+      roomNumber: entity.room?.roomNumber ?? undefined,
     };
   }
 }

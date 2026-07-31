@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { Alert, Avatar, Badge, Box, Button, Card, Collapse, Group, NumberInput, Paper, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title } from '@mantine/core';
+import { Alert, Avatar, Badge, Box, Button, Card, Collapse, Group, NumberInput, Paper, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title, UnstyledButton } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
-import { Baby, BedDouble, CalendarDays, ChevronDown, ChevronLeft, Phone, Users } from 'lucide-react';
+import { Baby, BedDouble, CalendarDays, Check, ChevronDown, ChevronLeft, Phone, Users } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
 import { createPropertyGuest } from '../../lib/guest-api';
@@ -209,6 +209,11 @@ function StepSection({
 function QuickBookingForm({
   guests,
   initialGuestId,
+  initialArrival,
+  initialDeparture,
+  initialRoomTypeId,
+  initialAdults,
+  initialChildren,
   isSubmitting,
   onCancel,
   onSubmit,
@@ -217,6 +222,11 @@ function QuickBookingForm({
 }: {
   guests: GuestOption[];
   initialGuestId?: string;
+  initialArrival?: string;
+  initialDeparture?: string;
+  initialRoomTypeId?: string;
+  initialAdults?: number;
+  initialChildren?: number;
   isSubmitting: boolean;
   onCancel: () => void;
   onSubmit: (values: BookingFormValues) => Promise<void>;
@@ -236,10 +246,13 @@ function QuickBookingForm({
   const [newGuestPhone, setNewGuestPhone] = useState('');
   const [newGuestError, setNewGuestError] = useState('');
   const [isCreatingGuest, setIsCreatingGuest] = useState(false);
-  const [dateRange, setDateRange] = useState<[Date | null, Date | null]>([null, null]);
-  const [roomTypeId, setRoomTypeId] = useState('');
-  const [adults, setAdults] = useState(1);
-  const [children, setChildren] = useState(0);
+  const [dateRange, setDateRange] = useState<[Date | null, Date | null]>(() => {
+    const parse = (v?: string) => (v ? new Date(`${v}T00:00:00`) : null);
+    return [parse(initialArrival), parse(initialDeparture)];
+  });
+  const [roomTypeId, setRoomTypeId] = useState(initialRoomTypeId ?? '');
+  const [adults, setAdults] = useState(initialAdults ?? 1);
+  const [children, setChildren] = useState(initialChildren ?? 0);
   const [notesOpen, setNotesOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [notes, setNotes] = useState('');
@@ -357,7 +370,7 @@ function QuickBookingForm({
 
   return (
     <Box py={spacing[5]} px={{ base: spacing[2], sm: spacing[4] }} style={{ background: 'linear-gradient(180deg, #fafbff 0%, #ffffff 100%)', minHeight: 'calc(100vh - 180px)' }}>
-      <Stack gap={spacing[3]} maw={640} mx="auto">
+      <Stack gap={spacing[3]} maw={820} mx="auto">
         <Button variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content" onClick={onCancel}>Back</Button>
         <Group justify="space-between" align="center" gap={spacing[2]}>
           <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 800 }}>New Booking</Title>
@@ -534,41 +547,87 @@ function QuickBookingForm({
 
         <Box ref={roomsRef}>
           <StepSection active={datesComplete && !roomComplete} complete={roomComplete} number={3} title="Room?">
-            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+            <Stack gap={8}>
               {roomTypes.map((roomType) => {
                 const selected = roomType.id === roomTypeId;
                 const available = availabilityCounts[roomType.id] ?? 0;
+                const showAvailability = datesComplete && Object.keys(availabilityCounts).length > 0;
+                const soldOut = showAvailability && available === 0;
                 return (
-                  <Card
+                  <UnstyledButton
                     key={roomType.id}
-                    component="button"
+                    disabled={soldOut}
+                    data-testid={`room-type-option-${roomType.id}`}
                     onClick={() => {
                       setRoomTypeId(roomType.id);
                       setErrors((current) => ({ ...current, roomTypeId: undefined }));
                     }}
-                    p={16}
-                    radius={radius.lg}
                     style={{
-                      background: selected ? '#f5f3ff' : '#ffffff',
-                      border: `1px solid ${selected ? '#7c3aed' : '#e2e8f0'}`,
-                      cursor: 'pointer',
-                      textAlign: 'left',
+                      background: selected ? '#f6f1ff' : '#ffffff',
+                      border: `1px solid ${selected ? '#7d4dd6' : '#e2e8f0'}`,
+                      borderRadius: 14,
+                      cursor: soldOut ? 'not-allowed' : 'pointer',
+                      opacity: soldOut ? 0.5 : 1,
+                      padding: '12px 14px',
+                      transition: 'background 120ms ease, border-color 120ms ease',
                     }}
                   >
-                    <Stack gap={8}>
-                      <BedDouble size={24} color={selected ? '#7c3aed' : '#475569'} />
-                      <Text fw={800}>{roomType.label}</Text>
-                      <Text c="#64748b" size="sm">{available} available</Text>
-                      <Text c="#64748b" size="sm">{formatCurrency(roomType.baseRate)} / night</Text>
-                    </Stack>
-                  </Card>
+                    <Group justify="space-between" wrap="nowrap" gap={12}>
+                      <Group gap={12} wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
+                        <Box
+                          style={{
+                            alignItems: 'center',
+                            background: selected ? '#ede2ff' : '#f1f5f9',
+                            borderRadius: 10,
+                            display: 'flex',
+                            flexShrink: 0,
+                            height: 36,
+                            justifyContent: 'center',
+                            width: 36,
+                          }}
+                        >
+                          <BedDouble size={18} color={selected ? '#6536b5' : '#475569'} />
+                        </Box>
+                        <Stack gap={2} style={{ minWidth: 0 }}>
+                          <Text fw={700} c="#101828" size="sm" lineClamp={1}>{roomType.label}</Text>
+                          <Text c="#64748b" size="xs">{formatCurrency(roomType.baseRate)} / night</Text>
+                        </Stack>
+                      </Group>
+                      <Group gap={8} wrap="nowrap" style={{ flexShrink: 0 }}>
+                        {showAvailability ? (
+                          <Badge
+                            size="sm"
+                            variant="light"
+                            color={soldOut ? 'gray' : available <= 2 ? 'orange' : 'green'}
+                          >
+                            {soldOut ? 'Sold out' : `${available} left`}
+                          </Badge>
+                        ) : null}
+                        <Box
+                          style={{
+                            alignItems: 'center',
+                            background: selected ? '#7d4dd6' : 'transparent',
+                            border: `1.5px solid ${selected ? '#7d4dd6' : '#cbd5e1'}`,
+                            borderRadius: 999,
+                            display: 'flex',
+                            height: 20,
+                            justifyContent: 'center',
+                            transition: 'background 120ms ease, border-color 120ms ease',
+                            width: 20,
+                          }}
+                        >
+                          {selected ? <Check size={12} color="#ffffff" strokeWidth={3} /> : null}
+                        </Box>
+                      </Group>
+                    </Group>
+                  </UnstyledButton>
                 );
               })}
-            </SimpleGrid>
+            </Stack>
             {errors.roomTypeId ? <Text c="red" size="sm">{errors.roomTypeId}</Text> : null}
-            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
-              <NumberInput leftSection={<Users size={18} />} label="Adults" min={1} onChange={(value) => setAdults(Number(value) || 1)} size="lg" value={adults} />
-              <NumberInput leftSection={<Baby size={18} />} label="Children" min={0} onChange={(value) => setChildren(Number(value) || 0)} size="lg" value={children} />
+            <SimpleGrid cols={{ base: 2 }} spacing={spacing[3]}>
+              <NumberInput leftSection={<Users size={16} />} label="Adults" min={1} onChange={(value) => setAdults(Number(value) || 1)} size="md" value={adults} />
+              <NumberInput leftSection={<Baby size={16} />} label="Children" min={0} onChange={(value) => setChildren(Number(value) || 0)} size="md" value={children} />
             </SimpleGrid>
           </StepSection>
         </Box>
@@ -621,6 +680,11 @@ export function BookingFormPage({ mode }: { mode: 'create' | 'edit' }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialGuestId = mode === 'create' ? searchParams.get('guestId') ?? undefined : undefined;
+  const initialArrival = mode === 'create' ? searchParams.get('arrivalDate') ?? undefined : undefined;
+  const initialDeparture = mode === 'create' ? searchParams.get('departureDate') ?? undefined : undefined;
+  const initialRoomTypeId = mode === 'create' ? searchParams.get('roomTypeId') ?? undefined : undefined;
+  const initialAdults = mode === 'create' ? Number(searchParams.get('adults')) || undefined : undefined;
+  const initialChildren = mode === 'create' ? Number(searchParams.get('children')) || undefined : undefined;
   const backend = useBackendStatus();
   const allowMockFallback = process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
   const enabled = backend.isOnline || (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
@@ -653,6 +717,11 @@ export function BookingFormPage({ mode }: { mode: 'create' | 'edit' }) {
       <QuickBookingForm
         guests={bookings.guests}
         initialGuestId={initialGuestId}
+        initialArrival={initialArrival}
+        initialDeparture={initialDeparture}
+        initialRoomTypeId={initialRoomTypeId}
+        initialAdults={initialAdults}
+        initialChildren={initialChildren}
         isSubmitting={isSubmitting}
         onCancel={() => router.back()}
         onSubmit={submit}

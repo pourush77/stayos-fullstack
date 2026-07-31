@@ -1,5 +1,5 @@
-import { BookingFormPage } from '../../../features/reservations/BookingFormPage';
+import { AvailabilityPage } from '../../../features/reservations/AvailabilityPage';
 
 export default function AvailabilityCompatibilityPage() {
-  return <BookingFormPage mode="create" />;
+  return <AvailabilityPage />;
 }

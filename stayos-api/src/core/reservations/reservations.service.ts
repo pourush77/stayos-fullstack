@@ -64,7 +64,9 @@ export class ReservationsService {
 
     const qb = this.reservationsRepository
       .createQueryBuilder('reservation')
-      .leftJoin('reservation.guest', 'guest')
+      .leftJoinAndSelect('reservation.guest', 'guest')
+      .leftJoinAndSelect('reservation.roomType', 'roomType')
+      .leftJoinAndSelect('reservation.room', 'room')
       .where('reservation.propertyId = :propertyId', { propertyId });
 
     if (query.search) {
@@ -102,6 +104,7 @@ export class ReservationsService {
 
     const reservation = await this.reservationsRepository.findOne({
       where: { id, propertyId },
+      relations: { guest: true, roomType: true, room: true },
     });
 
     if (!reservation) {
