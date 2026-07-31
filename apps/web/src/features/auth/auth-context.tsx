@@ -62,6 +62,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const accessTokenKey = 'stayos.accessToken';
 const refreshTokenKey = 'stayos.refreshToken';
 const rememberDeviceKey = 'stayos.rememberDevice';
+const manualLogoutKey = 'stayos.manualLogout';
 const publicPaths = new Set(['/login']);
 
 function isPublicPath(pathname: string | null) {
@@ -99,6 +100,25 @@ function clearTokens() {
     storage.removeItem(accessTokenKey);
     storage.removeItem(refreshTokenKey);
   });
+}
+
+function hasManualLogout() {
+  if (typeof window === 'undefined') return false;
+  return (
+    window.sessionStorage.getItem(manualLogoutKey) === 'true' ||
+    window.localStorage.getItem(manualLogoutKey) === 'true'
+  );
+}
+
+function setManualLogout() {
+  window.sessionStorage.setItem(manualLogoutKey, 'true');
+  window.localStorage.setItem(manualLogoutKey, 'true');
+}
+
+function clearManualLogout() {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.removeItem(manualLogoutKey);
+  window.localStorage.removeItem(manualLogoutKey);
 }
 
 function normalizeRole(value: unknown): AuthRole {
@@ -213,6 +233,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const rawFetchRef = useRef<typeof fetch | undefined>(undefined);
 
   const redirectToLogin = useCallback(() => {
+    if (hasManualLogout()) {
+      router.replace('/login');
+      return;
+    }
     const next = pathname && !isPublicPath(pathname) ? `?next=${encodeURIComponent(pathname)}` : '';
     router.replace(`/login${next}`);
   }, [pathname, router]);
@@ -288,6 +312,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     const refreshToken = readToken(refreshTokenKey);
+    setManualLogout();
     await authedFetch(`${API_BASE_URL}/auth/logout`, {
       body: JSON.stringify({ refreshToken }),
       headers: { 'Content-Type': 'application/json' },
@@ -332,7 +357,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const currentUser = mapUser(unwrap(mePayload as ApiResponse<unknown>));
       setUser(currentUser);
 
-      const next = new URLSearchParams(window.location.search).get('next');
+      const wasManualLogout = hasManualLogout();
+      clearManualLogout();
+      const next = wasManualLogout ? null : new URLSearchParams(window.location.search).get('next');
       router.replace(next && next.startsWith('/') ? next : defaultRouteForRole(currentUser.role));
     },
     [router],

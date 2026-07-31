@@ -146,6 +146,10 @@ export function useBookings({ allowMockFallback, enabled }: { allowMockFallback:
   const createBooking = useCallback(async (values: BookingFormValues) => {
     const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
     const booking = mapBooking(await createPropertyReservation(propertyId, formValuesToPayload(values)));
+    setState((current) => ({
+      ...current,
+      bookings: [booking, ...current.bookings.filter((item) => item.backendId !== booking.backendId)],
+    }));
     await loadBookings();
     return booking;
   }, [loadBookings, state.propertyId]);

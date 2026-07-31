@@ -161,6 +161,10 @@ export function useGuests({ allowMockFallback, enabled }: GuestHookOptions): Gue
     async (values: GuestFormValues) => {
       const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
       const guest = mapGuest(await createPropertyGuest(propertyId, formValuesToPayload(values)));
+      setState((current) => ({
+        ...current,
+        guests: [guest, ...current.guests.filter((item) => item.id !== guest.id)],
+      }));
       await loadGuests();
       return guest;
     },

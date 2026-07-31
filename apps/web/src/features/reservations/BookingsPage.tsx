@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Badge, Box, Button, Card, Group, Select, Stack, Table, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
 import { AlertCircle, CalendarDays, Edit, Plus, Search } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
@@ -47,6 +47,24 @@ export default function BookingsPage() {
   const bookingState = useBookings({ allowMockFallback, enabled });
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<BookingFilter>('all');
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void bookingState.refreshBookings();
+    };
+
+    window.addEventListener('focus', refresh);
+    window.addEventListener('pageshow', refresh);
+    document.addEventListener('visibilitychange', refresh);
+
+    return () => {
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('pageshow', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [bookingState.refreshBookings, enabled]);
 
   const bookings = useMemo(() => {
     const normalized = query.trim().toLowerCase();

@@ -171,6 +171,13 @@ export function AppFrame({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (auth.isBootstrapping || isPublicRoute || auth.isAuthenticated) return;
+    const manuallyLoggedOut =
+      window.sessionStorage.getItem('stayos.manualLogout') === 'true' ||
+      window.localStorage.getItem('stayos.manualLogout') === 'true';
+    if (manuallyLoggedOut) {
+      router.replace('/login');
+      return;
+    }
     const next = pathname ? `?next=${encodeURIComponent(pathname)}` : '';
     router.replace(`/login${next}`);
   }, [auth.isAuthenticated, auth.isBootstrapping, isPublicRoute, pathname, router]);

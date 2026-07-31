@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Avatar,
@@ -45,6 +45,24 @@ export default function GuestsPage() {
   const guestState = useGuests({ allowMockFallback, enabled: canLoadGuests });
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<GuestFilter>('all');
+
+  useEffect(() => {
+    if (!canLoadGuests) return undefined;
+
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void guestState.refreshGuests();
+    };
+
+    window.addEventListener('focus', refresh);
+    window.addEventListener('pageshow', refresh);
+    document.addEventListener('visibilitychange', refresh);
+
+    return () => {
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('pageshow', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [canLoadGuests, guestState.refreshGuests]);
 
   const filteredGuests = useMemo(() => {
     const normalized = query.trim().toLowerCase();
