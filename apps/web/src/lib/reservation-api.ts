@@ -195,3 +195,122 @@ export function moveReservationRoom(
     },
   );
 }
+
+export type CheckInWorkspaceDto = {
+  booking: {
+    reservationId: string;
+    reservationCode: string;
+    status: string;
+    arrivalDate: string;
+    departureDate: string;
+    adults: number;
+    children: number;
+    source: string;
+    specialRequests: string | null;
+  };
+  guest: {
+    guestId: string;
+    fullName: string;
+    mobile: string | null;
+    email: string | null;
+    nationality: string | null;
+    gender: string | null;
+    dateOfBirth: string | null;
+    address: string | null;
+    city: string | null;
+    state: string | null;
+    country: string | null;
+    postalCode: string | null;
+    purposeOfVisit: string | null;
+    arrivalFrom: string | null;
+    nextDestination: string | null;
+  };
+  identity: {
+    idType: string | null;
+    idNumberMasked: string | null;
+    documentFrontUploaded: boolean;
+    documentBackUploaded: boolean;
+    verified: boolean;
+    verifiedBy: string | null;
+    verifiedAt: string | null;
+  };
+  foreignGuest: {
+    isForeignNational: boolean;
+    passportNumberMasked: string | null;
+    passportIssuePlace: string | null;
+    passportIssueDate: string | null;
+    passportExpiryDate: string | null;
+    visaNumberMasked: string | null;
+    visaType: string | null;
+    visaIssueDate: string | null;
+    visaExpiryDate: string | null;
+    cFormRequired: boolean;
+    cFormStatus: string;
+  };
+  payment: {
+    paymentStatus: string;
+    outstandingAmount: number;
+    paymentMethod: string | null;
+  };
+  room: {
+    roomId: string | null;
+    roomNumber: string | null;
+    roomType: string | null;
+    floor: string | null;
+    operationalStatus: string | null;
+    readyForCheckIn: boolean;
+    warnings: string[];
+  };
+  finalChecklist: {
+    bookingReviewed: boolean;
+    guestRegistrationComplete: boolean;
+    identityVerified: boolean;
+    paymentReviewed: boolean;
+    roomReady: boolean;
+    canCheckIn: boolean;
+    blockers: string[];
+  };
+};
+
+export function getCheckInWorkspace(propertyId: string, reservationId: string, signal?: AbortSignal) {
+  return request<CheckInWorkspaceDto>(
+    `/properties/${propertyId}/reservations/${reservationId}/check-in-workspace`,
+    { signal },
+  );
+}
+
+export function updateGuestRegistration(
+  propertyId: string,
+  reservationId: string,
+  payload: Record<string, unknown>,
+  signal?: AbortSignal,
+) {
+  return request<CheckInWorkspaceDto>(
+    `/properties/${propertyId}/reservations/${reservationId}/check-in/guest-registration`,
+    { body: JSON.stringify(payload), method: 'PATCH', signal },
+  );
+}
+
+export function updateIdentityVerification(
+  propertyId: string,
+  reservationId: string,
+  payload: { idType: string; idNumber: string; verified: boolean; documentFrontUrl?: string; documentBackUrl?: string },
+  signal?: AbortSignal,
+) {
+  return request<CheckInWorkspaceDto>(
+    `/properties/${propertyId}/reservations/${reservationId}/check-in/identity`,
+    { body: JSON.stringify(payload), method: 'PATCH', signal },
+  );
+}
+
+export function reviewCheckInPayment(
+  propertyId: string,
+  reservationId: string,
+  payload: { paymentReviewed: boolean; paymentMethod?: string; notes?: string },
+  signal?: AbortSignal,
+) {
+  return request<CheckInWorkspaceDto>(
+    `/properties/${propertyId}/reservations/${reservationId}/check-in/payment-review`,
+    { body: JSON.stringify(payload), method: 'PATCH', signal },
+  );
+}
