@@ -10,6 +10,7 @@ export type IdDetectionResult = {
   idType: DetectedIdType;
   idNumber: string;
   fullName?: string;
+  dateOfBirth?: string; // ISO YYYY-MM-DD
   rawText: string;
   confidence: number;
 };
@@ -129,6 +130,52 @@ function extractName(rawText: string, idType: DetectedIdType): string | undefine
   return undefined;
 }
 
+const MONTH_MAP: Record<string, string> = {
+  JAN: '01', FEB: '02', MAR: '03', APR: '04', MAY: '05', JUN: '06',
+  JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12',
+};
+
+function toIsoDate(day: string, month: string, year: string): string | undefined {
+  const y = year.length === 2 ? (Number(year) > 30 ? `19${year}` : `20${year}`) : year;
+  const yn = Number(y);
+  const mn = Number(month);
+  const dn = Number(day);
+  if (yn < 1900 || yn > 2020) return undefined;
+  if (mn < 1 || mn > 12) return undefined;
+  if (dn < 1 || dn > 31) return undefined;
+  return `${y}-${String(mn).padStart(2, '0')}-${String(dn).padStart(2, '0')}`;
+}
+
+function extractDateOfBirth(rawText: string): string | undefined {
+  const cleaned = rawText.replace(/\s+/g, ' ');
+  // 1) DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY, preceded by a DOB label
+  const numericLabelled = cleaned.match(/(?:DOB|Date\s+of\s+Birth|Birth)\s*[:.\-]?\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/i);
+  if (numericLabelled) {
+    const iso = toIsoDate(numericLabelled[1], numericLabelled[2], numericLabelled[3]);
+    if (iso) return iso;
+  }
+  // 2) DD MMM YYYY (passport style)
+  const monthAlpha = cleaned.match(/(?:DOB|Date\s+of\s+Birth|Birth)\s*[:.\-]?\s*(\d{1,2})[\s\-\/](JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]{0,6}[\s\-\/](\d{2,4})/i);
+  if (monthAlpha) {
+    const month = MONTH_MAP[monthAlpha[2].toUpperCase()];
+    const iso = toIsoDate(monthAlpha[1], month, monthAlpha[3]);
+    if (iso) return iso;
+  }
+  // 3) Year of Birth: 1985 (Aadhaar sometimes prints only the year)
+  const yearOnly = cleaned.match(/Year\s+of\s+Birth\s*[:.\-]?\s*(\d{4})/i);
+  if (yearOnly) {
+    const iso = toIsoDate('01', '01', yearOnly[1]);
+    if (iso) return iso;
+  }
+  // 4) Unlabelled DD/MM/YYYY anywhere in the text — take the first plausible one that isn't a future date
+  const anyDate = cleaned.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b/);
+  if (anyDate) {
+    const iso = toIsoDate(anyDate[1], anyDate[2], anyDate[3]);
+    if (iso) return iso;
+  }
+  return undefined;
+}
+
 export async function detectIdFromImage(imageBlob: Blob): Promise<IdDetectionResult | null> {
   const worker = await createWorker('eng');
   try {
@@ -161,12 +208,20 @@ export async function detectIdFromImage(imageBlob: Blob): Promise<IdDetectionRes
         idType: pattern.type,
         idNumber,
         fullName: extractName(text, pattern.type),
+        dateOfBirth: extractDateOfBirth(text),
         rawText: text,
         confidence,
       };
     }
 
-    return { idType: 'OTHER', idNumber: '', fullName: extractName(text, 'OTHER'), rawText: text, confidence };
+    return {
+      idType: 'OTHER',
+      idNumber: '',
+      fullName: extractName(text, 'OTHER'),
+      dateOfBirth: extractDateOfBirth(text),
+      rawText: text,
+      confidence,
+    };
   } finally {
     await worker.terminate();
   }

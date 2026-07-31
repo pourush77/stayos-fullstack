@@ -20,6 +20,7 @@ import {
   type CheckInWorkspaceDto,
 } from '../../lib/reservation-api';
 import { detectIdFromImage } from './utils/id-detection';
+import { FaceMatchCard } from './components/FaceMatchCard';
 
 const cardStyle = {
   background: '#ffffff',
@@ -220,6 +221,7 @@ export function CheckInWorkspacePage() {
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
   const [nationality, setNationality] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
   const [addressLine1, setAddressLine1] = useState('');
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
@@ -231,6 +233,7 @@ export function CheckInWorkspacePage() {
   const [idNumber, setIdNumber] = useState('');
   const [idVerified, setIdVerified] = useState(false);
   const [isDetecting, setIsDetecting] = useState(false);
+  const [idFrontPreviewUrl, setIdFrontPreviewUrl] = useState<string | undefined>(undefined);
 
   // Payment form state
   const [paymentMethod, setPaymentMethod] = useState<string>('CASH');
@@ -241,6 +244,7 @@ export function CheckInWorkspacePage() {
     setMobile(next.guest.mobile ?? '');
     setEmail(next.guest.email ?? '');
     setNationality(next.guest.nationality ?? '');
+    setDateOfBirth(next.guest.dateOfBirth ? next.guest.dateOfBirth.slice(0, 10) : '');
     setAddressLine1(next.guest.address ?? '');
     setCity(next.guest.city ?? '');
     setState(next.guest.state ?? '');
@@ -271,6 +275,33 @@ export function CheckInWorkspacePage() {
     return () => controller.abort();
   }, [params.reservationId, applyWorkspace]);
 
+  // Fetch the ID front preview as a blob URL so it can be rendered next to the guest webcam snap.
+  const idFrontDocId = workspace?.documents.find((d) => d.side === 'ID_FRONT')?.id;
+  useEffect(() => {
+    if (!propertyId || !workspace?.booking.reservationId || !idFrontDocId) {
+      setIdFrontPreviewUrl(undefined);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | undefined;
+    (async () => {
+      try {
+        const url = getCheckInDocumentPreviewUrl(propertyId, workspace.booking.reservationId, idFrontDocId);
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('preview failed');
+        const blob = await response.blob();
+        objectUrl = URL.createObjectURL(blob);
+        if (!cancelled) setIdFrontPreviewUrl(objectUrl);
+      } catch {
+        if (!cancelled) setIdFrontPreviewUrl(undefined);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [propertyId, workspace?.booking.reservationId, idFrontDocId]);
+
   if (loadError) {
     return (
       <Stack gap={spacing[3]}>
@@ -293,6 +324,7 @@ export function CheckInWorkspacePage() {
         mobile: mobile.trim() || undefined,
         email: email.trim() || undefined,
         nationality: nationality.trim() || undefined,
+        dateOfBirth: dateOfBirth.trim() || undefined,
         addressLine1: addressLine1.trim() || undefined,
         city: city.trim() || undefined,
         state: state.trim() || undefined,
@@ -359,6 +391,10 @@ export function CheckInWorkspacePage() {
             } else if (detected.fullName && detected.fullName.toLowerCase() !== fullName.trim().toLowerCase()) {
               // Guest already has a name — don't overwrite, just surface the detected one so front desk can compare.
               bits.push(`ID name: ${detected.fullName}`);
+            }
+            if (detected.dateOfBirth && !dateOfBirth.trim()) {
+              setDateOfBirth(detected.dateOfBirth);
+              bits.push(`DOB: ${detected.dateOfBirth}`);
             }
             if (bits.length > 0) {
               showToast({
@@ -473,6 +509,13 @@ export function CheckInWorkspacePage() {
           <Group grow>
             <TextInput label="Email" value={email} onChange={(e) => setEmail(e.currentTarget.value)} />
             <TextInput label="Nationality" value={nationality} onChange={(e) => setNationality(e.currentTarget.value)} />
+            <TextInput
+              label="Date of birth"
+              type="date"
+              value={dateOfBirth}
+              onChange={(e) => setDateOfBirth(e.currentTarget.value)}
+              data-testid="checkin-dob"
+            />
           </Group>
           <TextInput label="Address" value={addressLine1} onChange={(e) => setAddressLine1(e.currentTarget.value)} data-testid="checkin-address" />
           <Group grow>
@@ -511,6 +554,7 @@ export function CheckInWorkspacePage() {
               uploading={isSubmitting === 'id-back'}
             />
           </Group>
+          <FaceMatchCard idPhotoUrl={idFrontPreviewUrl} />
           <Group grow>
             <Select
               label="ID type"
