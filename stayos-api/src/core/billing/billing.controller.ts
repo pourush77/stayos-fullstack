@@ -18,10 +18,12 @@ import { RequirePermissions } from '../auth/decorators/require-permissions.decor
 import { Permissions } from '../auth/permissions';
 import { BillingService } from './billing.service';
 import { BillingMapper } from './billing.mapper';
+import { RazorpayService } from './razorpay.service';
 import { CreateFolioChargeDto } from './dto/create-folio-charge.dto';
 import { CreateFolioPaymentDto } from './dto/create-folio-payment.dto';
 import { FolioResponseDto } from './dto/folio-response.dto';
 import { FolioStatus } from './domain/folio-status.enum';
+import { FolioPaymentMethod } from './domain/folio-payment-method.enum';
 
 type AuthRequest = Request & { user?: { id?: string } };
 
@@ -29,7 +31,10 @@ type AuthRequest = Request & { user?: { id?: string } };
 @ApiBearerAuth()
 @Controller('properties/:propertyId')
 export class BillingController {
-  constructor(private readonly billingService: BillingService) {}
+  constructor(
+    private readonly billingService: BillingService,
+    private readonly razorpayService: RazorpayService,
+  ) {}
 
   @Get('folios')
   @RequirePermissions(Permissions.BillingView)
@@ -117,6 +122,63 @@ export class BillingController {
     @Param('folioId', new ParseUUIDPipe()) folioId: string,
   ): Promise<FolioResponseDto> {
     const folio = await this.billingService.settleFolio(propertyId, folioId);
+    return BillingMapper.toResponse(folio);
+  }
+
+  @Get('folios/:folioId/razorpay/config')
+  @RequirePermissions(Permissions.BillingManage)
+  razorpayConfig() {
+    return { configured: this.razorpayService.isConfigured() };
+  }
+
+  @Post('folios/:folioId/razorpay/order')
+  @RequirePermissions(Permissions.BillingManage)
+  async createRazorpayOrder(
+    @Param('propertyId', new ParseUUIDPipe()) propertyId: string,
+    @Param('folioId', new ParseUUIDPipe()) folioId: string,
+    @Body() dto: { amount: string; reservationId?: string; guestName?: string },
+  ) {
+    // Validate folio exists + belongs to property (uses existing service which throws NotFound).
+    await this.billingService.getFolio(propertyId, folioId);
+    return this.razorpayService.createOrder({
+      amount: dto.amount,
+      folioId,
+      reservationId: dto.reservationId,
+      guestName: dto.guestName,
+    });
+  }
+
+  @Post('folios/:folioId/razorpay/verify')
+  @RequirePermissions(Permissions.BillingManage)
+  @ApiStandardOkResponse(FolioResponseDto)
+  async verifyRazorpayPayment(
+    @Param('propertyId', new ParseUUIDPipe()) propertyId: string,
+    @Param('folioId', new ParseUUIDPipe()) folioId: string,
+    @Body() dto: {
+      razorpay_order_id: string;
+      razorpay_payment_id: string;
+      razorpay_signature: string;
+      amount: string;
+    },
+    @Req() req: AuthRequest,
+  ): Promise<FolioResponseDto> {
+    this.razorpayService.verifySignature({
+      razorpay_order_id: dto.razorpay_order_id,
+      razorpay_payment_id: dto.razorpay_payment_id,
+      razorpay_signature: dto.razorpay_signature,
+    });
+    // Record the payment against the folio via the existing service.
+    const folio = await this.billingService.addPayment(
+      propertyId,
+      folioId,
+      {
+        amount: dto.amount,
+        method: FolioPaymentMethod.CARD,
+        reference: dto.razorpay_payment_id,
+        notes: `Razorpay order ${dto.razorpay_order_id}`,
+      } as CreateFolioPaymentDto,
+      req.user?.id ?? null,
+    );
     return BillingMapper.toResponse(folio);
   }
 }

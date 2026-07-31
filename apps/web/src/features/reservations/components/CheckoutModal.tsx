@@ -2,11 +2,30 @@
 
 import { useEffect, useState } from 'react';
 import { Alert, Badge, Button, Divider, Group, Loader, Modal, NumberInput, Paper, Select, Stack, Table, Text, TextInput, ThemeIcon } from '@mantine/core';
-import { AlertTriangle, CheckCircle2, CreditCard, Receipt } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CreditCard, Receipt, Smartphone } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { showToast } from '@stayos/ui';
-import { addPayment, getFolioForReservation } from '../../billing/api/billing-api';
+import { addPayment, createRazorpayOrder, getFolioForReservation, verifyRazorpayPayment } from '../../billing/api/billing-api';
 import type { Folio, FolioPaymentMethod } from '../../billing/types/billing.types';
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: Record<string, unknown>) => { open: () => void; on: (event: string, cb: (payload: unknown) => void) => void };
+  }
+}
+
+function loadRazorpayScript(): Promise<boolean> {
+  if (typeof window === 'undefined') return Promise.resolve(false);
+  if (window.Razorpay) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
 
 const PAYMENT_METHODS: Array<{ label: string; value: FolioPaymentMethod }> = [
   { label: 'Cash', value: 'CASH' },
@@ -36,6 +55,7 @@ export function CheckoutModal({ opened, onClose, propertyId, reservationId, gues
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
   const [isPaying, setIsPaying] = useState(false);
+  const [isRazorpaying, setIsRazorpaying] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<FolioPaymentMethod>('CASH');
@@ -90,6 +110,71 @@ export function CheckoutModal({ opened, onClose, propertyId, reservationId, gues
     }
   };
 
+  const payViaRazorpay = async () => {
+    if (!folio) return;
+    if (paymentAmount <= 0) {
+      showToast({ color: 'red', title: 'Amount required', message: 'Enter the amount to charge.' });
+      return;
+    }
+    setIsRazorpaying(true);
+    try {
+      const scriptOk = await loadRazorpayScript();
+      if (!scriptOk) throw new Error('Could not load Razorpay Checkout script.');
+      const order = await createRazorpayOrder(propertyId, folio.id, {
+        amount: String(paymentAmount),
+        reservationId,
+        guestName,
+      });
+      if (!window.Razorpay) throw new Error('Razorpay SDK unavailable');
+      const rzp = new window.Razorpay({
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency,
+        name: 'StayOS',
+        description: `Folio ${folio.folioNumber}`,
+        order_id: order.orderId,
+        prefill: { name: guestName },
+        theme: { color: '#6d28d9' },
+        handler: async (response: unknown) => {
+          const r = response as { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string };
+          try {
+            const nextFolio = await verifyRazorpayPayment(propertyId, folio.id, {
+              razorpay_order_id: r.razorpay_order_id,
+              razorpay_payment_id: r.razorpay_payment_id,
+              razorpay_signature: r.razorpay_signature,
+              amount: String(paymentAmount),
+            });
+            setFolio(nextFolio);
+            setPaymentAmount(Math.max(0, Number(nextFolio.totals.balance)));
+            showToast({ color: 'green', title: 'Payment captured', message: `Razorpay confirmed ${formatCurrency(paymentAmount)}.` });
+          } catch (verifyError) {
+            showToast({ color: 'red', title: 'Verification failed', message: verifyError instanceof Error ? verifyError.message : 'Please try again.' });
+          } finally {
+            setIsRazorpaying(false);
+          }
+        },
+        modal: {
+          ondismiss: () => setIsRazorpaying(false),
+        },
+      });
+      rzp.on('payment.failed', (payload: unknown) => {
+        console.error('Razorpay payment failed', payload);
+        showToast({ color: 'red', title: 'Payment failed', message: 'Guest can retry or pay by another method.' });
+        setIsRazorpaying(false);
+      });
+      rzp.open();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Razorpay unavailable.';
+      // Special case: keys not configured on server
+      if (/RAZORPAY_NOT_CONFIGURED/.test(message) || /not configured/i.test(message)) {
+        showToast({ color: 'yellow', title: 'Razorpay not configured', message: 'Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in stayos-api/.env, then restart the API.' });
+      } else {
+        showToast({ color: 'red', title: 'Razorpay error', message });
+      }
+      setIsRazorpaying(false);
+    }
+  };
+
   const finalizeCheckout = async () => {
     setIsCheckingOut(true);
     try {
@@ -135,11 +220,21 @@ export function CheckoutModal({ opened, onClose, propertyId, reservationId, gues
                 <Select label="Method" value={paymentMethod} onChange={(v) => setPaymentMethod((v as FolioPaymentMethod) ?? 'CASH')} data={PAYMENT_METHODS} data-testid="checkout-method" />
               </Group>
               <TextInput label="Reference (optional)" placeholder="Card txn id / UPI ref" value={paymentReference} onChange={(e) => setPaymentReference(e.currentTarget.value)} />
-              <Group justify="flex-end">
-                <Button variant="light" color="stayosBrand" loading={isPaying} onClick={() => void recordPayment()} data-testid="checkout-record-payment">Record payment</Button>
+              <Group justify="space-between">
+                <Button
+                  variant="light"
+                  color="stayosBrand"
+                  leftSection={<Smartphone size={16} />}
+                  loading={isRazorpaying}
+                  onClick={() => void payViaRazorpay()}
+                  data-testid="checkout-razorpay"
+                >
+                  Charge via Razorpay
+                </Button>
+                <Button variant="light" color="stayosBrand" loading={isPaying} onClick={() => void recordPayment()} data-testid="checkout-record-payment">Record manual payment</Button>
               </Group>
               <Alert color="orange" variant="light" icon={<AlertTriangle size={16} />}>
-                Please collect the balance before completing checkout. You can split a payment across methods by recording one row at a time.
+                Use <b>Charge via Razorpay</b> for cards / UPI / netbanking with instant capture, or <b>Record manual payment</b> for cash or offline receipts.
               </Alert>
             </>
           ) : (

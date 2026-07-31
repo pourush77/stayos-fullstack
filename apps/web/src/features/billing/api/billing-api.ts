@@ -107,6 +107,37 @@ export function settleFolio(propertyId: string, folioId: string): Promise<Folio>
   });
 }
 
+export function getRazorpayConfig(propertyId: string, folioId: string): Promise<{ configured: boolean }> {
+  return request<{ configured: boolean }>(`/properties/${propertyId}/folios/${folioId}/razorpay/config`);
+}
+
+export function createRazorpayOrder(
+  propertyId: string,
+  folioId: string,
+  payload: { amount: string; reservationId?: string; guestName?: string },
+): Promise<{ orderId: string; keyId: string; amount: number; currency: string }> {
+  return request<{ orderId: string; keyId: string; amount: number; currency: string }>(
+    `/properties/${propertyId}/folios/${folioId}/razorpay/order`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  );
+}
+
+export function verifyRazorpayPayment(
+  propertyId: string,
+  folioId: string,
+  payload: {
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+    amount: string;
+  },
+): Promise<Folio> {
+  return request<Folio>(`/properties/${propertyId}/folios/${folioId}/razorpay/verify`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export function getBillingOverview(
   propertyId: string,
   signal?: AbortSignal,

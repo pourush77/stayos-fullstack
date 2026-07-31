@@ -4,6 +4,7 @@ import { PropertiesModule } from '../properties/properties.module';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 import { BillingController } from './billing.controller';
 import { BillingService } from './billing.service';
+import { RazorpayService } from './razorpay.service';
 import { FolioChargeEntity } from './infrastructure/folio-charge.entity';
 import { FolioPaymentEntity } from './infrastructure/folio-payment.entity';
 import { FolioEntity } from './infrastructure/folio.entity';
@@ -19,7 +20,7 @@ import { FolioEntity } from './infrastructure/folio.entity';
     PropertiesModule,
   ],
   controllers: [BillingController],
-  providers: [BillingService],
+  providers: [BillingService, RazorpayService],
   exports: [BillingService],
 })
 export class BillingModule {}
