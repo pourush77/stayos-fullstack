@@ -1,5 +1,5 @@
 export type BookingStatus = 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'CANCELLED';
-export type BookingPaymentStatus = 'PAID' | 'PAYMENT_DUE';
+export type BookingPaymentStatus = 'PAID' | 'PAYMENT_DUE' | 'PARTIALLY_PAID';
 export type BookingSource = 'DIRECT' | 'WALK_IN' | 'OTA' | 'CORPORATE';
 export type BookingFilter =
   | 'all'
@@ -48,6 +48,10 @@ export type BookingFormValues = {
   roomTypeId: string;
   source: BookingSource;
   specialRequests: string;
+  deposit?: {
+    amount: number;
+    method: 'CASH' | 'CARD' | 'UPI' | 'BANK_TRANSFER' | 'WALLET' | 'OTHER';
+  };
 };
 
 export type GuestOption = {

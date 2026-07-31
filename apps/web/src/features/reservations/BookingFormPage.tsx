@@ -274,7 +274,10 @@ function QuickBookingForm({
   const [notes, setNotes] = useState('');
   const [specialRequests, setSpecialRequests] = useState('');
   const [source, setSource] = useState<BookingSource>('DIRECT');
+  const [paymentIntent, setPaymentIntent] = useState<'CHECKOUT' | 'FULL' | 'PARTIAL'>('CHECKOUT');
   const [paymentStatus, setPaymentStatus] = useState<BookingPaymentStatus>('PAYMENT_DUE');
+  const [paymentAmount, setPaymentAmount] = useState<number>(0);
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'UPI' | 'BANK_TRANSFER' | 'WALLET' | 'OTHER'>('CASH');
   const [availabilityCounts, setAvailabilityCounts] = useState<Record<string, number>>({});
   const [errors, setErrors] = useState<{ dates?: string; roomTypeId?: string }>({});
   const arrivalDate = dateToValue(dateRange[0]);
@@ -397,6 +400,9 @@ function QuickBookingForm({
       roomTypeId,
       source,
       specialRequests,
+      deposit: paymentIntent !== 'CHECKOUT' && paymentAmount > 0
+        ? { amount: paymentAmount, method: paymentMethod }
+        : undefined,
     });
   };
 
@@ -708,12 +714,71 @@ function QuickBookingForm({
                 <Textarea label="Special requests" minRows={3} onChange={(event) => setSpecialRequests(event.currentTarget.value)} value={specialRequests} />
               </SimpleGrid>
             </Collapse>
-            <Button variant="subtle" color="gray" size="compact-sm" onClick={() => setAdvancedOpen((current) => !current)}>Change source/payment</Button>
-            <Collapse expanded={advancedOpen}>
-              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
-                <Select data={[{ label: 'Direct', value: 'DIRECT' }, { label: 'Walk-in', value: 'WALK_IN' }, { label: 'OTA', value: 'OTA' }, { label: 'Corporate', value: 'CORPORATE' }]} label="Source" onChange={(value) => setSource((value as BookingSource | null) ?? 'DIRECT')} value={source} />
-                <Select data={[{ label: 'Payment Due', value: 'PAYMENT_DUE' }, { label: 'Paid', value: 'PAID' }]} label="Payment status" onChange={(value) => setPaymentStatus((value as BookingPaymentStatus | null) ?? 'PAYMENT_DUE')} value={paymentStatus} />
+            {/* Payment intent chooser — visible in Step 4 */}
+            <Stack gap={8}>
+              <Text fw={700} c="#101828" size="sm">How is the guest paying?</Text>
+              <SimpleGrid cols={{ base: 1, sm: 3 }} spacing={8}>
+                {[
+                  { key: 'CHECKOUT' as const, label: 'Pay at checkout', hint: 'Collect the whole bill on the way out', status: 'PAYMENT_DUE' as BookingPaymentStatus },
+                  { key: 'PARTIAL' as const, label: 'Partial deposit now', hint: 'Advance / holding amount', status: 'PARTIALLY_PAID' as BookingPaymentStatus },
+                  { key: 'FULL' as const, label: 'Prepay full now', hint: 'Booking marked Paid', status: 'PAID' as BookingPaymentStatus },
+                ].map((opt) => {
+                  const selected = paymentIntent === opt.key;
+                  return (
+                    <UnstyledButton
+                      key={opt.key}
+                      onClick={() => {
+                        setPaymentIntent(opt.key);
+                        setPaymentStatus(opt.status);
+                        if (opt.key === 'CHECKOUT') setPaymentAmount(0);
+                        else if (opt.key === 'FULL') setPaymentAmount(total);
+                        else if (opt.key === 'PARTIAL' && paymentAmount === 0) setPaymentAmount(Math.round(total * 0.3));
+                      }}
+                      data-testid={`booking-payment-intent-${opt.key.toLowerCase()}`}
+                      style={{
+                        background: selected ? '#f6f1ff' : '#ffffff',
+                        border: `1px solid ${selected ? '#7d4dd6' : '#e2e8f0'}`,
+                        borderRadius: 12,
+                        padding: 12,
+                        transition: 'background 120ms ease, border-color 120ms ease',
+                      }}
+                    >
+                      <Text fw={700} c="#101828" size="sm">{opt.label}</Text>
+                      <Text c="#64748b" size="xs">{opt.hint}</Text>
+                    </UnstyledButton>
+                  );
+                })}
               </SimpleGrid>
+              {paymentIntent !== 'CHECKOUT' ? (
+                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+                  <NumberInput
+                    label="Amount to collect now"
+                    min={0}
+                    max={paymentIntent === 'FULL' ? undefined : total}
+                    value={paymentAmount}
+                    onChange={(v) => setPaymentAmount(Number(v) || 0)}
+                    data-testid="booking-deposit-amount"
+                  />
+                  <Select
+                    label="Method"
+                    value={paymentMethod}
+                    onChange={(v) => setPaymentMethod((v as typeof paymentMethod) ?? 'CASH')}
+                    data={[
+                      { label: 'Cash', value: 'CASH' },
+                      { label: 'Card', value: 'CARD' },
+                      { label: 'UPI', value: 'UPI' },
+                      { label: 'Bank Transfer', value: 'BANK_TRANSFER' },
+                      { label: 'Wallet', value: 'WALLET' },
+                      { label: 'Other', value: 'OTHER' },
+                    ]}
+                    data-testid="booking-deposit-method"
+                  />
+                </SimpleGrid>
+              ) : null}
+            </Stack>
+            <Button variant="subtle" color="gray" size="compact-sm" onClick={() => setAdvancedOpen((current) => !current)}>Change booking source</Button>
+            <Collapse expanded={advancedOpen}>
+              <Select data={[{ label: 'Direct', value: 'DIRECT' }, { label: 'Walk-in', value: 'WALK_IN' }, { label: 'OTA', value: 'OTA' }, { label: 'Corporate', value: 'CORPORATE' }]} label="Source" onChange={(value) => setSource((value as BookingSource | null) ?? 'DIRECT')} value={source} />
             </Collapse>
             <Stack gap={6}>
               <Button color="stayosBrand" disabled={!guestId || !datesComplete || !roomComplete} fullWidth loading={isSubmitting} onClick={() => void submit()} size="lg">Create Booking →</Button>

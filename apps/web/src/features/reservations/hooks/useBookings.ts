@@ -148,6 +148,22 @@ export function useBookings({ allowMockFallback, enabled }: { allowMockFallback:
   const createBooking = useCallback(async (values: BookingFormValues) => {
     const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
     const booking = mapBooking(await createPropertyReservation(propertyId, formValuesToPayload(values)));
+
+    // If receptionist chose Prepay / Partial deposit, immediately record the payment against the folio.
+    if (values.deposit && values.deposit.amount > 0) {
+      try {
+        const { getFolioForReservation, addPayment } = await import('../../billing/api/billing-api');
+        const folio = await getFolioForReservation(propertyId, booking.backendId);
+        await addPayment(propertyId, folio.id, {
+          method: values.deposit.method,
+          amount: String(values.deposit.amount),
+        });
+      } catch (paymentError) {
+        // Booking is created — surface a soft warning but don't fail the whole flow.
+        console.warn('Deposit payment could not be recorded', paymentError);
+      }
+    }
+
     setState((current) => ({
       ...current,
       bookings: [booking, ...current.bookings.filter((item) => item.backendId !== booking.backendId)],
