@@ -157,6 +157,8 @@ export class CheckInFinalChecklistDto {
   canCheckIn!: boolean;
   @ApiProperty({ type: [String] })
   blockers!: string[];
+  @ApiProperty({ type: [String], description: 'Specific missing guest-registration fields (e.g. state, mobile).' })
+  missingRegistrationFields!: string[];
 }
 
 export class CheckInWorkspaceResponseDto {

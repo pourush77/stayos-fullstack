@@ -338,6 +338,7 @@ export class CheckInService {
         roomReady: room?.operationalStatus === RoomOperationalStatus.READY,
         canCheckIn: blockers.length === 0,
         blockers,
+        missingRegistrationFields: this.getMissingRegistrationFields(reservation, guest),
       },
     };
   }
@@ -365,27 +366,31 @@ export class CheckInService {
   }
 
   private isGuestRegistrationComplete(reservation: ReservationEntity, guest: GuestEntity): boolean {
-    const baseComplete = Boolean(
-      guest.displayName &&
-        guest.nationality &&
-        guest.addressLine1 &&
-        guest.city &&
-        guest.state &&
-        guest.country &&
-        guest.purposeOfVisit,
-    );
-    if (!baseComplete) return false;
-    if (!(reservation.isForeignNational ?? false)) return Boolean(guest.phone);
-    return Boolean(
-      reservation.passportNumberMasked &&
-        reservation.passportIssuePlace &&
-        reservation.passportIssueDate &&
-        reservation.passportExpiryDate &&
-        reservation.visaNumberMasked &&
-        reservation.visaType &&
-        reservation.visaIssueDate &&
-        reservation.visaExpiryDate,
-    );
+    return this.getMissingRegistrationFields(reservation, guest).length === 0;
+  }
+
+  private getMissingRegistrationFields(reservation: ReservationEntity, guest: GuestEntity): string[] {
+    const missing: string[] = [];
+    if (!guest.displayName?.trim()) missing.push('fullName');
+    if (!guest.nationality?.trim()) missing.push('nationality');
+    if (!guest.addressLine1?.trim()) missing.push('addressLine1');
+    if (!guest.city?.trim()) missing.push('city');
+    if (!guest.state?.trim()) missing.push('state');
+    if (!guest.country?.trim()) missing.push('country');
+    if (!guest.purposeOfVisit?.trim()) missing.push('purposeOfVisit');
+    if (!(reservation.isForeignNational ?? false)) {
+      if (!guest.phone?.trim()) missing.push('mobile');
+      return missing;
+    }
+    if (!reservation.passportNumberMasked) missing.push('passportNumber');
+    if (!reservation.passportIssuePlace) missing.push('passportIssuePlace');
+    if (!reservation.passportIssueDate) missing.push('passportIssueDate');
+    if (!reservation.passportExpiryDate) missing.push('passportExpiryDate');
+    if (!reservation.visaNumberMasked) missing.push('visaNumber');
+    if (!reservation.visaType) missing.push('visaType');
+    if (!reservation.visaIssueDate) missing.push('visaIssueDate');
+    if (!reservation.visaExpiryDate) missing.push('visaExpiryDate');
+    return missing;
   }
 
   private getRoomWarnings(room: RoomEntity | null): string[] {

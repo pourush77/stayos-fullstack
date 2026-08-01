@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Alert, Badge, Box, Button, Group, Loader, Paper, Select, Stack, Text, Title } from '@mantine/core';
-import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, ServerStarting, useBackendStatus } from '@stayos/ui';
 import { getProperties, getPropertyRooms } from '../../lib/inventory-api';
@@ -31,9 +32,10 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export function AvailabilityCalendarPage() {
+  const router = useRouter();
   const backend = useBackendStatus();
   const [propertyId, setPropertyId] = useState('');
-  const [rooms, setRooms] = useState<Array<{ id: string; roomNumber: string; roomTypeName?: string; operationalStatus?: string }>>([]);
+  const [rooms, setRooms] = useState<Array<{ id: string; roomNumber: string; roomTypeId?: string; roomTypeName?: string; operationalStatus?: string }>>([]);
   const [reservations, setReservations] = useState<Array<{ id: string; guestName?: string; roomId?: string; arrivalDate: string; departureDate: string; status: string; reservationCode: string }>>([]);
   const [rangeDays, setRangeDays] = useState(14);
   const [offsetDays, setOffsetDays] = useState(0);
@@ -77,6 +79,7 @@ export function AvailabilityCalendarPage() {
         setRooms(rd.map((r) => ({
           id: String(r.id),
           roomNumber: String(r.roomNumber ?? '?'),
+          roomTypeId: ((r.roomType as { id?: string } | undefined)?.id) ?? (r.roomTypeId as string | undefined),
           roomTypeName: (r.roomType as { name?: string } | undefined)?.name,
           operationalStatus: r.operationalStatus as string | undefined,
         })));
@@ -103,6 +106,25 @@ export function AvailabilityCalendarPage() {
   if (!backend.isOnline && backend.status !== 'CONNECTING') return <BackendUnavailable onAction={() => void backend.retry()} onCheckStatus={() => void backend.checkHealth()} />;
 
   const roomSpanFor = (roomId: string) => reservations.filter((r) => r.roomId === roomId);
+
+  // Returns true if the given room is booked on the given calendar day (occupancy = [arrival, departure)).
+  const isCellOccupied = (roomId: string, day: Date): boolean => {
+    const dayIso = isoDay(day);
+    return reservations.some((r) => {
+      if (r.roomId !== roomId) return false;
+      if (r.status === 'CANCELLED') return false;
+      return r.arrivalDate <= dayIso && dayIso < r.departureDate;
+    });
+  };
+
+  const handleEmptyCellClick = (roomId: string, roomTypeId: string | undefined, day: Date) => {
+    const arrival = isoDay(day);
+    const dep = isoDay(new Date(day.getTime() + DAY_MS));
+    const qs = new URLSearchParams({ arrivalDate: arrival, departureDate: dep });
+    if (roomTypeId) qs.set('roomTypeId', roomTypeId);
+    if (roomId) qs.set('preferredRoomId', roomId);
+    router.push(`/reservations/new?${qs.toString()}`);
+  };
 
   const CELL_W = 90;
   const ROOM_COL_W = 130;
@@ -161,9 +183,29 @@ export function AvailabilityCalendarPage() {
                   </Box>
                   {/* Background day cells */}
                   <Box style={{ position: 'relative', display: 'flex', flex: 1 }}>
-                    {days.map((d, i) => (
-                      <Box key={i} style={{ width: CELL_W, minWidth: CELL_W, height: 52, borderRight: '1px solid #f1f5f9' }} />
-                    ))}
+                    {days.map((d, i) => {
+                      const occupied = isCellOccupied(room.id, d);
+                      return (
+                        <Box
+                          key={i}
+                          onClick={occupied ? undefined : () => handleEmptyCellClick(room.id, room.roomTypeId, d)}
+                          role={occupied ? undefined : 'button'}
+                          tabIndex={occupied ? -1 : 0}
+                          aria-label={occupied ? undefined : `Book ${room.roomNumber} on ${isoDay(d)}`}
+                          data-testid={occupied ? undefined : `calendar-empty-${room.id}-${isoDay(d)}`}
+                          style={{
+                            width: CELL_W,
+                            minWidth: CELL_W,
+                            height: 52,
+                            borderRight: '1px solid #f1f5f9',
+                            cursor: occupied ? 'default' : 'pointer',
+                            transition: 'background-color .12s ease',
+                          }}
+                          onMouseEnter={occupied ? undefined : (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#f5f3ff'; }}
+                          onMouseLeave={occupied ? undefined : (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = ''; }}
+                        />
+                      );
+                    })}
                     {/* Reservation bars */}
                     {roomSpanFor(room.id).map((res) => {
                       const arr = new Date(`${res.arrivalDate}T00:00:00`);
@@ -219,6 +261,7 @@ export function AvailabilityCalendarPage() {
           <Group gap={6}><Box style={{ width: 12, height: 12, background: '#059669', borderRadius: 3 }} /><Text size="xs" c="#64748b">Checked in</Text></Group>
           <Group gap={6}><Box style={{ width: 12, height: 12, background: '#f59e0b', borderRadius: 3 }} /><Text size="xs" c="#64748b">Pending</Text></Group>
           <Group gap={6}><Box style={{ width: 12, height: 12, background: '#94a3b8', borderRadius: 3 }} /><Text size="xs" c="#64748b">Checked out / cancelled</Text></Group>
+          <Group gap={6}><Plus size={12} color="#7d4dd6" /><Text size="xs" c="#64748b">Tap any empty cell to start a booking</Text></Group>
         </Group>
       </Stack>
     </Box>

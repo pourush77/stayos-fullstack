@@ -277,6 +277,7 @@ export type CheckInWorkspaceDto = {
     roomReady: boolean;
     canCheckIn: boolean;
     blockers: string[];
+    missingRegistrationFields?: string[];
   };
 };
 

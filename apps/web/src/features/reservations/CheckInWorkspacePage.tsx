@@ -30,6 +30,18 @@ const cardStyle = {
   boxShadow: '0 8px 24px rgba(15, 23, 42, 0.035)',
 };
 
+
+function idTypeLabel(type: string): string {
+  switch (type) {
+    case 'AADHAAR': return 'Aadhaar';
+    case 'PASSPORT': return 'Passport';
+    case 'DRIVING_LICENSE': return 'Driving License';
+    case 'VOTER_ID': return 'Voter ID';
+    case 'PAN': return 'PAN';
+    default: return 'ID';
+  }
+}
+
 const BLOCKER_MESSAGES: Record<string, string> = {
   CHECKIN_GUEST_REGISTRATION_INCOMPLETE: 'Guest registration is incomplete. Fill address, city, state, country, purpose of visit and mobile.',
   CHECKIN_IDENTITY_NOT_VERIFIED: 'Identity is not verified. Record the ID type + number and mark it verified.',
@@ -513,6 +525,26 @@ export function CheckInWorkspacePage() {
   const c = workspace.finalChecklist;
   const room = workspace.room;
   const blockerMessages = c.blockers.map((code) => BLOCKER_MESSAGES[code] ?? code);
+  const missingFieldLabels: Record<string, string> = {
+    fullName: 'Full name',
+    nationality: 'Nationality',
+    addressLine1: 'Address',
+    city: 'City',
+    state: 'State',
+    country: 'Country',
+    purposeOfVisit: 'Purpose of visit',
+    mobile: 'Mobile',
+    passportNumber: 'Passport number',
+    passportIssuePlace: 'Passport issue place',
+    passportIssueDate: 'Passport issue date',
+    passportExpiryDate: 'Passport expiry date',
+    visaNumber: 'Visa number',
+    visaType: 'Visa type',
+    visaIssueDate: 'Visa issue date',
+    visaExpiryDate: 'Visa expiry date',
+  };
+  const missingFields = c.missingRegistrationFields ?? [];
+  const isMissing = (field: string) => missingFields.includes(field);
 
   const stateOptions = country === 'India' ? INDIAN_STATES : undefined;
   const autoBadge = (key: string) =>
@@ -568,9 +600,19 @@ export function CheckInWorkspacePage() {
           <ChecklistPill ok={c.roomReady} label="Room ready" />
         </Group>
         {blockerMessages.length > 0 ? (
-          <Alert mt={12} color="orange" variant="light" icon={<AlertTriangle size={17} />}>
-            <Stack gap={4}>
+          <Alert mt={12} color="orange" variant="light" icon={<AlertTriangle size={17} />} data-testid="checkin-blockers">
+            <Stack gap={6}>
               {blockerMessages.map((msg, i) => <Text key={i} size="sm">{msg}</Text>)}
+              {missingFields.length > 0 ? (
+                <Group gap={6} wrap="wrap" mt={4}>
+                  <Text size="xs" fw={700} c="#78350f">Missing fields:</Text>
+                  {missingFields.map((f) => (
+                    <Badge key={f} color="orange" variant="filled" size="sm" data-testid={`missing-${f}`}>
+                      {missingFieldLabels[f] ?? f}
+                    </Badge>
+                  ))}
+                </Group>
+              ) : null}
             </Stack>
           </Alert>
         ) : null}
@@ -600,38 +642,9 @@ export function CheckInWorkspacePage() {
               </Button>
             </Group>
           )}
-          <Group grow align="stretch">
-            <IdPhotoTile
-              side="front"
-              label="ID front"
-              document={workspace.documents.find((d) => d.side === 'ID_FRONT')}
-              propertyId={propertyId}
-              reservationId={workspace.booking.reservationId}
-              onUpload={uploadIdPhoto}
-              onDelete={deleteIdPhoto}
-              uploading={isSubmitting === 'id-front'}
-            />
-            <IdPhotoTile
-              side="back"
-              label="ID back (optional)"
-              document={workspace.documents.find((d) => d.side === 'ID_BACK')}
-              propertyId={propertyId}
-              reservationId={workspace.booking.reservationId}
-              onUpload={uploadIdPhoto}
-              onDelete={deleteIdPhoto}
-              uploading={isSubmitting === 'id-back'}
-            />
-          </Group>
-          <FaceMatchCard
-            idPhotoUrl={idFrontPreviewUrl}
-            persistedSnapUrl={guestFacePreviewUrl}
-            propertyId={propertyId}
-            reservationId={workspace.booking.reservationId}
-            onSaved={refreshWorkspace}
-          />
-          <Group grow>
+          <Paper radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px dashed #cbd5e1' }}>
+            <Text size="xs" fw={800} c="#334155" mb={8} tt="uppercase">1a. Pick the ID type first</Text>
             <Select
-              label="ID type"
               value={idType}
               onChange={(v) => setIdType(v ?? 'AADHAAR')}
               data={[
@@ -642,7 +655,42 @@ export function CheckInWorkspacePage() {
                 { label: 'PAN', value: 'PAN' },
                 { label: 'Other', value: 'OTHER' },
               ]}
+              data-testid="checkin-id-type"
             />
+          </Paper>
+          <Text size="xs" fw={800} c="#334155" mt={4} tt="uppercase">1b. Snap the front &amp; back of the {idTypeLabel(idType)}</Text>
+          <Group grow align="stretch">
+            <IdPhotoTile
+              side="front"
+              label={`${idTypeLabel(idType)} — front`}
+              document={workspace.documents.find((d) => d.side === 'ID_FRONT')}
+              propertyId={propertyId}
+              reservationId={workspace.booking.reservationId}
+              onUpload={uploadIdPhoto}
+              onDelete={deleteIdPhoto}
+              uploading={isSubmitting === 'id-front'}
+            />
+            <IdPhotoTile
+              side="back"
+              label={`${idTypeLabel(idType)} — back (optional)`}
+              document={workspace.documents.find((d) => d.side === 'ID_BACK')}
+              propertyId={propertyId}
+              reservationId={workspace.booking.reservationId}
+              onUpload={uploadIdPhoto}
+              onDelete={deleteIdPhoto}
+              uploading={isSubmitting === 'id-back'}
+            />
+          </Group>
+          <Text size="xs" fw={800} c="#334155" mt={4} tt="uppercase">1c. Face match — save the guest snap</Text>
+          <FaceMatchCard
+            idPhotoUrl={idFrontPreviewUrl}
+            persistedSnapUrl={guestFacePreviewUrl}
+            propertyId={propertyId}
+            reservationId={workspace.booking.reservationId}
+            onSaved={refreshWorkspace}
+          />
+          <Text size="xs" fw={800} c="#334155" mt={4} tt="uppercase">1d. Confirm the ID number, then save</Text>
+          <Group grow>
             <TextInput
               label={workspace.identity.idNumberMasked ? `ID number (on file: ${workspace.identity.idNumberMasked})` : 'ID number'}
               value={idNumber}
@@ -665,16 +713,27 @@ export function CheckInWorkspacePage() {
             <TextInput
               label="Full name"
               value={fullName}
+              required
+              error={isMissing('fullName') ? 'Required' : undefined}
               onChange={(e) => { setFullName(e.currentTarget.value); setAutoFilled((prev) => ({ ...prev, fullName: false })); }}
               rightSection={autoBadge('fullName')}
               data-testid="checkin-full-name"
             />
-            <TextInput label="Mobile" value={mobile} onChange={(e) => setMobile(e.currentTarget.value)} data-testid="checkin-mobile" />
+            <TextInput
+              label="Mobile"
+              required
+              error={isMissing('mobile') ? 'Required' : undefined}
+              value={mobile}
+              onChange={(e) => setMobile(e.currentTarget.value)}
+              data-testid="checkin-mobile"
+            />
           </Group>
           <Group grow>
             <TextInput label="Email" value={email} onChange={(e) => setEmail(e.currentTarget.value)} />
             <Select
               label="Nationality"
+              required
+              error={isMissing('nationality') ? 'Required' : undefined}
               value={nationality || 'Indian'}
               onChange={(v) => setNationality(v ?? 'Indian')}
               data={COMMON_NATIONALITIES}
@@ -690,12 +749,29 @@ export function CheckInWorkspacePage() {
               data-testid="checkin-dob"
             />
           </Group>
-          <TextInput label="Address" value={addressLine1} onChange={(e) => setAddressLine1(e.currentTarget.value)} data-testid="checkin-address" />
+          <TextInput
+            label="Address"
+            required
+            error={isMissing('addressLine1') ? 'Required' : undefined}
+            value={addressLine1}
+            onChange={(e) => setAddressLine1(e.currentTarget.value)}
+            data-testid="checkin-address"
+          />
           <Group grow>
-            <TextInput label="City" value={city} onChange={(e) => setCity(e.currentTarget.value)} placeholder="e.g. Indore" data-testid="checkin-city" />
+            <TextInput
+              label="City"
+              required
+              error={isMissing('city') ? 'Required' : undefined}
+              value={city}
+              onChange={(e) => setCity(e.currentTarget.value)}
+              placeholder="e.g. Indore"
+              data-testid="checkin-city"
+            />
             {stateOptions ? (
               <Select
                 label="State"
+                required
+                error={isMissing('state') ? 'Please pick a state' : undefined}
                 value={state || null}
                 onChange={(v) => setState(v ?? '')}
                 data={stateOptions}
@@ -705,10 +781,20 @@ export function CheckInWorkspacePage() {
                 data-testid="checkin-state"
               />
             ) : (
-              <TextInput label="State / Region" value={state} onChange={(e) => setState(e.currentTarget.value)} placeholder="e.g. California" data-testid="checkin-state" />
+              <TextInput
+                label="State / Region"
+                required
+                error={isMissing('state') ? 'Required' : undefined}
+                value={state}
+                onChange={(e) => setState(e.currentTarget.value)}
+                placeholder="e.g. California"
+                data-testid="checkin-state"
+              />
             )}
             <Select
               label="Country"
+              required
+              error={isMissing('country') ? 'Required' : undefined}
               value={country || 'India'}
               onChange={(v) => setCountry(v ?? 'India')}
               data={COMMON_COUNTRIES}
@@ -718,6 +804,8 @@ export function CheckInWorkspacePage() {
           </Group>
           <Select
             label="Purpose of visit"
+            required
+            error={isMissing('purposeOfVisit') ? 'Required' : undefined}
             value={purposeOfVisit || 'Leisure'}
             onChange={(v) => setPurposeOfVisit(v ?? 'Leisure')}
             data={PURPOSE_OF_VISIT}
