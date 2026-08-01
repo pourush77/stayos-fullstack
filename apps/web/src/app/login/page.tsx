@@ -124,6 +124,8 @@ export default function LoginPage() {
             <Stack gap={16}>
               <TextInput
                 autoComplete="email"
+                data-testid="login-email"
+                type="email"
                 error={errors.email}
                 label="Email"
                 leftSection={<Mail size={16} />}
@@ -133,6 +135,7 @@ export default function LoginPage() {
               />
               <PasswordInput
                 autoComplete="current-password"
+                data-testid="login-password"
                 error={errors.password}
                 label="Password"
                 leftSection={<LockKeyhole size={16} />}
@@ -172,7 +175,7 @@ export default function LoginPage() {
                 </Text>
               ) : null}
               {errors.form ? <Text className={styles.formError}>{errors.form}</Text> : null}
-              <Button fullWidth size="md" type="submit" loading={submitting}>
+              <Button fullWidth size="md" type="submit" loading={submitting} data-testid="login-submit">
                 Sign In
               </Button>
             </Stack>

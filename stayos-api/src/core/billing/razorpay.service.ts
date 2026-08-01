@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, InternalServerErrorException, Logger, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Razorpay from 'razorpay';
 import { createHmac, timingSafeEqual } from 'crypto';
@@ -26,9 +26,9 @@ export class RazorpayService {
 
   private ensureConfigured(): void {
     if (!this.isConfigured()) {
-      throw new InternalServerErrorException({
+      throw new ServiceUnavailableException({
         code: 'RAZORPAY_NOT_CONFIGURED',
-        message: 'Razorpay is not configured. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to stayos-api/.env and restart the API.',
+        message: 'Online payments are not enabled. Please collect payment via cash, card or UPI at reception, or ask your admin to configure Razorpay.',
       });
     }
   }

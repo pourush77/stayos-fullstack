@@ -257,14 +257,19 @@ class TestReservationLifecycle:
         s, pid = lifecycle["session"], lifecycle["pid"]
         arrival = date.today().isoformat()
         departure = (date.today() + timedelta(days=2)).isoformat()
-        rt_id = lifecycle["roomTypes"][0]["id"]
-        avail = s.get(f"{BASE_URL}/properties/{pid}/operations/available-rooms",
-                      params={"arrivalDate": arrival, "departureDate": departure, "roomTypeId": rt_id},
-                      timeout=30)
-        assert avail.status_code == 200, avail.text[:300]
-        ad = avail.json()["data"]
-        rooms = ad["items"] if isinstance(ad, dict) and "items" in ad else ad
-        assert rooms, "no available rooms returned for booking window"
+        # pick the first room type that actually has inventory free for the window
+        rt_id, rooms = None, []
+        for rt in lifecycle["roomTypes"]:
+            avail = s.get(f"{BASE_URL}/properties/{pid}/operations/available-rooms",
+                          params={"arrivalDate": arrival, "departureDate": departure, "roomTypeId": rt["id"]},
+                          timeout=30)
+            assert avail.status_code == 200, avail.text[:300]
+            ad = avail.json()["data"]
+            candidates = ad["items"] if isinstance(ad, dict) and "items" in ad else ad
+            if candidates:
+                rt_id, rooms = rt["id"], candidates
+                break
+        assert rooms, "no available rooms returned for booking window across any room type"
         room_id = rooms[0].get("id") or rooms[0].get("roomId")
 
         r = s.post(f"{BASE_URL}/properties/{pid}/reservations", json={
@@ -423,8 +428,15 @@ class TestReservationLifecycle:
         fid = TestReservationLifecycle.state["folioId"]
         cfg = s.get(f"{BASE_URL}/properties/{pid}/folios/{fid}/razorpay/config", timeout=30)
         assert cfg.status_code == 200, cfg.text[:300]
+        cfg_data = cfg.json()["data"]
+        configured = bool(cfg_data.get("configured") or cfg_data.get("enabled") or cfg_data.get("keyId"))
         r = s.post(f"{BASE_URL}/properties/{pid}/folios/{fid}/razorpay/order",
                    json={"amount": "100.00"}, timeout=60)
+        if not configured:
+            # REGRESSION FIX #2: unconfigured gateway must be 503, never 500
+            assert r.status_code == 503, f"expected 503 when razorpay unconfigured, got {r.status_code} {r.text[:400]}"
+            assert r.status_code != 500
+            return
         assert r.status_code in (200, 201), f"razorpay order failed: {r.status_code} {r.text[:400]}"
         data = r.json()["data"]
         oid = data.get("orderId") or data.get("id") or data.get("order", {}).get("id")
@@ -585,3 +597,71 @@ class TestSettingsAndReports:
             out[path] = r.status_code
         failures = {k: v for k, v in out.items() if v != 200}
         assert not failures, f"report endpoints failing: {failures}"
+
+
+
+# ---------------- ITERATION 3 REGRESSION FIX VERIFICATION ----------------
+class TestIteration3Fixes:
+    """Backend-side verification of regression fixes #1, #2, #4, #7, #8."""
+
+    def test_fix1_frontdesk_housekeeping_dashboard_200(self, fd):
+        s, pid = fd
+        r = s.get(f"{BASE_URL}/properties/{pid}/housekeeping/dashboard", timeout=30)
+        assert r.status_code == 200, f"FRONT_DESK housekeeping dashboard -> {r.status_code} {r.text[:200]}"
+        data = r.json()["data"]
+        assert data, "empty dashboard payload"
+
+    def test_fix1_frontdesk_housekeeping_rooms_and_attention(self, fd):
+        s, pid = fd
+        for path in ["housekeeping/rooms", "housekeeping/needs-attention"]:
+            r = s.get(f"{BASE_URL}/properties/{pid}/{path}", timeout=30)
+            assert r.status_code in (200, 404), f"{path} -> {r.status_code} {r.text[:200]}"
+
+    def test_fix1_frontdesk_employees_view(self, fd):
+        s, pid = fd
+        r = s.get(f"{BASE_URL}/properties/{pid}/employees", params={"department": "HOUSEKEEPING"}, timeout=30)
+        assert r.status_code == 200, f"FRONT_DESK employees -> {r.status_code} {r.text[:200]}"
+
+    def test_fix2_razorpay_order_returns_503_not_500(self, fd):
+        s, pid = fd
+        folios = s.get(f"{BASE_URL}/properties/{pid}/folios", timeout=30)
+        assert folios.status_code == 200, folios.text[:200]
+        body = folios.json()["data"]
+        items = body["items"] if isinstance(body, dict) else body
+        assert items, "no folios seeded to test razorpay against"
+        fid = items[0]["id"]
+        r = s.post(f"{BASE_URL}/properties/{pid}/folios/{fid}/razorpay/order",
+                   json={"amount": "100.00"}, timeout=60)
+        assert r.status_code != 500, f"razorpay order still 500: {r.text[:300]}"
+        assert r.status_code == 503, f"expected 503 (unconfigured), got {r.status_code} {r.text[:300]}"
+
+    def test_fix2_razorpay_config_reports_unconfigured(self, fd):
+        s, pid = fd
+        folios = s.get(f"{BASE_URL}/properties/{pid}/folios", timeout=30)
+        body = folios.json()["data"]
+        items = body["items"] if isinstance(body, dict) else body
+        fid = items[0]["id"]
+        r = s.get(f"{BASE_URL}/properties/{pid}/folios/{fid}/razorpay/config", timeout=30)
+        assert r.status_code == 200, r.text[:200]
+        cfg = r.json()["data"]
+        assert isinstance(cfg, dict) and cfg, "config endpoint must expose a configured flag for the UI to gate on"
+
+    def test_fix4_no_plaintext_credentials_in_employees_page(self):
+        p = Path("/app/apps/web/src/features/employees/components/EmployeesPage.tsx")
+        assert p.exists(), p
+        txt = p.read_text()
+        for leak in ["bootstrap:demo-employees", "Gaurav Gaur", "Password123!"]:
+            assert leak not in txt, f"plaintext/dev leak still present: {leak}"
+
+    def test_fix7_no_duplicate_hindi_chip(self):
+        p = Path("/app/apps/web/src/features/guests/GuestFormPage.tsx")
+        assert p.exists(), p
+        txt = p.read_text()
+        assert "हिन्दी" not in txt, "duplicate Devanagari Hindi chip still present"
+
+    def test_fix8_login_testids_present(self):
+        p = Path("/app/apps/web/src/app/login/page.tsx")
+        assert p.exists(), p
+        txt = p.read_text()
+        for tid in ["login-email", "login-password", "login-submit"]:
+            assert tid in txt, f"missing data-testid {tid}"

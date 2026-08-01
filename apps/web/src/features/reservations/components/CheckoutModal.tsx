@@ -6,7 +6,7 @@ import { AlertTriangle, CheckCircle2, CreditCard, Download, Mail, MessageCircle,
 import { radius, spacing } from '@stayos/theme';
 import { API_BASE_URL } from '../../../lib/api-base';
 import { showToast } from '@stayos/ui';
-import { addPayment, createRazorpayOrder, getFolioForReservation, verifyRazorpayPayment } from '../../billing/api/billing-api';
+import { addPayment, createRazorpayOrder, getFolioForReservation, getRazorpayConfig, verifyRazorpayPayment } from '../../billing/api/billing-api';
 import type { Folio, FolioPaymentMethod } from '../../billing/types/billing.types';
 
 declare global {
@@ -62,6 +62,22 @@ export function CheckoutModal({ opened, onClose, propertyId, reservationId, gues
   const [paymentAmount, setPaymentAmount] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<FolioPaymentMethod>('CASH');
   const [paymentReference, setPaymentReference] = useState('');
+  const [razorpayEnabled, setRazorpayEnabled] = useState(false);
+
+  useEffect(() => {
+    if (!opened || !folio?.id) return;
+    const controller = new AbortController();
+    getRazorpayConfig(propertyId, folio.id)
+      .then((cfg) => {
+        if (controller.signal.aborted) return;
+        setRazorpayEnabled(Boolean(cfg?.configured));
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setRazorpayEnabled(false);
+      });
+    return () => controller.abort();
+  }, [opened, propertyId, folio?.id]);
 
   useEffect(() => {
     if (!opened) return;
@@ -280,20 +296,24 @@ export function CheckoutModal({ opened, onClose, propertyId, reservationId, gues
               </Group>
               <TextInput label="Reference (optional)" placeholder="Card txn id / UPI ref" value={paymentReference} onChange={(e) => setPaymentReference(e.currentTarget.value)} />
               <Group justify="space-between">
-                <Button
-                  variant="light"
-                  color="stayosBrand"
-                  leftSection={<Smartphone size={16} />}
-                  loading={isRazorpaying}
-                  onClick={() => void payViaRazorpay()}
-                  data-testid="checkout-razorpay"
-                >
-                  Charge via Razorpay
-                </Button>
+                {razorpayEnabled ? (
+                  <Button
+                    variant="light"
+                    color="stayosBrand"
+                    leftSection={<Smartphone size={16} />}
+                    loading={isRazorpaying}
+                    onClick={() => void payViaRazorpay()}
+                    data-testid="checkout-razorpay"
+                  >
+                    Charge via Razorpay
+                  </Button>
+                ) : <span />}
                 <Button variant="light" color="stayosBrand" loading={isPaying} onClick={() => void recordPayment()} data-testid="checkout-record-payment">Record manual payment</Button>
               </Group>
               <Alert color="orange" variant="light" icon={<AlertTriangle size={16} />}>
-                Use <b>Charge via Razorpay</b> for cards / UPI / netbanking with instant capture, or <b>Record manual payment</b> for cash or offline receipts.
+                {razorpayEnabled
+                  ? <>Use <b>Charge via Razorpay</b> for cards / UPI / netbanking with instant capture, or <b>Record manual payment</b> for cash or offline receipts.</>
+                  : <>Collect payment at reception via cash, card (swipe) or UPI, then <b>Record manual payment</b>. Online payments will appear once Razorpay is enabled.</>}
               </Alert>
             </>
           ) : (

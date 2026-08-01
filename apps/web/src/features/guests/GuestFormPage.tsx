@@ -200,7 +200,7 @@ function CreateGuestQuickForm({
               <Stack gap={8}>
                 <Text fw={700} size="sm">Language</Text>
                 <Group gap={8}>
-                  {['English', 'Hindi', 'हिन्दी'].map((option) => (
+                  {['English', 'Hindi'].map((option) => (
                     <Chip
                       key={option}
                       checked={language === option && !showOtherLanguage}

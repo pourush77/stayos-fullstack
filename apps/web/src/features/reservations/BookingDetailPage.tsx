@@ -214,6 +214,7 @@ function primaryAction(booking: Booking) {
 function AssignRoomModal({
   booking,
   loading,
+  mode = 'assign',
   onAssign,
   onClose,
   onLoadRooms,
@@ -221,6 +222,7 @@ function AssignRoomModal({
 }: {
   booking: Booking;
   loading: boolean;
+  mode?: 'assign' | 'move';
   onAssign: (roomId: string) => Promise<void>;
   onClose: () => void;
   onLoadRooms: () => Promise<AvailableRoomOption[]>;
@@ -275,8 +277,12 @@ function AssignRoomModal({
     }
   };
 
+  const modalTitle = mode === 'move' ? 'Move Room' : 'Assign Room';
+  const primaryLabel = mode === 'move' ? 'Move Room' : 'Assign Room';
+  const selectPlaceholder = mode === 'move' ? 'Choose a room to move guest into' : 'Choose a ready room';
+
   return (
-    <Modal opened={opened} onClose={onClose} title="Assign Room" centered>
+    <Modal opened={opened} onClose={onClose} title={modalTitle} centered>
       <Stack gap={spacing[4]}>
         <Paper radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
           <Text fw={800} size="sm">{booking.roomType}</Text>
@@ -296,11 +302,11 @@ function AssignRoomModal({
             {emptyMessage}
           </Alert>
         ) : (
-          <Select data={rooms.map((room) => ({ label: `${room.label} - ${room.roomType}`, value: room.id }))} label="Room" onChange={setRoomId} placeholder="Choose a ready room" value={roomId} />
+          <Select data={rooms.map((room) => ({ label: `${room.label} - ${room.roomType}`, value: room.id }))} label="Room" onChange={setRoomId} placeholder={selectPlaceholder} value={roomId} />
         )}
         <Group justify="flex-end">
           <Button variant="subtle" color="gray" onClick={onClose}>Cancel</Button>
-          <Button color="stayosBrand" loading={loading} disabled={!roomId} onClick={() => roomId && void onAssign(roomId)}>Assign Room</Button>
+          <Button color="stayosBrand" loading={loading} disabled={!roomId} onClick={() => roomId && void onAssign(roomId)}>{primaryLabel}</Button>
         </Group>
       </Stack>
     </Modal>
@@ -534,7 +540,7 @@ export default function BookingDetailPage() {
       </Modal>
 
       <AssignRoomModal booking={booking} loading={isActing} opened={assignOpened} onAssign={assignRoom} onClose={() => setAssignOpened(false)} onLoadRooms={bookingState.getRooms} />
-      <AssignRoomModal booking={booking} loading={isActing} opened={moveOpened} onAssign={moveRoom} onClose={() => setMoveOpened(false)} onLoadRooms={bookingState.getRooms} />
+      <AssignRoomModal booking={booking} loading={isActing} mode="move" opened={moveOpened} onAssign={moveRoom} onClose={() => setMoveOpened(false)} onLoadRooms={bookingState.getRooms} />
       {bookingState.propertyId && (booking.status === 'CHECKED_IN' || booking.status === 'CONFIRMED') ? (
         <ExtendStayModal
           opened={extendOpened}

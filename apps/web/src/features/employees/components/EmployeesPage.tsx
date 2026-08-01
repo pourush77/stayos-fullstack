@@ -347,10 +347,6 @@ export function EmployeesPage() {
           <Text c="#64748b" mt={4} style={{ fontSize: 14 }}>
             Manage operational staff for the hotel.
           </Text>
-          <Text c="#64748b" mt={8} style={{ fontSize: 12, fontWeight: 600 }}>
-            Demo data: run npm run bootstrap:demo-employees. Demo manager user: Gaurav Gaur,
-            gaurav.gaur@stayos.local, MANAGER, Password123!.
-          </Text>
         </Box>
         {canManage ? (
           <Button

@@ -43,6 +43,8 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     Permissions.StayManage,
     Permissions.BillingView,
     Permissions.BillingManage,
+    Permissions.HousekeepingView,
+    Permissions.EmployeesView,
     Permissions.MaintenanceView,
     Permissions.OperationsView,
     Permissions.GuestRequestsView,
