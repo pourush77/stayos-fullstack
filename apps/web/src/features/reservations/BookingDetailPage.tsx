@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Alert, Box, Button, Card, Group, Loader, Modal, Paper, Popover, Select, SimpleGrid, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
 import { useParams, useRouter } from 'next/navigation';
-import { AlertCircle, BedDouble, CalendarDays, Check, ChevronLeft, CircleDollarSign, CreditCard, Edit, IdCard, NotebookText, ReceiptIndianRupee, UserRound, XCircle } from 'lucide-react';
+import { AlertCircle, BedDouble, CalendarDays, Check, ChevronLeft, CircleDollarSign, CreditCard, Edit, IdCard, MoveRight, NotebookText, Plus, ReceiptIndianRupee, UserRound, XCircle } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
 import { updatePropertyGuest } from '../../lib/guest-api';
@@ -14,7 +14,9 @@ import { friendlyBookingError, useBookingDetails } from './hooks/useBookings';
 import type { AvailableRoomOption, Booking } from './types/booking.types';
 import { bookingStatusLabel, formatStayDates, paymentStatusLabel, sourceLabel } from './utils/booking-formatters';
 import { CheckoutModal } from './components/CheckoutModal';
+import { ExtendStayModal } from './components/ExtendStayModal';
 import { getFolioForReservation } from '../billing/api/billing-api';
+import { moveReservationRoom } from '../../lib/reservation-api';
 import type { Folio } from '../billing/types/billing.types';
 
 const cardStyle = {
@@ -315,6 +317,8 @@ export default function BookingDetailPage() {
   const [cancelOpened, setCancelOpened] = useState(false);
   const [assignOpened, setAssignOpened] = useState(false);
   const [checkoutOpened, setCheckoutOpened] = useState(false);
+  const [extendOpened, setExtendOpened] = useState(false);
+  const [moveOpened, setMoveOpened] = useState(false);
   const [folioBalance, setFolioBalance] = useState<number | undefined>(undefined);
   const [isActing, setIsActing] = useState(false);
   const retryBackend = () => void backend.retry();
@@ -366,6 +370,21 @@ export default function BookingDetailPage() {
       setAssignOpened(false);
     } catch (error) {
       showToast({ color: 'red', title: 'Unable to assign room', message: friendlyBookingError(error) });
+    } finally {
+      setIsActing(false);
+    }
+  };
+
+  const moveRoom = async (roomId: string) => {
+    if (!bookingState.propertyId) return;
+    setIsActing(true);
+    try {
+      await moveReservationRoom(bookingState.propertyId, booking.backendId, roomId);
+      showToast({ color: 'green', title: 'Room moved', message: 'Guest moved to the new room.' });
+      setMoveOpened(false);
+      await bookingState.refresh?.();
+    } catch (error) {
+      showToast({ color: 'red', title: 'Unable to move room', message: friendlyBookingError(error) });
     } finally {
       setIsActing(false);
     }
@@ -426,6 +445,12 @@ export default function BookingDetailPage() {
               <Button color="stayosBrand" onClick={() => booking.room === 'Unassigned' ? setAssignOpened(true) : undefined}>{primaryAction(booking)}</Button>
             )}
             <Button component={Link} href={`/reservations/${booking.backendId}/edit`} variant="light" color="stayosBrand" leftSection={<Edit size={16} />}>Edit Booking</Button>
+            {(booking.status === 'CHECKED_IN' || booking.status === 'CONFIRMED') ? (
+              <Button variant="light" color="stayosBrand" leftSection={<Plus size={16} />} onClick={() => setExtendOpened(true)} data-testid="extend-stay-open">Extend Stay</Button>
+            ) : null}
+            {booking.status === 'CHECKED_IN' ? (
+              <Button variant="light" color="stayosBrand" leftSection={<MoveRight size={16} />} onClick={() => setMoveOpened(true)} data-testid="move-room-open">Move Room</Button>
+            ) : null}
             {canCancel ? <Button variant="subtle" color="red" leftSection={<XCircle size={16} />} onClick={() => setCancelOpened(true)}>Cancel Booking</Button> : null}
           </Group>
         </Group>
@@ -509,6 +534,17 @@ export default function BookingDetailPage() {
       </Modal>
 
       <AssignRoomModal booking={booking} loading={isActing} opened={assignOpened} onAssign={assignRoom} onClose={() => setAssignOpened(false)} onLoadRooms={bookingState.getRooms} />
+      <AssignRoomModal booking={booking} loading={isActing} opened={moveOpened} onAssign={moveRoom} onClose={() => setMoveOpened(false)} onLoadRooms={bookingState.getRooms} />
+      {bookingState.propertyId && (booking.status === 'CHECKED_IN' || booking.status === 'CONFIRMED') ? (
+        <ExtendStayModal
+          opened={extendOpened}
+          onClose={() => setExtendOpened(false)}
+          propertyId={bookingState.propertyId}
+          reservationId={booking.backendId}
+          currentDeparture={booking.departureDate}
+          onExtended={async () => { await bookingState.refresh?.(); }}
+        />
+      ) : null}
       {bookingState.propertyId ? (
         <CheckoutModal
           opened={checkoutOpened}

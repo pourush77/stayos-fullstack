@@ -1,5 +1,5 @@
-import { AvailabilityPage } from '../../../features/reservations/AvailabilityPage';
+import { AvailabilityCalendarPage } from '../../../features/reservations/AvailabilityCalendarPage';
 
 export default function AvailabilityCompatibilityPage() {
-  return <AvailabilityPage />;
+  return <AvailabilityCalendarPage />;
 }
