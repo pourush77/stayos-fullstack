@@ -99,33 +99,39 @@ Container:
 
 ## Prioritized Backlog
 
-### P0 — next up (Option A continuation)
-- **Extend Stay** — Backend `PATCH /properties/:pid/reservations/:rid/extend { departureDate }` + wire the modal Save button in `StayWorkspace`.
-- **Mobile check-in capture** — Backend controller matching the 4 endpoints the frontend already calls (`GET /check-in-capture/:token`, `POST /mobile-capture/session`, `GET /mobile-capture/session/:id/status`, `POST /mobile-capture/session/:id/documents`).
-- **Actual document upload in `CheckInModal`** — Enable the 2 currently `disabled` upload buttons and wire them to the mobile capture endpoints.
-- **Move-room during stay** — Backend endpoint + wire the currently toast-only frontend action.
-- **Fix the `/stays/:id` ghost endpoint** — `useStayWorkspace` calls `/properties/:pid/stays/:reservationId` which returns 404. Either add that endpoint or refactor the frontend to compose from existing endpoints (reservations, rooms, guests, activity).
+### V1 — LAUNCH READY (2026-08-01) ✅
+Full front-desk lifecycle certified for real staff use. See CHANGELOG.md 2026-08-01 entry.
 
-### P1
-- Requests module (backend entity + endpoints; wire `/requests` — currently hardcoded).
-- Reports page + backend aggregation endpoint.
-- Marketplace page (placeholder polish).
-- Guest documents upload from Guest Profile page.
-- Availability calendar view.
-- Fill Property / Preferences / Security / API Keys tiles.
+### P1 — post-launch enhancements
+- Guest Signature Capture (signature pad → save as GUEST_SIGNATURE doc).
+- Persist Face Snap (webcam capture from Check-In → save as GUEST_FACE doc for audit).
+- OCR Confidence indicators (🟢🟡🔴 next to auto-filled ID/Name/DOB fields).
+- Housekeeping Inspect modal: pre-load the housekeeper's submitted checklist (currently starts empty).
+- Housekeeping: surface API error toasts on failed mutations.
+- Availability Calendar: empty-cell click opens New Booking prefilled.
+- Availability Calendar: populate `roomTypeName` in payload (currently '—').
+- Housekeeping board: refactor to smaller components + add data-testid coverage.
+- Housekeeping staff access token endpoint should return 401/404 instead of 400.
 
 ### P2
-- Maintenance module UI + tickets.
-- Domain event emission (audit trail).
-- Amenities module (schema + APIs).
-- Rate/pricing engine.
-- Frontend tests.
-- Fill placeholder docs (`docs/01_Product_Vision.md`, `02_PRD.md`, etc.).
-- Update README.
-- Consider removing unused Prisma schema from frontend repo.
+- Maintenance module UI + tickets (backend module scaffolded, no UI).
+- Amenities module (schema + APIs + denormalize into room types).
+- Additional Guests table & unhidden UI.
+- Audit trail viewer UI.
+- Property / Preferences / Security / API Keys settings tiles.
+- Rate/pricing engine (replace hardcoded default rates for accurate revenue reporting).
+- Frontend tests setup (Vitest + MSW).
+- Repo-wide lint cleanup (500+ errors in scripts/ + type imports).
+- CheckIn workspace: native DoB input → Mantine DateInput.
+- `/reports` duplicate React key warning.
+- `/reports` "Expected today" copy for future arrivals.
+- List envelope inconsistency (bare array vs `{items,...}`).
+- Add proper data-testid attributes to /housekeeping board + Availability Calendar cells.
 
 ## Notes for future contributors
 - For the user's local machine, `NEXT_PUBLIC_API_BASE_URL` should be their LAN IP (`http://192.168.1.31:3002/api/v1`) and backend's `PORT=3002` — different from this container's setup which uses `8001` to piggyback on the preview ingress `/api/*` route.
 - `AUTH_ENABLED=true` — permission guard active.
 - Folio numbers follow the pattern `FOYYMMDD-00001` scoped per property.
 - Balance-based reservation `paymentStatus` sync happens inside `BillingService.addPayment` — no separate call needed from the frontend.
+- The backend is compiled (dist/) and runs via `node dist/src/main.js`. Any TS change to `stayos-api/` requires `npm run build` + `sudo supervisorctl restart stayos_api`.
+- `packages/ui/src/layout/stayos-app-shell.tsx` — must reference `process.env.NEXT_PUBLIC_API_BASE_URL` directly (Next.js only inlines literal references). Do NOT indirect via `globalThis`.

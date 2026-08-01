@@ -753,14 +753,6 @@ function RoomCard({
             >
               Change Staff
             </Button>
-            <Button
-              variant="subtle"
-              color="gray"
-              leftSection={<ClipboardCheck size={16} />}
-              onClick={() => onComplete(room)}
-            >
-              Complete on behalf
-            </Button>
           </>
         ) : null}
         {room.status === 'cleaning' ? (

@@ -132,12 +132,7 @@ const emptyPropertyStatus: PropertyStatus[] = [
 type ApiResponse<T> = T | { data?: T } | { items?: T } | { results?: T };
 
 function apiBaseUrl() {
-  const env = (
-    globalThis as unknown as {
-      process?: { env?: { NEXT_PUBLIC_API_BASE_URL?: string; NEXT_PUBLIC_API_URL?: string } };
-    }
-  ).process?.env;
-  return env?.NEXT_PUBLIC_API_BASE_URL ?? env?.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api/v1';
+  return process.env.NEXT_PUBLIC_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_URL ?? '';
 }
 
 function unwrapResponse<T>(response: ApiResponse<T>): T {
@@ -151,6 +146,11 @@ function unwrapResponse<T>(response: ApiResponse<T>): T {
 }
 
 async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const baseUrl = apiBaseUrl();
+  if (!baseUrl) {
+    throw new Error('API base URL is not configured. Set NEXT_PUBLIC_API_BASE_URL.');
+  }
+
   const headers = new Headers({ Accept: 'application/json' });
 
   if (typeof window !== 'undefined') {
@@ -161,7 +161,7 @@ async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
     if (token) headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const response = await fetch(`${apiBaseUrl()}${path}`, {
+  const response = await fetch(`${baseUrl}${path}`, {
     cache: 'no-store',
     headers,
     signal,
@@ -323,6 +323,9 @@ function useActiveProperty(enabled = true) {
   useEffect(() => {
     if (!enabled) return undefined;
 
+    const baseUrl = apiBaseUrl();
+    if (!baseUrl) return () => undefined;
+
     const controller = new AbortController();
     const headers = new Headers({ Accept: 'application/json' });
     const token =
@@ -331,7 +334,7 @@ function useActiveProperty(enabled = true) {
 
     if (token) headers.set('Authorization', `Bearer ${token}`);
 
-    fetch(`${apiBaseUrl()}/properties`, {
+    fetch(`${baseUrl}/properties`, {
       headers,
       signal: controller.signal,
     })
