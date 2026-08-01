@@ -17,7 +17,7 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
-import { CreditCard, PlusCircle, ReceiptText, Wallet } from 'lucide-react';
+import { CreditCard, Download, PlusCircle, ReceiptText, Wallet } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
 import { showToast } from '@stayos/ui';
@@ -26,6 +26,7 @@ import {
   addPayment,
   formatCurrency,
   friendlyBillingError,
+  getPaymentReceiptUrl,
   settleFolio,
 } from '../api/billing-api';
 import type {
@@ -608,6 +609,7 @@ export function FolioPanel({
                   <Table.Th>Reference</Table.Th>
                   <Table.Th>Notes</Table.Th>
                   <Table.Th>Received</Table.Th>
+                  <Table.Th style={{ width: 100 }}>Receipt</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -626,6 +628,34 @@ export function FolioPanel({
                     <Table.Td>{payment.reference ?? '-'}</Table.Td>
                     <Table.Td>{payment.notes ?? '-'}</Table.Td>
                     <Table.Td>{formatDateTime(payment.receivedAt)}</Table.Td>
+                    <Table.Td>
+                      <Button
+                        variant="light"
+                        color="stayosBrand"
+                        size="xs"
+                        leftSection={<Download size={12} />}
+                        data-testid={`receipt-download-${payment.id}`}
+                        onClick={async () => {
+                          const url = getPaymentReceiptUrl(propertyId, current.id, payment.id);
+                          try {
+                            const response = await fetch(url);
+                            if (!response.ok) throw new Error('Could not download receipt');
+                            const blob = await response.blob();
+                            const objectUrl = URL.createObjectURL(blob);
+                            window.open(objectUrl, '_blank', 'noopener');
+                            setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+                          } catch (err) {
+                            showToast({
+                              color: 'red',
+                              title: 'Receipt download failed',
+                              message: err instanceof Error ? err.message : 'Please try again.',
+                            });
+                          }
+                        }}
+                      >
+                        PDF
+                      </Button>
+                    </Table.Td>
                   </Table.Tr>
                 ))}
               </Table.Tbody>

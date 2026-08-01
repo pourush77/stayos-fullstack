@@ -138,6 +138,10 @@ export function verifyRazorpayPayment(
   });
 }
 
+export function getPaymentReceiptUrl(propertyId: string, folioId: string, paymentId: string): string {
+  return `${API_BASE_URL}/properties/${propertyId}/folios/${folioId}/payments/${paymentId}/receipt.pdf`;
+}
+
 export function getBillingOverview(
   propertyId: string,
   signal?: AbortSignal,
