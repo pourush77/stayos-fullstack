@@ -22,7 +22,7 @@ const roleNavigation: Record<string, string[]> = {
   ACCOUNTS: ['/rooms', '/billing', '/reports', '/marketplace'],
   ADMIN: ['*'],
   FRONT_DESK: ['/', '/reservations', '/rooms', '/guests', '/housekeeping', '/maintenance', '/marketplace'],
-  HOUSEKEEPING: ['/housekeeping', '/marketplace'],
+  HOUSEKEEPING: ['/housekeeping'],
   MAINTENANCE: ['/rooms', '/maintenance', '/marketplace'],
   MANAGER: ['/', '/reservations', '/rooms', '/guests', '/housekeeping', '/maintenance', '/reports', '/marketplace', '/settings/employees'],
   OWNER: ['*'],

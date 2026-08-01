@@ -211,12 +211,9 @@ function hasPermission(permissions: string[] | undefined, permission: string) {
   return Boolean(permissions?.includes(permission) || permissions?.includes('*'));
 }
 
-function canManageStaffAccess(role: string | undefined, permissions: string[] | undefined) {
+function canManageStaffAccess(role: string | undefined) {
   const normalizedRole = String(role ?? '').toUpperCase();
-  return (
-    ['MANAGER', 'ADMIN', 'OWNER'].includes(normalizedRole) ||
-    hasPermission(permissions, 'housekeeping.manage')
-  );
+  return ['MANAGER', 'ADMIN', 'OWNER'].includes(normalizedRole);
 }
 
 function staffAccessUrl(origin: string, employee: HousekeepingEmployee, propertyId?: string) {
@@ -797,7 +794,16 @@ function RoomCard({
 export default function HousekeepingPage() {
   const auth = useAuth();
   const canManageEmployees = hasPermission(auth.user?.permissions, 'employees.manage');
-  const canOpenStaffAccess = canManageStaffAccess(auth.user?.role, auth.user?.permissions);
+  const canOpenStaffAccess = canManageStaffAccess(auth.user?.role);
+  const isHousekeepingOnly = String(auth.user?.role ?? '').toUpperCase() === 'HOUSEKEEPING';
+  const visibleGroups = isHousekeepingOnly
+    ? groups.filter((group) => group.key !== 'occupied' && group.key !== 'maintenance-group')
+    : groups;
+  const visibleStatusFilterOptions = isHousekeepingOnly
+    ? statusFilterOptions.filter(
+        (option) => option.value !== 'occupied' && option.value !== 'maintenance-group',
+      )
+    : statusFilterOptions;
   const [propertyId, setPropertyId] = useState('');
   const [rooms, setRooms] = useState<HousekeepingRoom[]>([]);
   const [summary, setSummary] = useState<HousekeepingDashboardSummary>();
@@ -1038,6 +1044,9 @@ export default function HousekeepingPage() {
   const filteredRooms = useMemo(() => {
     const query = roomSearch.trim().toLowerCase();
     return rooms.filter((room) => {
+      if (isHousekeepingOnly && (room.status === 'occupied' || room.status === 'maintenance' || room.status === 'out-of-order' || room.status === 'out-of-service')) {
+        return false;
+      }
       const matchesSearch =
         !query ||
         [
@@ -1055,10 +1064,14 @@ export default function HousekeepingPage() {
       const matchesStaff = !staffFilter || room.assignedEmployeeId === staffFilter;
       return matchesSearch && matchesFloor && matchesStatus && matchesStaff;
     });
-  }, [floorFilter, rooms, roomSearch, staffFilter, statusFilter]);
+  }, [floorFilter, isHousekeepingOnly, rooms, roomSearch, staffFilter, statusFilter]);
   const attentionRooms = useMemo(
     () =>
       rooms
+        .filter((room) => {
+          if (!isHousekeepingOnly) return true;
+          return room.status !== 'maintenance' && room.status !== 'out-of-order' && room.status !== 'out-of-service';
+        })
         .map((room) => ({ reason: attentionReason(room), room }))
         .filter((item): item is { reason: string; room: HousekeepingRoom } => Boolean(item.reason))
         .sort((first, second) => {
@@ -1077,7 +1090,7 @@ export default function HousekeepingPage() {
           return first.room.number.localeCompare(second.room.number, undefined, { numeric: true });
         })
         .slice(0, 6),
-    [rooms],
+    [isHousekeepingOnly, rooms],
   );
   const staffWorkload = useMemo(() => {
     const workload = new Map<
@@ -1343,8 +1356,8 @@ export default function HousekeepingPage() {
       {error ? <Alert color="red">{error}</Alert> : null}
       {isLoading ? <Alert color="blue">Loading housekeeping rooms...</Alert> : null}
 
-      <SimpleGrid cols={{ base: 1, xs: 2, md: 3, xl: 6 }} spacing={spacing[3]}>
-        {groups.map((group) => {
+      <SimpleGrid cols={{ base: 1, xs: 2, md: 3, xl: isHousekeepingOnly ? 4 : 6 }} spacing={spacing[3]}>
+        {visibleGroups.map((group) => {
           const status = group.key === 'maintenance-group' ? 'out-of-order' : group.key;
           const count = housekeepingGroupCount(rooms, group.key, summary);
           const tone = groupTone(group.key);
@@ -1489,6 +1502,7 @@ export default function HousekeepingPage() {
             <Badge radius={radius.full} variant="light" color="gray">
               {filteredRoomTotal} rooms
             </Badge>
+            {isHousekeepingOnly ? null : (
             <Popover width={360} position="bottom-end" shadow="md">
               <Popover.Target>
                 <Button variant="light" color="gray" size="xs" leftSection={<UserPlus size={14} />}>
@@ -1569,6 +1583,7 @@ export default function HousekeepingPage() {
                 </Stack>
               </Popover.Dropdown>
             </Popover>
+            )}
           </Group>
         </Group>
         <Stack p={16} gap={spacing[4]}>
@@ -1600,7 +1615,7 @@ export default function HousekeepingPage() {
               clearable
             />
             <Select
-              data={statusFilterOptions}
+              data={visibleStatusFilterOptions}
               placeholder="All Statuses"
               value={statusFilter}
               onChange={setStatusFilter}
@@ -1631,7 +1646,7 @@ export default function HousekeepingPage() {
                 : 'No rooms match your filters.'}
             </Alert>
           ) : null}
-          {groups.map((group) => {
+          {visibleGroups.map((group) => {
             const groupRooms = filteredRooms.filter((room) => roomMatchesGroup(room, group.key));
             const isExpanded = expandedGroups[group.key];
             const floorGroups = groupRoomsByFloor(groupRooms);
@@ -1962,9 +1977,25 @@ export default function HousekeepingPage() {
         size="lg"
       >
         <Stack>
-          <Text c="#334155" style={{ fontSize: 13, fontWeight: 800 }}>
-            Checklist {checklistItemsProgress(checklist)}
-          </Text>
+          <Group justify="space-between" align="center">
+            <Text c="#334155" style={{ fontSize: 13, fontWeight: 800 }}>
+              Checklist {checklistItemsProgress(checklist)}
+            </Text>
+            <Button
+              size="xs"
+              variant="light"
+              color="stayosBrand"
+              data-testid="inspect-mark-all"
+              onClick={() =>
+                setChecklist((items) => {
+                  const allDone = items.every((item) => item.completed);
+                  return items.map((item) => ({ ...item, completed: !allDone }));
+                })
+              }
+            >
+              {checklist.every((item) => item.completed) ? 'Clear all' : 'Mark all done'}
+            </Button>
+          </Group>
           <ChecklistButtons
             checklist={checklist}
             onToggle={(key) =>
