@@ -213,7 +213,7 @@ function hasPermission(permissions: string[] | undefined, permission: string) {
 
 function canManageStaffAccess(role: string | undefined) {
   const normalizedRole = String(role ?? '').toUpperCase();
-  return ['MANAGER', 'ADMIN', 'OWNER'].includes(normalizedRole);
+  return ['HOUSEKEEPING', 'MANAGER', 'ADMIN', 'OWNER'].includes(normalizedRole);
 }
 
 function staffAccessUrl(origin: string, employee: HousekeepingEmployee, propertyId?: string) {
