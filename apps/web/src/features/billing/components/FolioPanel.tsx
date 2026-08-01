@@ -17,23 +17,41 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
-import { CreditCard, Download, PlusCircle, ReceiptText, Wallet } from 'lucide-react';
+import { CreditCard, Download, PlusCircle, ReceiptText, Smartphone, Wallet } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
 import { showToast } from '@stayos/ui';
 import {
   addCharge,
   addPayment,
+  createRazorpayOrder,
   formatCurrency,
   friendlyBillingError,
   getPaymentReceiptUrl,
+  getRazorpayConfig,
   settleFolio,
+  verifyRazorpayPayment,
 } from '../api/billing-api';
-import type {
-  Folio,
-  FolioChargeType,
-  FolioPaymentMethod,
-} from '../types/billing.types';
+import type { Folio, FolioChargeType, FolioPaymentMethod } from '../types/billing.types';
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: Record<string, unknown>) => { open: () => void; on: (event: string, cb: (payload: unknown) => void) => void };
+  }
+}
+
+function loadRazorpayScript(): Promise<boolean> {
+  if (typeof window === 'undefined') return Promise.resolve(false);
+  if (window.Razorpay) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
 
 const chargeTypes: Array<{ label: string; value: FolioChargeType }> = [
   { label: 'Room Charge', value: 'ROOM' },
@@ -235,6 +253,9 @@ function PaymentModal({
   onSubmit,
   opened,
   submitting,
+  propertyId,
+  folioId,
+  onRazorpaySuccess,
 }: {
   balanceDue: number;
   onClose: () => void;
@@ -246,12 +267,17 @@ function PaymentModal({
   }) => Promise<void>;
   opened: boolean;
   submitting: boolean;
+  propertyId: string;
+  folioId: string;
+  onRazorpaySuccess: (folio: Folio) => void;
 }) {
   const [method, setMethod] = useState<FolioPaymentMethod>('CARD');
   const [amount, setAmount] = useState<number>(0);
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | undefined>();
+  const [razorpayEnabled, setRazorpayEnabled] = useState(false);
+  const [isRazorpaying, setIsRazorpaying] = useState(false);
 
   useEffect(() => {
     if (opened) {
@@ -260,8 +286,63 @@ function PaymentModal({
       setReference('');
       setNotes('');
       setError(undefined);
+      // check Razorpay config
+      getRazorpayConfig(propertyId, folioId)
+        .then((cfg) => setRazorpayEnabled(Boolean(cfg?.configured)))
+        .catch(() => setRazorpayEnabled(false));
     }
-  }, [opened, balanceDue]);
+  }, [opened, balanceDue, propertyId, folioId]);
+
+  const payViaRazorpay = async () => {
+    if (amount <= 0) {
+      setError('Enter the amount to charge via Razorpay.');
+      return;
+    }
+    setError(undefined);
+    setIsRazorpaying(true);
+    try {
+      const scriptOk = await loadRazorpayScript();
+      if (!scriptOk) throw new Error('Could not load Razorpay Checkout script.');
+      const order = await createRazorpayOrder(propertyId, folioId, { amount: String(amount) });
+      if (!window.Razorpay) throw new Error('Razorpay SDK unavailable');
+      const rzp = new window.Razorpay({
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency,
+        name: 'StayOS',
+        description: `Folio payment`,
+        order_id: order.orderId,
+        theme: { color: '#6d28d9' },
+        handler: async (response: unknown) => {
+          const r = response as { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string };
+          try {
+            const nextFolio = await verifyRazorpayPayment(propertyId, folioId, {
+              razorpay_order_id: r.razorpay_order_id,
+              razorpay_payment_id: r.razorpay_payment_id,
+              razorpay_signature: r.razorpay_signature,
+              amount: String(amount),
+            });
+            showToast({ color: 'green', title: 'Payment captured', message: `Razorpay confirmed ${formatCurrency(String(amount))}.` });
+            onRazorpaySuccess(nextFolio);
+          } catch (verifyError) {
+            showToast({ color: 'red', title: 'Verification failed', message: verifyError instanceof Error ? verifyError.message : 'Please try again.' });
+          } finally {
+            setIsRazorpaying(false);
+          }
+        },
+        modal: { ondismiss: () => setIsRazorpaying(false) },
+      });
+      rzp.on('payment.failed', () => {
+        showToast({ color: 'red', title: 'Payment failed', message: 'Guest can retry or pay by another method.' });
+        setIsRazorpaying(false);
+      });
+      rzp.open();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Razorpay unavailable.';
+      showToast({ color: 'red', title: 'Razorpay error', message });
+      setIsRazorpaying(false);
+    }
+  };
 
   return (
     <Modal opened={opened} onClose={onClose} centered title="Record payment" size="lg">
@@ -323,14 +404,35 @@ function PaymentModal({
             value={notes}
             onChange={(event) => setNotes(event.currentTarget.value)}
           />
-          <Group justify="flex-end">
-            <Button color="gray" variant="light" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button color="stayosBrand" data-testid="add-payment-submit" loading={submitting} type="submit">
-              Collect Payment
-            </Button>
+          <Group justify="space-between" wrap="wrap" gap={8}>
+            {razorpayEnabled ? (
+              <Button
+                type="button"
+                variant="light"
+                color="stayosBrand"
+                leftSection={<Smartphone size={16} />}
+                loading={isRazorpaying}
+                onClick={() => void payViaRazorpay()}
+                data-testid="payment-razorpay"
+                disabled={submitting}
+              >
+                Charge via Razorpay
+              </Button>
+            ) : <span />}
+            <Group gap={8}>
+              <Button color="gray" variant="light" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button color="stayosBrand" data-testid="add-payment-submit" loading={submitting} type="submit">
+                Record manual payment
+              </Button>
+            </Group>
           </Group>
+          {!razorpayEnabled ? (
+            <Text c="#94a3b8" size="xs" ta="center">
+              Online payments (Razorpay QR / UPI / Cards) show up here once <b>RAZORPAY_KEY_ID</b> and <b>RAZORPAY_KEY_SECRET</b> are set in the API .env.
+            </Text>
+          ) : null}
         </Stack>
       </form>
     </Modal>
@@ -683,6 +785,13 @@ export function FolioPanel({
         onSubmit={handleAddPayment}
         opened={paymentOpen}
         submitting={submitting}
+        propertyId={propertyId}
+        folioId={current.id}
+        onRazorpaySuccess={(next) => {
+          setCurrent(next);
+          onFolioChanged?.(next);
+          setPaymentOpen(false);
+        }}
       />
     </Stack>
   );

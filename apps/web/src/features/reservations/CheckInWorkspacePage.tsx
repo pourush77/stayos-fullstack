@@ -551,8 +551,22 @@ export function CheckInWorkspacePage() {
     if (!propertyId) return;
     setIsSubmitting('complete');
     try {
+      // For walk-ins, receptionist wants to check-in first and collect payment later.
+      // If they haven't tapped "Confirm payment plan" yet, silently record the plan
+      // as "collect at checkout" so it stops blocking check-in completion.
+      if (!workspace.finalChecklist.paymentReviewed) {
+        try {
+          await reviewCheckInPayment(propertyId, workspace.booking.reservationId, {
+            paymentMethod: paymentMethod || 'CASH',
+            paymentReviewed: true,
+            paymentReviewNotes: 'Auto-marked: collect at checkout',
+          });
+        } catch {
+          // Non-blocking — actual money collection happens in the Stay Workspace.
+        }
+      }
       await checkInReservation(propertyId, workspace.booking.reservationId);
-      showToast({ color: 'green', title: 'Guest checked in', message: 'Redirecting to the stay workspace.' });
+      showToast({ color: 'green', title: 'Guest checked in', message: 'Redirecting to the stay workspace — collect payment from Billing panel.' });
       router.push(`/guest-stay/${workspace.booking.reservationId}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to check in.';
@@ -566,6 +580,11 @@ export function CheckInWorkspacePage() {
 
   const c = workspace.finalChecklist;
   const room = workspace.room;
+  // Payment review is treated as an optional step for walk-ins — we auto-mark it as
+  // "collect at checkout" when the receptionist hits Complete Check-In. So the CTA
+  // becomes clickable as soon as everything except the payment review is done.
+  const nonPaymentBlockers = c.blockers.filter((code) => code !== 'CHECKIN_PAYMENT_NOT_REVIEWED');
+  const canCheckInSoft = c.guestRegistrationComplete && c.identityVerified && c.roomReady && nonPaymentBlockers.length === 0;
   const blockerMessages = c.blockers.map((code) => BLOCKER_MESSAGES[code] ?? code);
   const missingFieldLabels: Record<string, string> = {
     fullName: 'Full name',
@@ -621,11 +640,11 @@ export function CheckInWorkspacePage() {
       {/* Quick-reference "how to check in" strip — keeps the receptionist oriented */}
       <Alert color="stayosBrand" variant="light" icon={<Info size={17} />} data-testid="checkin-howto">
         <Group gap={spacing[3]} wrap="wrap">
-          <Text size="sm" fw={700} c="#5b21b6">How to check in:</Text>
-          <Text size="sm" c="#334155"><b>1.</b> Snap or upload the guest&apos;s ID front — we&apos;ll auto-fill name, DOB & ID number.</Text>
-          <Text size="sm" c="#334155"><b>2.</b> Confirm the details, then click <b>Save guest details</b>.</Text>
-          <Text size="sm" c="#334155"><b>3.</b> Start the webcam, snap the guest, tick <b>ID matches</b>, then <b>Save identity</b>.</Text>
-          <Text size="sm" c="#334155"><b>4.</b> Confirm payment method and hit <b>Complete Check-In →</b>.</Text>
+          <Text size="sm" fw={700} c="#5b21b6">Walk-in flow:</Text>
+          <Text size="sm" c="#334155"><b>1.</b> Snap the ID front — we auto-fill name, DOB, ID number.</Text>
+          <Text size="sm" c="#334155"><b>2.</b> Confirm the guest details and click <b>Save guest details</b>.</Text>
+          <Text size="sm" c="#334155"><b>3.</b> Snap the guest for the face match.</Text>
+          <Text size="sm" c="#334155"><b>4.</b> Hit <b>Complete Check-In →</b>. Collect money after, from the Stay Workspace (Cash / Card / UPI / Razorpay).</Text>
         </Group>
       </Alert>
 
@@ -862,11 +881,13 @@ export function CheckInWorkspacePage() {
         </Stack>
       </StepCard>
 
-      <StepCard icon={<CreditCard size={17} />} title="Step 3 · Payment plan" complete={c.paymentReviewed}>
+      <StepCard icon={<CreditCard size={17} />} title="Step 3 · Payment plan (optional)" complete={c.paymentReviewed}>
         <Stack gap={spacing[3]}>
-          <Text c="#64748b" size="sm">
-            Confirm how the guest will pay. If dues are pending, collect now or record that payment will be settled at checkout.
-          </Text>
+          <Alert color="stayosBrand" variant="light" icon={<Info size={17} />}>
+            <Text size="sm">
+              <b>This step just records the plan</b> — e.g. &quot;Card at checkout&quot;. You&apos;ll actually swipe / charge / accept UPI or Razorpay from the <b>Stay Workspace</b> after you complete check-in. Feel free to <b>Collect at checkout</b> here for a walk-in and collect the money after IDs are verified.
+            </Text>
+          </Alert>
 
           {/* Big, clear billing summary strip */}
           <SimpleGrid cols={{ base: 1, sm: 3 }} spacing={spacing[3]}>
@@ -897,7 +918,7 @@ export function CheckInWorkspacePage() {
 
           {/* Payment method chips — one-click choice */}
           <Stack gap={6}>
-            <Text c="#334155" size="xs" fw={800} tt="uppercase">Preferred payment method</Text>
+            <Text c="#334155" size="xs" fw={800} tt="uppercase">Preferred payment method (planned)</Text>
             <Group gap={8}>
               {[
                 { label: 'Cash', value: 'CASH' },
@@ -920,37 +941,16 @@ export function CheckInWorkspacePage() {
             </Group>
           </Stack>
 
-          {workspace.payment.outstandingAmount > 0 ? (
-            <Alert color="orange" variant="light" icon={<AlertTriangle size={17} />}>
-              <Stack gap={6}>
-                <Text size="sm" fw={700}>
-                  ₹{workspace.payment.outstandingAmount.toLocaleString('en-IN')} outstanding
-                </Text>
-                <Text size="xs">
-                  Collect now via Razorpay / manual, or mark that the guest will settle at checkout, then hit <b>Confirm payment plan</b>.
-                </Text>
-                <Group gap={8} mt={4}>
-                  <Button
-                    component={Link}
-                    href={`/guest-stay/${workspace.booking.reservationId}`}
-                    variant="light"
-                    color="stayosBrand"
-                    size="xs"
-                    leftSection={<CreditCard size={14} />}
-                    data-testid="checkin-collect-payment"
-                  >
-                    Collect payment now →
-                  </Button>
-                </Group>
-              </Stack>
-            </Alert>
-          ) : (
-            <Alert color="green" variant="light" icon={<ShieldCheck size={17} />}>
-              <Text size="sm" fw={700}>Fully paid — no dues.</Text>
-            </Alert>
-          )}
-
-          <Group justify="flex-end">
+          <Group justify="space-between" wrap="wrap" gap={8}>
+            <Button
+              variant="subtle"
+              color="gray"
+              loading={isSubmitting === 'payment'}
+              onClick={() => void savePayment()}
+              data-testid="checkin-skip-payment"
+            >
+              Collect at checkout — skip for now
+            </Button>
             <Button color="stayosBrand" loading={isSubmitting === 'payment'} onClick={() => void savePayment()} data-testid="checkin-save-payment">
               Confirm payment plan
             </Button>
@@ -990,26 +990,28 @@ export function CheckInWorkspacePage() {
       >
         <Group justify="space-between" wrap="wrap" gap={8}>
           <Group gap={10}>
-            <ThemeIcon color={c.canCheckIn ? 'white' : 'gray'} variant={c.canCheckIn ? 'white' : 'light'} radius="xl" size={40}>
-              <ShieldCheck size={20} color={c.canCheckIn ? '#5b21b6' : '#64748b'} />
+            <ThemeIcon color={canCheckInSoft ? 'white' : 'gray'} variant={canCheckInSoft ? 'white' : 'light'} radius="xl" size={40}>
+              <ShieldCheck size={20} color={canCheckInSoft ? '#5b21b6' : '#64748b'} />
             </ThemeIcon>
             <Stack gap={2}>
-              <Text c={c.canCheckIn ? '#ffffff' : '#101828'} fw={800}>
-                {c.canCheckIn ? 'Ready to check in' : 'Complete the steps above to check in'}
+              <Text c={canCheckInSoft ? '#ffffff' : '#101828'} fw={800}>
+                {canCheckInSoft ? 'Ready to check in' : 'Complete the steps above to check in'}
               </Text>
-              <Text c={c.canCheckIn ? 'rgba(255,255,255,0.82)' : '#64748b'} size="sm">
-                {c.canCheckIn ? 'Guest, ID, payment and room are all set.' : `${c.blockers.length} step${c.blockers.length === 1 ? '' : 's'} pending.`}
+              <Text c={canCheckInSoft ? 'rgba(255,255,255,0.82)' : '#64748b'} size="sm">
+                {canCheckInSoft
+                  ? (c.paymentReviewed ? 'Guest, ID, payment and room are all set.' : 'Payment plan will be recorded as “collect at checkout”.')
+                  : `${nonPaymentBlockers.length} step${nonPaymentBlockers.length === 1 ? '' : 's'} pending.`}
               </Text>
             </Stack>
           </Group>
           <Button
             size="lg"
-            disabled={!c.canCheckIn}
+            disabled={!canCheckInSoft}
             loading={isSubmitting === 'complete'}
             onClick={() => void completeCheckIn()}
-            variant={c.canCheckIn ? 'white' : 'filled'}
-            color={c.canCheckIn ? undefined : 'gray'}
-            c={c.canCheckIn ? '#5b21b6' : undefined}
+            variant={canCheckInSoft ? 'white' : 'filled'}
+            color={canCheckInSoft ? undefined : 'gray'}
+            c={canCheckInSoft ? '#5b21b6' : undefined}
             data-testid="checkin-complete"
           >
             Complete Check-In →
