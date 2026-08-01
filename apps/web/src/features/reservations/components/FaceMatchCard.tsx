@@ -1,27 +1,44 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Box, Button, Group, Paper, Stack, Text, ThemeIcon } from '@mantine/core';
-import { Camera, RotateCcw, Video, VideoOff } from 'lucide-react';
+import { Badge, Box, Button, Group, Loader, Paper, Stack, Text, ThemeIcon } from '@mantine/core';
+import { Camera, RotateCcw, ShieldCheck, Video, VideoOff } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { showToast } from '@stayos/ui';
+import { uploadCheckInDocument } from '../../../lib/reservation-api';
 
 export type FaceCaptureProps = {
   idPhotoUrl?: string;
+  // The persisted snap URL (from workspace documents). Shown as the initial snapshot state.
+  persistedSnapUrl?: string;
+  // When provided, the snap will be uploaded to the backend as a GUEST_FACE document.
+  propertyId?: string;
+  reservationId?: string;
+  onSaved?: () => void;
   onCapture?: (dataUrl: string) => void;
 };
 
 /**
  * Live webcam capture card. Renders side-by-side with the ID photo so the
- * receptionist can eyeball a face match. Snapshot is stored client-side only —
- * useful during check-in, discarded on page unload.
+ * receptionist can eyeball a face match. When propertyId + reservationId are
+ * provided, the snap is auto-persisted to the guest's document folder.
  */
-export function FaceMatchCard({ idPhotoUrl, onCapture }: FaceCaptureProps) {
+export function FaceMatchCard({ idPhotoUrl, persistedSnapUrl, propertyId, reservationId, onCapture, onSaved }: FaceCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
-  const [snapshot, setSnapshot] = useState<string | undefined>(undefined);
+  const [snapshot, setSnapshot] = useState<string | undefined>(persistedSnapUrl);
   const [isStarting, setIsStarting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saved, setSaved] = useState<boolean>(Boolean(persistedSnapUrl));
   const [error, setError] = useState<string | undefined>(undefined);
+
+  // Sync when the parent reloads the workspace and gets a fresh persisted URL.
+  useEffect(() => {
+    if (persistedSnapUrl) {
+      setSnapshot(persistedSnapUrl);
+      setSaved(true);
+    }
+  }, [persistedSnapUrl]);
 
   const startCamera = async () => {
     setError(undefined);
@@ -51,6 +68,24 @@ export function FaceMatchCard({ idPhotoUrl, onCapture }: FaceCaptureProps) {
     if (videoRef.current) videoRef.current.srcObject = null;
   };
 
+  const persistSnap = async (dataUrl: string) => {
+    if (!propertyId || !reservationId) return;
+    setIsSaving(true);
+    try {
+      const blob = await (await fetch(dataUrl)).blob();
+      const file = new File([blob], 'guest-face.jpg', { type: 'image/jpeg' });
+      await uploadCheckInDocument(propertyId, reservationId, 'guest_face', file);
+      setSaved(true);
+      showToast({ color: 'green', title: 'Face snap saved', message: 'Guest photo added to their document folder.' });
+      onSaved?.();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not save snap';
+      showToast({ color: 'red', title: 'Save failed', message });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const snap = () => {
     if (!videoRef.current || !stream) return;
     const video = videoRef.current;
@@ -62,12 +97,15 @@ export function FaceMatchCard({ idPhotoUrl, onCapture }: FaceCaptureProps) {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
     setSnapshot(dataUrl);
+    setSaved(false);
     onCapture?.(dataUrl);
     stopCamera();
+    void persistSnap(dataUrl);
   };
 
   const retake = () => {
     setSnapshot(undefined);
+    setSaved(false);
     void startCamera();
   };
 
@@ -95,8 +133,14 @@ export function FaceMatchCard({ idPhotoUrl, onCapture }: FaceCaptureProps) {
         <Group gap={10}>
           <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={30}><Camera size={16} /></ThemeIcon>
           <Text fw={800} c="#101828">Face match</Text>
+          {saved ? (
+            <Badge color="green" variant="light" leftSection={<ShieldCheck size={11} />}>Saved</Badge>
+          ) : null}
+          {isSaving ? (
+            <Badge color="blue" variant="light" leftSection={<Loader size={10} color="blue" />}>Saving…</Badge>
+          ) : null}
         </Group>
-        <Text c="#64748b" size="xs">Snap the guest to compare with the ID photo.</Text>
+        <Text c="#64748b" size="xs">Snap the guest to compare with the ID photo — saved automatically.</Text>
       </Group>
 
       <Group grow gap={spacing[3]} align="stretch">

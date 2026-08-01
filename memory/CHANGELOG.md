@@ -1,6 +1,32 @@
 # StayOS Changelog
 
+## 2026-08-01 (later) — Send-to-Phone + Persist Face Snap 📱
+Two "one click, guided" enhancements shipped so the receptionist barely lifts a finger.
+
+**Backend:**
+- Extended `GuestDocumentSide` enum with `'GUEST_FACE'` (in addition to `'ID_FRONT' | 'ID_BACK'`).
+- `mobile-capture.service.ts` accepts `GUEST_FACE` uploads; skips `syncIdentityUrls` for that side (identity table only tracks ID front/back).
+- `mobile-capture.controller.ts uploadReceptionistDocument()` now accepts `type = 'front' | 'back' | 'guest_face'`.
+- Public capture flow (already built in prior sessions) is now used from the desk: `POST /properties/:pid/reservations/:rid/check-in/mobile-capture` (auth) → generates a 30-min single-use token → `GET /api/v1/check-in-capture/:token` and `POST /api/v1/check-in-capture/:token/documents` (public).
+
+**Frontend — Persist Face Snap:**
+- `FaceMatchCard` now auto-uploads the webcam snapshot as a `GUEST_FACE` document the moment the receptionist clicks **Snap guest** — zero extra clicks, no separate save button. Shows a green **Saved** badge when done. On reload the persisted snap is fetched back and rendered in the GUEST tile.
+- `CheckInWorkspacePage` fetches `GUEST_FACE` document as a blob URL and passes it as `persistedSnapUrl` prop; adds a `refreshWorkspace()` callback so uploads roundtrip cleanly.
+
+**Frontend — Send to Phone:**
+- New `SendToPhoneModal` component: one **Send to phone** button in Step 1 → modal creates the session → renders a big scannable QR (via `qrcode.react`) plus a **Copy** fallback and STATUS pills for `ID front` / `ID back`.
+- Modal polls `GET /check-in/mobile-capture/status` every 3s; when the phone uploads, shows a green toast and calls `refreshWorkspace()` — the desk workspace updates + OCR fires automatically.
+- New public route `/mobile-capture/[token]` (`MobileCapturePage`): mobile-optimised card with two giant **Snap** buttons that open the phone's rear camera via `<input capture="environment">`, uploads via the public endpoint, and shows "All set!" when both sides are captured.
+- Public routes added to auth-guard allow-list in both `AppFrame.tsx` and `auth-context.tsx`.
+
+**Verified end-to-end (curl + Playwright):**
+- Session create → returns token, expires in 30 min. `POST /check-in-capture/:token/documents` succeeds with `HTTP 201`, `frontUploaded=true`.
+- Send-to-Phone modal renders QR + STATUS pills; auto-polls; toast surfaces when guest uploads.
+- Phone page (420×900 viewport) loads guest name + booking; shows **SENT** badge on uploaded sides.
+- FaceMatchCard auto-persists snap → workspace reload restores it.
+
 ## 2026-08-01 — V1 Launch Ready 🚀
+(Prior entry — see below.)
 Full regression pass certified StayOS V1 for real hospitality staff use.
 
 **Backend fixes (rebuilt + restarted):**

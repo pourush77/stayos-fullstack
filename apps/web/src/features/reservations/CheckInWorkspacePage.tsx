@@ -21,6 +21,7 @@ import {
 } from '../../lib/reservation-api';
 import { detectIdFromImage } from './utils/id-detection';
 import { FaceMatchCard } from './components/FaceMatchCard';
+import { SendToPhoneModal } from './components/SendToPhoneModal';
 import { COMMON_COUNTRIES, COMMON_NATIONALITIES, INDIAN_STATES, PURPOSE_OF_VISIT } from './constants/guest-form-options';
 
 const cardStyle = {
@@ -238,6 +239,8 @@ export function CheckInWorkspacePage() {
   const [idVerified, setIdVerified] = useState(false);
   const [isDetecting, setIsDetecting] = useState(false);
   const [idFrontPreviewUrl, setIdFrontPreviewUrl] = useState<string | undefined>(undefined);
+  const [guestFacePreviewUrl, setGuestFacePreviewUrl] = useState<string | undefined>(undefined);
+  const [sendToPhoneOpened, setSendToPhoneOpened] = useState(false);
 
   // Payment form state
   const [paymentMethod, setPaymentMethod] = useState<string>('CASH');
@@ -300,6 +303,39 @@ export function CheckInWorkspacePage() {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [propertyId, workspace?.booking.reservationId, idFrontDocId]);
+
+  // Persisted guest-face snap (rendered in the GUEST tile of the face-match card).
+  const guestFaceDocId = workspace?.documents.find((d) => d.side === 'GUEST_FACE')?.id;
+  useEffect(() => {
+    if (!propertyId || !workspace?.booking.reservationId || !guestFaceDocId) {
+      setGuestFacePreviewUrl(undefined);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | undefined;
+    (async () => {
+      try {
+        const url = getCheckInDocumentPreviewUrl(propertyId, workspace.booking.reservationId, guestFaceDocId);
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('preview failed');
+        const blob = await response.blob();
+        objectUrl = URL.createObjectURL(blob);
+        if (!cancelled) setGuestFacePreviewUrl(objectUrl);
+      } catch {
+        if (!cancelled) setGuestFacePreviewUrl(undefined);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [propertyId, workspace?.booking.reservationId, guestFaceDocId]);
+
+  // Manual workspace reload — used after phone uploads or face-snap persistence completes.
+  const refreshWorkspace = useCallback(() => {
+    if (!propertyId || !params.reservationId) return;
+    void getCheckInWorkspace(propertyId, params.reservationId).then(applyWorkspace).catch(() => undefined);
+  }, [propertyId, params.reservationId, applyWorkspace]);
 
   if (loadError) {
     return (
@@ -549,9 +585,20 @@ export function CheckInWorkspacePage() {
               <Text size="xs" c="#64748b">This takes a few seconds. Name, DOB and ID number will be filled below.</Text>
             </Alert>
           ) : (
-            <Text c="#64748b" size="sm">
-              Tap <b>Snap / Upload</b> below. On phones this opens the camera, on desktop it opens a file picker. The ID <b>front</b> triggers auto-fill.
-            </Text>
+            <Group justify="space-between" align="center" wrap="wrap" gap={8}>
+              <Text c="#64748b" size="sm" style={{ flex: 1, minWidth: 240 }}>
+                Tap <b>Snap / Upload</b> below on this device, or <b>Send to phone</b> to let the guest snap with their own camera.
+              </Text>
+              <Button
+                variant="light"
+                color="stayosBrand"
+                leftSection={<Camera size={16} />}
+                onClick={() => setSendToPhoneOpened(true)}
+                data-testid="checkin-send-to-phone"
+              >
+                Send to phone
+              </Button>
+            </Group>
           )}
           <Group grow align="stretch">
             <IdPhotoTile
@@ -575,7 +622,13 @@ export function CheckInWorkspacePage() {
               uploading={isSubmitting === 'id-back'}
             />
           </Group>
-          <FaceMatchCard idPhotoUrl={idFrontPreviewUrl} />
+          <FaceMatchCard
+            idPhotoUrl={idFrontPreviewUrl}
+            persistedSnapUrl={guestFacePreviewUrl}
+            propertyId={propertyId}
+            reservationId={workspace.booking.reservationId}
+            onSaved={refreshWorkspace}
+          />
           <Group grow>
             <Select
               label="ID type"
@@ -764,6 +817,16 @@ export function CheckInWorkspacePage() {
           </Button>
         </Group>
       </Card>
+
+      <SendToPhoneModal
+        opened={sendToPhoneOpened}
+        onClose={() => setSendToPhoneOpened(false)}
+        propertyId={propertyId}
+        reservationId={workspace.booking.reservationId}
+        frontUploadedInitially={Boolean(workspace.documents.find((d) => d.side === 'ID_FRONT'))}
+        backUploadedInitially={Boolean(workspace.documents.find((d) => d.side === 'ID_BACK'))}
+        onCaptured={refreshWorkspace}
+      />
     </Stack>
   );
 }

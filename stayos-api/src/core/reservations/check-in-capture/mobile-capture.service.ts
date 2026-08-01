@@ -183,10 +183,10 @@ export class MobileCaptureService {
         code: ApiErrorCode.VALIDATION_ERROR,
         message: 'File is required',
       });
-    if (!['ID_FRONT', 'ID_BACK'].includes(side)) {
+    if (!['ID_FRONT', 'ID_BACK', 'GUEST_FACE'].includes(side)) {
       throw new BadRequestException({
         code: ApiErrorCode.VALIDATION_ERROR,
-        message: 'Document type must be ID_FRONT or ID_BACK',
+        message: 'Document type must be ID_FRONT, ID_BACK or GUEST_FACE',
       });
     }
     return this.dataSource.transaction(async (manager) => {
@@ -218,7 +218,9 @@ export class MobileCaptureService {
         reservationId: reservation.id,
       });
       const finalDocument = await repository.save(document);
-      await this.syncIdentityUrls(manager, reservation, side, finalDocument.storagePath);
+      if (side === 'ID_FRONT' || side === 'ID_BACK') {
+        await this.syncIdentityUrls(manager, reservation, side, finalDocument.storagePath);
+      }
       return this.toDto(
         session,
         reservation,

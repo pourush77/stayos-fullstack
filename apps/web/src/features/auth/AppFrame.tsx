@@ -151,7 +151,8 @@ export function AppFrame({ children }: { children: ReactNode }) {
   const isPublicRoute =
     pathname === '/login' ||
     pathname.startsWith('/housekeeping/staff/') ||
-    pathname.startsWith('/check-in-capture/');
+    pathname.startsWith('/check-in-capture/') ||
+    pathname.startsWith('/mobile-capture/');
   const role = String(auth.user?.role ?? 'FRONT_DESK').toUpperCase();
   const shellUser: ShellUser | undefined = auth.user
     ? {

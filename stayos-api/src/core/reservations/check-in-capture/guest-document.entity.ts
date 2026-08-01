@@ -12,7 +12,7 @@ import { GuestEntity } from '../../guests/infrastructure/guest.entity';
 import { PropertyEntity } from '../../properties/infrastructure/property.entity';
 import { ReservationEntity } from '../infrastructure/reservation.entity';
 
-export type GuestDocumentSide = 'ID_FRONT' | 'ID_BACK';
+export type GuestDocumentSide = 'ID_FRONT' | 'ID_BACK' | 'GUEST_FACE';
 
 @Entity({ name: 'guest_documents' })
 @Index('IDX_guest_documents_property_id', ['propertyId'])

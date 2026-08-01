@@ -70,7 +70,8 @@ function isPublicPath(pathname: string | null) {
     pathname &&
     (publicPaths.has(pathname) ||
       pathname.startsWith('/housekeeping/staff/') ||
-      pathname.startsWith('/check-in-capture/')),
+      pathname.startsWith('/check-in-capture/') ||
+      pathname.startsWith('/mobile-capture/')),
   );
 }
 

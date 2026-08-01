@@ -91,11 +91,12 @@ export class MobileCaptureController {
   uploadReceptionistDocument(
     @Param('propertyId', ParseUUIDPipe) propertyId: string,
     @Param('reservationId', ParseUUIDPipe) reservationId: string,
-    @Body('type') type: 'front' | 'back',
+    @Body('type') type: 'front' | 'back' | 'guest_face',
     @UploadedFile() file: UploadedDocumentFile,
   ) {
     void propertyId;
-    const side = type === 'back' ? 'ID_BACK' : 'ID_FRONT';
+    const side =
+      type === 'back' ? 'ID_BACK' : type === 'guest_face' ? 'GUEST_FACE' : 'ID_FRONT';
     return this.mobileCaptureService
       .createSession(propertyId, reservationId)
       .then((session) =>

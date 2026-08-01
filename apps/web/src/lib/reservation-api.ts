@@ -326,7 +326,7 @@ export function reviewCheckInPayment(
 export async function uploadCheckInDocument(
   propertyId: string,
   reservationId: string,
-  side: 'front' | 'back',
+  side: 'front' | 'back' | 'guest_face',
   file: File,
 ): Promise<unknown> {
   const form = new FormData();
@@ -357,4 +357,66 @@ export async function deleteCheckInDocument(
 
 export function getCheckInDocumentPreviewUrl(propertyId: string, reservationId: string, documentId: string) {
   return `${API_BASE_URL}/properties/${propertyId}/reservations/${reservationId}/check-in/documents/${documentId}/preview`;
+}
+
+// ---- Mobile capture (Send to phone) ----------------------------------------
+
+export interface MobileCaptureSessionDto {
+  sessionId: string;
+  token: string;
+  status: 'ACTIVE' | 'COMPLETED' | 'EXPIRED';
+  expiresAt: string;
+  completedAt: string | null;
+  frontUploaded: boolean;
+  backUploaded: boolean;
+  guestDisplayName: string;
+  reservationReference: string;
+}
+
+export function createMobileCaptureSession(propertyId: string, reservationId: string) {
+  return request<MobileCaptureSessionDto>(
+    `/properties/${propertyId}/reservations/${reservationId}/check-in/mobile-capture`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+}
+
+export function getMobileCaptureSessionStatus(propertyId: string, reservationId: string, signal?: AbortSignal) {
+  return request<MobileCaptureSessionDto>(
+    `/properties/${propertyId}/reservations/${reservationId}/check-in/mobile-capture/status`,
+    { method: 'GET', signal },
+  );
+}
+
+// Public (no-auth) helpers used by the phone capture page ------------------
+
+export async function getPublicCaptureSession(token: string, signal?: AbortSignal): Promise<MobileCaptureSessionDto> {
+  const response = await fetch(`${API_BASE_URL}/check-in-capture/${token}`, {
+    method: 'GET',
+    cache: 'no-store',
+    signal,
+  });
+  if (!response.ok) throw new Error('Capture session not found or expired.');
+  const body = await response.json();
+  return (body?.data ?? body) as MobileCaptureSessionDto;
+}
+
+export async function uploadPublicCaptureDocument(
+  token: string,
+  side: 'ID_FRONT' | 'ID_BACK',
+  file: File,
+): Promise<MobileCaptureSessionDto> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('type', side);
+  const response = await fetch(`${API_BASE_URL}/check-in-capture/${token}/documents`, {
+    method: 'POST',
+    body: form,
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => undefined);
+    const msg = body && typeof body === 'object' && 'message' in body && typeof body.message === 'string' ? body.message : 'Upload failed';
+    throw new Error(msg);
+  }
+  const body = await response.json();
+  return (body?.data ?? body) as MobileCaptureSessionDto;
 }
