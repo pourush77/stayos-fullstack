@@ -3,8 +3,8 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Alert, Badge, Box, Button, Card, Checkbox, Group, Loader, Paper, Select, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
-import { AlertTriangle, BedDouble, Camera, Check, ChevronLeft, CreditCard, IdCard, Info, ShieldCheck, Sparkles, Trash2, Upload, UserRound, Users, X } from 'lucide-react';
+import { Alert, Badge, Box, Button, Card, Checkbox, Group, Loader, Paper, Select, SimpleGrid, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
+import { AlertTriangle, BedDouble, Camera, Check, ChevronLeft, Clock3, CreditCard, IdCard, Info, ShieldCheck, Sparkles, Trash2, Upload, UserRound, Users, X } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { showToast } from '@stayos/ui';
 import { useAuth } from '../auth/auth-context';
@@ -40,6 +40,43 @@ function idTypeLabel(type: string): string {
     case 'PAN': return 'PAN';
     default: return 'ID';
   }
+}
+
+// Common cities per Indian state — used as placeholder suggestion for the city field.
+const STATE_HINT_CITY: Record<string, string> = {
+  'Madhya Pradesh': 'Indore',
+  'Maharashtra': 'Mumbai',
+  'Karnataka': 'Bengaluru',
+  'Tamil Nadu': 'Chennai',
+  'Delhi': 'New Delhi',
+  'Rajasthan': 'Jaipur',
+  'Gujarat': 'Ahmedabad',
+  'Uttar Pradesh': 'Lucknow',
+  'West Bengal': 'Kolkata',
+  'Kerala': 'Kochi',
+  'Punjab': 'Chandigarh',
+  'Haryana': 'Gurugram',
+  'Telangana': 'Hyderabad',
+  'Andhra Pradesh': 'Visakhapatnam',
+  'Bihar': 'Patna',
+  'Odisha': 'Bhubaneswar',
+  'Chhattisgarh': 'Raipur',
+  'Jharkhand': 'Ranchi',
+  'Assam': 'Guwahati',
+  'Goa': 'Panaji',
+  'Uttarakhand': 'Dehradun',
+  'Himachal Pradesh': 'Shimla',
+};
+
+function cityPlaceholder(state: string): string {
+  return `e.g. ${STATE_HINT_CITY[state] ?? 'Indore'}`;
+}
+
+function computeNights(arrival: string, departure: string): number {
+  const a = new Date(arrival + 'T00:00:00');
+  const d = new Date(departure + 'T00:00:00');
+  const diff = Math.round((d.getTime() - a.getTime()) / (24 * 60 * 60 * 1000));
+  return diff > 0 ? diff : 1;
 }
 
 const BLOCKER_MESSAGES: Record<string, string> = {
@@ -457,7 +494,12 @@ export function CheckInWorkspacePage() {
                 message: `${bits.join(' · ')} — please confirm and save.`,
               });
             } else {
-              showToast({ color: 'yellow', title: 'Could not read ID clearly', message: 'Please enter the ID type and number manually.' });
+              showToast({
+                color: 'yellow',
+                title: 'Could not read ID clearly',
+                message: 'The photo looks blurry / not an ID. Try a well-lit, close-up snap in daylight — or type the ID number manually below.',
+                autoClose: 8000,
+              });
             }
           }
         } catch (ocrError) {
@@ -568,6 +610,9 @@ export function CheckInWorkspacePage() {
             <Badge color="stayosBrand" variant="light" leftSection={<Users size={12} />}>
               {workspace.booking.adults} adult{workspace.booking.adults === 1 ? '' : 's'}
               {workspace.booking.children > 0 ? ` · ${workspace.booking.children} child${workspace.booking.children === 1 ? '' : 'ren'}` : ''}
+            </Badge>
+            <Badge color="gray" variant="light" leftSection={<Clock3 size={12} />} data-testid="checkin-nights">
+              {computeNights(workspace.booking.arrivalDate, workspace.booking.departureDate)} night{computeNights(workspace.booking.arrivalDate, workspace.booking.departureDate) === 1 ? '' : 's'} · arrive 2:00 PM · depart 12:00 PM
             </Badge>
           </Group>
         </Stack>
@@ -758,14 +803,15 @@ export function CheckInWorkspacePage() {
             data-testid="checkin-address"
           />
           <Group grow>
-            <TextInput
-              label="City"
+            <Select
+              label="Country"
               required
-              error={isMissing('city') ? 'Required' : undefined}
-              value={city}
-              onChange={(e) => setCity(e.currentTarget.value)}
-              placeholder="e.g. Indore"
-              data-testid="checkin-city"
+              error={isMissing('country') ? 'Required' : undefined}
+              value={country || 'India'}
+              onChange={(v) => setCountry(v ?? 'India')}
+              data={COMMON_COUNTRIES}
+              searchable
+              data-testid="checkin-country"
             />
             {stateOptions ? (
               <Select
@@ -791,15 +837,14 @@ export function CheckInWorkspacePage() {
                 data-testid="checkin-state"
               />
             )}
-            <Select
-              label="Country"
+            <TextInput
+              label="City"
               required
-              error={isMissing('country') ? 'Required' : undefined}
-              value={country || 'India'}
-              onChange={(v) => setCountry(v ?? 'India')}
-              data={COMMON_COUNTRIES}
-              searchable
-              data-testid="checkin-country"
+              error={isMissing('city') ? 'Required' : undefined}
+              value={city}
+              onChange={(e) => setCity(e.currentTarget.value)}
+              placeholder={cityPlaceholder(state)}
+              data-testid="checkin-city"
             />
           </Group>
           <Select
@@ -817,32 +862,98 @@ export function CheckInWorkspacePage() {
         </Stack>
       </StepCard>
 
-      <StepCard icon={<CreditCard size={17} />} title="Step 3 · Payment review" complete={c.paymentReviewed}>
+      <StepCard icon={<CreditCard size={17} />} title="Step 3 · Payment plan" complete={c.paymentReviewed}>
         <Stack gap={spacing[3]}>
-          <Group grow>
-            <Paper p={12} radius={radius.md} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
-              <Text c="#64748b" size="xs" fw={700}>Status</Text>
-              <Text fw={700} size="sm" mt={2}>{workspace.payment.paymentStatus}</Text>
+          <Text c="#64748b" size="sm">
+            Confirm how the guest will pay. If dues are pending, collect now or record that payment will be settled at checkout.
+          </Text>
+
+          {/* Big, clear billing summary strip */}
+          <SimpleGrid cols={{ base: 1, sm: 3 }} spacing={spacing[3]}>
+            <Paper p={14} radius={radius.md} style={{ background: workspace.payment.outstandingAmount > 0 ? '#fff7ed' : '#f0fdf4', border: `1px solid ${workspace.payment.outstandingAmount > 0 ? '#fdba74' : '#86efac'}` }}>
+              <Text c="#64748b" size="xs" fw={700} tt="uppercase">Outstanding</Text>
+              <Text fw={900} size="xl" mt={2} c={workspace.payment.outstandingAmount > 0 ? '#c2410c' : '#166534'} data-testid="payment-outstanding">
+                ₹{workspace.payment.outstandingAmount.toLocaleString('en-IN')}
+              </Text>
+              <Text size="xs" c="#94a3b8" mt={2}>
+                {workspace.payment.outstandingAmount > 0 ? 'Due before checkout' : 'Fully paid'}
+              </Text>
             </Paper>
-            <Paper p={12} radius={radius.md} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
-              <Text c="#64748b" size="xs" fw={700}>Outstanding</Text>
-              <Text fw={700} size="sm" mt={2}>₹{workspace.payment.outstandingAmount.toLocaleString('en-IN')}</Text>
+            <Paper p={14} radius={radius.md} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
+              <Text c="#64748b" size="xs" fw={700} tt="uppercase">Payment status</Text>
+              <Text fw={800} size="lg" mt={2} c="#101828">
+                {workspace.payment.paymentStatus.replace(/_/g, ' ')}
+              </Text>
+              <Text size="xs" c="#94a3b8" mt={2}>Live from folio</Text>
             </Paper>
-            <Select
-              label="Payment method"
-              value={paymentMethod}
-              onChange={(v) => setPaymentMethod(v ?? 'CASH')}
-              data={[
+            <Paper p={14} radius={radius.md} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
+              <Text c="#64748b" size="xs" fw={700} tt="uppercase">Stay timing</Text>
+              <Text fw={800} size="lg" mt={2} c="#101828">
+                {computeNights(workspace.booking.arrivalDate, workspace.booking.departureDate)} night{computeNights(workspace.booking.arrivalDate, workspace.booking.departureDate) === 1 ? '' : 's'}
+              </Text>
+              <Text size="xs" c="#94a3b8" mt={2}>2:00 PM check-in · 12:00 PM check-out</Text>
+            </Paper>
+          </SimpleGrid>
+
+          {/* Payment method chips — one-click choice */}
+          <Stack gap={6}>
+            <Text c="#334155" size="xs" fw={800} tt="uppercase">Preferred payment method</Text>
+            <Group gap={8}>
+              {[
                 { label: 'Cash', value: 'CASH' },
                 { label: 'Card', value: 'CARD' },
                 { label: 'UPI', value: 'UPI' },
                 { label: 'Corporate / BTC', value: 'BTC' },
                 { label: 'Prepaid (OTA)', value: 'PREPAID' },
-              ]}
-            />
-          </Group>
+              ].map((opt) => (
+                <Button
+                  key={opt.value}
+                  variant={paymentMethod === opt.value ? 'filled' : 'light'}
+                  color={paymentMethod === opt.value ? 'stayosBrand' : 'gray'}
+                  size="sm"
+                  onClick={() => setPaymentMethod(opt.value)}
+                  data-testid={`payment-chip-${opt.value}`}
+                >
+                  {opt.label}
+                </Button>
+              ))}
+            </Group>
+          </Stack>
+
+          {workspace.payment.outstandingAmount > 0 ? (
+            <Alert color="orange" variant="light" icon={<AlertTriangle size={17} />}>
+              <Stack gap={6}>
+                <Text size="sm" fw={700}>
+                  ₹{workspace.payment.outstandingAmount.toLocaleString('en-IN')} outstanding
+                </Text>
+                <Text size="xs">
+                  Collect now via Razorpay / manual, or mark that the guest will settle at checkout, then hit <b>Confirm payment plan</b>.
+                </Text>
+                <Group gap={8} mt={4}>
+                  <Button
+                    component={Link}
+                    href={`/guest-stay/${workspace.booking.reservationId}`}
+                    variant="light"
+                    color="stayosBrand"
+                    size="xs"
+                    leftSection={<CreditCard size={14} />}
+                    data-testid="checkin-collect-payment"
+                  >
+                    Collect payment now →
+                  </Button>
+                </Group>
+              </Stack>
+            </Alert>
+          ) : (
+            <Alert color="green" variant="light" icon={<ShieldCheck size={17} />}>
+              <Text size="sm" fw={700}>Fully paid — no dues.</Text>
+            </Alert>
+          )}
+
           <Group justify="flex-end">
-            <Button color="stayosBrand" loading={isSubmitting === 'payment'} onClick={() => void savePayment()} data-testid="checkin-save-payment">Mark payment reviewed</Button>
+            <Button color="stayosBrand" loading={isSubmitting === 'payment'} onClick={() => void savePayment()} data-testid="checkin-save-payment">
+              Confirm payment plan
+            </Button>
           </Group>
         </Stack>
       </StepCard>
