@@ -1,0 +1,67 @@
+{
+  "summary": "First full regression pass on StayOS V1 (NestJS API + Next.js web). Backend: created /app/tests/stayos_regression_test.py (53 pytest cases) covering auth for all 7 seeded roles, permission gating, cross-property isolation, guests CRUD, rooms/availability, the full reservation lifecycle (create -> guest-registration -> identity -> payment-review -> check-in -> folio -> extend -> move-room -> add charge -> payment -> receipt PDF -> checkout), billing lists/overview, housekeeping assign->start->complete->inspect round-trip, staff-access token enable/regenerate/disable, settings + all report endpoints. 51/53 passed (96%). Frontend: exercised login for 5 roles, wrong-password handling, route gating, /reservations list, Availability Calendar, full new-booking creation end-to-end (new guest + Mantine date range + room type + payment timing -> booking detail HS260801-00051), Check-In Workspace (OCR upload tiles + face-match card + blockers), Extend Stay modal, Move Room modal (options populated), Stay Workspace, /billing folio detail (Add Charge / Collect Payment / Settle Folio), Housekeeping Board + Staff Access modal (QR/Copy link/Regenerate/Enable-Disable), /settings/users, /settings/employees, /settings/room-types, /reports, /guests/new. Core staff workflows are functional; 2 backend defects and 7 frontend defects found, none blocking the primary booking->check-in->billing->checkout path.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/v1/properties/:pid/housekeeping/dashboard (and /employees?department=HOUSEKEEPING)", "issue": "FRONT_DESK role returns 403 'Insufficient permissions'. role-permissions.ts UserRole.FRONT_DESK has no HousekeepingView/HousekeepingManage/EmployeesView. Requirement says Front Desk must access /housekeeping. The web sidebar still shows a Housekeeping link (with badge) for Front Desk, so the board loads empty with two 403s in console — a real staff-blocking mismatch.", "priority": "HIGH"},
+      {"endpoint": "POST /api/v1/properties/:pid/folios/:folioId/razorpay/order", "issue": "Returns HTTP 500 with code RAZORPAY_NOT_CONFIGURED. /app/stayos-api/.env contains NO RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET (grep returned nothing), contradicting the brief that test keys are pre-configured. Cannot obtain a Razorpay order_id. Also a config-missing case should be 503/501, not 500.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/v1/properties/:pid/housekeeping/staff/access/:token", "issue": "Invalid / regenerated / disabled tokens return 400 VALIDATION-style error instead of 401/403/404. Behaviour is safe (access denied) but the status code is non-standard for a token-gated public route."},
+      {"endpoint": "GET /api/v1/properties/:pid/rooms", "issue": "Pagination param is `limit` and forbidNonWhitelisted rejects `pageSize` with 400. Not a bug, but list endpoints return `data` as a bare array while guests/reservations return `{items,...}` — inconsistent list envelope across modules."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AppFrame sidebar (Front Desk role)", "issue": "Housekeeping nav item is rendered for FRONT_DESK but the page then fires two 403s and shows an empty board. Either grant housekeeping.view to FRONT_DESK or hide the nav item.", "selector": "sidebar link 'Housekeeping'", "priority": "HIGH"},
+      {"component": "Settings route guard", "issue": "Permission leak: HOUSEKEEPING and FRONT_DESK users can open /settings and see the settings tiles (Room Types etc.). Requirement: Owner/Admin only. /billing is correctly gated for housekeeping.", "selector": "/settings", "priority": "HIGH"},
+      {"component": "/settings/employees", "issue": "Developer/debug copy is shipped in the production UI: 'Demo data: run npm run bootstrap:demo-employees. Demo manager user: Gaurav Gaur, gaurav.gaur@stayos.local, MANAGER, Password123!' — leaks a plaintext password to any manager/owner.", "selector": "employees page header text", "priority": "HIGH"},
+      {"component": "MoveRoomModal (BookingDetailPage)", "issue": "Modal opened via the 'Move Room' button is titled 'Assign Room' with a primary button 'Assign Room' and placeholder 'Choose a ready room'. Confusing for a room-move on an in-house guest (options themselves load correctly: 'Room 307 - Deluxe', 'Room 308 - Deluxe').", "selector": "button[name='Move Room'] -> .mantine-Modal-content", "priority": "MEDIUM"},
+      {"component": "CheckInWorkspacePage - Guest registration", "issue": "Date of birth uses the native browser date input (renders mm/dd/yyyy) instead of the Mantine DateInput used elsewhere — inconsistent UX and US date order in an INR/India property.", "selector": "[data-testid^='checkin-'] date of birth field", "priority": "MEDIUM"},
+      {"component": "BookingDetailPage (in-house)", "issue": "Contradictory payment state: header badge says 'Paid' and the Payment card says 'Paid', while the action banner says '₹11,760 to collect' for the same reservation (HSDEMO-0022).", "selector": "banner 'Ready for stay actions'", "priority": "MEDIUM"},
+      {"component": "BookingDetailPage (future booking)", "issue": "For a booking created with arrival 2026-08-26 the banner reads 'Guest is expected today. Assign a room to continue.' — wrong day copy.", "selector": "banner 'Assign a room'", "priority": "LOW"},
+      {"component": "Legacy /check-in?reservationId= page", "issue": "Old check-in screen is still routed and fires two 404 GETs on /properties/:pid/reservations/:id/... producing console errors. The real OCR/face-match workspace lives at /reservations/:id/check-in. Remove or redirect the legacy route.", "selector": "/check-in?reservationId=", "priority": "MEDIUM"},
+      {"component": "/reports", "issue": "React console error: 'Encountered two children with the same key' (duplicate keys in a chart/list map). Page still renders KPIs (Occupancy 6.25%, Revenue ₹79,392, ADR ₹1,764, RevPAR ₹110).", "selector": "reports charts", "priority": "LOW"},
+      {"component": "GuestStay workspace", "issue": "Nationality shows 'International' while the guest record and booking detail both show 'Indian' — field mapping bug.", "selector": "Guest Information > Nationality", "priority": "LOW"},
+      {"component": "/guests/new", "issue": "Language chips render both 'Hindi' and 'हिन्दी' as separate options — duplicate language entry.", "selector": "Language chip group", "priority": "LOW"},
+      {"component": "LoginPage", "issue": "Testability gap: email input, password input and Sign In button have no data-testid (only forgot-password-link does). Mantine TextInput renders type='text' so input[type=email] selectors fail; automation must fall back to role/label.", "selector": "app/login/page.tsx", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Housekeeping board as Front Desk", "issue": "GET housekeeping/dashboard + employees return 403; board renders with no rooms and console errors.", "affected_selectors": ["/housekeeping"]},
+      {"flow": "Reservations page as Housekeeping user", "issue": "403 from /reservations and /guests is rendered as a generic server-outage screen ('Try Again / Check Server Status') instead of an access-denied message.", "affected_selectors": ["/reservations"]},
+      {"flow": "Razorpay online payment", "issue": "Order creation 500s because Razorpay keys are absent from stayos-api/.env, so the online-pay path is unusable end-to-end.", "affected_selectors": ["Collect Payment > online/Razorpay"]}
+    ],
+    "design_issues": [
+      {"screen": "Check-In Workspace", "issues": ["Native date picker for Date of birth (mm/dd/yyyy) mixed with Mantine pickers elsewhere"]},
+      {"screen": "Settings > Employees", "issues": ["Dev instructions + plaintext demo password shown as page copy"]},
+      {"screen": "Bookings list", "issues": ["Several CHECKED_IN rows show Room = 'Unassigned' (seed data inconsistency) which reads as a data error to staff"]}
+    ]
+  },
+  "test_report_links": ["/app/tests/stayos_regression_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Decide and fix the housekeeping permission model for FRONT_DESK: add Permissions.HousekeepingView (+ EmployeesView for the staff modal) to UserRole.FRONT_DESK in /app/stayos-api/src/core/auth/role-permissions.ts, OR hide the Housekeeping nav item and route for FRONT_DESK.",
+    "Add RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET to /app/stayos-api/.env (they are currently absent) and return 503 instead of 500 when the gateway is unconfigured.",
+    "Gate /settings (and /settings/*) to Owner/Admin only — HOUSEKEEPING and FRONT_DESK can currently open it.",
+    "Remove the dev/demo instructional block (with the plaintext Password123!) from /settings/employees.",
+    "Rename the Move Room modal title/CTA from 'Assign Room' to 'Move Room' for in-house stays.",
+    "Fix the Paid vs '₹11,760 to collect' contradiction on BookingDetailPage and the 'expected today' copy for future arrivals.",
+    "Replace the native Date-of-birth input in CheckInWorkspacePage with the Mantine DateInput.",
+    "Remove/redirect the legacy /check-in?reservationId= page which 404s twice.",
+    "Fix duplicate React keys on /reports and the 'International' nationality mapping in the Stay Workspace.",
+    "Add data-testid to login email/password/submit."
+  ],
+  "critical_code_review_comments": [
+    "role-permissions.ts: FRONT_DESK lacks HousekeepingView while the web nav unconditionally shows Housekeeping — permission model and nav config are defined in two places and have drifted.",
+    "Razorpay service throws a 500 for a missing-configuration condition; configuration errors should map to 503 and be surfaced as a disabled UI affordance rather than a runtime failure.",
+    "List envelopes are inconsistent: rooms/room-types return data as a bare array, guests/reservations return {items,...}. Clients must special-case per module.",
+    "Public token route housekeeping/staff/access/:token returns 400 for invalid/revoked tokens; use 401/404 so clients can distinguish malformed input from revoked access.",
+    "check-in blockers are enforced server-side (guest registration, identity verified, payment reviewed, room READY) — good; the legacy /check-in page bypasses this UI and should be deleted to avoid two divergent check-in flows."
+  ],
+  "updated_files": ["/app/tests/stayos_regression_test.py", "/app/test_reports/iteration_2.json"],
+  "success_rate": {"backend": "96% (51/53 pytest cases)", "frontend": "~80% (all routes render; 12 UI/permission defects, core booking->check-in->billing->checkout path works)"},
+  "seed_data_creation": "Created TEST_ guests (TEST_QA Regression, TEST_Life Cycle, UITEST<ts> Guest) plus test reservations that were driven through check-in, extend, move-room, charges/payments and checkout. One UI-created booking HS260801-00051 (26-28 Aug, Deluxe, unassigned) remains CONFIRMED. Housekeeping staff-access tokens were regenerated and Anita Sharma (HK-006) was left with access DISABLED by the token test.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "/app/memory/test_credentials.md - all roles, password Password123!. propertyId this run: ba84f3ab-ac61-49c2-9c17-96ade597f3d2 (rotates on bootstrap:demo).",
+  "context_for_next_testing_agent": "Reusable suite: `python -m pytest /app/tests/stayos_regression_test.py -p no:randomly -q`. Two expected failures until fixed: TestPermissionGating::test_frontdesk_can_access_housekeeping_board (403) and TestReservationLifecycle::test_13_razorpay_order (500, keys missing). Playwright notes: login inputs have NO data-testid and Mantine renders email as type=text — use page.get_by_role('textbox', name='Email') + input[type=password] + button 'Sign In', and use .fill() (keyboard.type drops the first char). DatePickerInput is a button, not an input — click page.get_by_text('Select arrival -> departure') then pick days in .mantine-Popover-dropdown table. Avoid wait_until='networkidle' (times out); use domcontentloaded + explicit waits. Real check-in workspace is /reservations/:id/check-in (has checkin-* / id-photo-* / face-* testids); /check-in?reservationId= is a legacy page that 404s. Stay workspace is /guest-stay/:reservationId. Not yet covered: OCR upload with an actual JPEG (fixture /app/tests/fixtures/sample-id.jpg does not exist), CheckoutModal submit through the UI (checkout verified via API only), /guests/:id/edit and guest history pages, /rooms/:roomId status toggle via UI, and the public /housekeeping/staff/access/:token page in the browser (token flow verified via API).",
+  "rca_of_the_issue": "1) Front Desk housekeeping 403: UserRole.FRONT_DESK in role-permissions.ts omits HousekeepingView/HousekeepingManage/EmployeesView while the Next.js sidebar renders the Housekeeping entry for all operational roles, so the guard denies a nav target the UI advertises. 2) Razorpay 500: RazorpayService validates RAZORPAY_KEY_ID/SECRET at call time and throws an unmapped internal error; grep of /app/stayos-api/.env shows neither key exists, so every order request fails. 3) /settings leak: the settings routes render without a permission check, relying only on nav visibility, so direct URL navigation exposes them to housekeeping/front-desk users."
+}
