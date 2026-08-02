@@ -11,11 +11,13 @@ function isPreCheckInReservation(status: string | undefined) {
 export function mapOperationsRoom(dto: OperationsRoomBoardItemDto): Room {
   const roomStatus = dto.uiStatus ?? dto.operationalStatus;
   const mappedStatus = mapOperationsStatus(roomStatus ?? dto.currentStay?.status);
+  const canShowAssignedReservation = mappedStatus === 'ready' || mappedStatus === 'vacant';
   const floorLabel =
     dto.floor.name ??
     dto.floor.code ??
     (dto.floor.floorNumber ? `Floor ${dto.floor.floorNumber}` : 'Floor');
   const preCheckInAssignment = isPreCheckInReservation(dto.currentStay?.status);
+  const displayAsReserved = preCheckInAssignment && canShowAssignedReservation;
 
   return {
     accessible: false,
@@ -51,14 +53,14 @@ export function mapOperationsRoom(dto: OperationsRoomBoardItemDto): Room {
     roomType: dto.roomType.name,
     roomTypeId: dto.roomType.id,
     stayDates: dto.currentStay
-      ? preCheckInAssignment
+      ? displayAsReserved
         ? `Arrival ${formatArrivalLabel(dto.currentStay.arrivalDate)}`
         : formatArrivalLabel(dto.currentStay.arrivalDate)
       : (dto.checkoutLabel ?? 'Available today'),
-    status: preCheckInAssignment ? 'reserved' : mappedStatus,
+    status: displayAsReserved ? 'reserved' : mappedStatus,
     stayHref:
-      dto.currentStay?.reservationId && !preCheckInAssignment
-        ? `/guest-stay/${dto.currentStay.reservationCode}`
+      dto.currentStay?.reservationId && !displayAsReserved
+        ? `/guest-stay/${dto.currentStay.reservationId}`
         : undefined,
     timeline: [],
     view: 'City',

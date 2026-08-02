@@ -2,6 +2,7 @@ import { ActivityEventEntity } from '../../activity/infrastructure/activity-even
 import { AuditEventEntity } from '../../audit/infrastructure/audit-event.entity';
 import { GuestEntity } from '../../guests/infrastructure/guest.entity';
 import { ReservationPaymentStatus } from '../../reservations/domain/reservation-payment-status.enum';
+import { ReservationStatus } from '../../reservations/domain/reservation-status.enum';
 import { ReservationEntity } from '../../reservations/infrastructure/reservation.entity';
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
@@ -170,8 +171,15 @@ export class OperationsMapper {
   }
 
   private static toPrimaryAction(room: RoomEntity, currentStay: ReservationEntity | null): string {
-    if (currentStay) {
+    if (currentStay?.status === ReservationStatus.CHECKED_IN) {
       return 'Open Stay';
+    }
+
+    if (
+      currentStay &&
+      [ReservationStatus.PENDING, ReservationStatus.CONFIRMED].includes(currentStay.status)
+    ) {
+      return room.operationalStatus === RoomOperationalStatus.READY ? 'Check In' : 'View Details';
     }
 
     if (

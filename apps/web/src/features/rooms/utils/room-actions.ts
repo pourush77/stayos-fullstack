@@ -7,12 +7,11 @@ import {
   markRoomReady,
 } from '../../../lib/inventory-api';
 import type { Room, RoomAction } from '../types';
-import { hasAssignedBooking } from './room-helpers';
 
 export function primaryAction(room: Room) {
   if (room.status === 'occupied') return 'Open Stay';
 
-  if (room.status === 'reserved' || hasAssignedBooking(room)) return 'Check In';
+  if (room.status === 'reserved') return 'Check In';
 
   if (room.status === 'ready' || room.status === 'vacant') return 'Assign Guest';
 

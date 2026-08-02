@@ -11,7 +11,7 @@ export function hasAssignedBooking(room: Room) {
 }
 
 export function getRoomSubtitle(room: Room) {
-  if (room.status === 'reserved' || (hasAssignedBooking(room) && room.status !== 'occupied')) {
+  if (room.status === 'reserved') {
     return room.guest ?? room.reservation ?? 'Assigned booking';
   }
 

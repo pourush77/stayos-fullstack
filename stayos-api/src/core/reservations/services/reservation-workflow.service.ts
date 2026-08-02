@@ -254,7 +254,11 @@ export class ReservationWorkflowService {
         );
       }
 
-      const room = await this.findRoom(roomRepository, reservation.roomId);
+      const guestRepository = manager.getRepository(GuestEntity);
+      const [room, guest] = await Promise.all([
+        this.findRoom(roomRepository, reservation.roomId),
+        guestRepository.findOne({ where: { id: reservation.guestId, propertyId } }),
+      ]);
       this.ensureRoomBelongsToProperty(room, propertyId);
       await this.ensureFolioSettledForCheckout(manager, reservation);
       await this.settleFolioForCheckout(manager, reservation);
@@ -277,7 +281,7 @@ export class ReservationWorkflowService {
         nextState: this.workflowAuditState(updatedReservation, updatedRoom),
         activityType: 'GUEST_CHECKED_OUT',
         activityTitle: 'Guest checked out',
-        activityDescription: `Room ${updatedRoom.roomNumber} marked for cleaning after checkout.`,
+        activityDescription: `${guest?.displayName ?? 'Guest'} checked out from Room ${updatedRoom.roomNumber}. Room marked for cleaning.`,
         reservation: updatedReservation,
         room: updatedRoom,
         actorId: actorContext.actorId ?? null,

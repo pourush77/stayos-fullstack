@@ -387,7 +387,8 @@ export default function GuestProfilePage() {
 
   useEffect(() => {
     const guest = guestState.guest;
-    if (!guestState.propertyId || !guest?.reservations?.length) {
+    const reservations = guest?.reservations ?? [];
+    if (!guestState.propertyId || !reservations.length) {
       setFoliosByReservationId({});
       return;
     }
@@ -395,7 +396,7 @@ export default function GuestProfilePage() {
     let cancelled = false;
     async function loadFolios() {
       const entries = await Promise.all(
-        guest.reservations!.map(async (reservation) => {
+        reservations.map(async (reservation) => {
           try {
             const folio = await getFolioForReservation(guestState.propertyId!, reservation.id);
             return [reservation.id, folio] as const;
