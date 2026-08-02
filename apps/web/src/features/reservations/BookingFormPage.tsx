@@ -28,6 +28,8 @@ const quickCardStyle = {
   boxShadow: '0 8px 32px rgba(15,23,42,0.06)',
 };
 
+const GST_RATE = 0.12;
+
 function dateToValue(value: Date | string | null) {
   if (!value) return '';
   if (typeof value === 'string') return value.slice(0, 10);
@@ -287,7 +289,9 @@ function QuickBookingForm({
   const guest = allGuests.find((item) => item.id === guestId);
   const selectedPhoneCountry = phoneCountryOptions.find((item) => item.value === newGuestCountry) ?? phoneCountryOptions[0];
   const selectedRoomType = roomTypes.find((item) => item.id === roomTypeId);
-  const total = (selectedRoomType?.baseRate ?? 0) * nights;
+  const roomSubtotal = (selectedRoomType?.baseRate ?? 0) * nights;
+  const gstAmount = Math.round(roomSubtotal * GST_RATE);
+  const total = roomSubtotal + gstAmount;
   const guestComplete = Boolean(guestId);
   const datesComplete = nights > 0;
   const roomComplete = Boolean(roomTypeId);
@@ -694,12 +698,22 @@ function QuickBookingForm({
             {datesComplete && roomComplete ? (
             <Paper radius={radius.md} p={16} style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
               <Stack gap={8}>
-                <Text fw={900} c="#101828">{guest?.label ?? 'Guest'} · {nights || 0} nights · {selectedRoomType?.label ?? 'Room type'} · {formatCurrency(total)}</Text>
+                <Text fw={900} c="#101828">{guest?.label ?? 'Guest'} · {nights || 0} nights · {selectedRoomType?.label ?? 'Room type'}</Text>
                 <Text c="#64748b" size="sm">{formatShortDate(arrivalDate)} → {formatShortDate(departureDate)} · {adults} adult{adults === 1 ? '' : 's'}{children ? ` · ${children} child${children === 1 ? '' : 'ren'}` : ''}</Text>
-                <Group justify="space-between">
-                  <Text c="#64748b" size="sm">Total</Text>
-                  <Text fw={900} size="xl">{formatCurrency(total)}</Text>
-                </Group>
+                <Stack gap={4}>
+                  <Group justify="space-between">
+                    <Text c="#64748b" size="sm">Room charges</Text>
+                    <Text fw={800}>{formatCurrency(roomSubtotal)}</Text>
+                  </Group>
+                  <Group justify="space-between">
+                    <Text c="#64748b" size="sm">GST 12%</Text>
+                    <Text fw={800}>{formatCurrency(gstAmount)}</Text>
+                  </Group>
+                  <Group justify="space-between" pt={8} style={{ borderTop: '1px solid #e2e8f0' }}>
+                    <Text c="#101828" fw={900} size="sm">Total payable</Text>
+                    <Text fw={900} size="xl">{formatCurrency(total)}</Text>
+                  </Group>
+                </Stack>
               </Stack>
             </Paper>
             ) : (
@@ -716,12 +730,12 @@ function QuickBookingForm({
             </Collapse>
             {/* Payment intent chooser — visible in Step 4 */}
             <Stack gap={8}>
-              <Text fw={700} c="#101828" size="sm">How is the guest paying?</Text>
+              <Text fw={700} c="#101828" size="sm">When will payment be collected?</Text>
               <SimpleGrid cols={{ base: 1, sm: 3 }} spacing={8}>
                 {[
-                  { key: 'CHECKOUT' as const, label: 'Pay at checkout', hint: 'Collect the whole bill on the way out', status: 'PAYMENT_DUE' as BookingPaymentStatus },
+                  { key: 'CHECKOUT' as const, label: 'Collect at check-in', hint: `Collect ${formatCurrency(total)} after ID verification`, status: 'PAYMENT_DUE' as BookingPaymentStatus },
                   { key: 'PARTIAL' as const, label: 'Partial deposit now', hint: 'Advance / holding amount', status: 'PARTIALLY_PAID' as BookingPaymentStatus },
-                  { key: 'FULL' as const, label: 'Prepay full now', hint: 'Booking marked Paid', status: 'PAID' as BookingPaymentStatus },
+                  { key: 'FULL' as const, label: 'Collect full now', hint: `Take ${formatCurrency(total)} now and mark paid`, status: 'PAID' as BookingPaymentStatus },
                 ].map((opt) => {
                   const selected = paymentIntent === opt.key;
                   return (
@@ -749,6 +763,11 @@ function QuickBookingForm({
                   );
                 })}
               </SimpleGrid>
+              {paymentIntent === 'CHECKOUT' ? (
+                <Alert color="blue" variant="light" radius={radius.md}>
+                  No payment is recorded during booking. At check-in, collect the total payable amount: <b>{formatCurrency(total)}</b>.
+                </Alert>
+              ) : null}
               {paymentIntent !== 'CHECKOUT' ? (
                 <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
                   <NumberInput

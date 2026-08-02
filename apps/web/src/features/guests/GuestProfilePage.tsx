@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Alert, Avatar, Box, Button, Card, FileButton, Group, Paper, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core';
+import { Alert, Avatar, Badge, Box, Button, Card, FileButton, Group, Paper, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core';
 import { useParams } from 'next/navigation';
 import { AlertCircle, CalendarDays, ChevronLeft, Edit, FileText, IdCard, Languages, NotebookText, Sparkles, Trash2, Upload, UserRound } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -10,6 +10,8 @@ import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackend
 import { useGuestDetails } from '../../lib/guest-hooks';
 import { deleteIdentityDocument, getCheckInWorkspace, uploadIdentityDocument, type LooseRecord } from '../check-in/check-in-api';
 import { useAuth } from '../auth/auth-context';
+import { getFolioForReservation } from '../billing/api/billing-api';
+import type { Folio } from '../billing/types/billing.types';
 import { documentPlaceholders } from './constants/guest.constants';
 import { GuestStatusBadge } from './components/GuestStatusBadge';
 import type { Guest, GuestReservationSummary } from './types/guest.types';
@@ -43,6 +45,14 @@ function Section({ children, icon, title }: { children: React.ReactNode; icon: R
 
 function normalizeReservationStatus(reservation: GuestReservationSummary) {
   return reservation.status.toUpperCase().replace(/[\s-]/g, '_');
+}
+
+function normalizePaymentStatus(status: string) {
+  return status.toUpperCase().replace(/[\s-]/g, '_');
+}
+
+function readableStatus(status: string) {
+  return status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function getGuestActionState(guest: Guest) {
@@ -306,13 +316,60 @@ function Documents({
   );
 }
 
-function Reservations({ guest }: { guest: Guest }) {
+function Reservations({ foliosByReservationId, guest }: { foliosByReservationId: Record<string, Folio>; guest: Guest }) {
+  const reservations = [...(guest.reservations ?? [])].sort((a, b) => b.arrivalDate.localeCompare(a.arrivalDate));
+
   return (
     <Section title="Reservations / Stay History" icon={<CalendarDays size={17} />}>
-      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
-        <DetailTile label="Upcoming bookings" value={guest.upcomingBooking} />
-        <DetailTile label="Past stays" value={guest.lastStay} />
-      </SimpleGrid>
+      {reservations.length > 0 ? (
+        <Stack gap={spacing[2]}>
+          {reservations.map((reservation) => {
+            const status = normalizeReservationStatus(reservation);
+            const folio = foliosByReservationId[reservation.id];
+            const folioBalance = Number(folio?.totals.balance ?? Number.NaN);
+            const folioPaid = Number(folio?.totals.paid ?? 0);
+            const paymentStatus = folio?.status === 'SETTLED' || (Number.isFinite(folioBalance) && folioBalance <= 0.01 && folioPaid > 0)
+              ? 'PAID'
+              : normalizePaymentStatus(reservation.paymentStatus);
+            const isStay = ['CHECKED_IN', 'CHECKED_OUT'].includes(status);
+            const href = isStay ? `/guest-stay/${reservation.id}` : `/reservations/${reservation.id}`;
+            const folioNumber = folio?.folioNumber || reservation.folioNumber;
+            return (
+              <Paper key={reservation.id} radius={radius.md} p={12} style={{ background: '#ffffff', border: '1px solid #eef2f7' }}>
+                <Group justify="space-between" align="flex-start" gap={spacing[3]}>
+                  <Box>
+                    <Group gap={8} mb={4}>
+                      <Text c="#101828" fw={800} size="sm">
+                        {reservation.reservationCode || reservation.id}
+                      </Text>
+                      <Badge color={status === 'CHECKED_OUT' ? 'gray' : status === 'CHECKED_IN' ? 'blue' : 'yellow'} variant="light">
+                        {reservation.status.replace(/_/g, ' ')}
+                      </Badge>
+                      <Badge color={paymentStatus === 'PAID' ? 'green' : paymentStatus === 'PARTIALLY_PAID' ? 'yellow' : 'red'} variant="light">
+                        {readableStatus(paymentStatus)}
+                      </Badge>
+                    </Group>
+                    <Text c="#64748b" size="xs">
+                      {reservation.arrivalDate} to {reservation.departureDate || '-'} - Room {reservation.roomNumber} - {reservation.roomType}
+                      {folioNumber ? ` - Folio ${folioNumber}` : ''}
+                    </Text>
+                  </Box>
+                  <Group gap={8}>
+                    <Button component={Link} href={href} variant="light" color="stayosBrand" size="compact-sm">
+                      {isStay ? 'View Stay' : 'View Booking'}
+                    </Button>
+                  </Group>
+                </Group>
+              </Paper>
+            );
+          })}
+        </Stack>
+      ) : (
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+          <DetailTile label="Upcoming bookings" value={guest.upcomingBooking} />
+          <DetailTile label="Past stays" value={guest.lastStay} />
+        </SimpleGrid>
+      )}
     </Section>
   );
 }
@@ -324,8 +381,38 @@ export default function GuestProfilePage() {
   const allowMockFallback = process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
   const canLoadGuest = backend.isOnline || (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
   const guestState = useGuestDetails({ allowMockFallback, enabled: canLoadGuest, guestId: params.guestId });
+  const [foliosByReservationId, setFoliosByReservationId] = useState<Record<string, Folio>>({});
   const retryBackend = () => void backend.retry();
   const checkBackendStatus = () => void backend.checkHealth();
+
+  useEffect(() => {
+    const guest = guestState.guest;
+    if (!guestState.propertyId || !guest?.reservations?.length) {
+      setFoliosByReservationId({});
+      return;
+    }
+
+    let cancelled = false;
+    async function loadFolios() {
+      const entries = await Promise.all(
+        guest.reservations!.map(async (reservation) => {
+          try {
+            const folio = await getFolioForReservation(guestState.propertyId!, reservation.id);
+            return [reservation.id, folio] as const;
+          } catch {
+            return undefined;
+          }
+        }),
+      );
+      if (cancelled) return;
+      setFoliosByReservationId(Object.fromEntries(entries.filter(Boolean) as Array<readonly [string, Folio]>));
+    }
+
+    void loadFolios();
+    return () => {
+      cancelled = true;
+    };
+  }, [guestState.guest, guestState.propertyId]);
 
   if (!allowMockFallback && backend.status === 'SERVER_STARTING') return <ServerStarting onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
   if (!allowMockFallback && !backend.isOnline && backend.status !== 'CONNECTING') return <BackendUnavailable onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
@@ -354,7 +441,7 @@ export default function GuestProfilePage() {
             onRefreshGuest={guestState.refreshGuest}
             propertyId={guestState.propertyId}
           />
-          <Reservations guest={guest} />
+          <Reservations foliosByReservationId={foliosByReservationId} guest={guest} />
         </Stack>
         <Stack gap={spacing[3]} style={{ gridColumn: 'span 4' }}>
           <Section title="Notes" icon={<NotebookText size={17} />}>

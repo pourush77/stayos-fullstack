@@ -17,7 +17,7 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
-import { CreditCard, Download, PlusCircle, ReceiptText, Smartphone, Wallet } from 'lucide-react';
+import { CreditCard, Download, Mail, MessageCircle, PlusCircle, ReceiptText, Smartphone, Wallet } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
 import { showToast } from '@stayos/ui';
@@ -28,6 +28,7 @@ import {
   formatCurrency,
   friendlyBillingError,
   getPaymentReceiptUrl,
+  getFinalBillUrl,
   getRazorpayConfig,
   settleFolio,
   verifyRazorpayPayment,
@@ -418,7 +419,18 @@ function PaymentModal({
               >
                 Charge via Razorpay
               </Button>
-            ) : <span />}
+            ) : (
+              <Button
+                type="button"
+                variant="light"
+                color="gray"
+                leftSection={<Smartphone size={16} />}
+                disabled
+                data-testid="payment-razorpay-disabled"
+              >
+                Razorpay not configured
+              </Button>
+            )}
             <Group gap={8}>
               <Button color="gray" variant="light" onClick={onClose}>
                 Cancel
@@ -466,6 +478,7 @@ export function FolioPanel({
   const balance = useMemo(() => Number(current.totals.balance), [current.totals.balance]);
   const isSettled = current.status === 'SETTLED';
   const isVoid = current.status === 'VOID';
+  const canGenerateFinalBill = !isVoid && balance <= 0.01 && current.payments.length > 0;
 
   const handleAddCharge = async (payload: {
     type: FolioChargeType;
@@ -606,6 +619,64 @@ export function FolioPanel({
               </Text>
             </Box>
           </Group>
+        </Group>
+
+        <Group mt={spacing[3]} gap={10} wrap="wrap">
+          <Button
+            variant="light"
+            color="stayosBrand"
+            leftSection={<ReceiptText size={16} />}
+            disabled={!canGenerateFinalBill}
+            onClick={async () => {
+              const url = getFinalBillUrl(propertyId, current.id);
+              try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Could not download final bill');
+                const blob = await response.blob();
+                const objectUrl = URL.createObjectURL(blob);
+                window.open(objectUrl, '_blank', 'noopener');
+                setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+              } catch (err) {
+                showToast({
+                  color: 'red',
+                  title: 'Final bill failed',
+                  message: err instanceof Error ? err.message : 'Please try again.',
+                });
+              }
+            }}
+          >
+            Final Bill
+          </Button>
+          <Button
+            variant="light"
+            color="gray"
+            leftSection={<Mail size={16} />}
+            disabled={!canGenerateFinalBill}
+            onClick={() => {
+              showToast({
+                color: 'yellow',
+                title: 'Email not connected',
+                message: 'Email sending will use the final bill once the invoice endpoint is available.',
+              });
+            }}
+          >
+            Email Bill
+          </Button>
+          <Button
+            variant="light"
+            color="gray"
+            leftSection={<MessageCircle size={16} />}
+            disabled={!canGenerateFinalBill}
+            onClick={() => {
+              showToast({
+                color: 'yellow',
+                title: 'WhatsApp not connected',
+                message: 'WhatsApp resend will use the final bill once messaging integration is available.',
+              });
+            }}
+          >
+            WhatsApp
+          </Button>
         </Group>
 
         {canManage && !isVoid ? (

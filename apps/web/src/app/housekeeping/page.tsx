@@ -70,6 +70,11 @@ import type {
   HousekeepingRoom,
   HousekeepingStatus,
 } from '../../features/housekeeping/types/housekeeping.types';
+import {
+  listGuestRequests,
+  transitionGuestRequest,
+  type GuestRequestDto,
+} from '../../features/requests/api/guest-requests-api';
 
 const cardStyle = {
   background: '#ffffff',
@@ -806,6 +811,7 @@ export default function HousekeepingPage() {
     : statusFilterOptions;
   const [propertyId, setPropertyId] = useState('');
   const [rooms, setRooms] = useState<HousekeepingRoom[]>([]);
+  const [guestServiceRequests, setGuestServiceRequests] = useState<GuestRequestDto[]>([]);
   const [summary, setSummary] = useState<HousekeepingDashboardSummary>();
   const [employees, setEmployees] = useState<HousekeepingEmployee[]>([]);
   const employeesLoadedAtRef = useRef(0);
@@ -904,10 +910,14 @@ export default function HousekeepingPage() {
       setIsLoading(true);
       try {
         const nextPropertyId = await resolvePropertyId(signal);
-        const dashboard = await getHousekeepingDashboardData(nextPropertyId, signal);
+        const [dashboard, activeRequests] = await Promise.all([
+          getHousekeepingDashboardData(nextPropertyId, signal),
+          listGuestRequests(nextPropertyId, { department: 'HOUSEKEEPING' }).catch(() => []),
+        ]);
         if (!isMountedRef.current) return;
         setRooms(dashboard.rooms);
         setSummary(dashboard.summary);
+        setGuestServiceRequests(activeRequests.filter((request) => !['COMPLETED', 'CANCELLED'].includes(request.status)));
       } catch (loadError) {
         if (loadError instanceof DOMException && loadError.name === 'AbortError') return;
         if (isMountedRef.current) setError('Housekeeping is temporarily unavailable.');
@@ -1190,6 +1200,20 @@ export default function HousekeepingPage() {
     }
   };
 
+  const runGuestRequestAction = async (
+    request: GuestRequestDto,
+    action: 'accept' | 'start' | 'complete' | 'cancel',
+  ) => {
+    if (!propertyId) return;
+    try {
+      await transitionGuestRequest(propertyId, request.id, action);
+      await loadDashboard();
+      showToast({ color: 'green', title: 'Request updated', message: `${request.title} is now updated.` });
+    } catch {
+      showToast({ color: 'red', title: 'Request update failed', message: 'Unable to update this guest request.' });
+    }
+  };
+
   const openComplete = (room: HousekeepingRoom) => {
     setCompleteRoom(room);
     setSelectedEmployeeId(room.assignedEmployeeId ?? null);
@@ -1412,6 +1436,90 @@ export default function HousekeepingPage() {
           );
         })}
       </SimpleGrid>
+
+      <Card radius={radius.lg} p={16} style={cardStyle}>
+        <Group justify="space-between" align="center" gap={spacing[3]} wrap="wrap">
+          <Group gap={10}>
+            <ThemeIcon radius={radius.full} color="stayosBrand" variant="light">
+              <Sparkles size={18} />
+            </ThemeIcon>
+            <Box>
+              <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 750 }}>
+                Guest Service Requests
+              </Title>
+              <Text c="#64748b" style={{ fontSize: 13, fontWeight: 650 }}>
+                In-house guest requests routed to housekeeping.
+              </Text>
+            </Box>
+          </Group>
+          <Badge radius={radius.full} color={guestServiceRequests.length > 0 ? 'stayosBrand' : 'green'} variant="light">
+            {guestServiceRequests.length} open
+          </Badge>
+        </Group>
+        <Stack gap={8} mt={spacing[3]}>
+          {guestServiceRequests.length > 0 ? (
+            guestServiceRequests.map((request) => {
+              const actions =
+                request.status === 'REQUESTED'
+                  ? [{ label: 'Accept', action: 'accept' as const }, { label: 'Cancel', action: 'cancel' as const }]
+                  : request.status === 'ACCEPTED'
+                    ? [{ label: 'Start', action: 'start' as const }, { label: 'Cancel', action: 'cancel' as const }]
+                    : request.status === 'IN_PROGRESS'
+                      ? [{ label: 'Complete', action: 'complete' as const }, { label: 'Cancel', action: 'cancel' as const }]
+                      : [];
+              return (
+                <Paper key={request.id} radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                  <Group justify="space-between" align="flex-start" gap={spacing[3]}>
+                    <Group gap={10} wrap="nowrap" style={{ minWidth: 0 }}>
+                      <ThemeIcon radius={radius.md} color="stayosBrand" variant="light">
+                        <Sparkles size={17} />
+                      </ThemeIcon>
+                      <Box style={{ minWidth: 0 }}>
+                        <Text c="#101828" style={{ fontSize: 14, fontWeight: 850 }}>
+                          Room {request.roomNumber ?? 'not assigned'} - {request.title}
+                        </Text>
+                        <Text c="#64748b" style={{ fontSize: 12, fontWeight: 650 }}>
+                          {request.guestDisplayName ?? 'Guest'} - {request.reservationCode ?? 'No booking'} - {request.dueAt ? new Date(request.dueAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No due time'}
+                        </Text>
+                        {request.description ? (
+                          <Text c="#334155" mt={4} style={{ fontSize: 12 }}>
+                            {request.description}
+                          </Text>
+                        ) : null}
+                      </Box>
+                    </Group>
+                    <Stack align="flex-end" gap={8}>
+                      <Group gap={6}>
+                        <Badge color="blue" variant="light" radius={radius.full}>{request.status.replace(/_/g, ' ')}</Badge>
+                        <Badge color={request.priority === 'HIGH' || request.priority === 'VIP' ? 'red' : 'gray'} variant="light" radius={radius.full}>{request.priority}</Badge>
+                      </Group>
+                      <Group gap={6}>
+                        {actions.map((item) => (
+                          <Button
+                            key={item.action}
+                            color={item.action === 'cancel' ? 'red' : 'stayosBrand'}
+                            size="xs"
+                            variant={item.action === 'cancel' ? 'light' : 'filled'}
+                            onClick={() => void runGuestRequestAction(request, item.action)}
+                          >
+                            {item.label}
+                          </Button>
+                        ))}
+                      </Group>
+                    </Stack>
+                  </Group>
+                </Paper>
+              );
+            })
+          ) : (
+            <Paper radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px dashed #cbd5e1' }}>
+              <Text c="#64748b" style={{ fontSize: 13, fontWeight: 700 }}>
+                No open guest service requests for housekeeping.
+              </Text>
+            </Paper>
+          )}
+        </Stack>
+      </Card>
 
       <Card radius={radius.lg} p={16} style={cardStyle}>
         <Group justify="space-between" align="center" gap={spacing[3]} wrap="wrap">

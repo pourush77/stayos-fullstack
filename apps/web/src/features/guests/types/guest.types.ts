@@ -28,7 +28,15 @@ export type Guest = {
 
 export type GuestReservationSummary = {
   arrivalDate: string;
+  departureDate: string;
+  folioId: string;
+  folioNumber: string;
+  folioStatus: string;
   id: string;
+  paymentStatus: string;
+  reservationCode: string;
+  roomNumber: string;
+  roomType: string;
   status: string;
 };
 

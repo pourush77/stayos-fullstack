@@ -7,10 +7,16 @@ import { GuestEntity } from '../../guests/infrastructure/guest.entity';
 import { RoomTypeEntity } from '../../room-types/infrastructure/room-type.entity';
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
+import { calculateTotals } from '../../billing/billing.mapper';
+import { FolioChargeType } from '../../billing/domain/folio-charge-type.enum';
+import { FolioStatus } from '../../billing/domain/folio-status.enum';
+import { FolioChargeEntity } from '../../billing/infrastructure/folio-charge.entity';
+import { FolioEntity } from '../../billing/infrastructure/folio.entity';
 import { AssignRoomDto } from '../dto/assign-room.dto';
 import { ExtendReservationDto } from '../dto/extend-reservation.dto';
 import { MoveRoomDto } from '../dto/move-room.dto';
 import { ReservationWorkflowResponseDto } from '../dto/reservation-workflow-response.dto';
+import { ReservationPaymentStatus } from '../domain/reservation-payment-status.enum';
 import { ReservationStatus } from '../domain/reservation-status.enum';
 import { ReservationEntity } from '../infrastructure/reservation.entity';
 import { ReservationsMapper } from '../reservations.mapper';
@@ -250,6 +256,8 @@ export class ReservationWorkflowService {
 
       const room = await this.findRoom(roomRepository, reservation.roomId);
       this.ensureRoomBelongsToProperty(room, propertyId);
+      await this.ensureFolioSettledForCheckout(manager, reservation);
+      await this.settleFolioForCheckout(manager, reservation);
 
       const previousState = this.workflowAuditState(reservation, room);
       reservation.status = ReservationStatus.CHECKED_OUT;
@@ -324,6 +332,7 @@ export class ReservationWorkflowService {
       await this.ensureNoOverlappingAssignment(reservationRepository, reservation, room);
 
       const updatedReservation = await reservationRepository.save(reservation);
+      await this.postExtensionCharge(manager, updatedReservation, previousDepartureDate);
 
       await this.createEvents(manager, {
         propertyId,
@@ -648,6 +657,106 @@ export class ReservationWorkflowService {
         operationalStatusReason: room.operationalStatusReason,
       },
     };
+  }
+
+  private async postExtensionCharge(
+    manager: EntityManager,
+    reservation: ReservationEntity,
+    previousDepartureDate: string,
+  ): Promise<void> {
+    const extraNights = this.calculateNights(previousDepartureDate, reservation.departureDate);
+    if (extraNights <= 0) return;
+
+    const folioRepository = manager.getRepository(FolioEntity);
+    const chargeRepository = manager.getRepository(FolioChargeEntity);
+    const reservationRepository = manager.getRepository(ReservationEntity);
+    const folio = await folioRepository.findOne({
+      where: { propertyId: reservation.propertyId, reservationId: reservation.id },
+      relations: { charges: true, payments: true },
+    });
+    if (!folio) return;
+
+    const existingRoomCharge = (folio.charges ?? []).find((charge) => charge.type === FolioChargeType.ROOM);
+    const nightlyRate = Number(existingRoomCharge?.unitAmount ?? 3500);
+    const baseAmount = nightlyRate * extraNights;
+    const taxAmount = baseAmount * 0.12;
+
+    const charge = chargeRepository.create({
+      folioId: folio.id,
+      type: FolioChargeType.ROOM,
+      description: `Extended stay - ${extraNights} night${extraNights === 1 ? '' : 's'}`,
+      quantity: extraNights,
+      unitAmount: nightlyRate.toFixed(2),
+      amount: baseAmount.toFixed(2),
+      taxAmount: taxAmount.toFixed(2),
+      chargedAt: new Date(),
+      createdByUserId: null,
+    });
+    await chargeRepository.save(charge);
+
+    const updatedCharges = [...(folio.charges ?? []), charge];
+    const totals = calculateTotals(updatedCharges, folio.payments ?? []);
+    const balance = Number(totals.balance);
+    const paid = Number(totals.paid);
+    let paymentStatus = ReservationPaymentStatus.PAYMENT_DUE;
+    if (balance <= 0.01 && paid > 0) paymentStatus = ReservationPaymentStatus.PAID;
+    else if (paid > 0) paymentStatus = ReservationPaymentStatus.PARTIALLY_PAID;
+
+    await reservationRepository.update(
+      { id: reservation.id, propertyId: reservation.propertyId },
+      { paymentStatus },
+    );
+    await folioRepository.update({ id: folio.id }, { updatedAt: new Date() });
+  }
+
+  private async ensureFolioSettledForCheckout(
+    manager: EntityManager,
+    reservation: ReservationEntity,
+  ): Promise<void> {
+    const folioRepository = manager.getRepository(FolioEntity);
+    const folio = await folioRepository.findOne({
+      where: { propertyId: reservation.propertyId, reservationId: reservation.id },
+      relations: { charges: true, payments: true },
+    });
+    if (!folio) return;
+
+    const totals = calculateTotals(folio.charges ?? [], folio.payments ?? []);
+    const balance = Number(totals.balance);
+    if (balance > 0.01) {
+      throw this.badRequest(
+        ApiErrorCode.VALIDATION_ERROR,
+        `Folio has an outstanding balance of ${totals.balance}. Collect payment before checkout.`,
+      );
+    }
+  }
+
+  private async settleFolioForCheckout(
+    manager: EntityManager,
+    reservation: ReservationEntity,
+  ): Promise<void> {
+    const folioRepository = manager.getRepository(FolioEntity);
+    const folio = await folioRepository.findOne({
+      where: { propertyId: reservation.propertyId, reservationId: reservation.id },
+      relations: { charges: true, payments: true },
+    });
+    if (!folio || folio.status !== FolioStatus.OPEN) return;
+
+    const totals = calculateTotals(folio.charges ?? [], folio.payments ?? []);
+    const balance = Number(totals.balance);
+    const paid = Number(totals.paid);
+    if (balance <= 0.01 && paid > 0) {
+      await folioRepository.update(
+        { id: folio.id },
+        { status: FolioStatus.SETTLED, settledAt: new Date(), updatedAt: new Date() },
+      );
+    }
+  }
+
+  private calculateNights(arrivalDate: string, departureDate: string): number {
+    const arrival = new Date(`${arrivalDate}T00:00:00.000Z`);
+    const departure = new Date(`${departureDate}T00:00:00.000Z`);
+    const ms = departure.getTime() - arrival.getTime();
+    return Math.max(0, Math.round(ms / 86_400_000));
   }
 
   private moveRoomAuditState(

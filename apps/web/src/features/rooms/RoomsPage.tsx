@@ -25,7 +25,7 @@ import {
   UnstyledButton,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Accessibility,
   AlertCircle,
@@ -1724,6 +1724,7 @@ function FilterPills({
 
 export default function RoomsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const backend = useBackendStatus();
   const allowMockFallback = process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
   const inventory = useRoomInventory({
@@ -1760,6 +1761,18 @@ export default function RoomsPage() {
   const [checkInRoom, setCheckInRoom] = useState<Room | null>(null);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
+
+  useEffect(() => {
+    if (searchParams.get('checkout') !== 'success') return;
+    const guest = searchParams.get('guest') ?? 'Guest';
+    const room = searchParams.get('room') ?? 'Room';
+    showToast({
+      color: 'green',
+      title: 'Checkout complete',
+      message: `${guest} checked out. ${room} is now in housekeeping for cleaning.`,
+    });
+    router.replace('/rooms');
+  }, [router, searchParams]);
 
   useEffect(() => {
     if (!backend.isOnline || !inventory.propertyId || inventory.isFallback) return;

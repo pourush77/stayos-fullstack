@@ -81,7 +81,26 @@ function normalizeStatus(value: string) {
   return normalized.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function mapDocuments(guest: GuestDto | Record<string, unknown> | undefined): StayDocument[] {
+function friendlyDocumentLabel(document: Record<string, unknown>) {
+  const kind = getString(document, ['documentKind', 'type', 'label', 'name'], 'Document').replace(/_/g, ' ');
+  const side = getString(document, ['side']).toUpperCase();
+  if (side === 'ID_FRONT') return `${kind} - front`;
+  if (side === 'ID_BACK') return `${kind} - back`;
+  if (side === 'GUEST_FACE') return 'Guest photo';
+  return kind;
+}
+
+function mapDocuments(dto: StayWorkspaceDto, guest: GuestDto | Record<string, unknown> | undefined): StayDocument[] {
+  const capturedDocuments = getArray(dto as unknown as Record<string, unknown>, ['documents']);
+  if (capturedDocuments.length > 0) {
+    return capturedDocuments
+      .filter((document): document is Record<string, unknown> => Boolean(document) && typeof document === 'object' && !Array.isArray(document))
+      .map((document) => ({
+        label: friendlyDocumentLabel(document),
+        status: getString(document, ['status', 'verificationStatus'], 'Uploaded'),
+      }));
+  }
+
   const documents = getArray(guest, ['documents', 'identityDocuments']);
 
   return documentLabels.map((label) => {
@@ -199,8 +218,12 @@ function mapWarnings(dto: StayWorkspaceDto, stay: Omit<Stay, 'warnings'>): StayA
     items.push({ title: 'Payment Due', detail: 'Payment is still pending.', tone: 'danger' });
   }
 
-  if (stay.documents.some((document) => document.status.toLowerCase().includes('not uploaded'))) {
+  const checkedIn = stay.status.toLowerCase() === 'checked in';
+  const hasUploadedDocument = stay.documents.some((document) => !document.status.toLowerCase().includes('not uploaded'));
+  if (!checkedIn && stay.documents.some((document) => document.status.toLowerCase().includes('not uploaded'))) {
     items.push({ title: 'Documents Missing', detail: 'One or more guest documents are not uploaded.', tone: 'warning' });
+  } else if (checkedIn && !hasUploadedDocument) {
+    items.push({ title: 'ID document missing', detail: 'No check-in ID document is attached to this stay.', tone: 'warning' });
   }
 
   if (stay.departureDate === today) {
@@ -259,7 +282,7 @@ export function mapStayWorkspace(dto: StayWorkspaceDto): Stay {
     bookingId: getString(reservation, ['reservationCode', 'bookingCode', 'code', 'id'], 'Booking ID not recorded'),
     children: getNumber(reservation, ['children', 'numChildren', 'childCount'], 0),
     departureDate,
-    documents: mapDocuments(guest),
+    documents: mapDocuments(dto, guest),
     floor: floorName(room),
     guestEmail: getString(reservation, ['email'], getString(guest, ['email'], 'Email not recorded')),
     guestId,

@@ -3,6 +3,8 @@ import { DataSource, EntityManager } from 'typeorm';
 import { ActivityEventEntity } from '../../activity/infrastructure/activity-event.entity';
 import { AuditEventEntity } from '../../audit/infrastructure/audit-event.entity';
 import { ApiErrorCode } from '../../../common/errors/api-error-code.enum';
+import { calculateTotals } from '../../billing/billing.mapper';
+import { FolioEntity } from '../../billing/infrastructure/folio.entity';
 import { GuestEntity } from '../../guests/infrastructure/guest.entity';
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
@@ -27,6 +29,7 @@ interface WorkspaceParts {
   room: RoomEntity | null;
   identity: GuestIdentityDocumentEntity | null;
   documents?: GuestDocumentEntity[];
+  folio?: FolioEntity | null;
 }
 
 @Injectable()
@@ -237,10 +240,16 @@ export class CheckInService {
         order: { updatedAt: 'DESC' },
       }),
     ]);
-    const documents = await manager.getRepository(GuestDocumentEntity).find({
-      where: { reservationId: reservation.id, propertyId },
-      order: { createdAt: 'DESC' },
-    });
+    const [documents, folio] = await Promise.all([
+      manager.getRepository(GuestDocumentEntity).find({
+        where: { reservationId: reservation.id, propertyId },
+        order: { createdAt: 'DESC' },
+      }),
+      manager.getRepository(FolioEntity).findOne({
+        where: { reservationId: reservation.id, propertyId },
+        relations: { charges: true, payments: true },
+      }),
+    ]);
 
     if (!guest) {
       throw new NotFoundException({
@@ -249,13 +258,21 @@ export class CheckInService {
       });
     }
 
-    return { reservation, guest, room, identity, documents };
+    return { reservation, guest, room, identity, documents, folio };
   }
 
   toWorkspace(parts: WorkspaceParts): CheckInWorkspaceResponseDto {
     const { reservation, guest, room, identity } = parts;
     const blockers = this.getBlockers(parts);
     const address = [guest.addressLine1, guest.addressLine2].filter(Boolean).join(', ') || null;
+    const folioTotals = parts.folio
+      ? calculateTotals(parts.folio.charges ?? [], parts.folio.payments ?? [])
+      : null;
+    const outstandingAmount = folioTotals
+      ? Number(folioTotals.balance)
+      : reservation.paymentStatus === ReservationPaymentStatus.PAID
+        ? 0
+        : 0;
 
     return {
       booking: {
@@ -318,7 +335,7 @@ export class CheckInService {
       },
       payment: {
         paymentStatus: reservation.paymentStatus,
-        outstandingAmount: reservation.paymentStatus === ReservationPaymentStatus.PAID ? 0 : 1,
+        outstandingAmount,
         paymentMethod: reservation.paymentMethod ?? null,
       },
       room: {

@@ -152,6 +152,7 @@ describe('ReservationsService', () => {
   it('creates a reservation when guest, room type, and room belong to the property', async () => {
     reservationsRepository.create?.mockReturnValue({ ...reservationEntity, roomId });
     reservationsRepository.save?.mockResolvedValue({ ...reservationEntity, roomId });
+    reservationsRepository.count?.mockResolvedValue(0);
 
     await expect(
       service.create(propertyId, {
@@ -175,6 +176,24 @@ describe('ReservationsService', () => {
         roomId,
       }),
     );
+  });
+
+  it('rejects direct room assignment when an active overlapping reservation already has the room', async () => {
+    reservationsRepository.count
+      ?.mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(0);
+
+    await expect(
+      service.create(propertyId, {
+        guestId,
+        arrivalDate: '2026-07-15',
+        departureDate: '2026-07-17',
+        adults: 2,
+        roomTypeId,
+        roomId,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(reservationsRepository.save).not.toHaveBeenCalled();
   });
 
   it('rejects departure dates that are not after arrival dates', async () => {
@@ -237,7 +256,7 @@ describe('ReservationsService', () => {
 
   it('lists reservations with pagination', async () => {
     const queryBuilder = {
-      leftJoin: jest.fn().mockReturnThis(),
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
@@ -258,7 +277,7 @@ describe('ReservationsService', () => {
 
   it('searches by reservation code, guest name, and phone', async () => {
     const queryBuilder = {
-      leftJoin: jest.fn().mockReturnThis(),
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
@@ -322,6 +341,7 @@ describe('ReservationsService', () => {
     await expect(service.findOne(propertyId, reservationId)).resolves.toEqual(reservationEntity);
     expect(reservationsRepository.findOne).toHaveBeenCalledWith({
       where: { id: reservationId, propertyId },
+      relations: { guest: true, roomType: true, room: true },
     });
   });
 

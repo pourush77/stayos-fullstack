@@ -11,6 +11,7 @@ import {
   getMobileCaptureSessionStatus,
   type MobileCaptureSessionDto,
 } from '../../../lib/reservation-api';
+import { getPublicAppOrigin } from '../../../lib/api-base';
 
 interface Props {
   opened: boolean;
@@ -104,7 +105,7 @@ export function SendToPhoneModal({
   }, [opened, session, propertyId, reservationId, onCaptured]);
 
   const captureUrl = session
-    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/mobile-capture/${session.token}`
+    ? `${getPublicAppOrigin()}/mobile-capture/${session.token}`
     : '';
 
   return (

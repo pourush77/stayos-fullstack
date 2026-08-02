@@ -30,6 +30,14 @@ function getArray(record: Record<string, unknown>, keys: string[]) {
   return [];
 }
 
+function getRecord(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  }
+  return undefined;
+}
+
 function normalizeStatus(value: string, blacklistStatus: boolean): GuestStatus {
   if (blacklistStatus) return 'BLACKLISTED';
   const normalized = value.toUpperCase();
@@ -72,11 +80,23 @@ export function mapGuest(dto: GuestDto): Guest {
     reservations: getArray(dto, ['reservations'])
       .map((item) => (item && typeof item === 'object' ? item as Record<string, unknown> : undefined))
       .filter((item): item is Record<string, unknown> => Boolean(item))
-      .map((item) => ({
-        arrivalDate: getString(item, ['arrivalDate']),
-        id: getString(item, ['id', 'reservationId']),
-        status: getString(item, ['status']),
-      }))
+      .map((item) => {
+        const room = getRecord(item, ['room']);
+        const roomType = getRecord(item, ['roomType', 'room_type']);
+        return {
+          arrivalDate: getString(item, ['arrivalDate']),
+          departureDate: getString(item, ['departureDate']),
+          folioId: getString(item, ['folioId']),
+          folioNumber: getString(item, ['folioNumber']),
+          folioStatus: getString(item, ['folioStatus']),
+          id: getString(item, ['id', 'reservationId']),
+          paymentStatus: getString(item, ['paymentStatus'], 'PAYMENT_DUE'),
+          reservationCode: getString(item, ['reservationCode', 'bookingId']),
+          roomNumber: getString(room ?? item, ['roomNumber', 'room_number'], 'Unassigned'),
+          roomType: getString(roomType ?? item, ['name', 'roomTypeName', 'room_type_name'], 'Room type not recorded'),
+          status: getString(item, ['status']),
+        };
+      })
       .filter((item) => item.id),
   };
 }

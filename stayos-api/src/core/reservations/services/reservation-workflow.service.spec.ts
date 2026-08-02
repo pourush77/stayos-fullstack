@@ -9,6 +9,10 @@ import { RoomTypeEntity } from '../../room-types/infrastructure/room-type.entity
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
 import { RoomStatus } from '../../rooms/domain/room-status.enum';
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
+import { FolioChargeType } from '../../billing/domain/folio-charge-type.enum';
+import { FolioStatus } from '../../billing/domain/folio-status.enum';
+import { FolioChargeEntity } from '../../billing/infrastructure/folio-charge.entity';
+import { FolioEntity } from '../../billing/infrastructure/folio.entity';
 import { ReservationPaymentStatus } from '../domain/reservation-payment-status.enum';
 import { ReservationSource } from '../domain/reservation-source.enum';
 import { ReservationStatus } from '../domain/reservation-status.enum';
@@ -124,6 +128,8 @@ describe('ReservationWorkflowService', () => {
   let guestsRepository: MockRepository<GuestEntity>;
   let auditRepository: MockRepository<AuditEventEntity>;
   let activityRepository: MockRepository<ActivityEventEntity>;
+  let foliosRepository: MockRepository<FolioEntity>;
+  let folioChargesRepository: MockRepository<FolioChargeEntity>;
   let checkInService: Pick<CheckInService, 'loadWorkspaceParts' | 'validateFinalChecklist'>;
 
   beforeEach(() => {
@@ -131,6 +137,7 @@ describe('ReservationWorkflowService', () => {
       findOne: jest.fn().mockResolvedValue(reservationEntity()),
       count: jest.fn().mockResolvedValue(0),
       save: jest.fn().mockImplementation(async (entity: ReservationEntity) => entity),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
     };
     roomsRepository = {
       findOne: jest.fn().mockResolvedValue(roomEntity()),
@@ -150,6 +157,14 @@ describe('ReservationWorkflowService', () => {
       create: jest.fn().mockImplementation((entity) => entity),
       save: jest.fn().mockImplementation(async (entity) => entity),
     };
+    foliosRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+    folioChargesRepository = {
+      create: jest.fn().mockImplementation((entity) => entity),
+      save: jest.fn().mockImplementation(async (entity) => entity),
+    };
 
     const manager = {
       getRepository: jest.fn((entity) => {
@@ -159,6 +174,8 @@ describe('ReservationWorkflowService', () => {
         if (entity === GuestEntity) return guestsRepository;
         if (entity === AuditEventEntity) return auditRepository;
         if (entity === ActivityEventEntity) return activityRepository;
+        if (entity === FolioEntity) return foliosRepository;
+        if (entity === FolioChargeEntity) return folioChargesRepository;
         throw new Error('Unexpected repository');
       }),
     } as unknown as EntityManager;
@@ -341,6 +358,32 @@ describe('ReservationWorkflowService', () => {
       );
     });
 
+    it('rejects checkout when the folio still has a balance', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ roomId, status: ReservationStatus.CHECKED_IN }),
+      );
+      foliosRepository.findOne?.mockResolvedValue({
+        id: 'folio-1',
+        propertyId,
+        reservationId,
+        charges: [
+          {
+            type: FolioChargeType.ROOM,
+            quantity: 1,
+            unitAmount: '3500.00',
+            amount: '3500.00',
+            taxAmount: '420.00',
+          },
+        ],
+        payments: [{ amount: '3500.00' }],
+      } as FolioEntity);
+
+      await expect(service.checkOut(propertyId, reservationId)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(roomsRepository.save).not.toHaveBeenCalled();
+    });
+
     it('updates room to needs cleaning', async () => {
       reservationsRepository.findOne?.mockResolvedValue(
         reservationEntity({ roomId, status: ReservationStatus.CHECKED_IN }),
@@ -350,6 +393,39 @@ describe('ReservationWorkflowService', () => {
 
       expect(roomsRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ operationalStatus: RoomOperationalStatus.NEEDS_CLEANING }),
+      );
+    });
+
+    it('auto-settles a fully paid open folio during checkout', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ roomId, status: ReservationStatus.CHECKED_IN }),
+      );
+      foliosRepository.findOne?.mockResolvedValue({
+        id: 'folio-1',
+        propertyId,
+        reservationId,
+        status: FolioStatus.OPEN,
+        charges: [
+          {
+            type: FolioChargeType.ROOM,
+            quantity: 1,
+            unitAmount: '3500.00',
+            amount: '3500.00',
+            taxAmount: '420.00',
+          },
+        ],
+        payments: [{ amount: '3920.00' }],
+      } as FolioEntity);
+
+      await service.checkOut(propertyId, reservationId);
+
+      expect(foliosRepository.update).toHaveBeenCalledWith(
+        { id: 'folio-1' },
+        expect.objectContaining({
+          status: FolioStatus.SETTLED,
+          settledAt: expect.any(Date),
+          updatedAt: expect.any(Date),
+        }),
       );
     });
 
@@ -375,6 +451,73 @@ describe('ReservationWorkflowService', () => {
       expect(activityRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'GUEST_CHECKED_OUT' }),
       );
+    });
+  });
+
+  describe('extendStay', () => {
+    it('adds an extra-night folio charge and reopens balance on a paid stay', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({
+          roomId,
+          status: ReservationStatus.CHECKED_IN,
+          paymentStatus: ReservationPaymentStatus.PAID,
+        }),
+      );
+      roomsRepository.findOne?.mockResolvedValue(
+        roomEntity({ operationalStatus: RoomOperationalStatus.OCCUPIED }),
+      );
+      foliosRepository.findOne?.mockResolvedValue({
+        id: 'folio-1',
+        propertyId,
+        reservationId,
+        charges: [
+          {
+            type: FolioChargeType.ROOM,
+            quantity: 2,
+            unitAmount: '3500.00',
+            amount: '7000.00',
+            taxAmount: '840.00',
+          },
+        ],
+        payments: [{ amount: '7840.00' }],
+      } as FolioEntity);
+
+      await expect(
+        service.extendStay(propertyId, reservationId, { departureDate: '2026-07-18' }),
+      ).resolves.toMatchObject({
+        reservation: { id: reservationId, departureDate: '2026-07-18' },
+      });
+
+      expect(folioChargesRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          folioId: 'folio-1',
+          type: FolioChargeType.ROOM,
+          description: 'Extended stay - 1 night',
+          quantity: 1,
+          unitAmount: '3500.00',
+          amount: '3500.00',
+          taxAmount: '420.00',
+        }),
+      );
+      expect(folioChargesRepository.save).toHaveBeenCalled();
+      expect(reservationsRepository.update).toHaveBeenCalledWith(
+        { id: reservationId, propertyId },
+        { paymentStatus: ReservationPaymentStatus.PARTIALLY_PAID },
+      );
+      expect(foliosRepository.update).toHaveBeenCalledWith(
+        { id: 'folio-1' },
+        expect.objectContaining({ updatedAt: expect.any(Date) }),
+      );
+    });
+
+    it('rejects a departure date that is not later than the current departure', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ roomId, status: ReservationStatus.CHECKED_IN }),
+      );
+
+      await expect(
+        service.extendStay(propertyId, reservationId, { departureDate: '2026-07-17' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 

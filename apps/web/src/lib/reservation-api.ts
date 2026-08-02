@@ -1,4 +1,4 @@
-import { API_BASE_URL } from './api-base';
+import { API_BASE_URL, getBrowserReachableApiBaseUrl } from './api-base';
 
 export { API_BASE_URL };
 
@@ -19,12 +19,22 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ApiResponse<T> | { message?: unknown } | undefined;
 
   if (!response.ok) {
+    const nestedError =
+      payload &&
+      typeof payload === 'object' &&
+      'error' in payload &&
+      payload.error &&
+      typeof payload.error === 'object'
+        ? (payload.error as { message?: unknown })
+        : undefined;
     const message =
       payload &&
       typeof payload === 'object' &&
       'message' in payload &&
       typeof payload.message === 'string'
         ? payload.message
+        : typeof nestedError?.message === 'string'
+          ? nestedError.message
         : `Reservation API request failed: ${response.status} ${response.statusText}`;
     throw new Error(message);
   }
@@ -391,7 +401,7 @@ export function getMobileCaptureSessionStatus(propertyId: string, reservationId:
 // Public (no-auth) helpers used by the phone capture page ------------------
 
 export async function getPublicCaptureSession(token: string, signal?: AbortSignal): Promise<MobileCaptureSessionDto> {
-  const response = await fetch(`${API_BASE_URL}/check-in-capture/${token}`, {
+  const response = await fetch(`${getBrowserReachableApiBaseUrl()}/check-in-capture/${token}`, {
     method: 'GET',
     cache: 'no-store',
     signal,
@@ -409,7 +419,7 @@ export async function uploadPublicCaptureDocument(
   const form = new FormData();
   form.append('file', file);
   form.append('type', side);
-  const response = await fetch(`${API_BASE_URL}/check-in-capture/${token}/documents`, {
+  const response = await fetch(`${getBrowserReachableApiBaseUrl()}/check-in-capture/${token}/documents`, {
     method: 'POST',
     body: form,
   });

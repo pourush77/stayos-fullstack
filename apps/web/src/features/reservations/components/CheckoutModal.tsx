@@ -6,7 +6,7 @@ import { AlertTriangle, CheckCircle2, CreditCard, Download, Mail, MessageCircle,
 import { radius, spacing } from '@stayos/theme';
 import { API_BASE_URL } from '../../../lib/api-base';
 import { showToast } from '@stayos/ui';
-import { addPayment, createRazorpayOrder, getFolioForReservation, getRazorpayConfig, verifyRazorpayPayment } from '../../billing/api/billing-api';
+import { addPayment, createRazorpayOrder, getFolioForReservation, getPaymentReceiptUrl, getRazorpayConfig, verifyRazorpayPayment } from '../../billing/api/billing-api';
 import type { Folio, FolioPaymentMethod } from '../../billing/types/billing.types';
 
 declare global {
@@ -49,9 +49,20 @@ export type CheckoutModalProps = {
   reservationId: string;
   guestName: string;
   onConfirmCheckout: () => Promise<void>;
+  mode?: 'checkin-payment' | 'checkout';
+  onPaymentUpdated?: () => void;
 };
 
-export function CheckoutModal({ opened, onClose, propertyId, reservationId, guestName, onConfirmCheckout }: CheckoutModalProps) {
+export function CheckoutModal({
+  opened,
+  onClose,
+  propertyId,
+  reservationId,
+  guestName,
+  onConfirmCheckout,
+  mode = 'checkout',
+  onPaymentUpdated,
+}: CheckoutModalProps) {
   const [folio, setFolio] = useState<Folio | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
@@ -121,6 +132,7 @@ export function CheckoutModal({ opened, onClose, propertyId, reservationId, gues
       setPaymentAmount(Math.max(0, Number(next.totals.balance)));
       setPaymentReference('');
       setLastPaymentId(next.payments?.[next.payments.length - 1]?.id);
+      onPaymentUpdated?.();
       showToast({ color: 'green', title: 'Payment recorded', message: `${formatCurrency(paymentAmount)} received via ${paymentMethod}.` });
     } catch (error) {
       showToast({ color: 'red', title: 'Payment failed', message: error instanceof Error ? error.message : 'Please try again.' });
@@ -166,6 +178,7 @@ export function CheckoutModal({ opened, onClose, propertyId, reservationId, gues
             setFolio(nextFolio);
             setPaymentAmount(Math.max(0, Number(nextFolio.totals.balance)));
             setLastPaymentId(nextFolio.payments?.[nextFolio.payments.length - 1]?.id);
+            onPaymentUpdated?.();
             showToast({ color: 'green', title: 'Payment captured', message: `Razorpay confirmed ${formatCurrency(paymentAmount)}.` });
           } catch (verifyError) {
             showToast({ color: 'red', title: 'Verification failed', message: verifyError instanceof Error ? verifyError.message : 'Please try again.' });
@@ -205,8 +218,27 @@ export function CheckoutModal({ opened, onClose, propertyId, reservationId, gues
     }
   };
 
+  const downloadReceipt = async () => {
+    if (!folio || !lastPaymentId) return;
+    const url = getPaymentReceiptUrl(propertyId, folio.id, lastPaymentId);
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Could not download receipt');
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      window.open(objectUrl, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (error) {
+      showToast({
+        color: 'red',
+        title: 'Receipt download failed',
+        message: error instanceof Error ? error.message : 'Please try again.',
+      });
+    }
+  };
+
   return (
-    <Modal opened={opened} onClose={onClose} title={`Checkout · ${guestName}`} size="lg" centered>
+    <Modal opened={opened} onClose={onClose} title={`${mode === 'checkin-payment' ? 'Collect payment' : 'Checkout'} - ${guestName}`} size="lg" centered>
       {loadError ? (
         <Alert color="red" variant="light" icon={<AlertTriangle size={17} />}>{loadError}</Alert>
       ) : isLoading || !folio ? (
@@ -245,10 +277,7 @@ export function CheckoutModal({ opened, onClose, propertyId, reservationId, gues
                     color="green"
                     size="xs"
                     leftSection={<Download size={13} />}
-                    component="a"
-                    href={`${API_BASE_URL}/properties/${propertyId}/folios/${folio.id}/payments/${lastPaymentId}/receipt.pdf`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    onClick={() => void downloadReceipt()}
                     data-testid="receipt-download"
                   >
                     Download PDF
@@ -307,7 +336,17 @@ export function CheckoutModal({ opened, onClose, propertyId, reservationId, gues
                   >
                     Charge via Razorpay
                   </Button>
-                ) : <span />}
+                ) : (
+                  <Button
+                    variant="light"
+                    color="gray"
+                    leftSection={<Smartphone size={16} />}
+                    disabled
+                    data-testid="checkout-razorpay-disabled"
+                  >
+                    Razorpay not configured
+                  </Button>
+                )}
                 <Button variant="light" color="stayosBrand" loading={isPaying} onClick={() => void recordPayment()} data-testid="checkout-record-payment">Record manual payment</Button>
               </Group>
               <Alert color="orange" variant="light" icon={<AlertTriangle size={16} />}>
@@ -318,25 +357,32 @@ export function CheckoutModal({ opened, onClose, propertyId, reservationId, gues
             </>
           ) : (
             <Alert color="green" variant="light" icon={<CheckCircle2 size={16} />}>
-              Folio is fully settled. You can complete checkout.
+              {mode === 'checkin-payment' ? 'Folio is fully settled. Continue check-in.' : 'Folio is fully settled. You can complete checkout.'}
             </Alert>
           )}
 
-          <Group justify="space-between" mt={spacing[2]}>
-            <Button variant="subtle" color="gray" onClick={onClose}>Cancel</Button>
-            <Button
-              color="red"
-              leftSection={<CreditCard size={16} />}
-              disabled={hasBalance}
-              loading={isCheckingOut}
-              onClick={() => void finalizeCheckout()}
-              data-testid="checkout-confirm"
-            >
-              Complete checkout
-            </Button>
-          </Group>
+          {mode === 'checkin-payment' ? (
+            <Group justify="flex-end" mt={spacing[2]}>
+              <Button color="stayosBrand" onClick={onClose}>Done</Button>
+            </Group>
+          ) : (
+            <Group justify="space-between" mt={spacing[2]}>
+              <Button variant="subtle" color="gray" onClick={onClose}>Cancel</Button>
+              <Button
+                color="red"
+                leftSection={<CreditCard size={16} />}
+                disabled={hasBalance}
+                loading={isCheckingOut}
+                onClick={() => void finalizeCheckout()}
+                data-testid="checkout-confirm"
+              >
+                Complete checkout
+              </Button>
+            </Group>
+          )}
         </Stack>
       )}
     </Modal>
   );
 }
+

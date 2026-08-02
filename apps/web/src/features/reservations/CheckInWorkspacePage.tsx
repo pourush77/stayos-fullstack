@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Alert, Badge, Box, Button, Card, Checkbox, Group, Loader, Paper, Select, SimpleGrid, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
 import { AlertTriangle, BedDouble, Camera, Check, ChevronLeft, Clock3, CreditCard, IdCard, Info, ShieldCheck, Sparkles, Trash2, Upload, UserRound, Users, X } from 'lucide-react';
@@ -19,9 +19,10 @@ import {
   uploadCheckInDocument,
   type CheckInWorkspaceDto,
 } from '../../lib/reservation-api';
-import { detectIdFromImage } from './utils/id-detection';
+import { detectIdFromImage, type IdDetectionResult } from './utils/id-detection';
 import { FaceMatchCard } from './components/FaceMatchCard';
 import { SendToPhoneModal } from './components/SendToPhoneModal';
+import { CheckoutModal } from './components/CheckoutModal';
 import { COMMON_COUNTRIES, COMMON_NATIONALITIES, INDIAN_STATES, PURPOSE_OF_VISIT } from './constants/guest-form-options';
 
 const cardStyle = {
@@ -293,6 +294,7 @@ export function CheckInWorkspacePage() {
 
   // Payment form state
   const [paymentMethod, setPaymentMethod] = useState<string>('CASH');
+  const [paymentCollectionOpened, setPaymentCollectionOpened] = useState(false);
 
   const applyWorkspace = useCallback((next: CheckInWorkspaceDto) => {
     setWorkspace(next);
@@ -310,6 +312,62 @@ export function CheckInWorkspacePage() {
     setIdVerified(next.identity.verified);
     if (next.payment.paymentMethod) setPaymentMethod(next.payment.paymentMethod);
   }, []);
+
+  const applyDetectedId = useCallback((detected: IdDetectionResult | null) => {
+    if (!detected) return false;
+    const bits: string[] = [];
+    const flags: Record<string, boolean> = {};
+
+    if (detected.idType !== 'OTHER') {
+      setIdType(detected.idType);
+      if (detected.idNumber) {
+        setIdNumber(detected.idNumber);
+        flags.idNumber = true;
+        bits.push(`${detected.idType.replace('_', ' ')}: ${detected.idNumber}`);
+      } else {
+        bits.push(detected.idType.replace('_', ' '));
+      }
+    }
+    if (detected.fullName && !fullName.trim()) {
+      setFullName(detected.fullName);
+      flags.fullName = true;
+      bits.push(`Name: ${detected.fullName}`);
+    } else if (detected.fullName && detected.fullName.toLowerCase() !== fullName.trim().toLowerCase()) {
+      bits.push(`ID name: ${detected.fullName}`);
+    }
+    if (detected.dateOfBirth && !dateOfBirth.trim()) {
+      setDateOfBirth(detected.dateOfBirth);
+      flags.dateOfBirth = true;
+      bits.push(`DOB: ${detected.dateOfBirth}`);
+    }
+    if (detected.address && !addressLine1.trim()) {
+      setAddressLine1(detected.address);
+      flags.addressLine1 = true;
+      bits.push('Address');
+    }
+    if (detected.country && !country.trim()) {
+      setCountry(detected.country);
+      flags.country = true;
+    }
+    if (detected.state && !state.trim()) {
+      setState(detected.state);
+      flags.state = true;
+    }
+    if (detected.city && !city.trim()) {
+      setCity(detected.city);
+      flags.city = true;
+    }
+    if (Object.keys(flags).length > 0) {
+      setAutoFilled((prev) => ({ ...prev, ...flags }));
+    }
+    if (bits.length === 0) return false;
+    showToast({
+      color: 'green',
+      title: 'Auto-filled from ID',
+      message: `${bits.join(' - ')} - please confirm and save.`,
+    });
+    return true;
+  }, [addressLine1, city, country, dateOfBirth, fullName, state]);
 
   useEffect(() => {
     if (!params.reservationId || !propertyId) return;
@@ -457,11 +515,12 @@ export function CheckInWorkspacePage() {
       showToast({ color: 'green', title: 'Photo uploaded', message: `${side === 'front' ? 'Front' : 'Back'} of ID saved.` });
 
       // Auto-detect ID type + number + name from the front photo (client-side OCR — Tesseract.js).
-      if (side === 'front' && file.type.startsWith('image/')) {
+      if (file.type.startsWith('image/')) {
         try {
           setIsDetecting(true);
           const detected = await detectIdFromImage(file);
           if (detected) {
+            if (applyDetectedId(detected)) return;
             const bits: string[] = [];
             const flags: Record<string, boolean> = {};
             if (detected.idType !== 'OTHER' && detected.idNumber) {
@@ -504,6 +563,12 @@ export function CheckInWorkspacePage() {
           }
         } catch (ocrError) {
           console.warn('OCR failed', ocrError);
+          showToast({
+            color: 'yellow',
+            title: 'OCR could not read this photo',
+            message: 'Continue manually, or upload a closer, straight photo where the ID text fills most of the frame.',
+            autoClose: 8000,
+          });
         } finally {
           setIsDetecting(false);
         }
@@ -512,6 +577,51 @@ export function CheckInWorkspacePage() {
       showToast({ color: 'red', title: 'Upload failed', message: error instanceof Error ? error.message : 'Please try again.' });
     } finally {
       setIsSubmitting(null);
+    }
+  };
+
+  const tryAutoFillFromId = async () => {
+    if (!propertyId || !workspace) return;
+    const docsToRead = workspace.documents.filter((doc) =>
+      (doc.side === 'ID_FRONT' || doc.side === 'ID_BACK') && doc.mimeType.startsWith('image/'),
+    );
+    if (docsToRead.length === 0) {
+      showToast({
+        color: 'yellow',
+        title: 'Upload ID photos first',
+        message: 'Add the front and back photos, then try auto-fill.',
+      });
+      return;
+    }
+
+    setIsDetecting(true);
+    let filledAny = false;
+    try {
+      for (const doc of docsToRead) {
+        const response = await fetch(getCheckInDocumentPreviewUrl(propertyId, workspace.booking.reservationId, doc.id));
+        if (!response.ok) continue;
+        const blob = await response.blob();
+        const detected = await detectIdFromImage(blob);
+        filledAny = applyDetectedId(detected) || filledAny;
+      }
+      if (!filledAny) {
+        showToast({
+          color: 'yellow',
+          title: 'Could not auto-fill from ID',
+          message: 'Type the fields manually, or upload a closer, straight photo where the text fills most of the frame.',
+          autoClose: 8000,
+        });
+      }
+    } catch (ocrError) {
+      console.warn('OCR failed', ocrError);
+      showToast({
+        color: 'yellow',
+        title: 'OCR could not read this photo',
+        message: 'Continue manually. OCR is optional and should not block check-in.',
+        autoClose: 8000,
+      });
+    } finally {
+      setIsDetecting(false);
     }
   };
 
@@ -559,7 +669,7 @@ export function CheckInWorkspacePage() {
           await reviewCheckInPayment(propertyId, workspace.booking.reservationId, {
             paymentMethod: paymentMethod || 'CASH',
             paymentReviewed: true,
-            paymentReviewNotes: 'Auto-marked: collect at checkout',
+            notes: 'Auto-marked: collect at checkout',
           });
         } catch {
           // Non-blocking — actual money collection happens in the Stay Workspace.
@@ -688,22 +798,34 @@ export function CheckInWorkspacePage() {
           {isDetecting ? (
             <Alert color="blue" variant="light" icon={<Loader size="xs" color="blue" />} data-testid="checkin-ocr-progress">
               <Text size="sm" fw={700}>Reading the ID…</Text>
-              <Text size="xs" c="#64748b">This takes a few seconds. Name, DOB and ID number will be filled below.</Text>
+              <Text size="xs" c="#64748b">Reading uploaded ID photos. If nothing fills, continue manually.</Text>
             </Alert>
           ) : (
             <Group justify="space-between" align="center" wrap="wrap" gap={8}>
               <Text c="#64748b" size="sm" style={{ flex: 1, minWidth: 240 }}>
-                Tap <b>Snap / Upload</b> below on this device, or <b>Send to phone</b> to let the guest snap with their own camera.
+                Upload ID photos, then type details manually or use auto-fill if the image is clear.
               </Text>
-              <Button
-                variant="light"
-                color="stayosBrand"
-                leftSection={<Camera size={16} />}
-                onClick={() => setSendToPhoneOpened(true)}
-                data-testid="checkin-send-to-phone"
-              >
-                Send to phone
-              </Button>
+              <Group gap={8}>
+                <Button
+                  variant="light"
+                  color="stayosBrand"
+                  leftSection={<Sparkles size={16} />}
+                  loading={isDetecting}
+                  onClick={() => void tryAutoFillFromId()}
+                  data-testid="checkin-try-autofill"
+                >
+                  Try auto-fill
+                </Button>
+                <Button
+                  variant="light"
+                  color="stayosBrand"
+                  leftSection={<Camera size={16} />}
+                  onClick={() => setSendToPhoneOpened(true)}
+                  data-testid="checkin-send-to-phone"
+                >
+                  Send to phone
+                </Button>
+              </Group>
             </Group>
           )}
           <Paper radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px dashed #cbd5e1' }}>
@@ -951,9 +1073,14 @@ export function CheckInWorkspacePage() {
             >
               Collect at checkout — skip for now
             </Button>
-            <Button color="stayosBrand" loading={isSubmitting === 'payment'} onClick={() => void savePayment()} data-testid="checkin-save-payment">
-              Confirm payment plan
-            </Button>
+            <Group gap={8}>
+              <Button variant="light" color="stayosBrand" loading={isSubmitting === 'payment'} onClick={() => void savePayment()} data-testid="checkin-save-payment">
+                Mark reviewed
+              </Button>
+              <Button color="stayosBrand" leftSection={<CreditCard size={16} />} onClick={() => setPaymentCollectionOpened(true)} data-testid="checkin-collect-payment">
+                Collect payment now
+              </Button>
+            </Group>
           </Group>
         </Stack>
       </StepCard>
@@ -1027,6 +1154,16 @@ export function CheckInWorkspacePage() {
         frontUploadedInitially={Boolean(workspace.documents.find((d) => d.side === 'ID_FRONT'))}
         backUploadedInitially={Boolean(workspace.documents.find((d) => d.side === 'ID_BACK'))}
         onCaptured={refreshWorkspace}
+      />
+      <CheckoutModal
+        opened={paymentCollectionOpened}
+        onClose={() => setPaymentCollectionOpened(false)}
+        propertyId={propertyId}
+        reservationId={workspace.booking.reservationId}
+        guestName={workspace.guest.fullName || 'Guest'}
+        mode="checkin-payment"
+        onPaymentUpdated={refreshWorkspace}
+        onConfirmCheckout={async () => undefined}
       />
     </Stack>
   );

@@ -130,6 +130,62 @@ export class BillingController {
     return BillingMapper.toResponse(folio);
   }
 
+  @Get('folios/:folioId/final-bill.pdf')
+  @RequirePermissions(Permissions.BillingView)
+  @RawResponse()
+  @Header('Cache-Control', 'private, max-age=0, no-cache')
+  async downloadFinalBill(
+    @Param('propertyId', new ParseUUIDPipe()) propertyId: string,
+    @Param('folioId', new ParseUUIDPipe()) folioId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const folio = await this.billingService.getFolio(propertyId, folioId);
+    let buffer: Buffer;
+    try {
+      const response = BillingMapper.toResponse(folio);
+      const guest = folio.guest;
+      const reservation = folio.reservation;
+      const property = folio.property;
+      buffer = await this.receiptPdfService.generateFinalBill({
+        folio,
+        totals: {
+          total: response.totals.total,
+          paid: response.totals.paid,
+          balance: response.totals.balance,
+        },
+        charges: folio.charges ?? [],
+        payments: folio.payments ?? [],
+        property: {
+          name: property?.name ?? property?.legalName ?? 'Hotel',
+          legalName: property?.legalName ?? null,
+          gstNumber: property?.gstNumber ?? null,
+          phone: property?.phone ?? null,
+          email: property?.email ?? null,
+          address: [
+            property?.addressLine1,
+            property?.addressLine2,
+            property?.city,
+            property?.state,
+            property?.postalCode,
+            property?.country,
+          ].filter(Boolean).join(', '),
+        },
+        guestName: guest?.displayName ?? [guest?.firstName, guest?.lastName].filter(Boolean).join(' ') ?? 'Guest',
+        reservationCode: reservation?.reservationCode ?? '-',
+        roomNumber: reservation?.room?.roomNumber ?? undefined,
+        stay: reservation ? { arrival: reservation.arrivalDate, departure: reservation.departureDate } : undefined,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[final-bill.pdf]', err instanceof Error ? err.stack : err);
+      res.status(500).json({ success: false, error: { code: 'PDF_GENERATION_FAILED', message: err instanceof Error ? err.message : 'Unknown' } });
+      return;
+    }
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="final-bill-${folio.folioNumber}.pdf"`);
+    res.send(buffer);
+  }
+
   @Get('folios/:folioId/payments/:paymentId/receipt.pdf')
   @RequirePermissions(Permissions.BillingManage)
   @RawResponse()
@@ -151,6 +207,7 @@ export class BillingController {
       const response = BillingMapper.toResponse(folio);
       const guest = folio.guest;
       const reservation = folio.reservation;
+      const property = folio.property;
       buffer = await this.receiptPdfService.generate({
         folio,
         totals: {
@@ -161,9 +218,24 @@ export class BillingController {
         charges: folio.charges ?? [],
         payments: folio.payments ?? [],
         payment,
-        hotelName: 'StayOS Hotel',
+        property: {
+          name: property?.name ?? property?.legalName ?? 'Hotel',
+          legalName: property?.legalName ?? null,
+          gstNumber: property?.gstNumber ?? null,
+          phone: property?.phone ?? null,
+          email: property?.email ?? null,
+          address: [
+            property?.addressLine1,
+            property?.addressLine2,
+            property?.city,
+            property?.state,
+            property?.postalCode,
+            property?.country,
+          ].filter(Boolean).join(', '),
+        },
         guestName: guest?.displayName ?? [guest?.firstName, guest?.lastName].filter(Boolean).join(' ') ?? 'Guest',
         reservationCode: reservation?.reservationCode ?? '-',
+        roomNumber: reservation?.room?.roomNumber ?? undefined,
         stay: reservation ? { arrival: reservation.arrivalDate, departure: reservation.departureDate } : undefined,
       });
     } catch (err) {

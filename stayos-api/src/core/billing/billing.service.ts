@@ -50,7 +50,7 @@ export class BillingService {
     await this.propertiesService.findOne(propertyId);
     const folio = await this.foliosRepository.findOne({
       where: { id: folioId, propertyId },
-      relations: { guest: true, reservation: true, charges: true, payments: true },
+      relations: { property: true, guest: true, reservation: { room: true }, charges: true, payments: true },
     });
     if (!folio) throw new NotFoundException(`Folio ${folioId} was not found`);
     return folio;

@@ -142,6 +142,10 @@ export function getPaymentReceiptUrl(propertyId: string, folioId: string, paymen
   return `${API_BASE_URL}/properties/${propertyId}/folios/${folioId}/payments/${paymentId}/receipt.pdf`;
 }
 
+export function getFinalBillUrl(propertyId: string, folioId: string): string {
+  return `${API_BASE_URL}/properties/${propertyId}/folios/${folioId}/final-bill.pdf`;
+}
+
 export function getBillingOverview(
   propertyId: string,
   signal?: AbortSignal,

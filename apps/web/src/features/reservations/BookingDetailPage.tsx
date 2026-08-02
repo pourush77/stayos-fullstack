@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Alert, Box, Button, Card, Group, Loader, Modal, Paper, Popover, Select, SimpleGrid, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
-import { useParams, useRouter } from 'next/navigation';
-import { AlertCircle, BedDouble, CalendarDays, Check, ChevronLeft, CircleDollarSign, CreditCard, Edit, IdCard, MoveRight, NotebookText, Plus, ReceiptIndianRupee, UserRound, XCircle } from 'lucide-react';
+import { Alert, Badge, Box, Button, Card, Group, Loader, Modal, Paper, Popover, Select, SimpleGrid, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
+import { useParams } from 'next/navigation';
+import { AlertCircle, BedDouble, CalendarDays, ChevronLeft, CreditCard, Edit, IdCard, MoveRight, NotebookText, Plus, ReceiptIndianRupee, UserRound, XCircle } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
 import { updatePropertyGuest } from '../../lib/guest-api';
@@ -12,7 +12,7 @@ import { friendlyGuestError } from '../../lib/guest-hooks';
 import { BookingStatusBadge, PaymentStatusBadge } from './components/BookingBadges';
 import { friendlyBookingError, useBookingDetails } from './hooks/useBookings';
 import type { AvailableRoomOption, Booking } from './types/booking.types';
-import { bookingStatusLabel, formatStayDates, paymentStatusLabel, sourceLabel } from './utils/booking-formatters';
+import { bookingStatusLabel, paymentStatusLabel, sourceLabel } from './utils/booking-formatters';
 import { CheckoutModal } from './components/CheckoutModal';
 import { ExtendStayModal } from './components/ExtendStayModal';
 import { getFolioForReservation } from '../billing/api/billing-api';
@@ -28,8 +28,8 @@ const cardStyle = {
 function DetailTile({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <Paper radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
-      <Text c="#64748b" size="xs" fw={700}>{label}</Text>
-      <Text c="#182230" mt={3} size="sm" fw={700}>{value}</Text>
+      <Text c="#64748b" size="xs" fw={650}>{label}</Text>
+      <Text c="#111827" mt={3} size="sm" fw={550}>{value}</Text>
     </Paper>
   );
 }
@@ -39,39 +39,91 @@ function isMissing(value: string) {
   return !normalized || normalized === 'not recorded' || normalized === 'guest not connected';
 }
 
-function BookingProgressStepper({ booking }: { booking: Booking }) {
-  const hasRoom = booking.room !== 'Unassigned';
-  const steps = [
-    { complete: booking.status !== 'PENDING', current: booking.status === 'PENDING', label: 'Booked' },
-    { complete: hasRoom, current: booking.status === 'CONFIRMED' && !hasRoom, label: 'Room Assigned' },
-    { complete: booking.status === 'CHECKED_IN' || booking.status === 'CHECKED_OUT', current: booking.status === 'CONFIRMED' && hasRoom, label: 'Checked In' },
-    { complete: booking.status === 'CHECKED_OUT', current: booking.status === 'CHECKED_IN', label: 'Checked Out' },
-  ];
+function formatCurrency(amount?: number) {
+  if (typeof amount !== 'number' || Number.isNaN(amount)) return 'Loading...';
+  return new Intl.NumberFormat('en-IN', { currency: 'INR', maximumFractionDigits: 0, style: 'currency' }).format(amount);
+}
 
-  return (
-    <Paper data-testid="booking-progress-stepper" radius={radius.lg} p={10} style={{ background: '#ffffff', border: '1px solid #e2e8f0' }}>
-      <SimpleGrid cols={{ base: 1, sm: 4 }} spacing={8}>
-        {steps.map((step) => (
-          <Group
-            key={step.label}
-            gap={8}
-            wrap="nowrap"
-            p={10}
-            style={{
-              background: step.complete ? '#ecfdf3' : step.current ? '#f5f3ff' : '#f8fafc',
-              border: `1px solid ${step.complete ? '#bbf7d0' : step.current ? '#ddd6fe' : '#e2e8f0'}`,
-              borderRadius: radius.md,
-            }}
-          >
-            <ThemeIcon color={step.complete ? 'green' : step.current ? 'stayosBrand' : 'gray'} radius="xl" size={24} variant={step.complete || step.current ? 'filled' : 'light'}>
-              {step.complete ? <Check size={14} /> : null}
-            </ThemeIcon>
-            <Text c={step.complete ? '#166534' : step.current ? '#5b21b6' : '#64748b'} fw={800} size="sm">{step.label}</Text>
-          </Group>
-        ))}
-      </SimpleGrid>
-    </Paper>
-  );
+function formatHeaderStayDates(arrivalDate: string, departureDate: string) {
+  const format = (value: string) => {
+    const date = new Date(`${value.slice(0, 10)}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+  return `${format(arrivalDate)} to ${format(departureDate)}`;
+}
+
+function formatPhoneForDisplay(value: string) {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('91')) {
+    return `+91 ${digits.slice(2, 7)} ${digits.slice(7)}`;
+  }
+  if (digits.length === 10) {
+    return `${digits.slice(0, 5)} ${digits.slice(5)}`;
+  }
+  return value;
+}
+
+type FolioSummary = {
+  balance: number;
+  paid: number;
+  total: number;
+};
+
+function bookingActionState(booking: Booking, folio?: FolioSummary) {
+  const hasRoom = booking.room !== 'Unassigned';
+  const balance = folio?.balance;
+  const paid = folio?.paid ?? 0;
+  const hasBalance = typeof balance === 'number' && balance > 0.01;
+  const hasAnyPayment = paid > 0.01;
+
+  if (booking.status === 'CHECKED_OUT') {
+    return {
+      title: 'Stay complete',
+      description: 'Guest has checked out and the room is with housekeeping.',
+      paymentCopy: hasBalance ? `${formatCurrency(balance)} still needs review in folio.` : 'Folio is settled.',
+    };
+  }
+
+  if (!hasRoom) {
+    return {
+      title: 'Assign room first',
+      description: hasBalance
+        ? 'Room is still pending. You can collect payment now, but check-in cannot start until a ready room is assigned.'
+        : 'Payment is already clear. Assign a ready room, then start check-in.',
+      paymentCopy: hasBalance
+        ? hasAnyPayment ? `${formatCurrency(paid)} paid. ${formatCurrency(balance)} balance.` : `${formatCurrency(balance)} due.`
+        : 'No collection needed at check-in unless new charges are added.',
+    };
+  }
+
+  if (booking.status === 'CONFIRMED') {
+    return {
+      title: hasBalance ? 'Start check-in: verify ID and collect balance' : 'Ready for check-in',
+      description: hasBalance
+        ? 'Click Start Check-In. The check-in flow will guide ID verification and payment collection before completion.'
+        : 'Room is assigned and payment is clear. At check-in, just review payment and verify ID.',
+      paymentCopy: hasBalance
+        ? hasAnyPayment ? `${formatCurrency(paid)} paid. ${formatCurrency(balance)} balance.` : `${formatCurrency(balance)} due.`
+        : 'Already paid. Do not collect again at check-in.',
+    };
+  }
+
+  if (booking.status === 'CHECKED_IN') {
+    return {
+      title: 'Guest in-house',
+      description: hasBalance
+        ? 'Keep the balance visible and collect it before checkout.'
+        : 'Folio is clear. Add any in-stay charges as needed.',
+      paymentCopy: hasBalance ? `${formatCurrency(balance)} due before checkout.` : 'No balance due.',
+    };
+  }
+
+  return {
+    title: 'Confirm booking',
+    description: 'Confirm the booking, then assign a room and continue check-in.',
+    paymentCopy: hasBalance ? `${formatCurrency(balance)} outstanding.` : 'No collection needed yet.',
+  };
 }
 
 function GuestFieldEditor({
@@ -130,59 +182,57 @@ function GuestFieldEditor({
   );
 }
 
-function NextActionHero({
+function FrontDeskConsole({
   booking,
+  folio,
   isActing,
-  folioBalance,
   onAssignRoom,
-  onCheckIn,
   onCheckOut,
 }: {
   booking: Booking;
+  folio?: FolioSummary;
   isActing: boolean;
-  folioBalance?: number;
   onAssignRoom: () => void;
-  onCheckIn: () => Promise<void>;
   onCheckOut: () => Promise<void>;
 }) {
   if (booking.status === 'CHECKED_OUT' || booking.status === 'CANCELLED') return null;
 
   const unassigned = booking.room === 'Unassigned';
-  const title = unassigned ? 'Assign a room' : booking.status === 'CHECKED_IN' ? 'Ready for stay actions' : 'Start check-in';
-  const explainer = unassigned
-    ? 'Guest is expected today. Assign a room to continue.'
-    : booking.status === 'CHECKED_IN'
-      ? 'Guest is in-house. Keep billing and checkout close at hand.'
-      : 'Room is assigned. Start check-in when the guest arrives.';
-
-  const hasBalance = typeof folioBalance === 'number' && folioBalance > 0.01;
-  const balanceLabel = hasBalance
-    ? new Intl.NumberFormat('en-IN', { currency: 'INR', maximumFractionDigits: 0, style: 'currency' }).format(folioBalance)
-    : undefined;
+  const hasBalance = typeof folio?.balance === 'number' && folio.balance > 0.01;
+  const hasAnyPayment = (folio?.paid ?? 0) > 0.01;
+  const state = bookingActionState(booking, folio);
+  const chips = [
+    { color: unassigned ? 'orange' : 'green', label: unassigned ? 'Room pending' : booking.room },
+    { color: hasBalance ? 'orange' : 'green', label: hasBalance ? (hasAnyPayment ? `${formatCurrency(folio?.balance)} balance` : `${formatCurrency(folio?.total)} due`) : 'Payment clear' },
+    { color: booking.status === 'CHECKED_IN' ? 'green' : 'gray', label: booking.status === 'CHECKED_IN' ? 'In-house' : 'ID pending' },
+  ];
 
   return (
-    <Card radius={radius.lg} p={20} style={{ background: '#6d28d9', border: '1px solid #5b21b6', color: '#ffffff' }}>
-      <Group justify="space-between" align="center" gap={spacing[3]}>
-        <Box>
-          <Text fw={900} size="xl">{title}</Text>
-          <Text c="rgba(255,255,255,0.82)" size="sm">{explainer}</Text>
+    <Card radius={radius.lg} p={18} style={{ background: '#ffffff', border: '1px solid #ddd6fe', boxShadow: '0 10px 28px rgba(91, 33, 182, 0.08)' }}>
+      <Group justify="space-between" align="center" gap={spacing[4]}>
+        <Box style={{ minWidth: 0 }}>
+          <Text c="#5b21b6" fw={800} size="xl">{state.title}</Text>
+          <Text c="#475569" size="sm" mt={2}>{state.description}</Text>
+          <Group gap={8} mt={10}>
+            {chips.map((chip) => (
+              <Badge key={chip.label} color={chip.color} variant="light" radius="xl" size="md">{chip.label}</Badge>
+            ))}
+          </Group>
         </Box>
         <Group gap={8}>
           {unassigned ? (
-            <Button data-testid="booking-next-action-cta" color="white" c="#5b21b6" h={56} onClick={onAssignRoom}>Assign Room</Button>
+            <Button data-testid="booking-next-action-cta" color="stayosBrand" h={48} onClick={onAssignRoom}>Assign Room</Button>
           ) : booking.status === 'CHECKED_IN' ? (
             <>
-              {hasBalance ? (
-                <Group gap={6} px={12} py={6} style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 999, alignSelf: 'center' }} data-testid="booking-balance-chip">
-                  <CircleDollarSign size={16} color="#ffffff" />
-                  <Text c="#ffffff" fw={800} size="sm">{balanceLabel} to collect</Text>
-                </Group>
-              ) : null}
-              <Button component={Link} href={`/guest-stay/${booking.backendId}`} color="white" c="#5b21b6" h={56}>Add Charge</Button>
-              <Button data-testid="booking-next-action-cta" variant="white" color="red" h={56} loading={isActing} onClick={() => void onCheckOut()}>Check Out</Button>
+              <Button component={Link} href={`/guest-stay/${booking.backendId}`} color="stayosBrand" h={48}>Open Stay</Button>
+              <Button data-testid="booking-next-action-cta" variant="light" color="red" h={48} loading={isActing} onClick={() => void onCheckOut()}>Check Out</Button>
             </>
           ) : (
-            <Button component={Link} href={`/reservations/${booking.backendId}/check-in`} data-testid="booking-next-action-cta" color="white" c="#5b21b6" h={56}>Start Check-In</Button>
+            <>
+              <Button component={Link} href={`/reservations/${booking.backendId}/check-in`} data-testid="booking-next-action-cta" color="stayosBrand" h={48}>
+                Start Check-In
+              </Button>
+            </>
           )}
         </Group>
       </Group>
@@ -195,7 +245,7 @@ function Section({ children, icon, title }: { children: React.ReactNode; icon: R
     <Card radius={radius.lg} p={16} style={cardStyle}>
       <Group gap={10}>
         <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={34}>{icon}</ThemeIcon>
-        <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 800 }}>{title}</Title>
+        <Title order={2} c="#101828" style={{ fontSize: 19, fontWeight: 750 }}>{title}</Title>
       </Group>
       <Box mt={14}>{children}</Box>
     </Card>
@@ -314,7 +364,6 @@ function AssignRoomModal({
 }
 
 export default function BookingDetailPage() {
-  const router = useRouter();
   const params = useParams<{ reservationId: string }>();
   const backend = useBackendStatus();
   const allowMockFallback = process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
@@ -325,7 +374,8 @@ export default function BookingDetailPage() {
   const [checkoutOpened, setCheckoutOpened] = useState(false);
   const [extendOpened, setExtendOpened] = useState(false);
   const [moveOpened, setMoveOpened] = useState(false);
-  const [folioBalance, setFolioBalance] = useState<number | undefined>(undefined);
+  const [folioSummary, setFolioSummary] = useState<FolioSummary | undefined>(undefined);
+  const [folioId, setFolioId] = useState<string | undefined>(undefined);
   const [isActing, setIsActing] = useState(false);
   const retryBackend = () => void backend.retry();
   const checkBackendStatus = () => void backend.checkHealth();
@@ -334,14 +384,25 @@ export default function BookingDetailPage() {
   const currentPropertyId = bookingState.propertyId;
   useEffect(() => {
     if (!currentBooking || !currentPropertyId) return;
-    if (currentBooking.status !== 'CHECKED_IN' && currentBooking.status !== 'CHECKED_OUT') {
-      setFolioBalance(undefined);
+    if (currentBooking.status === 'CANCELLED' || currentBooking.status === 'PENDING') {
+      setFolioSummary(undefined);
+      setFolioId(undefined);
       return;
     }
     const controller = new AbortController();
     getFolioForReservation(currentPropertyId, currentBooking.backendId, controller.signal)
-      .then((f: Folio) => setFolioBalance(Number(f.totals.balance) || 0))
-      .catch(() => setFolioBalance(undefined));
+      .then((f: Folio) => {
+        setFolioId(f.id);
+        setFolioSummary({
+          balance: Number(f.totals.balance) || 0,
+          paid: Number(f.totals.paid) || 0,
+          total: Number(f.totals.total) || 0,
+        });
+      })
+      .catch(() => {
+        setFolioId(undefined);
+        setFolioSummary(undefined);
+      });
     return () => controller.abort();
   }, [currentPropertyId, currentBooking?.backendId, currentBooking?.status]);
 
@@ -352,7 +413,6 @@ export default function BookingDetailPage() {
 
   const booking = bookingState.booking;
   const canCancel = booking.status === 'PENDING' || booking.status === 'CONFIRMED';
-  const canChangeRoom = booking.status !== 'CHECKED_IN' && booking.status !== 'CHECKED_OUT' && booking.status !== 'CANCELLED';
   const guestFieldsDisabled = !booking.guestId || !bookingState.propertyId || bookingState.isFallback;
 
   const cancelBooking = async () => {
@@ -388,7 +448,7 @@ export default function BookingDetailPage() {
       await moveReservationRoom(bookingState.propertyId, booking.backendId, roomId);
       showToast({ color: 'green', title: 'Room moved', message: 'Guest moved to the new room.' });
       setMoveOpened(false);
-      await bookingState.refresh?.();
+      await bookingState.refreshBooking();
     } catch (error) {
       showToast({ color: 'red', title: 'Unable to move room', message: friendlyBookingError(error) });
     } finally {
@@ -396,16 +456,12 @@ export default function BookingDetailPage() {
     }
   };
 
-  const startCheckIn = async () => {
-    router.push(`/check-in?reservation=${booking.backendId}`);
-  };
-
   const checkOutBooking = async () => {
     setIsActing(true);
     try {
       await bookingState.checkOutBooking();
       showToast({ color: 'green', title: 'Checked out', message: 'The guest is now checked out. Room sent to housekeeping.' });
-      setFolioBalance(undefined);
+      setFolioSummary(undefined);
     } catch (error) {
       showToast({ color: 'red', title: 'Unable to check out', message: friendlyBookingError(error) });
     } finally {
@@ -413,7 +469,7 @@ export default function BookingDetailPage() {
     }
   };
 
-  const openCheckoutFlow = () => setCheckoutOpened(true);
+  const openCheckoutFlow = async () => setCheckoutOpened(true);
 
   const saveGuestField = async (field: 'phone' | 'email' | 'nationality', value: string) => {
     if (!bookingState.propertyId || !booking.guestId) return;
@@ -436,7 +492,19 @@ export default function BookingDetailPage() {
             <Button component={Link} href="/reservations" variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content">Back to Bookings</Button>
             <Group gap={8}><BookingStatusBadge status={booking.status} /><PaymentStatusBadge status={booking.paymentStatus} />{booking.isVip ? <Text c="#7c3aed" size="xs" fw={800}>VIP</Text> : null}</Group>
             <Title order={1} c="#101828" style={{ fontSize: 34, fontWeight: 800 }}>{booking.bookingId}</Title>
-            <Text c="#64748b" size="sm">{booking.guestName} - {formatStayDates(booking.arrivalDate, booking.departureDate)}</Text>
+            <Group gap={8}>
+              <Text c="#334155" fw={600} size="sm">{booking.guestName}</Text>
+              <Text c="#94a3b8" size="sm">·</Text>
+              <Text c="#334155" fw={600} size="sm">{booking.room}</Text>
+              <Text c="#94a3b8" size="sm">·</Text>
+              <Text c="#64748b" size="sm">{formatHeaderStayDates(booking.arrivalDate, booking.departureDate)}</Text>
+              {folioSummary && folioSummary.balance > 0.01 ? (
+                <>
+                  <Text c="#94a3b8" size="sm">·</Text>
+                  <Text c="#c2410c" fw={750} size="sm">{formatCurrency(folioSummary.balance)} balance</Text>
+                </>
+              ) : null}
+            </Group>
           </Stack>
           <Group gap={8}>
             {booking.status === 'CHECKED_IN' ? (
@@ -462,13 +530,11 @@ export default function BookingDetailPage() {
         </Group>
       </Card>
 
-      <BookingProgressStepper booking={booking} />
-      <NextActionHero
+      <FrontDeskConsole
         booking={booking}
+        folio={folioSummary}
         isActing={isActing}
-        folioBalance={folioBalance}
         onAssignRoom={() => setAssignOpened(true)}
-        onCheckIn={startCheckIn}
         onCheckOut={openCheckoutFlow}
       />
 
@@ -477,7 +543,7 @@ export default function BookingDetailPage() {
           <Section title="Guest" icon={<UserRound size={17} />}>
             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
               <DetailTile label="Guest name" value={booking.guestName} />
-              <DetailTile label="Phone" value={<GuestFieldEditor disabled={guestFieldsDisabled} field="phone" label="Phone" onSave={saveGuestField} value={booking.phone} />} />
+              <DetailTile label="Phone" value={<GuestFieldEditor disabled={guestFieldsDisabled} field="phone" label="Phone" onSave={saveGuestField} value={formatPhoneForDisplay(booking.phone)} />} />
               <DetailTile label="Email" value={<GuestFieldEditor disabled={guestFieldsDisabled} field="email" label="Email" onSave={saveGuestField} value={booking.email} />} />
               <DetailTile label="Nationality" value={<GuestFieldEditor disabled={guestFieldsDisabled} field="nationality" label="Nationality" onSave={saveGuestField} value={booking.nationality} />} />
             </SimpleGrid>
@@ -498,32 +564,80 @@ export default function BookingDetailPage() {
             </SimpleGrid>
           </Section>
 
-          <Section title="Room Assignment" icon={<BedDouble size={17} />}>
-            {booking.status === 'CHECKED_IN' ? (
-              <Alert color="blue" variant="light" radius={radius.md}>Room changes after check-in should happen from Stay.</Alert>
-            ) : booking.room === 'Unassigned' ? (
-              <Button color="stayosBrand" onClick={() => setAssignOpened(true)}>Assign Room</Button>
-            ) : (
-              <Group justify="space-between"><Text fw={700}>{booking.room}</Text>{canChangeRoom ? <Button variant="light" color="stayosBrand" onClick={() => setAssignOpened(true)}>Change Room</Button> : null}</Group>
-            )}
-          </Section>
+          {booking.room === 'Unassigned' || booking.status === 'CHECKED_IN' ? (
+            <Section title="Room Assignment" icon={<BedDouble size={17} />}>
+              {booking.status === 'CHECKED_IN' ? (
+                <Alert color="blue" variant="light" radius={radius.md}>Room changes after check-in should happen from Stay.</Alert>
+              ) : (
+                <Button color="stayosBrand" onClick={() => setAssignOpened(true)}>Assign Room</Button>
+              )}
+            </Section>
+          ) : null}
         </Stack>
 
         <Stack gap={spacing[3]} style={{ gridColumn: 'span 4' }}>
           <Section title="Payment" icon={<CreditCard size={17} />}>
             <Stack gap={spacing[2]}>
               <PaymentStatusBadge status={booking.paymentStatus} />
-              {booking.paymentStatus === 'PAYMENT_DUE' ? (
-                <Button component={Link} href="/billing" data-testid="booking-collect-payment" color="stayosBrand" leftSection={<ReceiptIndianRupee size={16} />}>
-                  Collect payment
+              {folioSummary ? (
+                <Paper radius={radius.md} p={14} style={{ background: folioSummary.balance > 0.01 ? '#fff7ed' : '#f0fdf4', border: `1px solid ${folioSummary.balance > 0.01 ? '#fed7aa' : '#bbf7d0'}` }}>
+                  <Text c={folioSummary.balance > 0.01 ? '#9a3412' : '#166534'} size="xs" fw={900} tt="uppercase">
+                    {folioSummary.balance > 0.01 ? 'Balance to collect' : 'Balance clear'}
+                  </Text>
+                  <Text c={folioSummary.balance > 0.01 ? '#c2410c' : '#166534'} fw={950} style={{ fontSize: 30, lineHeight: 1.1 }}>
+                    {formatCurrency(folioSummary.balance)}
+                  </Text>
+                  <SimpleGrid cols={2} spacing={8} mt={12}>
+                    <Paper radius={radius.sm} p={8} style={{ background: '#ffffff', border: '1px solid #e2e8f0' }}>
+                      <Text c="#64748b" size="xs" fw={650}>Paid</Text>
+                      <Text c="#166534" size="sm" fw={700}>{formatCurrency(folioSummary.paid)}</Text>
+                    </Paper>
+                    <Paper radius={radius.sm} p={8} style={{ background: '#ffffff', border: '1px solid #e2e8f0' }}>
+                      <Text c="#64748b" size="xs" fw={650}>Total</Text>
+                      <Text c="#101828" size="sm" fw={700}>{formatCurrency(folioSummary.total)}</Text>
+                    </Paper>
+                  </SimpleGrid>
+                </Paper>
+              ) : null}
+              <Text c="#475569" size="sm">
+                {folioSummary && folioSummary.balance > 0.01 && folioSummary.paid <= 0.01
+                  ? `No payment recorded yet. Collect ${formatCurrency(folioSummary.total)} during check-in.`
+                  : folioSummary && folioSummary.balance > 0.01 && folioSummary.paid > 0.01
+                    ? booking.status === 'CONFIRMED'
+                      ? `${formatCurrency(folioSummary.paid)} already collected. The remaining ${formatCurrency(folioSummary.balance)} will be handled during check-in.`
+                      : `${formatCurrency(folioSummary.paid)} already collected. Collect only the remaining ${formatCurrency(folioSummary.balance)}.`
+                    : booking.paymentStatus === 'PAID'
+                  ? 'Paid during booking. At check-in, review the payment and do not collect again.'
+                  : booking.paymentStatus === 'PARTIALLY_PAID'
+                    ? 'Advance received. Collect only the remaining balance from the folio.'
+                    : 'No payment recorded yet. Collect during check-in after ID verification.'}
+              </Text>
+              {booking.status === 'CHECKED_IN' && booking.paymentStatus !== 'PAID' ? (
+                <Button
+                  component={Link}
+                  href={folioId ? `/billing/${folioId}` : '/billing'}
+                  data-testid="booking-collect-payment"
+                  color="stayosBrand"
+                  leftSection={<ReceiptIndianRupee size={16} />}
+                >
+                  {booking.paymentStatus === 'PARTIALLY_PAID' ? 'Collect balance' : 'Collect payment'}
+                </Button>
+              ) : booking.status !== 'CHECKED_IN' && booking.paymentStatus !== 'PAID' && folioId ? (
+                <Button component={Link} href={`/billing/${folioId}`} data-testid="booking-collect-payment" variant="light" color="stayosBrand" leftSection={<ReceiptIndianRupee size={16} />}>
+                  Open folio
+                </Button>
+              ) : folioId ? (
+                <Button component={Link} href={`/billing/${folioId}`} variant="light" color="stayosBrand" leftSection={<ReceiptIndianRupee size={16} />}>
+                  View folio
                 </Button>
               ) : null}
             </Stack>
           </Section>
           <Section title="Notes" icon={<NotebookText size={17} />}><Text size="sm" c="#334155">{booking.notes}</Text></Section>
-          <Section title="Timeline" icon={<IdCard size={17} />}>
+          <Section title="Activity" icon={<IdCard size={17} />}>
             <Stack gap={spacing[2]}>
-              {['Booking created', booking.room !== 'Unassigned' ? 'Room assigned' : 'Room assignment pending', `${bookingStatusLabel(booking.status)} status`, `${paymentStatusLabel(booking.paymentStatus)} payment`].map((item) => <Text key={item} size="sm" c="#334155">- {item}</Text>)}
+              <Text size="sm" c="#334155">{booking.room !== 'Unassigned' ? 'Room assigned and booking confirmed.' : 'Booking confirmed. Room assignment pending.'}</Text>
+              <Text size="xs" c="#64748b">{bookingStatusLabel(booking.status)} · {paymentStatusLabel(booking.paymentStatus)}</Text>
             </Stack>
           </Section>
         </Stack>
@@ -548,7 +662,7 @@ export default function BookingDetailPage() {
           propertyId={bookingState.propertyId}
           reservationId={booking.backendId}
           currentDeparture={booking.departureDate}
-          onExtended={async () => { await bookingState.refresh?.(); }}
+          onExtended={async () => { await bookingState.refreshBooking(); }}
         />
       ) : null}
       {bookingState.propertyId ? (

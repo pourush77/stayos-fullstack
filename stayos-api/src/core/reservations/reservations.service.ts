@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
+import { In, LessThan, MoreThan, Not, QueryFailedError, Repository } from 'typeorm';
 import {
   createPaginationMeta,
   PaginationMeta,
@@ -21,7 +21,9 @@ import { CreateReservationDto } from './dto/create-reservation.dto';
 import { UpdateReservationDto } from './dto/update-reservation.dto';
 import { ReservationPaymentStatus } from './domain/reservation-payment-status.enum';
 import { ReservationStatus } from './domain/reservation-status.enum';
+import { GuestDocumentEntity } from './check-in-capture/guest-document.entity';
 import { ReservationEntity } from './infrastructure/reservation.entity';
+import { RoomOperationalStatus } from '../rooms/domain/room-operational-status.enum';
 
 export interface PaginatedReservations {
   data: ReservationEntity[];
@@ -39,6 +41,12 @@ const reservationSortColumns: Record<string, string> = {
   updatedAt: 'reservation.updatedAt',
 };
 
+const activeAssignmentStatuses = [
+  ReservationStatus.PENDING,
+  ReservationStatus.CONFIRMED,
+  ReservationStatus.CHECKED_IN,
+];
+
 @Injectable()
 export class ReservationsService {
   constructor(
@@ -52,6 +60,8 @@ export class ReservationsService {
     private readonly roomsRepository: Repository<RoomEntity>,
     @InjectRepository(ActivityEventEntity)
     private readonly activityRepository: Repository<ActivityEventEntity>,
+    @InjectRepository(GuestDocumentEntity)
+    private readonly guestDocumentsRepository: Repository<GuestDocumentEntity>,
     private readonly propertiesService: PropertiesService,
   ) {}
 
@@ -126,16 +136,29 @@ export class ReservationsService {
       throw new NotFoundException(`Reservation ${id} was not found`);
     }
 
-    const activity = await this.activityRepository.find({
-      where: { propertyId, entityType: 'RESERVATION', entityId: reservation.id },
-      order: { createdAt: 'DESC' },
-      take: 20,
-    });
+    const [activity, documents] = await Promise.all([
+      this.activityRepository.find({
+        where: { propertyId, entityType: 'RESERVATION', entityId: reservation.id },
+        order: { createdAt: 'DESC' },
+        take: 20,
+      }),
+      this.guestDocumentsRepository.find({
+        where: { propertyId, reservationId: reservation.id },
+        order: { createdAt: 'ASC' },
+      }),
+    ]);
 
     return {
       reservation,
       guest: reservation.guest,
       room: reservation.room,
+      documents: documents.map((document) => ({
+        id: document.id,
+        documentKind: document.documentKind,
+        side: document.side,
+        status: 'Uploaded',
+        uploadedAt: document.createdAt,
+      })),
       activity: activity.map((event) => ({
         title: event.title,
         description: event.description,
@@ -171,7 +194,16 @@ export class ReservationsService {
       createReservationDto.departureDate,
     );
 
-    await this.validateReferences(propertyId, createReservationDto);
+    const references = await this.validateReferences(propertyId, createReservationDto);
+    await this.validateRoomAssignment({
+      propertyId,
+      room: references.room,
+      roomType: references.roomType,
+      arrivalDate: createReservationDto.arrivalDate,
+      departureDate: createReservationDto.departureDate,
+      adults: createReservationDto.adults,
+      children: createReservationDto.children ?? 0,
+    });
 
     try {
       const reservation = this.reservationsRepository.create({
@@ -198,13 +230,23 @@ export class ReservationsService {
 
     await this.validateDateRange(arrivalDate, departureDate);
 
-    await this.validateReferences(propertyId, {
+    const references = await this.validateReferences(propertyId, {
       guestId: updateReservationDto.guestId ?? reservation.guestId,
       roomTypeId: updateReservationDto.roomTypeId ?? reservation.roomTypeId,
       roomId:
         updateReservationDto.roomId === undefined
           ? (reservation.roomId ?? undefined)
           : updateReservationDto.roomId,
+    });
+    await this.validateRoomAssignment({
+      propertyId,
+      reservationId: reservation.id,
+      room: references.room,
+      roomType: references.roomType,
+      arrivalDate,
+      departureDate,
+      adults: updateReservationDto.adults ?? reservation.adults,
+      children: updateReservationDto.children ?? reservation.children,
     });
 
     try {
@@ -257,7 +299,7 @@ export class ReservationsService {
   private async validateReferences(
     propertyId: string,
     references: { guestId: string; roomTypeId: string; roomId?: string | null },
-  ): Promise<void> {
+  ): Promise<{ guest: GuestEntity; roomType: RoomTypeEntity; room: RoomEntity | null }> {
     const [guest, roomType, room] = await Promise.all([
       this.guestsRepository.findOne({ where: { id: references.guestId } }),
       this.roomTypesRepository.findOne({ where: { id: references.roomTypeId } }),
@@ -285,6 +327,55 @@ export class ReservationsService {
     ) {
       throw new BadRequestException(
         'Reservation guest, room type, and room must belong to the same property',
+      );
+    }
+
+    return { guest, roomType, room };
+  }
+
+  private async validateRoomAssignment(input: {
+    propertyId: string;
+    reservationId?: string;
+    room: RoomEntity | null;
+    roomType: RoomTypeEntity;
+    arrivalDate: string;
+    departureDate: string;
+    adults: number;
+    children: number;
+  }): Promise<void> {
+    if (!input.room) return;
+
+    if (input.room.operationalStatus !== RoomOperationalStatus.READY) {
+      throw new BadRequestException('Assigned room must be ready');
+    }
+
+    if (input.room.roomTypeId !== input.roomType.id) {
+      throw new BadRequestException('Assigned room type must match reservation room type');
+    }
+
+    const totalGuests = input.adults + input.children;
+    if (
+      totalGuests > input.roomType.maxOccupancy ||
+      input.adults > input.roomType.maxAdults ||
+      input.children > input.roomType.maxChildren
+    ) {
+      throw new BadRequestException('Room capacity does not support reservation guest count');
+    }
+
+    const overlapCount = await this.reservationsRepository.count({
+      where: {
+        ...(input.reservationId ? { id: Not(input.reservationId) } : {}),
+        propertyId: input.propertyId,
+        roomId: input.room.id,
+        status: In(activeAssignmentStatuses),
+        arrivalDate: LessThan(input.departureDate),
+        departureDate: MoreThan(input.arrivalDate),
+      },
+    });
+
+    if (overlapCount > 0) {
+      throw new BadRequestException(
+        'Room is already assigned to another active overlapping reservation',
       );
     }
   }

@@ -12,13 +12,17 @@ type Props = {
   canManage: boolean;
   propertyId: string;
   reservationId: string;
+  reloadSignal?: number;
+  onFolioChanged?: (folio: Folio) => void;
 };
 
 export function StayBillingPanel({
   canView,
   canManage,
   propertyId,
+  reloadSignal,
   reservationId,
+  onFolioChanged,
 }: Props) {
   const [folio, setFolio] = useState<Folio | undefined>();
   const [isLoading, setIsLoading] = useState(true);
@@ -49,7 +53,7 @@ export function StayBillingPanel({
     const controller = new AbortController();
     void load(controller.signal);
     return () => controller.abort();
-  }, [load]);
+  }, [load, reloadSignal]);
 
   if (!canView) {
     return (
@@ -84,7 +88,10 @@ export function StayBillingPanel({
         folio={folio}
         propertyId={propertyId}
         canManage={canManage}
-        onFolioChanged={setFolio}
+        onFolioChanged={(next) => {
+          setFolio(next);
+          onFolioChanged?.(next);
+        }}
         compact
       />
     </Stack>

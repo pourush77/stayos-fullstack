@@ -13,6 +13,7 @@ type ApiResponse<T> = T | { data?: T } | { items?: T } | { results?: T };
 export type StayReadModelDto = {
   activity?: OperationsActivityItemDto[];
   allowedActions?: Record<string, unknown>;
+  documents?: Record<string, unknown>[];
   guest?: GuestDto;
   payment?: Record<string, unknown>;
   reservation?: ReservationDto;
@@ -23,6 +24,7 @@ export type StayReadModelDto = {
 export type StayWorkspaceDto = {
   activity: OperationsActivityItemDto[];
   allowedActions?: Record<string, unknown>;
+  documents?: Record<string, unknown>[];
   guest?: GuestDto;
   payment?: Record<string, unknown>;
   reservation: ReservationDto;
@@ -111,6 +113,7 @@ export async function getStayWorkspace(
       return {
         activity: readModel.activity ?? [],
         allowedActions: readModel.allowedActions,
+        documents: readModel.documents,
         guest: readModel.guest,
         payment: readModel.payment,
         reservation: readModel.reservation,

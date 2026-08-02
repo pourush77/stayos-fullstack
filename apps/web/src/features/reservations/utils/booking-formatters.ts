@@ -9,7 +9,9 @@ export function bookingStatusLabel(status: BookingStatus) {
 }
 
 export function paymentStatusLabel(status: BookingPaymentStatus) {
-  return status === 'PAID' ? 'Paid' : 'Payment Due';
+  if (status === 'PAID') return 'Paid';
+  if (status === 'PARTIALLY_PAID') return 'Partially Paid';
+  return 'Payment Due';
 }
 
 export function sourceLabel(source: BookingSource) {

@@ -2,7 +2,7 @@
  * Client-side OCR + Indian ID detection using Tesseract.js.
  * Runs entirely in the browser — no keys, no server calls, no data leaves the machine.
  */
-import { createWorker } from 'tesseract.js';
+import { createWorker, PSM } from 'tesseract.js';
 
 export type DetectedIdType = 'AADHAAR' | 'PAN' | 'PASSPORT' | 'VOTER_ID' | 'DRIVING_LICENSE' | 'OTHER';
 
@@ -11,6 +11,10 @@ export type IdDetectionResult = {
   idNumber: string;
   fullName?: string;
   dateOfBirth?: string; // ISO YYYY-MM-DD
+  address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
   rawText: string;
   confidence: number;
 };
@@ -19,8 +23,8 @@ export type IdDetectionResult = {
 const ID_PATTERNS: Array<{ type: DetectedIdType; regex: RegExp; label: string }> = [
   // PAN: 5 letters + 4 digits + 1 letter, e.g. ABCDE1234F
   { type: 'PAN', regex: /\b([A-Z]{5}[0-9]{4}[A-Z])\b/, label: 'PAN' },
-  // Aadhaar: exactly 4-4-4 digits separated by single space (Aadhaar cards always print this way on one line)
-  { type: 'AADHAAR', regex: /\b(\d{4} \d{4} \d{4})\b/, label: 'Aadhaar' },
+  // Aadhaar OCR commonly inserts spaces, hyphens, or line breaks between digit groups.
+  { type: 'AADHAAR', regex: /\b([0-9OIlSB]{4}[\s-]+[0-9OIlSB]{4}[\s-]+[0-9OIlSB]{4})\b/, label: 'Aadhaar' },
   // Voter ID (EPIC): 3 letters + 7 digits, e.g. ABC1234567
   { type: 'VOTER_ID', regex: /\b([A-Z]{3}[0-9]{7})\b/, label: 'Voter ID' },
   // Indian Passport: 1 letter + 7 digits, e.g. A1234567
@@ -30,8 +34,32 @@ const ID_PATTERNS: Array<{ type: DetectedIdType; regex: RegExp; label: string }>
 ];
 
 function normalizeAadhaar(match: string): string {
-  const digits = match.replace(/[^0-9]/g, '');
+  const digits = normalizeOcrDigits(match).replace(/[^0-9]/g, '');
   return `${digits.slice(0, 4)} ${digits.slice(4, 8)} ${digits.slice(8, 12)}`;
+}
+
+function normalizeOcrDigits(input: string): string {
+  return input
+    .replace(/[Oo]/g, '0')
+    .replace(/[Il|]/g, '1')
+    .replace(/S/g, '5')
+    .replace(/B/g, '8');
+}
+
+function extractAadhaarNumber(rawText: string): string | undefined {
+  const normalized = normalizeOcrDigits(rawText);
+  const grouped = normalized.match(/\b(\d{4}[\s-]+\d{4}[\s-]+\d{4})\b/);
+  if (grouped) return normalizeAadhaar(grouped[1]);
+
+  if (!looksLikeAadhaarContext(rawText)) return undefined;
+  const compactCandidates = normalized.match(/\d(?:[\s-]?\d){11}/g) ?? [];
+  for (const candidate of compactCandidates) {
+    const digits = candidate.replace(/\D/g, '');
+    if (digits.length !== 12) continue;
+    if (/^(\d)\1{11}$/.test(digits)) continue;
+    return normalizeAadhaar(digits);
+  }
+  return undefined;
 }
 
 function looksLikeAadhaarContext(rawText: string): boolean {
@@ -101,7 +129,7 @@ function extractName(rawText: string, idType: DetectedIdType): string | undefine
 
   // Strategy 1: "Name: XXXX" or "Name  XXXX" on the same line.
   for (const line of lines) {
-    const match = line.match(/^\s*(?:Full\s+Name|Name)\s*[:\-]?\s+(.{2,})$/i);
+    const match = line.match(/^\s*(?:Full\s+Name|Name)\s*[:-]?\s+(.{2,})$/i);
     if (match && isPlausibleName(match[1])) {
       return titleCase(match[1]);
     }
@@ -135,6 +163,14 @@ const MONTH_MAP: Record<string, string> = {
   JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12',
 };
 
+const INDIAN_STATE_NAMES = [
+  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Delhi', 'Goa',
+  'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala',
+  'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha',
+  'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh',
+  'Uttarakhand', 'West Bengal',
+];
+
 function toIsoDate(day: string, month: string, year: string): string | undefined {
   const y = year.length === 2 ? (Number(year) > 30 ? `19${year}` : `20${year}`) : year;
   const yn = Number(y);
@@ -147,28 +183,28 @@ function toIsoDate(day: string, month: string, year: string): string | undefined
 }
 
 function extractDateOfBirth(rawText: string): string | undefined {
-  const cleaned = rawText.replace(/\s+/g, ' ');
+  const cleaned = normalizeOcrDigits(rawText).replace(/\s+/g, ' ');
   // 1) DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY, preceded by a DOB label
-  const numericLabelled = cleaned.match(/(?:DOB|Date\s+of\s+Birth|Birth)\s*[:.\-]?\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/i);
+  const numericLabelled = cleaned.match(/(?:DOB|D0B|Date\s+of\s+Birth|Birth|YOB|Year\s+of\s+Birth)\s*[:.-]?\s*(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})/i);
   if (numericLabelled) {
     const iso = toIsoDate(numericLabelled[1], numericLabelled[2], numericLabelled[3]);
     if (iso) return iso;
   }
   // 2) DD MMM YYYY (passport style)
-  const monthAlpha = cleaned.match(/(?:DOB|Date\s+of\s+Birth|Birth)\s*[:.\-]?\s*(\d{1,2})[\s\-\/](JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]{0,6}[\s\-\/](\d{2,4})/i);
+  const monthAlpha = cleaned.match(/(?:DOB|Date\s+of\s+Birth|Birth)\s*[:.-]?\s*(\d{1,2})[\s/-](JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]{0,6}[\s/-](\d{2,4})/i);
   if (monthAlpha) {
     const month = MONTH_MAP[monthAlpha[2].toUpperCase()];
     const iso = toIsoDate(monthAlpha[1], month, monthAlpha[3]);
     if (iso) return iso;
   }
   // 3) Year of Birth: 1985 (Aadhaar sometimes prints only the year)
-  const yearOnly = cleaned.match(/Year\s+of\s+Birth\s*[:.\-]?\s*(\d{4})/i);
+  const yearOnly = cleaned.match(/(?:Year\s+of\s+Birth|YOB)\s*[:.-]?\s*(\d{4})/i);
   if (yearOnly) {
     const iso = toIsoDate('01', '01', yearOnly[1]);
     if (iso) return iso;
   }
   // 4) Unlabelled DD/MM/YYYY anywhere in the text — take the first plausible one that isn't a future date
-  const anyDate = cleaned.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b/);
+  const anyDate = cleaned.match(/\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\b/);
   if (anyDate) {
     const iso = toIsoDate(anyDate[1], anyDate[2], anyDate[3]);
     if (iso) return iso;
@@ -176,25 +212,88 @@ function extractDateOfBirth(rawText: string): string | undefined {
   return undefined;
 }
 
+function cleanupAddressLine(line: string): string {
+  return line
+    .replace(/^[,:\-\s]+/, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function isAddressNoise(line: string): boolean {
+  const upper = line.toUpperCase();
+  if (upper.length < 3) return true;
+  return [
+    'AADHAAR', 'AADHAR', 'UIDAI', 'UNIQUE IDENTIFICATION', 'GOVERNMENT OF INDIA',
+    'GOVT OF INDIA', 'VID', 'DOB', 'DATE OF BIRTH', 'YEAR OF BIRTH', 'MALE', 'FEMALE',
+    'HELP', 'WWW', 'PO BOX', '1947', 'QR CODE',
+  ].some((noise) => upper.includes(noise));
+}
+
+function extractAddress(rawText: string): Pick<IdDetectionResult, 'address' | 'city' | 'state' | 'country'> {
+  const lines = rawText
+    .split(/\r?\n/)
+    .map(cleanupAddressLine)
+    .filter(Boolean);
+  const upperText = rawText.toUpperCase();
+  const addressStart = lines.findIndex((line) => /\b(Address|पता)\b/i.test(line));
+  if (addressStart === -1 && !upperText.includes('ADDRESS')) return {};
+
+  const addressParts: string[] = [];
+  const startLine = lines[addressStart] ?? '';
+  const sameLine = startLine.replace(/.*\bAddress\b\s*[:.-]?\s*/i, '').replace(/.*पता\s*[:.-]?\s*/i, '');
+  if (sameLine && sameLine !== startLine && !isAddressNoise(sameLine)) addressParts.push(sameLine);
+
+  for (let i = Math.max(addressStart + 1, 0); i < lines.length && addressParts.length < 5; i += 1) {
+    const line = lines[i];
+    if (isAddressNoise(line)) continue;
+    addressParts.push(line);
+    if (/\b\d{6}\b/.test(line)) break;
+  }
+
+  const address = addressParts.join(', ').replace(/\s+,/g, ',').trim();
+  if (!address) return {};
+
+  const state = INDIAN_STATE_NAMES.find((name) =>
+    new RegExp(`\\b${name.replace(/\s+/g, '\\s+')}\\b`, 'i').test(address),
+  );
+  const pinMatch = address.match(/\b\d{6}\b/);
+  const beforePin = pinMatch ? address.slice(0, pinMatch.index).replace(/[, ]+$/, '') : address;
+  const addressSegments = beforePin.split(',').map((part) => part.trim()).filter(Boolean);
+  const city = addressSegments.length > 0 ? addressSegments[addressSegments.length - 1] : undefined;
+
+  return {
+    address,
+    city: city && city.length <= 40 ? titleCase(city) : undefined,
+    country: 'India',
+    state,
+  };
+}
+
 export async function detectIdFromImage(imageBlob: Blob): Promise<IdDetectionResult | null> {
   const worker = await createWorker('eng');
   try {
+    await worker.setParameters({
+      tessedit_char_whitelist:
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 /:-.,()#',
+      tessedit_pageseg_mode: PSM.SPARSE_TEXT,
+    });
     const {
       data: { text, confidence },
     } = await worker.recognize(imageBlob);
     const upper = text.toUpperCase();
+    const aadhaarNumber = extractAadhaarNumber(text);
 
     // Try patterns in the strict order above.
     for (const pattern of ID_PATTERNS) {
       const match = upper.match(pattern.regex);
-      if (!match) continue;
-      let idNumber = match[1];
+      if (!match && !(pattern.type === 'AADHAAR' && aadhaarNumber)) continue;
+      let idNumber = pattern.type === 'AADHAAR' && aadhaarNumber ? aadhaarNumber : match?.[1] ?? '';
 
       // For Aadhaar we need extra caution: the 12-digit regex can trigger on any long number sequence.
       // Only accept it if the doc context signals Aadhaar OR if no other tighter match won already.
       if (pattern.type === 'AADHAAR') {
         idNumber = normalizeAadhaar(idNumber);
-        if (!looksLikeAadhaarContext(text) && !/\b\d{4}\s\d{4}\s\d{4}\b/.test(text)) {
+        if (!looksLikeAadhaarContext(text) && !/\b\d{4}[\s-]+\d{4}[\s-]+\d{4}\b/.test(normalizeOcrDigits(text))) {
           continue; // Skip: 12 digits without Aadhaar context is likely a phone or account number.
         }
       }
@@ -207,7 +306,20 @@ export async function detectIdFromImage(imageBlob: Blob): Promise<IdDetectionRes
       return {
         idType: pattern.type,
         idNumber,
+        ...extractAddress(text),
         fullName: extractName(text, pattern.type),
+        dateOfBirth: extractDateOfBirth(text),
+        rawText: text,
+        confidence,
+      };
+    }
+
+    if (looksLikeAadhaarContext(text)) {
+      return {
+        idType: 'AADHAAR',
+        idNumber: aadhaarNumber ?? '',
+        ...extractAddress(text),
+        fullName: extractName(text, 'AADHAAR'),
         dateOfBirth: extractDateOfBirth(text),
         rawText: text,
         confidence,
@@ -217,6 +329,7 @@ export async function detectIdFromImage(imageBlob: Blob): Promise<IdDetectionRes
     return {
       idType: 'OTHER',
       idNumber: '',
+      ...extractAddress(text),
       fullName: extractName(text, 'OTHER'),
       dateOfBirth: extractDateOfBirth(text),
       rawText: text,

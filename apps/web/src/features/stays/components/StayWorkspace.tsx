@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Badge,
@@ -23,19 +23,17 @@ import {
 } from '@mantine/core';
 import {
   AlertCircle,
-  BedDouble,
   ChevronDown,
   ChevronLeft,
   DoorOpen,
   FileText,
   IdCard,
   MessageSquare,
-  NotebookText,
   ReceiptText,
   RefreshCw,
-  Sparkles,
-  UserPlus,
   UserRound,
+  Plus,
+  Utensils,
 } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
@@ -46,14 +44,15 @@ import { useStayWorkspace } from '../hooks/useStayWorkspace';
 import { StayBillingPanel } from './StayBillingPanel';
 import type { Stay } from '../types/stay.types';
 import { formatDisplayDate } from '../utils/stay-formatters';
+import { createGuestRequest, listGuestRequests, transitionGuestRequest, type GuestRequestDto, type GuestRequestSuggestionDto } from '../../requests/api/guest-requests-api';
+import { CreateRequestDrawer } from '../../requests/components/CreateRequestDrawer';
+import { RequestCard } from '../../requests/components/RequestCard';
 
 const cardStyle = {
   background: '#ffffff',
   border: '1px solid rgba(226, 232, 240, 0.9)',
   boxShadow: '0 8px 24px rgba(15, 23, 42, 0.035)',
 };
-
-type SectionKey = 'guest' | 'room' | 'billing' | 'documents' | 'additionalGuests' | 'preferences' | 'notes' | 'requests' | 'timeline';
 
 function DetailTile({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -99,7 +98,9 @@ function StayHeader({
         <Group gap={8}>
           <Button disabled={!stay.allowedActions.canMoveRoom} variant="light" color="stayosBrand" leftSection={<RefreshCw size={16} />} onClick={onMoveRoom}>Move Room</Button>
           <Button disabled={!stay.allowedActions.canExtendStay} variant="light" color="stayosBrand" onClick={onExtendStay}>Extend Stay</Button>
-          <Button disabled={!stay.allowedActions.canCheckOut} color="red" leftSection={<DoorOpen size={16} />} onClick={onCheckOut}>Check Out</Button>
+          <Button disabled={!stay.allowedActions.canCheckOut} color="red" leftSection={<DoorOpen size={16} />} onClick={onCheckOut}>
+            {stay.paymentStatus === 'Paid' ? 'Check Out' : 'Settle & Check Out'}
+          </Button>
         </Group>
       </Group>
     </Card>
@@ -128,65 +129,33 @@ function AttentionPanel({ stay }: { stay: Stay }) {
   );
 }
 
-function OverviewPanel({ stay }: { stay: Stay }) {
-  const items = [
-    ['Guest', `${stay.guestName}${stay.isVip ? ' - VIP' : ''}`],
-    ['Room', `Room ${stay.roomNumber} - ${stay.roomType}`],
-    ['Booking', stay.bookingId],
-    ['Payment', stay.billing.paymentStatus],
-    ['Current Stay', `${stay.nights} nights, ${stay.remainingNights} remaining`],
-    ['Recent Activity', stay.activity[0]?.title ?? 'No activity yet'],
-  ];
-
-  return (
-    <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing={spacing[3]}>
-      {items.map(([label, value]) => <DetailTile key={label} label={label} value={value} />)}
-    </SimpleGrid>
-  );
-}
-
-function OperationalSection({
-  children,
-  icon,
-  isOpen,
-  onToggle,
-  title,
-}: {
-  children: React.ReactNode;
-  icon: React.ReactNode;
-  isOpen: boolean;
-  onToggle: () => void;
-  title: string;
-}) {
-  return (
-    <Card radius={radius.lg} p={0} style={{ ...cardStyle, overflow: 'hidden' }}>
-      <UnstyledButton onClick={onToggle} style={{ display: 'block', padding: 16, width: '100%' }}>
-        <Group justify="space-between">
-          <Group gap={10}>
-            <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={34}>{icon}</ThemeIcon>
-            <Text c="#101828" fw={800}>{title}</Text>
-          </Group>
-          <ChevronDown size={18} style={{ transform: isOpen ? 'rotate(180deg)' : undefined, transition: 'transform 160ms ease' }} />
-        </Group>
-      </UnstyledButton>
-      {isOpen ? <Box px={16} pb={16}>{children}</Box> : null}
-    </Card>
-  );
-}
-
 function OperationalSections({
   billingReservationId,
   billingPropertyId,
+  billingReloadSignal,
   canManageBilling,
   canViewBilling,
+  billingSectionRef,
+  onFolioChanged,
+  onOpenRequest,
   onMoveRoom,
+  onRequestTransition,
+  completedRequests,
+  requests,
   stay,
 }: {
   billingReservationId: string;
   billingPropertyId: string;
+  billingReloadSignal: number;
   canManageBilling: boolean;
   canViewBilling: boolean;
+  billingSectionRef: RefObject<HTMLDivElement | null>;
+  onFolioChanged: () => void;
+  onOpenRequest: (suggestion?: GuestRequestSuggestionDto) => void;
   onMoveRoom: () => void;
+  onRequestTransition: (requestId: string, action: 'accept' | 'start' | 'complete' | 'cancel') => void;
+  completedRequests: GuestRequestDto[];
+  requests: GuestRequestDto[];
   stay: Stay;
 }) {
   const [showMore, setShowMore] = useState(false);
@@ -199,7 +168,72 @@ function OperationalSections({
   return (
     <Stack gap={spacing[3]}>
       {/* Billing — always visible, this is the busiest tool for the front desk */}
-      <Card radius={radius.lg} p={0} style={{ ...cardStyle, overflow: 'hidden' }}>
+      <Card radius={radius.lg} p={16} style={cardStyle}>
+        <Group justify="space-between" align="flex-start" gap={spacing[4]}>
+          <Stack gap={6}>
+            <Group gap={10}>
+              <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={34}><MessageSquare size={17} /></ThemeIcon>
+              <Text c="#101828" fw={800}>Guest service</Text>
+            </Group>
+            <Text c="#64748b" size="sm">
+              Requests create tasks for teams. Restaurant, minibar, laundry, and paid extras should be posted as folio charges.
+            </Text>
+          </Stack>
+          <Group gap={8}>
+            <Button color="stayosBrand" leftSection={<Plus size={16} />} onClick={() => onOpenRequest()}>
+              Add Request
+            </Button>
+            <Button
+              variant="light"
+              color="stayosBrand"
+              leftSection={<Utensils size={16} />}
+              onClick={() => document.querySelector<HTMLElement>('[data-testid="folio-add-charge"]')?.click()}
+            >
+              Post Food Charge
+            </Button>
+          </Group>
+        </Group>
+        <Group mt={spacing[3]} gap={8}>
+          {[
+            { title: 'Extra Towels', department: 'HOUSEKEEPING' as const },
+            { title: 'Slippers', department: 'HOUSEKEEPING' as const },
+            { title: 'Room Cleaning', department: 'HOUSEKEEPING' as const },
+            { title: 'Water Bottles', department: 'HOUSEKEEPING' as const },
+          ].map((suggestion) => (
+            <Button key={suggestion.title} size="xs" variant="light" color="gray" onClick={() => onOpenRequest(suggestion)}>
+              {suggestion.title}
+            </Button>
+          ))}
+        </Group>
+        {requests.length > 0 ? (
+          <Stack mt={spacing[3]} gap={spacing[2]}>
+            <Text c="#64748b" size="xs" fw={700} tt="uppercase">Open requests</Text>
+            {requests.map((request) => (
+              <RequestCard key={request.id} request={request} onTransition={onRequestTransition} />
+            ))}
+          </Stack>
+        ) : null}
+        {completedRequests.length > 0 ? (
+          <Stack mt={spacing[3]} gap={spacing[2]}>
+            <Text c="#64748b" size="xs" fw={700} tt="uppercase">Recently completed</Text>
+            {completedRequests.slice(0, 3).map((request) => (
+              <Paper key={request.id} radius={radius.md} p={12} style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                <Group justify="space-between" gap={spacing[3]}>
+                  <Box>
+                    <Text c="#101828" size="sm" fw={800}>Room {request.roomNumber ?? stay.roomNumber} - {request.title}</Text>
+                    <Text c="#64748b" size="xs">
+                      Completed by {request.assignedEmployeeName ?? 'housekeeping'} for {request.guestDisplayName ?? stay.guestName}
+                    </Text>
+                  </Box>
+                  <Badge color="green" variant="light" radius={radius.full}>Completed</Badge>
+                </Group>
+              </Paper>
+            ))}
+          </Stack>
+        ) : null}
+      </Card>
+
+      <Card ref={billingSectionRef} radius={radius.lg} p={0} style={{ ...cardStyle, overflow: 'hidden' }}>
         <Group justify="space-between" align="center" p={16} style={{ borderBottom: '1px solid #eef2f7' }}>
           <Group gap={10}>
             <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={34}><ReceiptText size={17} /></ThemeIcon>
@@ -213,7 +247,9 @@ function OperationalSections({
               canManage={canManageBilling}
               canView={canViewBilling}
               propertyId={billingPropertyId}
+              reloadSignal={billingReloadSignal}
               reservationId={billingReservationId}
+              onFolioChanged={onFolioChanged}
             />
           ) : (
             <Text c="#64748b" size="sm">Billing unavailable for this stay.</Text>
@@ -472,6 +508,33 @@ export default function StayWorkspace() {
   const [moveRooms, setMoveRooms] = useState<OperationsAvailableRoomDto[]>([]);
   const [moveSearch, setMoveSearch] = useState('');
   const [selectedMoveRoomId, setSelectedMoveRoomId] = useState('');
+  const [requestDrawerOpened, setRequestDrawerOpened] = useState(false);
+  const [selectedRequestSuggestion, setSelectedRequestSuggestion] = useState<GuestRequestSuggestionDto | undefined>();
+  const [guestRequests, setGuestRequests] = useState<GuestRequestDto[]>([]);
+  const [completedGuestRequests, setCompletedGuestRequests] = useState<GuestRequestDto[]>([]);
+  const [billingReloadSignal, setBillingReloadSignal] = useState(0);
+  const billingSectionRef = useRef<HTMLDivElement | null>(null);
+
+  const loadGuestRequests = useCallback(async () => {
+    if (!stayState.propertyId || !params.stayId) return;
+    try {
+      const items = await listGuestRequests(stayState.propertyId, {});
+      const reservationRequests = items.filter((item) => item.reservationId === params.stayId);
+      setGuestRequests(reservationRequests.filter((item) => !['COMPLETED', 'CANCELLED'].includes(item.status)));
+      setCompletedGuestRequests(reservationRequests.filter((item) => item.status === 'COMPLETED'));
+    } catch {
+      setGuestRequests([]);
+      setCompletedGuestRequests([]);
+    }
+  }, [params.stayId, stayState.propertyId]);
+
+  useEffect(() => {
+    if (enabled) void loadGuestRequests();
+  }, [enabled, loadGuestRequests]);
+
+  const refreshAfterFolioChange = useCallback(() => {
+    void stayState.refreshStay();
+  }, [stayState]);
 
   const retryBackend = () => void backend.retry();
   const checkBackendStatus = () => void backend.checkHealth();
@@ -482,6 +545,30 @@ export default function StayWorkspace() {
   if (!stayState.stay) return <Alert color="blue" variant="light" icon={<DoorOpen size={17} />} radius={radius.lg}>Loading stay workspace...</Alert>;
 
   const stay = stayState.stay;
+  const hasOutstandingBalance = stay.paymentStatus !== 'Paid';
+
+  const openRequestDrawer = (suggestion?: GuestRequestSuggestionDto) => {
+    setSelectedRequestSuggestion(suggestion);
+    setRequestDrawerOpened(true);
+  };
+
+  const createStayRequest = async (payload: Record<string, unknown>) => {
+    if (!stayState.propertyId || !params.stayId) return;
+    await createGuestRequest(stayState.propertyId, {
+      ...payload,
+      guestId: stay.guestId,
+      reservationId: params.stayId,
+      roomId: stay.roomId,
+    });
+    await loadGuestRequests();
+    showToast({ color: 'green', title: 'Request added', message: 'The team can now pick this up from Guest Requests.' });
+  };
+
+  const changeRequestStatus = async (requestId: string, action: 'accept' | 'start' | 'complete' | 'cancel') => {
+    if (!stayState.propertyId) return;
+    await transitionGuestRequest(stayState.propertyId, requestId, action);
+    await loadGuestRequests();
+  };
 
   const openMoveRoom = async () => {
     if (!stayState.propertyId) return;
@@ -525,12 +612,27 @@ export default function StayWorkspace() {
       await stayState.checkOutStay();
       showToast({ color: 'green', title: 'Guest checked out', message: 'Guest checked out successfully.' });
       setCheckoutOpened(false);
-      router.push('/rooms');
+      const query = new URLSearchParams({
+        checkout: 'success',
+        guest: stay.guestName,
+        room: `Room ${stay.roomNumber}`,
+      });
+      router.push(`/rooms?${query.toString()}`);
     } catch {
-      showToast({ color: 'red', title: 'Check out failed', message: 'Unable to check out this guest. Please try again.' });
+      showToast({ color: 'red', title: 'Check out failed', message: 'Collect the outstanding folio balance before checkout.' });
     } finally {
       setIsCheckingOut(false);
     }
+  };
+
+  const goToBilling = () => {
+    setCheckoutOpened(false);
+    window.setTimeout(() => {
+      billingSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      window.setTimeout(() => {
+        document.querySelector<HTMLElement>('[data-testid="folio-collect-payment"]')?.click();
+      }, 350);
+    }, 80);
   };
 
   const openExtendStay = () => {
@@ -545,6 +647,7 @@ export default function StayWorkspace() {
     try {
       await extendReservationStay(stayState.propertyId, params.stayId, extendDepartureDate);
       await stayState.refreshStay();
+      setBillingReloadSignal((value) => value + 1);
       showToast({ color: 'green', title: 'Stay extended', message: `Departure updated to ${formatDisplayDate(extendDepartureDate)}.` });
       setExtendOpened(false);
     } catch {
@@ -562,18 +665,46 @@ export default function StayWorkspace() {
       <OperationalSections
         billingPropertyId={stayState.propertyId ?? ''}
         billingReservationId={params.stayId ?? ''}
+        billingReloadSignal={billingReloadSignal}
+        billingSectionRef={billingSectionRef}
         canManageBilling={canManageBilling}
         canViewBilling={canViewBilling}
+        completedRequests={completedGuestRequests}
+        onFolioChanged={refreshAfterFolioChange}
+        onOpenRequest={openRequestDrawer}
         onMoveRoom={() => void openMoveRoom()}
+        onRequestTransition={(requestId, action) => void changeRequestStatus(requestId, action)}
+        requests={guestRequests}
         stay={stay}
       />
 
-      <Modal opened={checkoutOpened} onClose={() => setCheckoutOpened(false)} centered title="Check out guest?">
+      <CreateRequestDrawer
+        context={{
+          department: selectedRequestSuggestion?.department ?? 'HOUSEKEEPING',
+          guestId: stay.guestId,
+          reservationId: params.stayId,
+          roomId: stay.roomId,
+        }}
+        onClose={() => setRequestDrawerOpened(false)}
+        onCreate={createStayRequest}
+        opened={requestDrawerOpened}
+        selected={selectedRequestSuggestion}
+      />
+
+      <Modal opened={checkoutOpened} onClose={() => setCheckoutOpened(false)} centered title={hasOutstandingBalance ? 'Settle payment first' : 'Check out guest?'}>
         <Stack gap={spacing[4]}>
-          <Text c="#64748b" size="sm">Confirm to check out. Outstanding folio balance settleable via Billing panel.</Text>
+          <Text c="#64748b" size="sm">
+            {hasOutstandingBalance
+              ? 'This stay still has a folio balance. Collect payment from Billing & payments, then check out.'
+              : 'Confirm checkout. The room will be marked for cleaning and the stay will close.'}
+          </Text>
           <Group justify="flex-end">
             <Button variant="subtle" color="gray" onClick={() => setCheckoutOpened(false)}>Cancel</Button>
-            <Button color="red" loading={isCheckingOut} onClick={() => void checkOut()}>Check Out</Button>
+            {hasOutstandingBalance ? (
+              <Button color="stayosBrand" onClick={goToBilling}>Go to Billing</Button>
+            ) : (
+              <Button color="red" loading={isCheckingOut} onClick={() => void checkOut()}>Check Out</Button>
+            )}
           </Group>
         </Stack>
       </Modal>

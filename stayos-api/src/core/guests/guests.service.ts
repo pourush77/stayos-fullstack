@@ -13,6 +13,10 @@ import {
   paginateQuery,
 } from '../../common/dto/pagination.dto';
 import { PropertiesService } from '../properties/properties.service';
+import { calculateTotals } from '../billing/billing.mapper';
+import { FolioStatus } from '../billing/domain/folio-status.enum';
+import { FolioEntity } from '../billing/infrastructure/folio.entity';
+import { ReservationPaymentStatus } from '../reservations/domain/reservation-payment-status.enum';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 import { CreateGuestDto } from './dto/create-guest.dto';
 import { UpdateGuestDto } from './dto/update-guest.dto';
@@ -42,6 +46,8 @@ export class GuestsService {
     private readonly guestsRepository: Repository<GuestEntity>,
     @InjectRepository(ReservationEntity)
     private readonly reservationsRepository: Repository<ReservationEntity>,
+    @InjectRepository(FolioEntity)
+    private readonly foliosRepository: Repository<FolioEntity>,
     private readonly propertiesService: PropertiesService,
   ) {}
 
@@ -99,10 +105,36 @@ export class GuestsService {
     const reservations = await this.reservationsRepository.find({
       where: { guestId: guest.id, propertyId },
       order: { arrivalDate: 'DESC' },
-      select: { arrivalDate: true, id: true, status: true },
+      relations: { room: true, roomType: true },
+    });
+    const folios = await this.foliosRepository.find({
+      where: { guestId: guest.id, propertyId },
+      relations: { charges: true, payments: true },
+    });
+    const foliosByReservationId = new Map(folios.map((folio) => [folio.reservationId, folio]));
+    const reservationsWithFolioPaymentStatus = reservations.map((reservation) => {
+      const folio = foliosByReservationId.get(reservation.id);
+      if (!folio) return reservation;
+
+      const totals = calculateTotals(folio.charges ?? [], folio.payments ?? []);
+      const balance = Number(totals.balance);
+      const paid = Number(totals.paid);
+      const paymentStatus =
+        folio.status === FolioStatus.SETTLED || (balance <= 0.01 && paid > 0)
+          ? ReservationPaymentStatus.PAID
+          : paid > 0
+            ? ReservationPaymentStatus.PARTIALLY_PAID
+            : ReservationPaymentStatus.PAYMENT_DUE;
+
+      return Object.assign(reservation, {
+        folioId: folio.id,
+        folioNumber: folio.folioNumber,
+        folioStatus: folio.status,
+        paymentStatus,
+      });
     });
 
-    return Object.assign(guest, { reservations });
+    return Object.assign(guest, { reservations: reservationsWithFolioPaymentStatus });
   }
 
   async create(propertyId: string, createGuestDto: CreateGuestDto): Promise<GuestEntity> {
