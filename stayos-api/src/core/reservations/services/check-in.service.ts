@@ -1,5 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { DataSource, EntityManager } from 'typeorm';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { DataSource, EntityManager, Not } from 'typeorm';
 import { ActivityEventEntity } from '../../activity/infrastructure/activity-event.entity';
 import { AuditEventEntity } from '../../audit/infrastructure/audit-event.entity';
 import { ApiErrorCode } from '../../../common/errors/api-error-code.enum';
@@ -57,6 +57,14 @@ export class CheckInService {
 
       if (dto.fullName !== undefined) {
         this.applyFullName(guest, dto.fullName);
+      }
+      if (dto.mobile !== undefined && dto.mobile !== guest.phone) {
+        const existingGuest = await manager.getRepository(GuestEntity).findOne({
+          where: { id: Not(guest.id), phone: dto.mobile, propertyId },
+        });
+        if (existingGuest) {
+          throw new ConflictException('A guest with this mobile number already exists.');
+        }
       }
       this.assignIfDefined(guest, 'phone', dto.mobile);
       this.assignIfDefined(guest, 'email', dto.email);

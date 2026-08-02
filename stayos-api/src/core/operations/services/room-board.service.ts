@@ -40,6 +40,8 @@ export class RoomBoardService {
         .andWhere('reservation.status IN (:...statuses)', {
           statuses: ['PENDING', 'CONFIRMED'],
         })
+        .andWhere('reservation.arrivalDate <= :today', { today })
+        .andWhere('reservation.departureDate > :today', { today })
         .orderBy('reservation.arrivalDate', 'ASC')
         .getMany(),
     ]);

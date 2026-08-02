@@ -14,17 +14,17 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   const isAllowed = ALLOWED_ROLES.has(role);
 
   useEffect(() => {
-    if (!auth.isLoading && auth.user && !isAllowed) {
+    if (!auth.isBootstrapping && auth.user && !isAllowed) {
       router.replace('/front-desk');
     }
-  }, [auth.isLoading, auth.user, isAllowed, router]);
+  }, [auth.isBootstrapping, auth.user, isAllowed, router]);
 
   if (!auth.user) return <>{children}</>;
   if (!isAllowed) {
     return (
       <Stack gap="md" data-testid="settings-access-denied">
         <Alert color="red" title="Access denied">
-          You do not have permission to view Settings. Redirecting…
+          You do not have permission to view Settings. Redirecting...
         </Alert>
       </Stack>
     );

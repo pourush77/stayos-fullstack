@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { ActivityEventEntity } from '../../activity/infrastructure/activity-event.entity';
 import { AuditEventEntity } from '../../audit/infrastructure/audit-event.entity';
@@ -248,6 +248,21 @@ describe('CheckInService', () => {
 
     expect(reservationsRepository.save).toHaveBeenCalledWith(expect.objectContaining({ paymentReviewed: true }));
     expect(workspace.finalChecklist.paymentReviewed).toBe(true);
+  });
+
+  it('rejects guest registration when the new mobile belongs to another guest', async () => {
+    reservationsRepository.findOne?.mockResolvedValue(reservation());
+    guestsRepository.findOne
+      ?.mockResolvedValueOnce(guest())
+      .mockResolvedValueOnce(guest({ id: 'b075c8fa-f36e-4f40-a3ef-2e9dbb1f0680' }));
+    identityRepository.findOne?.mockResolvedValue(identity());
+
+    await expect(
+      service.updateGuestRegistration(propertyId, reservationId, {
+        mobile: '9876500002',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(guestsRepository.save).not.toHaveBeenCalled();
   });
 
   it('blocks final check-in when identity is not verified', () => {

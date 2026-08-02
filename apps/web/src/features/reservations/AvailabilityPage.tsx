@@ -6,7 +6,7 @@ import { Alert, Badge, Box, Button, Card, Group, NumberInput, Paper, Stack, Text
 import { DatePickerInput } from '@mantine/dates';
 import { Baby, BedDouble, CalendarDays, Copy, Users } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
-import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
+import { BackendUnavailable, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
 import { getPropertyRoomTypes } from '../../lib/inventory-api';
 import { getAvailableRooms } from '../../lib/operations-api';
 import { getProperties } from '../../lib/guest-api';
@@ -77,7 +77,7 @@ export function AvailabilityPage() {
         setPropertyId(id);
         const rts = await getPropertyRoomTypes(id, controller.signal);
         setRoomTypes(rts.map(mapRoomTypeOption));
-      } catch (error) {
+      } catch {
         if (controller.signal.aborted) return;
         setLoadError('Unable to load room types.');
       }
@@ -101,7 +101,7 @@ export function AvailabilityPage() {
         setAvailability(counts);
         setLoadError(undefined);
       })
-      .catch((error) => {
+      .catch(() => {
         if (controller.signal.aborted) return;
         setLoadError('Unable to fetch availability.');
       })
@@ -129,7 +129,7 @@ export function AvailabilityPage() {
 
   const copyQuote = async (roomType: RoomTypeOption) => {
     const total = roomType.baseRate * nights;
-    const message = `Hi! Here's your quote for ${propertyName}:\n${roomType.label} · ${formatShortDate(arrivalDate)} → ${formatShortDate(departureDate)} (${nights} night${nights === 1 ? '' : 's'})\n${formatCurrency(roomType.baseRate)}/night · Total ${formatCurrency(total)}\nReply YES to hold this rate.`;
+    const message = `Hi! Here's your quote for ${propertyName}:\n${roomType.label} - ${formatShortDate(arrivalDate)} to ${formatShortDate(departureDate)} (${nights} night${nights === 1 ? '' : 's'})\n${formatCurrency(roomType.baseRate)}/night - Total ${formatCurrency(total)}\nReply YES to hold this rate.`;
     try {
       await navigator.clipboard.writeText(message);
       showToast({ color: 'green', title: 'Quote copied', message: 'Paste it into WhatsApp or SMS.' });
@@ -143,7 +143,7 @@ export function AvailabilityPage() {
       <Stack gap={spacing[3]} maw={960} mx="auto">
         <Stack gap={4}>
           <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 800 }}>Check Availability</Title>
-          <Text c="#64748b" size="sm">Quick quote for walk-in and phone enquiries — no booking is created until you click Book.</Text>
+          <Text c="#64748b" size="sm">Quick quote for walk-in and phone enquiries. No booking is created until you click Book.</Text>
         </Stack>
 
         <Card radius={radius.lg} p={20} style={quickCardStyle}>
@@ -156,7 +156,7 @@ export function AvailabilityPage() {
                 leftSection={<CalendarDays size={18} />}
                 minDate={today()}
                 onChange={(value) => setDateRange(value as [Date | null, Date | null])}
-                placeholder="Select arrival → departure"
+                placeholder="Select arrival to departure"
                 size="md"
                 type="range"
                 value={dateRange}
@@ -184,7 +184,7 @@ export function AvailabilityPage() {
               <Group gap={8}>
                 <Badge color="stayosBrand" variant="light">{nights} night{nights === 1 ? '' : 's'}</Badge>
                 <Text c="#64748b" size="sm">
-                  {formatShortDate(arrivalDate)} → {formatShortDate(departureDate)} · {adults} adult{adults === 1 ? '' : 's'}{children ? ` · ${children} child${children === 1 ? '' : 'ren'}` : ''}
+                  {formatShortDate(arrivalDate)} to {formatShortDate(departureDate)} - {adults} adult{adults === 1 ? '' : 's'}{children ? ` - ${children} child${children === 1 ? '' : 'ren'}` : ''}
                 </Text>
               </Group>
             ) : null}
@@ -237,7 +237,7 @@ export function AvailabilityPage() {
                       </Group>
                       <Text c="#64748b" size="sm">
                         {formatCurrency(roomType.baseRate)} / night
-                        {nights > 0 ? ` · Total ${formatCurrency(total)} for ${nights} night${nights === 1 ? '' : 's'}` : ''}
+                        {nights > 0 ? ` - Total ${formatCurrency(total)} for ${nights} night${nights === 1 ? '' : 's'}` : ''}
                       </Text>
                     </Stack>
                   </Group>
@@ -261,7 +261,7 @@ export function AvailabilityPage() {
                       disabled={soldOut || nights === 0}
                       data-testid={`availability-book-${roomType.id}`}
                     >
-                      Book now →
+                      Book now
                     </Button>
                   </Group>
                 </Group>

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Alert, Badge, Box, Button, Group, Loader, Paper, Select, Stack, Text, Title } from '@mantine/core';
+import { Alert, Box, Button, Group, Loader, Paper, Select, Stack, Text, Title } from '@mantine/core';
 import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, ServerStarting, useBackendStatus } from '@stayos/ui';

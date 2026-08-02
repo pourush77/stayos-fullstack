@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
+import { FolioEntity } from '../billing/infrastructure/folio.entity';
 import { PropertiesService } from '../properties/properties.service';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 import { GuestStatus } from './domain/guest-status.enum';
@@ -42,6 +43,7 @@ describe('GuestsService', () => {
   let service: GuestsService;
   let guestsRepository: MockRepository<GuestEntity>;
   let reservationsRepository: MockRepository<ReservationEntity>;
+  let foliosRepository: MockRepository<FolioEntity>;
   const propertiesService = { findOne: jest.fn() };
 
   beforeEach(async () => {
@@ -56,6 +58,9 @@ describe('GuestsService', () => {
     reservationsRepository = {
       find: jest.fn().mockResolvedValue([]),
     };
+    foliosRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    };
     propertiesService.findOne.mockResolvedValue({ id: propertyId });
 
     const module: TestingModule = await Test.createTestingModule({
@@ -63,6 +68,7 @@ describe('GuestsService', () => {
         GuestsService,
         { provide: getRepositoryToken(GuestEntity), useValue: guestsRepository },
         { provide: getRepositoryToken(ReservationEntity), useValue: reservationsRepository },
+        { provide: getRepositoryToken(FolioEntity), useValue: foliosRepository },
         { provide: PropertiesService, useValue: propertiesService },
       ],
     }).compile();
@@ -223,7 +229,7 @@ describe('GuestsService', () => {
     expect(reservationsRepository.find).toHaveBeenCalledWith({
       where: { guestId, propertyId },
       order: { arrivalDate: 'DESC' },
-      select: { arrivalDate: true, id: true, status: true },
+      relations: { room: true, roomType: true },
     });
   });
 

@@ -14,6 +14,7 @@ import { RoomEntity } from '../rooms/infrastructure/room.entity';
 import { ReservationPaymentStatus } from './domain/reservation-payment-status.enum';
 import { ReservationSource } from './domain/reservation-source.enum';
 import { ReservationStatus } from './domain/reservation-status.enum';
+import { GuestDocumentEntity } from './check-in-capture/guest-document.entity';
 import { ReservationEntity } from './infrastructure/reservation.entity';
 import { ReservationsService } from './reservations.service';
 
@@ -116,6 +117,7 @@ describe('ReservationsService', () => {
   let roomTypesRepository: MockRepository<RoomTypeEntity>;
   let roomsRepository: MockRepository<RoomEntity>;
   let activityRepository: MockRepository<ActivityEventEntity>;
+  let guestDocumentsRepository: MockRepository<GuestDocumentEntity>;
   const propertiesService = { findOne: jest.fn() };
 
   beforeEach(async () => {
@@ -132,6 +134,7 @@ describe('ReservationsService', () => {
     roomTypesRepository = { findOne: jest.fn().mockResolvedValue(roomTypeEntity) };
     roomsRepository = { findOne: jest.fn().mockResolvedValue(roomEntity) };
     activityRepository = { find: jest.fn().mockResolvedValue([]) };
+    guestDocumentsRepository = { find: jest.fn().mockResolvedValue([]) };
     propertiesService.findOne.mockResolvedValue({ id: propertyId });
 
     const module: TestingModule = await Test.createTestingModule({
@@ -142,6 +145,7 @@ describe('ReservationsService', () => {
         { provide: getRepositoryToken(RoomTypeEntity), useValue: roomTypesRepository },
         { provide: getRepositoryToken(RoomEntity), useValue: roomsRepository },
         { provide: getRepositoryToken(ActivityEventEntity), useValue: activityRepository },
+        { provide: getRepositoryToken(GuestDocumentEntity), useValue: guestDocumentsRepository },
         { provide: PropertiesService, useValue: propertiesService },
       ],
     }).compile();

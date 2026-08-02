@@ -101,6 +101,14 @@ describe('Operations services', () => {
 
   it('returns room board data', async () => {
     reservationsRepository.find?.mockResolvedValue([reservation()]);
+    const queryBuilder = {
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    };
+    reservationsRepository.createQueryBuilder?.mockReturnValue(queryBuilder);
     const service = new RoomBoardService(
       asRepository(roomsRepository),
       asRepository(reservationsRepository),
@@ -108,6 +116,12 @@ describe('Operations services', () => {
     );
 
     await expect(service.getRoomBoard(propertyId)).resolves.toHaveLength(1);
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith('reservation.arrivalDate <= :today', {
+      today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    });
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith('reservation.departureDate > :today', {
+      today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    });
   });
 
   it('propagates property not found', async () => {

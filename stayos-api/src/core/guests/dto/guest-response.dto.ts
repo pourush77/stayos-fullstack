@@ -8,8 +8,32 @@ export class GuestReservationSummaryDto {
   @ApiProperty({ type: String, format: 'date' })
   arrivalDate!: string;
 
+  @ApiPropertyOptional({ type: String, format: 'date' })
+  departureDate!: string | null;
+
+  @ApiPropertyOptional()
+  reservationCode!: string | null;
+
   @ApiProperty()
   status!: string;
+
+  @ApiPropertyOptional()
+  paymentStatus!: string | null;
+
+  @ApiPropertyOptional()
+  roomNumber!: string | null;
+
+  @ApiPropertyOptional()
+  roomType!: string | null;
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  folioId!: string | null;
+
+  @ApiPropertyOptional()
+  folioNumber!: string | null;
+
+  @ApiPropertyOptional()
+  folioStatus!: string | null;
 }
 
 export class GuestResponseDto {

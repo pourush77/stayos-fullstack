@@ -114,13 +114,6 @@ type ActiveProperty = {
   name: string;
   roomCount?: number;
 };
-const commandSuggestions = [
-  { label: 'Check in Rahul Sharma', href: '/check-in' },
-  { label: 'Assign Room 305', href: '/rooms/305' },
-  { label: 'Collect Rs 8,400', href: '/requests' },
-  { label: 'Booking ST2145', href: '/reservations' },
-];
-
 const emptyPropertyStatus: PropertyStatus[] = [
   { label: 'Ready', value: '0', tone: '#12b76a' },
   { label: 'Cleaning', value: '0', tone: '#f79009' },
