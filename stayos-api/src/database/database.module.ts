@@ -2,7 +2,7 @@ import { Logger, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource, DataSourceOptions } from 'typeorm';
-import { createTypeOrmConfig, DatabaseConnectionConfig } from './database.config';
+import { createTypeOrmConfig, DatabaseConnectionConfig, getDatabaseConfig } from './database.config';
 
 const databaseLogger = new Logger('DatabaseModule');
 
@@ -10,17 +10,7 @@ const databaseLogger = new Logger('DatabaseModule');
   imports: [
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const databaseConfig: DatabaseConnectionConfig = {
-          host: configService.get<string>('database.host') ?? 'localhost',
-          port: configService.get<number>('database.port') ?? 5432,
-          database: configService.get<string>('database.name') ?? 'stayos',
-          username: configService.get<string>('database.username') ?? 'stayos_user',
-          password: configService.get<string>('database.password') ?? 'secret',
-        };
-
-        return createTypeOrmConfig(databaseConfig);
-      },
+      useFactory: (_configService: ConfigService) => createTypeOrmConfig(getDatabaseConfig()),
       dataSourceFactory: async (options) => {
         if (!options) {
           throw new Error('TypeORM options were not provided');
