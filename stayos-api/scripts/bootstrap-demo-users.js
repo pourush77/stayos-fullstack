@@ -28,6 +28,7 @@ const client = new Client({
   database: process.env.DATABASE_NAME || 'stayos_dev',
   user: process.env.DATABASE_USERNAME || 'stayos',
   password: process.env.DATABASE_PASSWORD || 'StayOS@2026',
+  ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
 });
 
 async function main() {
