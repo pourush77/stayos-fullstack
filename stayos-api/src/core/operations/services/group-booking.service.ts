@@ -10,10 +10,12 @@ import { RoomEntity } from '../../rooms/infrastructure/room.entity';
 import { FolioChargeType } from '../../billing/domain/folio-charge-type.enum';
 import { FolioPaymentMethod } from '../../billing/domain/folio-payment-method.enum';
 import { GroupBookingStatus } from '../domain/group-booking-status.enum';
+import { GroupBookingSource } from '../domain/group-booking-source.enum';
 import {
   AddGroupRoomingListItemDto,
   AssignGroupRoomDto,
   CreateGroupHoldDto,
+  CreateWalkInGroupDto,
   GroupCheckInPreviewDto,
   GroupCheckInResultDto,
   GroupHoldDto,
@@ -448,6 +450,246 @@ export class GroupBookingService {
     };
   }
 
+  async createWalkInGroup(
+    propertyId: string,
+    dto: CreateWalkInGroupDto,
+  ): Promise<GroupCheckInResultDto> {
+    await this.propertiesService.findOne(propertyId);
+    this.validateDateRange(dto.arrivalDate, dto.departureDate);
+
+    if (!dto.roomAssignments.length) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: 'At least one room must be selected for a walk-in group.',
+      });
+    }
+
+    const roomIds = dto.roomAssignments.map((assignment) => assignment.roomId);
+    const uniqueRoomIds = new Set(roomIds);
+    if (uniqueRoomIds.size !== roomIds.length) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: 'Duplicate room IDs are not allowed.',
+      });
+    }
+
+    const rooms = await this.roomsRepository.find({
+      where: { id: In(roomIds), propertyId },
+      relations: { roomType: true },
+    });
+    if (rooms.length !== roomIds.length) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: 'One or more selected rooms do not belong to this property.',
+      });
+    }
+    const roomById = new Map(rooms.map((room) => [room.id, room]));
+
+    for (const room of rooms) {
+      if (room.operationalStatus !== RoomOperationalStatus.READY) {
+        throw new BadRequestException({
+          code: ApiErrorCode.VALIDATION_ERROR,
+          message: `Room ${room.roomNumber} is not ready for check-in (current status: ${room.operationalStatus}).`,
+        });
+      }
+    }
+
+    const reservationConflicts = await this.reservationsRepository.find({
+      where: {
+        propertyId,
+        roomId: In(roomIds),
+        status: In(activeReservationStatuses),
+        ...overlapsDateRange(dto.arrivalDate, dto.departureDate),
+      },
+    });
+    if (reservationConflicts.length) {
+      const conflictRoomNumbers = reservationConflicts
+        .map((res) => roomById.get(res.roomId ?? '')?.roomNumber ?? 'unknown')
+        .join(', ');
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: `Rooms have conflicting reservations: ${conflictRoomNumbers}.`,
+      });
+    }
+
+    const groupConflicts = await this.roomAssignmentsRepository
+      .createQueryBuilder('assignment')
+      .innerJoin('assignment.groupBooking', 'groupBooking')
+      .where('assignment.roomId IN (:...roomIds)', { roomIds })
+      .andWhere('groupBooking.status IN (:...statuses)', {
+        statuses: [
+          GroupBookingStatus.ON_HOLD,
+          GroupBookingStatus.CONFIRMED,
+          GroupBookingStatus.CHECKED_IN,
+        ],
+      })
+      .andWhere('groupBooking.arrivalDate < :departureDate', {
+        departureDate: dto.departureDate,
+      })
+      .andWhere('groupBooking.departureDate > :arrivalDate', { arrivalDate: dto.arrivalDate })
+      .getMany();
+    if (groupConflicts.length) {
+      const conflictRoomNumbers = groupConflicts
+        .map((assignment) => roomById.get(assignment.roomId)?.roomNumber ?? 'unknown')
+        .join(', ');
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: `Rooms are already assigned to another active group: ${conflictRoomNumbers}.`,
+      });
+    }
+
+    // Group assignments by room type to build inventory blocks (one block per room type)
+    const blocksByRoomType = new Map<
+      string,
+      {
+        roomTypeId: string;
+        rooms: number;
+        adultsPerRoomTotal: number;
+        childrenPerRoomTotal: number;
+        estimatedTotal: number;
+        baseRateTotal: number;
+      }
+    >();
+    let totalAdults = 0;
+    let totalChildren = 0;
+    let totalEstimated = 0;
+
+    dto.roomAssignments.forEach((assignment) => {
+      const room = roomById.get(assignment.roomId)!;
+      const rate = Number(assignment.baseRate ?? this.estimateBaseRate(room.roomType?.name ?? ''));
+      const nights = Math.max(
+        1,
+        Math.round(
+          (new Date(dto.departureDate).getTime() - new Date(dto.arrivalDate).getTime()) /
+            (24 * 60 * 60 * 1000),
+        ),
+      );
+      const roomEstimated = rate * nights;
+      totalAdults += assignment.adults;
+      totalChildren += assignment.children;
+      totalEstimated += roomEstimated;
+
+      const key = room.roomTypeId;
+      const existing = blocksByRoomType.get(key);
+      if (existing) {
+        existing.rooms += 1;
+        existing.adultsPerRoomTotal += assignment.adults;
+        existing.childrenPerRoomTotal += assignment.children;
+        existing.estimatedTotal += roomEstimated;
+        existing.baseRateTotal += rate;
+      } else {
+        blocksByRoomType.set(key, {
+          roomTypeId: key,
+          rooms: 1,
+          adultsPerRoomTotal: assignment.adults,
+          childrenPerRoomTotal: assignment.children,
+          estimatedTotal: roomEstimated,
+          baseRateTotal: rate,
+        });
+      }
+    });
+
+    const finalEstimatedTotal = dto.estimatedTotal ?? totalEstimated;
+
+    const result = await this.dataSource.transaction(async (manager) => {
+      const groupRepository = manager.getRepository(GroupBookingEntity);
+      const blockRepository = manager.getRepository(GroupBookingRoomBlockEntity);
+      const assignmentRepository = manager.getRepository(GroupBookingRoomAssignmentEntity);
+      const stayRepository = manager.getRepository(GroupStayEntity);
+      const folioRepository = manager.getRepository(GroupMasterFolioEntity);
+      const roomRepository = manager.getRepository(RoomEntity);
+
+      const groupCode = await this.nextGroupCode(propertyId);
+      const group = await groupRepository.save(
+        groupRepository.create({
+          adults: totalAdults,
+          arrivalDate: dto.arrivalDate,
+          children: totalChildren,
+          departureDate: dto.departureDate,
+          depositRequired: String(dto.depositRequired ?? 0),
+          estimatedTotal: String(finalEstimatedTotal),
+          externalChannelId: null,
+          groupCode,
+          groupName: dto.groupName.trim(),
+          leadEmail: dto.leadEmail?.trim() || null,
+          leadName: dto.leadName.trim(),
+          leadPhone: dto.leadPhone.trim(),
+          notes: dto.notes?.trim() || null,
+          propertyId,
+          releaseAt: null,
+          source: GroupBookingSource.WALK_IN,
+          status: GroupBookingStatus.CHECKED_IN,
+          syncStatus: 'PMS_ONLY',
+        }),
+      );
+
+      // Room-type blocks
+      const blocks = Array.from(blocksByRoomType.values());
+      await blockRepository.save(
+        blocks.map((block) =>
+          blockRepository.create({
+            adultsPerRoom: Math.round(block.adultsPerRoomTotal / block.rooms),
+            baseRate: String(block.rooms ? block.baseRateTotal / block.rooms : 0),
+            childrenPerRoom: Math.round(block.childrenPerRoomTotal / block.rooms),
+            estimatedTotal: String(block.estimatedTotal),
+            groupBookingId: group.id,
+            roomTypeId: block.roomTypeId,
+            rooms: block.rooms,
+          }),
+        ),
+      );
+
+      // Physical room assignments
+      await assignmentRepository.save(
+        dto.roomAssignments.map((assignment) =>
+          assignmentRepository.create({
+            groupBookingId: group.id,
+            roomId: assignment.roomId,
+            roomTypeId: roomById.get(assignment.roomId)!.roomTypeId,
+          }),
+        ),
+      );
+
+      const stay = await stayRepository.save(
+        stayRepository.create({
+          checkedInAt: new Date(),
+          groupBookingId: group.id,
+          propertyId,
+          status: 'IN_HOUSE',
+        }),
+      );
+
+      const folio = await folioRepository.save(
+        folioRepository.create({
+          currency: 'INR',
+          estimatedTotal: String(finalEstimatedTotal),
+          folioNumber: await this.nextGroupFolioNumber(propertyId),
+          groupBookingId: group.id,
+          groupStayId: stay.id,
+          propertyId,
+          status: 'OPEN',
+        }),
+      );
+
+      await roomRepository.update(
+        { id: In(roomIds), propertyId },
+        { operationalStatus: RoomOperationalStatus.OCCUPIED },
+      );
+
+      return { folio, group, stay };
+    });
+
+    return {
+      group: await this.getHold(propertyId, result.group.id),
+      groupStayId: result.stay.id,
+      masterFolioId: result.folio.id,
+      masterFolioNumber: result.folio.folioNumber,
+      occupiedRooms: dto.roomAssignments.map(
+        (assignment) => roomById.get(assignment.roomId)?.roomNumber ?? 'Room',
+      ),
+    };
+  }
+
   async getGroupMasterFolioDetail(
     propertyId: string,
     groupBookingId: string,
@@ -835,6 +1077,13 @@ export class GroupBookingService {
   private async nextGroupCode(propertyId: string) {
     const count = await this.groupBookingsRepository.count({ where: { propertyId } });
     return `GRP-${String(count + 1).padStart(5, '0')}`;
+  }
+
+  private estimateBaseRate(roomTypeName: string): number {
+    const normalized = roomTypeName.toLowerCase();
+    if (normalized.includes('suite')) return 6500;
+    if (normalized.includes('deluxe')) return 3500;
+    return 2800;
   }
 
   private async nextGroupFolioNumber(propertyId: string) {

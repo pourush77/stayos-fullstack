@@ -33,7 +33,10 @@ async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promi
   const payload = (await response.json().catch(() => undefined)) as ApiResponse<T> | undefined;
 
   if (!response.ok) {
-    throw new Error(`Operations API request failed: ${response.status} ${response.statusText}`);
+    const errMsg =
+      (payload as unknown as { error?: { message?: string } })?.error?.message ||
+      (payload as unknown as { message?: string })?.message;
+    throw new Error(errMsg || `Operations API request failed: ${response.status} ${response.statusText}`);
   }
 
   return unwrapResponse<T>(payload as ApiResponse<T>);
@@ -290,6 +293,25 @@ export type UpdateGroupHoldDto = {
   releaseAt?: string;
 };
 
+export type CreateWalkInGroupDto = {
+  groupName: string;
+  leadName: string;
+  leadPhone: string;
+  leadEmail?: string;
+  arrivalDate: string;
+  departureDate: string;
+  estimatedTotal?: number;
+  depositRequired?: number;
+  notes?: string;
+  roomAssignments: Array<{
+    roomId: string;
+    adults: number;
+    children: number;
+    guestName?: string;
+    baseRate?: number;
+  }>;
+};
+
 export type GroupCheckInPreviewDto = {
   blockers: string[];
   canCheckIn: boolean;
@@ -485,6 +507,18 @@ export function createGroupHold(
   signal?: AbortSignal,
 ) {
   return post<GroupHoldDto>(`/properties/${propertyId}/operations/group-holds`, body, signal);
+}
+
+export function createWalkInGroup(
+  propertyId: string,
+  body: CreateWalkInGroupDto,
+  signal?: AbortSignal,
+) {
+  return post<GroupCheckInResultDto>(
+    `/properties/${propertyId}/operations/group-holds/walk-in`,
+    body,
+    signal,
+  );
 }
 
 export function getGroupHolds(propertyId: string, signal?: AbortSignal) {

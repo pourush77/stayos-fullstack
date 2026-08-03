@@ -22,6 +22,7 @@ import {
   AvailableRoomDto,
   AvailableRoomsQueryDto,
   CreateGroupHoldDto,
+  CreateWalkInGroupDto,
   GroupCheckInPreviewDto,
   GroupCheckInResultDto,
   GroupHoldDto,
@@ -276,6 +277,27 @@ export class OperationsController {
     @Param('groupHoldId', ParseUUIDPipe) groupHoldId: string,
   ): Promise<GroupCheckInResultDto> {
     return this.groupBookingService.checkInGroup(propertyId, groupHoldId);
+  }
+
+  @Post('operations/group-holds/walk-in')
+  @RequirePermissions(Permissions.OperationsView, Permissions.RoomsView)
+  @ApiOperation({
+    summary: 'Create and check-in a walk-in group in one transaction',
+    description:
+      'One-click walk-in group flow: creates a group booking, room-type inventory blocks, physical room assignments, group stay, and a single master folio. Rooms are marked OCCUPIED immediately. Bypasses the hold → confirm → assign lifecycle since the guests are already at the front desk.',
+  })
+  @ApiParam({ name: 'propertyId', format: 'uuid' })
+  @ApiStandardOkResponse(GroupCheckInResultDto)
+  @ApiBadRequestResponse({
+    description:
+      'Invalid request: rooms not ready, conflicts, or bad payload. Stable code: VALIDATION_ERROR.',
+  })
+  @ApiNotFoundResponse({ description: 'Property not found. Stable code: NOT_FOUND.' })
+  createWalkInGroup(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Body() dto: CreateWalkInGroupDto,
+  ): Promise<GroupCheckInResultDto> {
+    return this.groupBookingService.createWalkInGroup(propertyId, dto);
   }
 
   @Get('operations/in-house-groups')

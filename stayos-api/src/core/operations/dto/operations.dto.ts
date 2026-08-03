@@ -1029,3 +1029,91 @@ export class NeedsAttentionItemDto {
   @ApiProperty()
   primaryAction!: string;
 }
+
+
+export class WalkInGroupRoomAssignmentDto {
+  @ApiProperty({ format: 'uuid', description: 'The actual room ID to assign and check-in' })
+  @IsUUID()
+  roomId!: string;
+
+  @ApiProperty({ minimum: 1 })
+  @Transform(({ value }: { value: unknown }) => Number(value))
+  @IsInt()
+  @Min(1)
+  adults!: number;
+
+  @ApiProperty({ minimum: 0 })
+  @Transform(({ value }: { value: unknown }) => Number(value))
+  @IsInt()
+  @Min(0)
+  children!: number;
+
+  @ApiPropertyOptional({ description: 'Occupant name for this room (optional)' })
+  @IsOptional()
+  @IsString()
+  guestName?: string;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @Transform(({ value }: { value: unknown }) => (value === undefined ? undefined : Number(value)))
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  baseRate?: number;
+}
+
+export class CreateWalkInGroupDto {
+  @ApiProperty({ example: 'Sharma Family Reunion' })
+  @IsString()
+  groupName!: string;
+
+  @ApiProperty({ example: 'Rajat Sharma' })
+  @IsString()
+  leadName!: string;
+
+  @ApiProperty({ example: '+919876543210' })
+  @IsString()
+  leadPhone!: string;
+
+  @ApiPropertyOptional({ example: 'rajat@example.com' })
+  @IsOptional()
+  @IsString()
+  leadEmail?: string;
+
+  @ApiProperty({ format: 'date' })
+  @IsDateString()
+  arrivalDate!: string;
+
+  @ApiProperty({ format: 'date' })
+  @IsDateString()
+  departureDate!: string;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @Transform(({ value }: { value: unknown }) => (value === undefined ? undefined : Number(value)))
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  estimatedTotal?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @Transform(({ value }: { value: unknown }) => (value === undefined ? undefined : Number(value)))
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  depositRequired?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @ApiProperty({
+    type: [WalkInGroupRoomAssignmentDto],
+    description:
+      'One entry per physical room to assign & check-in. Rooms are grouped by roomType server-side to build inventory blocks. Backend derives adults & children totals.',
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => WalkInGroupRoomAssignmentDto)
+  roomAssignments!: WalkInGroupRoomAssignmentDto[];
+}

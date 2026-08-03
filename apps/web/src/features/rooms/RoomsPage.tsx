@@ -627,6 +627,28 @@ function RoomCard({
           <RoomBadge status={room.status}>{statusLabel(room.status)}</RoomBadge>
         </Group>
 
+        {room.groupContext ? (
+          <Box
+            component="span"
+            data-testid={`room-card-group-badge-${room.number}`}
+            style={{
+              alignSelf: 'flex-start',
+              background: '#dcfce7',
+              border: '1px solid #86efac',
+              borderRadius: radius.full,
+              color: '#166534',
+              fontSize: 10,
+              fontWeight: 800,
+              letterSpacing: 0.3,
+              lineHeight: '14px',
+              padding: '2px 8px',
+              textTransform: 'uppercase',
+            }}
+          >
+            GROUP · {room.groupContext.groupCode}
+          </Box>
+        ) : null}
+
         <Box>
           {isOccupied ? (
             <Group gap={7} wrap="nowrap">

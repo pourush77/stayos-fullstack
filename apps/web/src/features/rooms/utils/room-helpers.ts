@@ -16,7 +16,12 @@ export function getRoomSubtitle(room: Room) {
   }
 
   if (room.status === 'ready') return 'Vacant';
-  if (room.status === 'occupied') return room.guest ?? 'Guest in house';
+  if (room.status === 'occupied') {
+    if (room.groupContext) {
+      return `${room.groupContext.groupCode} · ${room.groupContext.groupName}`;
+    }
+    return room.guest ?? 'Guest in house';
+  }
   if (room.status === 'cleaning' || room.status === 'dirty') return 'Waiting for housekeeping';
   if (room.status === 'inspection') return 'Inspection pending';
   if (room.status === 'maintenance') return 'Maintenance in progress';

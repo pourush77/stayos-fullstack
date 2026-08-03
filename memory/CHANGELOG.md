@@ -1,3 +1,10 @@
+## 2026-08-03 — Walk-in Group + Phase 5B
+- New endpoint `POST /properties/:propertyId/operations/group-holds/walk-in` — one atomic transaction creates group + inventory blocks + room assignments + group stay + one master folio and marks rooms OCCUPIED.
+- New `WalkInGroupModal.tsx` opened via "Walk-in Group" button on Bookings page. Live room picker by type, per-room occupants, deposit, notes; on success shows GRP + master folio + link.
+- Phase 5B — `RoomCard` and `getRoomSubtitle` now surface `GROUP · GRP-XXXXX` badge + `${groupCode} · ${groupName}` subtitle for group-occupied rooms.
+- 27 operations tests + 252 total tests passing. Build + typecheck + lint clean.
+
+
 # StayOS Changelog
 
 ## 2026-08-01 (later) — Send-to-Phone + Persist Face Snap 📱

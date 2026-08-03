@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Badge,
@@ -17,7 +17,7 @@ import {
   ThemeIcon,
   Title,
 } from '@mantine/core';
-import { AlertCircle, CalendarDays, Edit, Plus, Search, Users } from 'lucide-react';
+import { AlertCircle, CalendarDays, Edit, Plus, Search, UserPlus, Users } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import {
   BackendUnavailable,
@@ -34,6 +34,7 @@ import {
   type InHouseGroupDto,
 } from '../../lib/operations-api';
 import { BookingStatusBadge, PaymentStatusBadge } from './components/BookingBadges';
+import { WalkInGroupModal } from './components/WalkInGroupModal';
 import { bookingFilterOptions } from './constants/booking.constants';
 import { useBookings } from './hooks/useBookings';
 import type { Booking, BookingFilter } from './types/booking.types';
@@ -80,6 +81,8 @@ export default function BookingsPage() {
   const [groupHolds, setGroupHolds] = useState<GroupHoldDto[]>([]);
   const [recentlyDepartedGroups, setRecentlyDepartedGroups] = useState<GroupHoldDto[]>([]);
   const [inHouseGroups, setInHouseGroups] = useState<InHouseGroupDto[]>([]);
+  const [walkInOpen, setWalkInOpen] = useState(false);
+  const [activePropertyId, setActivePropertyId] = useState<string>('');
 
   useEffect(() => {
     if (!enabled) return undefined;
@@ -111,6 +114,7 @@ export default function BookingsPage() {
           ) ?? properties[0];
         const propertyId = typeof active?.id === 'string' ? active.id : '';
         if (!propertyId) return;
+        setActivePropertyId(propertyId);
         const [holds, groups] = await Promise.all([
           getGroupHolds(propertyId, controller.signal),
           getInHouseGroups(propertyId, controller.signal),
@@ -130,6 +134,21 @@ export default function BookingsPage() {
     })();
     return () => controller.abort();
   }, [enabled]);
+
+  const refreshGroups = useCallback(async () => {
+    if (!activePropertyId) return;
+    try {
+      const [holds, groups] = await Promise.all([
+        getGroupHolds(activePropertyId),
+        getInHouseGroups(activePropertyId),
+      ]);
+      setGroupHolds(holds.filter((h) => h.status === 'ON_HOLD' || h.status === 'CONFIRMED'));
+      setRecentlyDepartedGroups(holds.filter((h) => h.status === 'CHECKED_OUT'));
+      setInHouseGroups(groups);
+    } catch {
+      // swallow
+    }
+  }, [activePropertyId]);
 
   const bookings = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -173,6 +192,16 @@ export default function BookingsPage() {
           leftSection={<Users size={16} />}
         >
           Group Quote
+        </Button>
+        <Button
+          variant="light"
+          color="teal"
+          leftSection={<UserPlus size={16} />}
+          onClick={() => setWalkInOpen(true)}
+          data-testid="walk-in-group-button"
+          disabled={!activePropertyId}
+        >
+          Walk-in Group
         </Button>
         <Button
           component={Link}
@@ -219,6 +248,15 @@ export default function BookingsPage() {
   return (
     <Stack gap={spacing[3]}>
       {pageHeader}
+      <WalkInGroupModal
+        opened={walkInOpen}
+        onClose={() => setWalkInOpen(false)}
+        propertyId={activePropertyId}
+        onCreated={async () => {
+          await refreshGroups();
+          await bookingState.refreshBookings();
+        }}
+      />
       {inHouseGroups.length ? (
         <Card
           radius={radius.lg}

@@ -28,6 +28,22 @@ User asked us to complete pending pages & functionality, module by module, acros
 
 ## Sessions Ledger
 
+### 2026-08-03 — Walk-in Group + Phase 5B room-card group context
+- **Container restore**: reinstalled Postgres 15, dependencies, ran migrations + demo bootstrap, wired supervisor `backend` → NestJS, `frontend` → Next.js, `postgres` → pg_ctlcluster. Both services healthy.
+- **Walk-in Group one-click flow (NEW)** — chat #7 spec, single-transaction endpoint:
+  - `POST /properties/:propertyId/operations/group-holds/walk-in` (controller + service `createWalkInGroup`).
+  - In one DB transaction: creates `group_bookings` (status `CHECKED_IN`, source `WALK_IN`), room-type inventory blocks, physical room assignments, `group_stays`, single `group_master_folios`, marks all selected rooms `OCCUPIED`.
+  - Validates: property, date range, ready-status of every room, no reservation conflicts, no active-group assignment conflicts.
+  - Groups per-room adults/children into per-type blocks automatically.
+  - Frontend: `WalkInGroupModal.tsx` (Bookings page → "Walk-in Group" button). Live room availability by type, per-room occupant name/adults/children, deposit, notes. Success state shows GRP code + folio number + occupied rooms + link to master folio. On success refreshes in-house groups list on Bookings page.
+- **Phase 5B — Room card group context**:
+  - `RoomCard` on `/rooms` now shows green `GROUP · GRP-XXXXX` badge when the room's `groupContext` is populated.
+  - `getRoomSubtitle` renders `${groupCode} · ${groupName}` for group-occupied rooms (previously just guest name).
+  - Backend already provided `groupContext` on both room-board list & room-drawer detail.
+- **Verified end-to-end**: created walk-in group `GRP-00002` via UI (rooms 301, 302), master folio `GFO-00002` opened, room cards show `GROUP · GRP-XXXXX` badges. Existing group `GRP-00001` (created via API) also visible on both Bookings in-house list and Rooms board.
+- **Tests**: `npm test` in stayos-api → 38 suites / 252 tests all passing. `npm run build` passes. `tsc --noEmit` passes. ESLint clean on both modified files.
+
+
 ### Session 1 — 2026-07-30 — Bootstrap + Auth + Billing
 **Environment**
 - Cloned `stayos-api`; installed Node 22, Postgres 15; ran TypeORM migrations; seeded demo data.
