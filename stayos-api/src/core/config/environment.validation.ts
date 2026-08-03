@@ -29,7 +29,11 @@ export const validateEnvironment = (config: Record<string, unknown>): Record<str
 
   validatePort('PORT', env.PORT, errors);
   validateRequiredDatabaseConfig(env, errors);
-  validatePort('DATABASE_PORT', env.DATABASE_PORT, errors);
+  if (env.DATABASE_URL?.trim()) {
+    validateDatabaseUrl(env.DATABASE_URL, errors);
+  } else {
+    validatePort('DATABASE_PORT', env.DATABASE_PORT, errors);
+  }
   validateJwtSecret('JWT_SECRET', env.JWT_SECRET, nodeEnv, errors);
   validateJwtSecret('JWT_REFRESH_SECRET', env.JWT_REFRESH_SECRET, nodeEnv, errors);
   validateOptionalPositiveInteger(
@@ -68,11 +72,35 @@ const validateNodeEnvironment = (value: string | undefined, errors: string[]): N
 };
 
 const validateRequiredDatabaseConfig = (env: Environment, errors: string[]): void => {
+  if (env.DATABASE_URL?.trim()) {
+    return;
+  }
+
   requiredDatabaseKeys.forEach((key) => {
     if (!env[key]?.trim()) {
       errors.push(`${key} is required`);
     }
   });
+};
+
+const validateDatabaseUrl = (value: string | undefined, errors: string[]): void => {
+  if (!value?.trim()) {
+    errors.push('DATABASE_URL is required');
+
+    return;
+  }
+
+  try {
+    const url = new URL(value);
+    if (!['postgres:', 'postgresql:'].includes(url.protocol)) {
+      errors.push('DATABASE_URL must use postgres or postgresql protocol');
+    }
+    if (!url.hostname || !url.pathname.replace(/^\//, '')) {
+      errors.push('DATABASE_URL must include host and database name');
+    }
+  } catch {
+    errors.push('DATABASE_URL must be a valid PostgreSQL connection string');
+  }
 };
 
 const validatePort = (key: string, value: string | undefined, errors: string[]): void => {

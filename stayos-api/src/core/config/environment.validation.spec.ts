@@ -28,6 +28,34 @@ describe('validateEnvironment', () => {
     expect(() => validateEnvironment(config)).toThrow(/DATABASE_HOST is required/);
   });
 
+  it('allows DATABASE_URL instead of split database fields', () => {
+    const config = {
+      ...validDevelopmentConfig,
+      DATABASE_URL: 'postgresql://stayos_user:secret@localhost:5432/stayos',
+      DATABASE_HOST: undefined,
+      DATABASE_PORT: undefined,
+      DATABASE_NAME: undefined,
+      DATABASE_USERNAME: undefined,
+      DATABASE_PASSWORD: undefined,
+    };
+
+    expect(validateEnvironment(config)).toEqual(config);
+  });
+
+  it('fails when DATABASE_URL is invalid', () => {
+    const config = {
+      ...validDevelopmentConfig,
+      DATABASE_URL: 'mysql://stayos_user:secret@localhost:3306/stayos',
+      DATABASE_HOST: undefined,
+      DATABASE_PORT: undefined,
+      DATABASE_NAME: undefined,
+      DATABASE_USERNAME: undefined,
+      DATABASE_PASSWORD: undefined,
+    };
+
+    expect(() => validateEnvironment(config)).toThrow(/DATABASE_URL must use postgres/);
+  });
+
   it('fails when a port is invalid', () => {
     const config = {
       ...validDevelopmentConfig,

@@ -9,15 +9,27 @@ export interface DatabaseConnectionConfig {
   password: string;
 }
 
-export const getDatabaseConfig = (
-  env: NodeJS.ProcessEnv = process.env,
-): DatabaseConnectionConfig => ({
-  host: env.DATABASE_HOST ?? 'localhost',
-  port: parseInt(env.DATABASE_PORT ?? '5432', 10),
-  database: env.DATABASE_NAME ?? 'stayos',
-  username: env.DATABASE_USERNAME ?? 'stayos_user',
-  password: env.DATABASE_PASSWORD ?? 'secret',
-});
+export const getDatabaseConfig = (env: NodeJS.ProcessEnv = process.env): DatabaseConnectionConfig => {
+  if (env.DATABASE_URL?.trim()) {
+    const url = new URL(env.DATABASE_URL);
+
+    return {
+      host: url.hostname,
+      port: url.port ? parseInt(url.port, 10) : 5432,
+      database: url.pathname.replace(/^\//, ''),
+      username: decodeURIComponent(url.username),
+      password: decodeURIComponent(url.password),
+    };
+  }
+
+  return {
+    host: env.DATABASE_HOST ?? 'localhost',
+    port: parseInt(env.DATABASE_PORT ?? '5432', 10),
+    database: env.DATABASE_NAME ?? 'stayos',
+    username: env.DATABASE_USERNAME ?? 'stayos_user',
+    password: env.DATABASE_PASSWORD ?? 'secret',
+  };
+};
 
 export const createTypeOrmDataSourceOptions = (
   databaseConfig: DatabaseConnectionConfig = getDatabaseConfig(),

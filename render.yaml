@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: stayos-api-staging
+    runtime: node
+    rootDir: stayos-api
+    plan: free
+    buildCommand: npm install && npm run build && npm run migration:run
+    startCommand: node dist/main.js
+    healthCheckPath: /api/v1/health/ready
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: stayos-postgres-staging
+          property: connectionString
+      - key: CORS_ORIGINS
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_EXPIRES_IN
+        value: 30m
+      - key: JWT_REFRESH_EXPIRES_IN_DAYS
+        value: 14
+      - key: SESSION_IDLE_LOCK_MINUTES
+        value: 30
+
+databases:
+  - name: stayos-postgres-staging
+    plan: free
+    databaseName: stayos
+    user: stayos_user
