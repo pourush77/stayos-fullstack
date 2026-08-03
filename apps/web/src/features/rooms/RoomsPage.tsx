@@ -566,6 +566,7 @@ function RoomCard({
 
   return (
     <Paper
+      data-testid={`room-card-${room.number}`}
       role="button"
       tabIndex={0}
       aria-label={`Open room ${room.number} details`}
@@ -715,6 +716,11 @@ function RoomCard({
         ) : null}
 
         <Button
+          data-testid={
+            isRoomReadyForAssignment(room)
+              ? `room-assign-guest-${room.number}`
+              : `room-action-${room.number}`
+          }
           fullWidth
           loading={action ? loadingAction === roomActionKey(room, action) : false}
           onClick={(event) => {
@@ -1001,7 +1007,7 @@ function AssignGuestModal({
         </Box>
       }
     >
-      <Box className={styles.assignGuestModalShell}>
+      <Box className={styles.assignGuestModalShell} data-testid="assign-guest-modal">
         <Stack gap={spacing[3]} className={styles.assignGuestModalHeader}>
           {room ? (
             <Paper radius={radius.lg} p={14} className={styles.surfaceCard}>
@@ -1020,6 +1026,7 @@ function AssignGuestModal({
           ) : null}
 
           <TextInput
+            data-testid="assign-guest-search"
             leftSection={<Search size={15} />}
             placeholder="Search guest or confirmation number..."
             value={query}
@@ -1056,6 +1063,7 @@ function AssignGuestModal({
 
               return (
                 <UnstyledButton
+                  data-testid={`assignable-reservation-${reservation.reservationId}`}
                   key={reservation.reservationId}
                   onClick={() => setSelectedReservationId(reservation.reservationId)}
                   style={{
@@ -1136,6 +1144,7 @@ function AssignGuestModal({
             Cancel
           </Button>
           <Button
+            data-testid="assign-guest-submit"
             color="stayosBrand"
             disabled={!selectedReservationId || !room}
             loading={loading}
@@ -2430,6 +2439,7 @@ export default function RoomsPage() {
             classNames={{ input: styles.searchControlInput }}
           />
           <Select
+            data-testid="room-status-filter"
             className={styles.statusSelect}
             data={[
               { label: 'All Statuses', value: 'all' },

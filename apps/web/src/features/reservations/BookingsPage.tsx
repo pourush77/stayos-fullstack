@@ -530,7 +530,7 @@ export default function BookingsPage() {
               </Table.Thead>
               <Table.Tbody>
                 {bookings.map((booking) => (
-                  <Table.Tr key={booking.backendId}>
+                  <Table.Tr key={booking.backendId} data-testid={`booking-row-${booking.backendId}`}>
                     <Table.Td>
                       <Text
                         component={Link}
@@ -579,6 +579,7 @@ export default function BookingsPage() {
                     <Table.Td>
                       <Button
                         component={Link}
+                        data-testid={`booking-next-action-${booking.backendId}`}
                         href={`/reservations/${booking.backendId}`}
                         size="compact-sm"
                         variant="light"

@@ -702,7 +702,7 @@ export default function StayWorkspace() {
       />
 
       <Modal opened={checkoutOpened} onClose={() => setCheckoutOpened(false)} centered title={hasOutstandingBalance ? 'Settle payment first' : 'Check out guest?'}>
-        <Stack gap={spacing[4]}>
+        <Stack gap={spacing[4]} data-testid="stay-checkout-modal">
           <Text c="#64748b" size="sm">
             {hasOutstandingBalance
               ? 'This stay still has a folio balance. Collect payment from Billing & payments, then check out.'

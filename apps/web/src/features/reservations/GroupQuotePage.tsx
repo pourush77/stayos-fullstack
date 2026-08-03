@@ -167,7 +167,12 @@ function OptionCard({
           <Button leftSection={<Copy size={14} />} color="stayosBrand" onClick={() => void copyQuote()}>
             Copy Quote
           </Button>
-          <Button variant="light" color="stayosBrand" onClick={() => onCreateHold(option)}>
+          <Button
+            data-testid="group-quote-create-hold"
+            variant="light"
+            color="stayosBrand"
+            onClick={() => onCreateHold(option)}
+          >
             Create Hold
           </Button>
           <Button variant="light" color="gray" disabled>
@@ -433,7 +438,14 @@ export function GroupQuotePage() {
               <Text c="#64748b" size="sm">
                 {formatDate(arrivalDate)} to {formatDate(departureDate)} - {totalGuests} guests
               </Text>
-              <Button color="stayosBrand" leftSection={<Hotel size={16} />} loading={isLoading} onClick={() => void search()} disabled={!canSearch}>
+              <Button
+                color="stayosBrand"
+                data-testid="group-quote-find-room-mix"
+                leftSection={<Hotel size={16} />}
+                loading={isLoading}
+                onClick={() => void search()}
+                disabled={!canSearch}
+              >
                 Find Room Mix
               </Button>
             </Group>
@@ -456,6 +468,7 @@ export function GroupQuotePage() {
                 {groupHolds.map((hold) => (
                   <Paper
                     key={hold.id}
+                    data-testid={`group-hold-card-${hold.id}`}
                     role="button"
                     tabIndex={0}
                     radius={radius.md}
@@ -497,6 +510,7 @@ export function GroupQuotePage() {
                         <Text c="#64748b" size="sm" truncate>{hold.roomBlocks.map((block) => `${block.rooms} ${block.roomTypeName}`).join(' + ')}</Text>
                       </Box>
                       <Button
+                        data-testid={`group-hold-edit-${hold.id}`}
                         size="xs"
                         variant="subtle"
                         color="gray"

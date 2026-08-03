@@ -673,7 +673,7 @@ export function CheckInWorkspacePage() {
               showToast({
                 color: 'green',
                 title: 'Auto-filled from ID',
-                message: `${bits.join(' · ')} - please confirm and save.`,
+                message: `${bits.join(' - ')} - please confirm and save.`,
               });
             } else {
               showToast({
@@ -1165,8 +1165,8 @@ export function CheckInWorkspacePage() {
   };
 
   return (
-    <Stack gap={spacing[3]}>
-      <Paper radius={radius.lg} p={18} style={cardStyle}>
+    <Stack gap={spacing[3]} data-testid="checkin-workspace-page">
+      <Paper radius={radius.lg} p={18} style={cardStyle} data-testid="checkin-summary-card">
         <Group justify="space-between" align="flex-start" gap={spacing[3]} wrap="wrap">
           <Stack gap={8}>
             <Group gap={12}>
@@ -1193,7 +1193,7 @@ export function CheckInWorkspacePage() {
           </Badge>
         </Group>
       </Paper>
-      <Box className={styles.checkInShell}>
+      <Box className={styles.checkInShell} data-testid="checkin-layout">
         <Paper radius={radius.lg} p={16} className={styles.checkInSidebar} style={cardStyle} data-testid="checkin-wizard-nav">
           <Stack gap={spacing[3]}>
             <Box>
@@ -1260,11 +1260,11 @@ export function CheckInWorkspacePage() {
           </Stack>
         </Paper>
 
-        <Stack gap={spacing[3]} onKeyDown={handleStepKeyDown}>
+        <Stack gap={spacing[3]} onKeyDown={handleStepKeyDown} data-testid="checkin-main">
 
       {activeStep === 'identity' ? (
       <Box data-checkin-step="identity">
-      <StepCard icon={<IdCard size={17} />} title="Step 1 · Verify identity" complete={c.identityVerified}>
+      <StepCard icon={<IdCard size={17} />} title="Step 1 - Verify identity" complete={c.identityVerified}>
         <Stack gap={spacing[3]}>
           {isDetecting ? (
             <Alert color="blue" variant="light" icon={<Loader size="xs" color="blue" />} data-testid="checkin-ocr-progress">
@@ -1391,7 +1391,7 @@ export function CheckInWorkspacePage() {
 
       {activeStep === 'guest' ? (
       <Box data-checkin-step="guest">
-      <StepCard icon={<UserRound size={17} />} title="Step 2 · Guest details" complete={c.guestRegistrationComplete}>
+      <StepCard icon={<UserRound size={17} />} title="Step 2 - Guest details" complete={c.guestRegistrationComplete}>
         <Stack gap={spacing[3]}>
           {missingGuestFields.length > 0 ? (
             <Paper
@@ -1469,7 +1469,7 @@ export function CheckInWorkspacePage() {
 
       {activeStep === 'payment' ? (
       <Box data-checkin-step="payment">
-      <StepCard icon={<CreditCard size={17} />} title="Step 3 · Payment plan" complete={c.paymentReviewed}>
+      <StepCard icon={<CreditCard size={17} />} title="Step 3 - Payment plan" complete={c.paymentReviewed}>
         <Stack gap={spacing[3]}>
           <Alert color="stayosBrand" variant="light" icon={<Info size={17} />}>
             <Text size="sm">
@@ -1500,7 +1500,7 @@ export function CheckInWorkspacePage() {
               <Text fw={800} size="lg" mt={2} c="#101828">
                 {computeNights(workspace.booking.arrivalDate, workspace.booking.departureDate)} night{computeNights(workspace.booking.arrivalDate, workspace.booking.departureDate) === 1 ? '' : 's'}
               </Text>
-              <Text size="xs" c="#94a3b8" mt={2}>2:00 PM check-in · 12:00 PM check-out</Text>
+              <Text size="xs" c="#94a3b8" mt={2}>2:00 PM check-in - 12:00 PM check-out</Text>
             </Paper>
           </SimpleGrid>
 
@@ -1541,10 +1541,10 @@ export function CheckInWorkspacePage() {
 
       {activeStep === 'room' ? (
       <Box data-checkin-step="room">
-      <StepCard icon={<BedDouble size={17} />} title="Step 4 · Room readiness" complete={c.roomReady}>
+      <StepCard icon={<BedDouble size={17} />} title="Step 4 - Room readiness" complete={c.roomReady}>
         <Stack gap={8}>
           <Text size="sm">
-            <b>Room {room.roomNumber ?? 'Unassigned'}</b> · {room.roomType ?? '-'} · Status: <b>{room.operationalStatus ?? 'N/A'}</b>
+            <b>Room {room.roomNumber ?? 'Unassigned'}</b> - {room.roomType ?? '-'} - Status: <b>{room.operationalStatus ?? 'N/A'}</b>
           </Text>
           {room.warnings.length > 0 ? (
             <Alert color="orange" variant="light" icon={<AlertTriangle size={16} />}>
@@ -1566,6 +1566,7 @@ export function CheckInWorkspacePage() {
       <Card
         radius={radius.lg}
         p={16}
+        data-testid="checkin-sticky-footer"
         style={{
           background: '#ffffff',
           border: '1px solid #e2e8f0',

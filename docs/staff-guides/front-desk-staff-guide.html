@@ -1,0 +1,119 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Front Desk V1 Staff Guide</title>
+  <style>
+    @page { margin: 18mm; }
+    body { color: #101828; font-family: Inter, Arial, sans-serif; font-size: 12px; line-height: 1.45; margin: 0; }
+    h1 { font-size: 28px; margin: 0 0 8px; }
+    h2 { border-top: 1px solid #e2e8f0; font-size: 17px; margin: 22px 0 8px; padding-top: 14px; }
+    h3 { color: #334155; font-size: 14px; margin: 0 0 8px; }
+    .meta { color: #64748b; margin-bottom: 18px; }
+    .pill { background: #f3e8ff; border-radius: 999px; color: #5b21b6; display: inline-block; font-size: 11px; font-weight: 800; margin: 4px 6px 4px 0; padding: 5px 9px; text-transform: uppercase; }
+    .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; margin: 14px 0; padding: 14px; }
+    .warning { background: #fff7ed; border-color: #fed7aa; }
+    ol, ul { margin: 6px 0 0 18px; padding: 0; }
+    li { margin: 5px 0; }
+    img { border: 1px solid #dbe3ef; border-radius: 10px; display: block; max-width: 100%; width: 100%; }
+    .screenshot { break-inside: avoid; margin-top: 18px; }
+    .cover { border-bottom: 3px solid #7c3aed; margin-bottom: 18px; padding-bottom: 14px; }
+    .footer { color: #64748b; font-size: 10px; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <div class="cover">
+    <div class="pill">StayOS V1 Staff Pilot</div>
+    <h1>Front Desk V1 Staff Guide</h1>
+    <div class="meta">Account: frontdesk@stayos.local | Password: Password123! | Generated: 3 Aug 2026, 9:42 pm</div>
+    <p>This guide is for staff pilot testing. Follow normal hotel operations and report anything confusing, blocked, or financially incorrect.</p>
+  </div>
+
+  
+        <section>
+          <h2>Start of shift</h2>
+          <ol><li>Open Front Desk dashboard.</li><li>Review Action Queue first.</li><li>Check arrivals, departures, rooms to clean, and guests in house.</li></ol>
+        </section>
+      
+        <section>
+          <h2>New booking</h2>
+          <ol><li>Click New Booking.</li><li>Create or select guest.</li><li>Pick stay dates, room type, guests, and payment plan.</li><li>Create booking, then assign room when ready.</li></ol>
+        </section>
+      
+        <section>
+          <h2>Assign room</h2>
+          <ol><li>Click Assign Room.</li><li>Only ready rooms are shown.</li><li>Choose a guest from eligible reservations.</li><li>After assignment, continue to check-in.</li></ol>
+        </section>
+      
+        <section>
+          <h2>Check-in</h2>
+          <ol><li>Verify identity.</li><li>Complete missing guest details.</li><li>Review payment plan.</li><li>Confirm room is ready.</li><li>Complete check-in.</li></ol>
+        </section>
+      
+        <section>
+          <h2>Checkout</h2>
+          <ol><li>Open Check Out.</li><li>Open due departure.</li><li>Collect any balance before final checkout.</li><li>Complete checkout only after billing is settled.</li></ol>
+        </section>
+      
+        <section>
+          <h2>If something is blocked</h2>
+          <ol><li>Read the message first. Most blocked actions explain the missing step.</li><li>If a room is not shown, it is usually not ready, already occupied, assigned, or incompatible.</li><li>If checkout is blocked, collect or settle the outstanding balance first.</li><li>If the guest details step does not clear, check address, country, state, city, purpose of visit, mobile, and nationality.</li></ol>
+        </section>
+      
+        <section>
+          <h2>What to report during pilot</h2>
+          <ol><li>Wrong count on dashboard cards.</li><li>Eligible reservation not visible in Assign Guest.</li><li>Wrong balance or paid booking showing due.</li><li>Check-in or checkout button disabled without a clear reason.</li><li>Any screen where staff cannot understand the next action.</li></ol>
+        </section>
+      
+
+  <section class="card warning">
+    <h2>Do Not</h2>
+    <ul><li>Do not use Billing or Settings directly unless manager gives access.</li><li>Do not checkout with an unpaid balance.</li><li>Do not assign rooms outside the ready-room flow unless needed.</li></ul>
+  </section>
+
+  <section class="card">
+    <h2>Report Issues Like This</h2>
+    <ul>
+      <li>Role and page</li>
+      <li>What you clicked</li>
+      <li>What happened</li>
+      <li>What you expected</li>
+      <li>Screenshot and severity</li>
+    </ul>
+  </section>
+
+  
+        <section class="screenshot">
+          <h3>Front Desk dashboard: daily actions, arrivals, room assignment, and queue.</h3>
+          <img src="screenshots/front-desk-front-desk-home.png" alt="Front Desk dashboard: daily actions, arrivals, room assignment, and queue." />
+        </section>
+      
+        <section class="screenshot">
+          <h3>Ready rooms view: use this when assigning a room to an arriving guest.</h3>
+          <img src="screenshots/front-desk-ready-rooms.png" alt="Ready rooms view: use this when assigning a room to an arriving guest." />
+        </section>
+      
+        <section class="screenshot">
+          <h3>Departures list: use this before checkout.</h3>
+          <img src="screenshots/front-desk-bookings-departures.png" alt="Departures list: use this before checkout." />
+        </section>
+      
+        <section class="screenshot">
+          <h3>Availability calendar: inspect sellable rooms, blocks, and group holds.</h3>
+          <img src="screenshots/front-desk-availability.png" alt="Availability calendar: inspect sellable rooms, blocks, and group holds." />
+        </section>
+      
+        <section class="screenshot">
+          <h3>Check-in wizard: verify identity, complete guest details, review payment, and confirm room.</h3>
+          <img src="screenshots/front-desk-check-in-workspace.png" alt="Check-in wizard: verify identity, complete guest details, review payment, and confirm room." />
+        </section>
+      
+        <section class="screenshot">
+          <h3>Stay workspace: guest service, billing, payment, documents, and checkout readiness.</h3>
+          <img src="screenshots/front-desk-stay-workspace.png" alt="Stay workspace: guest service, billing, payment, documents, and checkout readiness." />
+        </section>
+      
+
+  <div class="footer">StayOS V1 role guide. Keep this document internal to staff testing.</div>
+</body>
+</html>

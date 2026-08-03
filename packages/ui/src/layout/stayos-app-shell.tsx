@@ -513,6 +513,7 @@ function NavigationList({
         key={item.label}
         component={Link}
         href={item.href}
+        data-testid={`sidebar-nav-${item.label.toLowerCase().replaceAll(' ', '-')}`}
         style={{
           position: 'relative',
           display: 'flex',

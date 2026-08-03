@@ -46,7 +46,9 @@ const protectedRoutePermissions: Array<{ path: string; permissions: string[] }> 
 ];
 
 const navigationRoleAllowList: Record<string, string[]> = {
+  '/': ['OWNER', 'ADMIN', 'MANAGER', 'FRONT_DESK'],
   '/billing': ['OWNER', 'ADMIN', 'MANAGER', 'ACCOUNTS'],
+  '/rooms': ['OWNER', 'ADMIN', 'MANAGER', 'FRONT_DESK', 'MAINTENANCE'],
   '/settings/employees': ['OWNER', 'ADMIN', 'MANAGER'],
 };
 

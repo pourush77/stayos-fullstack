@@ -291,16 +291,16 @@ function getHousekeepingAgeLabel(room: HousekeepingRoom) {
 function roomStateText(room: HousekeepingRoom) {
   if (room.status === 'dirty') {
     return room.assignedEmployeeName
-      ? `Assigned to ${room.assignedEmployeeName} · Not started`
+      ? `Assigned to ${room.assignedEmployeeName} - Not started`
       : 'Not started';
   }
   if (room.status === 'cleaning') {
     return room.assignedEmployeeName ? `Cleaning by ${room.assignedEmployeeName}` : 'Cleaning';
   }
-  if (room.status === 'inspection') return 'Checklist complete · Waiting inspection';
+  if (room.status === 'inspection') return 'Checklist complete - Waiting inspection';
   if (room.status === 'ready') return 'Ready for assignment';
-  if (room.status === 'occupied') return 'In-house · No housekeeping action';
-  return 'Blocked · Maintenance required';
+  if (room.status === 'occupied') return 'In-house - No housekeeping action';
+  return 'Blocked - Maintenance required';
 }
 
 function roomMatchesGroup(room: HousekeepingRoom, group: (typeof groups)[number]['key']) {
@@ -645,7 +645,7 @@ function RoomCard({
   const action = primaryAction(room);
   const tone = statusTone(room.status);
   const isUnassigned = isUnassignedActionableRoom(room);
-  const primaryLabel = feedback ? `✓ ${feedback}` : action;
+  const primaryLabel = feedback ? `Saved - ${feedback}` : action;
   const primaryColor =
     room.status === 'dirty'
       ? 'yellow'
@@ -656,6 +656,7 @@ function RoomCard({
           : 'gray';
   return (
     <Paper
+      data-testid={`housekeeping-room-card-${room.id}`}
       className="housekeeping-room-card"
       radius={radius.lg}
       p={18}
@@ -674,6 +675,7 @@ function RoomCard({
         <Group gap={10} wrap="nowrap" style={{ minWidth: 0 }}>
           <Text
             component={Link}
+            data-testid={`housekeeping-room-link-${room.id}`}
             href={`/housekeeping/${room.id}`}
             c="#101828"
             style={{
@@ -730,6 +732,7 @@ function RoomCard({
       <Group mt={20} justify="flex-end" gap={8}>
         {room.status === 'dirty' && !room.assignedEmployeeId ? (
           <Button
+            data-testid={`housekeeping-assign-${room.id}`}
             color={primaryColor}
             leftSection={<UserPlus size={16} />}
             onClick={() => onAssign(room)}
@@ -741,6 +744,7 @@ function RoomCard({
         {room.status === 'dirty' && room.assignedEmployeeId ? (
           <>
             <Button
+              data-testid={`housekeeping-start-${room.id}`}
               color={primaryColor}
               leftSection={<Brush size={16} />}
               onClick={() => onStart(room)}
@@ -749,6 +753,7 @@ function RoomCard({
               {primaryLabel}
             </Button>
             <Button
+              data-testid={`housekeeping-change-staff-${room.id}`}
               variant="subtle"
               color="gray"
               onClick={() => onAssign(room)}
@@ -760,6 +765,7 @@ function RoomCard({
         {room.status === 'cleaning' ? (
           <>
             <Button
+              data-testid={`housekeeping-complete-${room.id}`}
               color={primaryColor}
               leftSection={<ClipboardCheck size={16} />}
               onClick={() => onComplete(room)}
@@ -768,6 +774,7 @@ function RoomCard({
               {primaryLabel}
             </Button>
             <Button
+              data-testid={`housekeeping-change-staff-${room.id}`}
               variant="subtle"
               color="gray"
               onClick={() => onAssign(room)}
@@ -778,6 +785,7 @@ function RoomCard({
         ) : null}
         {room.status === 'inspection' ? (
           <Button
+            data-testid={`housekeeping-inspect-${room.id}`}
             color={primaryColor}
             leftSection={<Eye size={16} />}
             onClick={() => onInspect(room)}
@@ -787,7 +795,7 @@ function RoomCard({
           </Button>
         ) : null}
         {['ready', 'maintenance', 'out-of-order', 'out-of-service'].includes(room.status) ? (
-          <Button variant="subtle" color="gray">
+          <Button data-testid={`housekeeping-view-${room.id}`} variant="subtle" color="gray">
             {action}
           </Button>
         ) : null}
@@ -1271,7 +1279,7 @@ export default function HousekeepingPage() {
   };
 
   return (
-    <Stack gap={spacing[3]} mih="100%">
+    <Stack gap={spacing[3]} mih="100%" data-testid="housekeeping-page">
       <style jsx global>{`
         .staff-print-root {
           display: none;
@@ -1389,6 +1397,7 @@ export default function HousekeepingPage() {
           return (
             <Paper
               key={group.key}
+              data-testid={`housekeeping-summary-${group.key}`}
               component="button"
               type="button"
               radius={radius.lg}
@@ -1697,6 +1706,7 @@ export default function HousekeepingPage() {
         <Stack p={16} gap={spacing[4]}>
           <SimpleGrid cols={{ base: 1, md: 4 }} spacing={spacing[3]}>
             <TextInput
+              data-testid="housekeeping-search"
               placeholder="Search room, staff or floor"
               value={roomSearch}
               onChange={(event) => setRoomSearch(event.currentTarget.value)}
@@ -1716,6 +1726,7 @@ export default function HousekeepingPage() {
               styles={{ root: { gridColumn: 'span 1' } }}
             />
             <Select
+              data-testid="housekeeping-floor-filter"
               data={floorOptions}
               placeholder="All Floors"
               value={floorFilter}
@@ -1723,6 +1734,7 @@ export default function HousekeepingPage() {
               clearable
             />
             <Select
+              data-testid="housekeeping-status-filter"
               data={visibleStatusFilterOptions}
               placeholder="All Statuses"
               value={statusFilter}
@@ -1730,6 +1742,7 @@ export default function HousekeepingPage() {
               clearable
             />
             <Select
+              data-testid="housekeeping-staff-filter"
               data={staffOptions}
               placeholder="All Staff"
               value={staffFilter}
@@ -1770,6 +1783,7 @@ export default function HousekeepingPage() {
                 style={{ scrollMarginTop: 16 }}
               >
                 <Button
+                  data-testid={`housekeeping-group-${group.key}`}
                   variant="subtle"
                   color="gray"
                   onClick={() =>
@@ -1802,7 +1816,7 @@ export default function HousekeepingPage() {
                 >
                   <Group justify="space-between" w="100%" gap={spacing[2]} wrap="nowrap">
                     <Title order={3} c={tone.color} style={{ fontSize: 15, fontWeight: 800 }}>
-                      {group.label} · {groupRooms.length} rooms
+                      {group.label} - {groupRooms.length} rooms
                     </Title>
                   </Group>
                 </Button>
@@ -1908,7 +1922,7 @@ export default function HousekeepingPage() {
         title={assignRoom?.assignedEmployeeId ? 'Change Staff' : 'Assign Staff'}
         centered
       >
-        <Stack>
+        <Stack data-testid="housekeeping-assign-modal">
           <Text c="#334155" style={{ fontWeight: 700 }}>
             Room {assignRoom?.number}
           </Text>
@@ -1953,6 +1967,7 @@ export default function HousekeepingPage() {
             </Button>
           ) : null}
           <Button
+            data-testid="housekeeping-save-assignment"
             disabled={!assignRoom || !selectedEmployeeId || isEmployeeLoading}
             onClick={() => {
               if (!assignRoom || !selectedEmployeeId) return;
@@ -1981,7 +1996,7 @@ export default function HousekeepingPage() {
         centered
         size="lg"
       >
-        <Stack>
+        <Stack data-testid="housekeeping-complete-modal">
           <Text c="#64748b" style={{ fontSize: 14, lineHeight: '22px' }}>
             Use this when staff has finished the room but cannot update StayOS.
           </Text>
@@ -2032,6 +2047,7 @@ export default function HousekeepingPage() {
           ) : null}
           <Button
             variant="light"
+            data-testid="housekeeping-mark-all-done"
             onClick={() =>
               setChecklist((items) => items.map((item) => ({ ...item, completed: true })))
             }
@@ -2049,6 +2065,7 @@ export default function HousekeepingPage() {
             }
           />
           <Button
+            data-testid="housekeeping-send-inspection"
             disabled={
               !completeRoom ||
               !selectedEmployeeId ||
@@ -2084,7 +2101,7 @@ export default function HousekeepingPage() {
         centered
         size="lg"
       >
-        <Stack>
+        <Stack data-testid="housekeeping-inspect-modal">
           <Group justify="space-between" align="center">
             <Text c="#334155" style={{ fontSize: 13, fontWeight: 800 }}>
               Checklist {checklistItemsProgress(checklist)}
