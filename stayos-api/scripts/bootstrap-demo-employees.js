@@ -65,8 +65,8 @@ async function main() {
         )
         VALUES (
           $1, $2, $3, $4, $5, $6, $7, NULL, $8,
-          $6 = 'HOUSEKEEPING',
-          CASE WHEN $6 = 'HOUSEKEEPING' THEN replace(uuid_generate_v4()::text, '-', '') ELSE NULL END
+          $6::text = 'HOUSEKEEPING',
+          CASE WHEN $6::text = 'HOUSEKEEPING' THEN replace(uuid_generate_v4()::text, '-', '') ELSE NULL END
         )
         ON CONFLICT (property_id, employee_code)
         DO UPDATE SET
