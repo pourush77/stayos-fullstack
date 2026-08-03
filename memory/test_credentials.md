@@ -25,8 +25,8 @@ All demo users share the password **`Password123!`**.
 - Frontend Next.js: `localhost:3000` (supervisor: `frontend`)
 
 ## URLs
-- Frontend: `https://74a8720a-4322-499a-bf79-47af279c926d.preview.emergentagent.com`
-- API: `https://74a8720a-4322-499a-bf79-47af279c926d.preview.emergentagent.com/api/v1`
+- Frontend: `https://group-stay-ops.preview.emergentagent.com`
+- API: `https://group-stay-ops.preview.emergentagent.com/api/v1`
 
 ## Recovering after a DB reset
 ```bash
