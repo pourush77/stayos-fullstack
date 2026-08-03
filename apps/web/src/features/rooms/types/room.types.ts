@@ -54,6 +54,14 @@ export type Room = {
   reservationId?: string;
   roomType: string;
   roomTypeId?: string;
+  groupContext?: {
+    groupBookingId: string;
+    groupCode: string;
+    groupName: string;
+    masterFolioId: string;
+    masterFolioNumber: string;
+    status: string;
+  };
   stayDates: string;
   status: RoomStatus;
   stayHref?: string;

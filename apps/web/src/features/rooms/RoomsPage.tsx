@@ -740,6 +740,13 @@ function DrawerSection({ children, title }: { children: ReactNode; title: string
 }
 
 function getDrawerContext(room: Room) {
+  if (room.groupContext) {
+    return {
+      title: 'Group Occupied',
+      headline: `${room.groupContext.groupCode} · ${room.groupContext.groupName}`,
+      detail: `Master folio ${room.groupContext.masterFolioNumber} · ${room.groupContext.status}`,
+    };
+  }
   if (hasAssignedBooking(room) && isRoomReadyForAssignment(room)) {
     return {
       title: 'Assigned Booking',
@@ -792,6 +799,9 @@ function getDrawerContext(room: Room) {
 }
 
 function getContextBanner(room: Room) {
+  if (room.groupContext) {
+    return `Occupied by ${room.groupContext.groupCode}. Master folio ${room.groupContext.masterFolioNumber}.`;
+  }
   if (hasAssignedBooking(room) && isRoomReadyForAssignment(room)) {
     return 'This booking has a room assigned. The guest has not checked in yet.';
   }
@@ -2241,7 +2251,9 @@ export default function RoomsPage() {
         </Alert>
       ) : null}
 
-      {process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true' && inventory.isFallback && inventory.error ? (
+      {process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true' &&
+      inventory.isFallback &&
+      inventory.error ? (
         <Alert color="yellow" variant="light" icon={<AlertCircle size={17} />} radius={radius.lg}>
           Demo fallback is enabled, so Rooms is showing mock inventory while the backend is
           unavailable.

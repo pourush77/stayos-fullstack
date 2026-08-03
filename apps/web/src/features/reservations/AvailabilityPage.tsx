@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Alert, Badge, Box, Button, Card, Group, NumberInput, Paper, Stack, Text, Title } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
@@ -142,8 +143,15 @@ export function AvailabilityPage() {
     <Box py={spacing[5]} px={{ base: spacing[2], sm: spacing[4] }} style={{ background: 'linear-gradient(180deg, #fafbff 0%, #ffffff 100%)', minHeight: 'calc(100vh - 180px)' }}>
       <Stack gap={spacing[3]} maw={960} mx="auto">
         <Stack gap={4}>
-          <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 800 }}>Check Availability</Title>
-          <Text c="#64748b" size="sm">Quick quote for walk-in and phone enquiries. No booking is created until you click Book.</Text>
+          <Group justify="space-between" align="flex-start">
+            <Box>
+              <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 800 }}>Check Availability</Title>
+              <Text c="#64748b" size="sm">Quick quote for walk-in and phone enquiries. No booking is created until you click Book.</Text>
+            </Box>
+            <Button component={Link} href="/reservations/group-quote" variant="light" color="stayosBrand">
+              Group Quote
+            </Button>
+          </Group>
         </Stack>
 
         <Card radius={radius.lg} p={20} style={quickCardStyle}>

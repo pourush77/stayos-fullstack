@@ -19,6 +19,46 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return unwrapResponse<T>(payload as ApiResponse<T>);
 }
 
+async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    body: JSON.stringify(body),
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+    signal,
+  });
+
+  const payload = (await response.json().catch(() => undefined)) as ApiResponse<T> | undefined;
+
+  if (!response.ok) {
+    throw new Error(`Operations API request failed: ${response.status} ${response.statusText}`);
+  }
+
+  return unwrapResponse<T>(payload as ApiResponse<T>);
+}
+
+async function patch<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    body: JSON.stringify(body),
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    method: 'PATCH',
+    signal,
+  });
+
+  const payload = (await response.json().catch(() => undefined)) as ApiResponse<T> | undefined;
+
+  if (!response.ok) {
+    throw new Error(`Operations API request failed: ${response.status} ${response.statusText}`);
+  }
+
+  return unwrapResponse<T>(payload as ApiResponse<T>);
+}
+
 function unwrapResponse<T>(response: ApiResponse<T>): T {
   if (response && typeof response === 'object') {
     if ('data' in response && response.data !== undefined) return response.data;
@@ -68,6 +108,14 @@ export type OperationsRoomBoardItemDto = {
     paymentStatus?: string;
   } | null;
   checkoutLabel?: string | null;
+  groupContext?: {
+    groupBookingId: string;
+    groupCode: string;
+    groupName: string;
+    masterFolioId: string;
+    masterFolioNumber: string;
+    status: string;
+  } | null;
   primaryAction: string;
   attentionLevel: OperationsAttentionLevel;
 };
@@ -98,6 +146,268 @@ export type OperationsActivityItemDto = {
   };
   metadata?: Record<string, unknown>;
 };
+
+export type GroupRoomMixPreference = 'BEST_FIT' | 'COMFORT' | 'BUDGET';
+
+export type GroupRoomMixAvailabilityDto = {
+  availableRooms: number;
+  baseRate: number;
+  maxAdults: number;
+  maxChildren: number;
+  maxOccupancy: number;
+  roomTypeCode: string;
+  roomTypeId: string;
+  roomTypeName: string;
+};
+
+export type GroupRoomMixBlockDto = {
+  adultsPerRoom: number;
+  baseRate: number;
+  childrenPerRoom: number;
+  estimatedTotal: number;
+  maxAdults: number;
+  maxChildren: number;
+  maxOccupancy: number;
+  rooms: number;
+  roomTypeCode: string;
+  roomTypeId: string;
+  roomTypeName: string;
+};
+
+export type GroupRoomMixOptionDto = {
+  adultCapacity: number;
+  canCreateHold: boolean;
+  canCreateWalkInGroup: boolean;
+  childCapacity: number;
+  estimatedTotal: number;
+  label: string;
+  reason: string;
+  roomBlocks: GroupRoomMixBlockDto[];
+  spareCapacity: number;
+  totalCapacity: number;
+  totalRooms: number;
+  type: 'BEST_FIT' | 'COMFORT' | 'BUDGET' | 'MAX_CAPACITY';
+};
+
+export type GroupRoomMixSuggestionDto = {
+  adults: number;
+  arrivalDate: string;
+  availability: GroupRoomMixAvailabilityDto[];
+  channelManagerSyncReady: boolean;
+  children: number;
+  departureDate: string;
+  nights: number;
+  options: GroupRoomMixOptionDto[];
+  warnings: string[];
+};
+
+export type GroupBookingSource = 'WALK_IN' | 'PHONE' | 'AGENT' | 'CORPORATE' | 'CHANNEL_MANAGER';
+
+export type CreateGroupHoldDto = {
+  adults: number;
+  arrivalDate: string;
+  children: number;
+  departureDate: string;
+  depositRequired?: number;
+  estimatedTotal?: number;
+  groupName: string;
+  leadEmail?: string;
+  leadName: string;
+  leadPhone: string;
+  notes?: string;
+  releaseAt?: string;
+  roomBlocks: Array<{
+    adultsPerRoom: number;
+    baseRate?: number;
+    childrenPerRoom: number;
+    estimatedTotal?: number;
+    roomTypeId: string;
+    rooms: number;
+  }>;
+  source: GroupBookingSource;
+};
+
+export type GroupHoldDto = {
+  adults: number;
+  arrivalDate: string;
+  children: number;
+  departureDate: string;
+  depositRequired: number;
+  estimatedTotal: number;
+  groupCode: string;
+  groupName: string;
+  id: string;
+  leadEmail: string | null;
+  leadName: string;
+  leadPhone: string;
+  releaseAt: string | null;
+  roomBlocks: Array<{
+    adultsPerRoom: number;
+    baseRate: number;
+    childrenPerRoom: number;
+    estimatedTotal: number;
+    id: string;
+    roomTypeId: string;
+    roomTypeName: string;
+    rooms: number;
+  }>;
+  roomAssignments: Array<{
+    id: string;
+    roomId: string;
+    roomNumber: string;
+    roomTypeId: string;
+    roomTypeName: string;
+  }>;
+  roomingList: Array<{
+    adults: number;
+    assignedRoomId: string | null;
+    children: number;
+    guestName: string;
+    id: string;
+    notes: string | null;
+    phone: string | null;
+  }>;
+  readiness: {
+    canConfirm: boolean;
+    contactComplete: boolean;
+    depositRequired: boolean;
+    fullyAssigned: boolean;
+    releaseDateSet: boolean;
+    roomingListStarted: boolean;
+  };
+  source: GroupBookingSource;
+  status: 'ON_HOLD' | 'CONFIRMED' | 'RELEASED' | 'CANCELLED' | 'CHECKED_IN' | 'CHECKED_OUT';
+  syncStatus: string;
+};
+
+export type UpdateGroupHoldDto = {
+  depositRequired?: number;
+  groupName?: string;
+  leadEmail?: string;
+  leadName?: string;
+  leadPhone?: string;
+  notes?: string;
+  releaseAt?: string;
+};
+
+export type GroupCheckInPreviewDto = {
+  blockers: string[];
+  canCheckIn: boolean;
+  folioMode: 'MASTER_FOLIO_ONLY';
+  group: GroupHoldDto;
+  rooms: Array<{
+    operationalStatus: string;
+    ready: boolean;
+    roomId: string;
+    roomNumber: string;
+    roomTypeName: string;
+  }>;
+  warnings: string[];
+};
+
+export type GroupCheckInResultDto = {
+  group: GroupHoldDto;
+  groupStayId: string;
+  masterFolioId: string;
+  masterFolioNumber: string;
+  occupiedRooms: string[];
+};
+
+export type InHouseGroupDto = {
+  arrivalDate: string;
+  departureDate: string;
+  groupBookingId: string;
+  groupCode: string;
+  groupName: string;
+  leadName: string;
+  masterFolioId: string;
+  masterFolioNumber: string;
+  occupiedRooms: string[];
+  roomCount: number;
+};
+
+export type GroupMasterFolioChargeDto = {
+  id: string;
+  label: string;
+  type: string;
+  amount: number;
+  quantity: number;
+  currency: string;
+};
+
+export type GroupMasterFolioPaymentDto = {
+  id: string;
+  method: string;
+  amount: number;
+  receivedAt: string;
+};
+
+export type GroupMasterFolioCheckoutSummaryDto = {
+  balanceDue: number;
+  occupiedRoomCount: number;
+  checkoutEligible: boolean;
+  checkoutBlockers: string[];
+};
+
+export type GroupMasterFolioDetailDto = {
+  id: string;
+  groupBookingId: string;
+  groupCode: string;
+  groupName: string;
+  arrivalDate: string;
+  departureDate: string;
+  folioNumber: string;
+  currency: string;
+  status: string;
+  estimatedTotal: number;
+  rooms: Array<{
+    roomId: string;
+    roomNumber: string;
+    roomTypeName: string;
+    roomTypeId: string;
+  }>;
+  charges: GroupMasterFolioChargeDto[];
+  payments: GroupMasterFolioPaymentDto[];
+  checkoutSummary: GroupMasterFolioCheckoutSummaryDto;
+};
+
+export function postGroupMasterFolioCharge(
+  propertyId: string,
+  groupBookingId: string,
+  body: { amount: number; label: string; quantity?: number; type?: string },
+  signal?: AbortSignal,
+) {
+  return post<GroupMasterFolioDetailDto>(
+    `/properties/${propertyId}/operations/group-bookings/${groupBookingId}/master-folio/charges`,
+    body,
+    signal,
+  );
+}
+
+export function postGroupMasterFolioPayment(
+  propertyId: string,
+  groupBookingId: string,
+  body: { amount: number; method: string; reference?: string },
+  signal?: AbortSignal,
+) {
+  return post<GroupMasterFolioDetailDto>(
+    `/properties/${propertyId}/operations/group-bookings/${groupBookingId}/master-folio/payments`,
+    body,
+    signal,
+  );
+}
+
+export function completeGroupCheckout(
+  propertyId: string,
+  groupBookingId: string,
+  signal?: AbortSignal,
+) {
+  return post<GroupMasterFolioDetailDto>(
+    `/properties/${propertyId}/operations/group-bookings/${groupBookingId}/master-folio/checkout`,
+    {},
+    signal,
+  );
+}
 
 export function getRoomBoard(propertyId: string, signal?: AbortSignal) {
   return get<OperationsRoomBoardItemDto[]>(
@@ -140,6 +450,147 @@ export function getAvailableRooms(
 
   return get<OperationsAvailableRoomDto[]>(
     `/properties/${propertyId}/operations/available-rooms${suffix}`,
+    signal,
+  );
+}
+
+export function getGroupRoomMixSuggestions(
+  propertyId: string,
+  params: {
+    adults: number;
+    arrivalDate: string;
+    children: number;
+    departureDate: string;
+    preference?: GroupRoomMixPreference;
+  },
+  signal?: AbortSignal,
+) {
+  const query = new URLSearchParams();
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      query.set(key, String(value));
+    }
+  });
+
+  return get<GroupRoomMixSuggestionDto>(
+    `/properties/${propertyId}/operations/group-room-mix-suggestions?${query.toString()}`,
+    signal,
+  );
+}
+
+export function createGroupHold(
+  propertyId: string,
+  body: CreateGroupHoldDto,
+  signal?: AbortSignal,
+) {
+  return post<GroupHoldDto>(`/properties/${propertyId}/operations/group-holds`, body, signal);
+}
+
+export function getGroupHolds(propertyId: string, signal?: AbortSignal) {
+  return get<GroupHoldDto[]>(`/properties/${propertyId}/operations/group-holds`, signal);
+}
+
+export function getGroupHold(propertyId: string, groupHoldId: string, signal?: AbortSignal) {
+  return get<GroupHoldDto>(
+    `/properties/${propertyId}/operations/group-holds/${groupHoldId}`,
+    signal,
+  );
+}
+
+export function updateGroupHold(
+  propertyId: string,
+  groupHoldId: string,
+  body: UpdateGroupHoldDto,
+  signal?: AbortSignal,
+) {
+  return patch<GroupHoldDto>(
+    `/properties/${propertyId}/operations/group-holds/${groupHoldId}`,
+    body,
+    signal,
+  );
+}
+
+export function releaseGroupHold(propertyId: string, groupHoldId: string, signal?: AbortSignal) {
+  return post<GroupHoldDto>(
+    `/properties/${propertyId}/operations/group-holds/${groupHoldId}/release`,
+    {},
+    signal,
+  );
+}
+
+export function cancelGroupHold(propertyId: string, groupHoldId: string, signal?: AbortSignal) {
+  return post<GroupHoldDto>(
+    `/properties/${propertyId}/operations/group-holds/${groupHoldId}/cancel`,
+    {},
+    signal,
+  );
+}
+
+export function confirmGroupHold(propertyId: string, groupHoldId: string, signal?: AbortSignal) {
+  return post<GroupHoldDto>(
+    `/properties/${propertyId}/operations/group-holds/${groupHoldId}/confirm`,
+    {},
+    signal,
+  );
+}
+
+export function addGroupRoomingListItem(
+  propertyId: string,
+  groupHoldId: string,
+  body: { adults: number; children: number; guestName: string; notes?: string; phone?: string },
+  signal?: AbortSignal,
+) {
+  return post<GroupHoldDto>(
+    `/properties/${propertyId}/operations/group-holds/${groupHoldId}/rooming-list`,
+    body,
+    signal,
+  );
+}
+
+export function assignGroupRoom(
+  propertyId: string,
+  groupHoldId: string,
+  body: { roomId: string },
+  signal?: AbortSignal,
+) {
+  return post<GroupHoldDto>(
+    `/properties/${propertyId}/operations/group-holds/${groupHoldId}/room-assignments`,
+    body,
+    signal,
+  );
+}
+
+export function getGroupCheckInPreview(
+  propertyId: string,
+  groupHoldId: string,
+  signal?: AbortSignal,
+) {
+  return get<GroupCheckInPreviewDto>(
+    `/properties/${propertyId}/operations/group-holds/${groupHoldId}/check-in-preview`,
+    signal,
+  );
+}
+
+export function checkInGroup(propertyId: string, groupHoldId: string, signal?: AbortSignal) {
+  return post<GroupCheckInResultDto>(
+    `/properties/${propertyId}/operations/group-holds/${groupHoldId}/check-in`,
+    {},
+    signal,
+  );
+}
+
+export function getInHouseGroups(propertyId: string, signal?: AbortSignal) {
+  return get<InHouseGroupDto[]>(`/properties/${propertyId}/operations/in-house-groups`, signal);
+}
+
+export function getGroupMasterFolio(
+  propertyId: string,
+  groupBookingId: string,
+  signal?: AbortSignal,
+) {
+  return get<GroupMasterFolioDetailDto>(
+    `/properties/${propertyId}/operations/group-bookings/${groupBookingId}/master-folio`,
     signal,
   );
 }

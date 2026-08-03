@@ -51,6 +51,7 @@ export function mapOperationsRoom(dto: OperationsRoomBoardItemDto): Room {
     reservationArrivalDate: dto.currentStay?.arrivalDate,
     reservationDepartureDate: dto.currentStay?.departureDate,
     roomType: dto.roomType.name,
+    groupContext: dto.groupContext ?? undefined,
     roomTypeId: dto.roomType.id,
     stayDates: dto.currentStay
       ? displayAsReserved

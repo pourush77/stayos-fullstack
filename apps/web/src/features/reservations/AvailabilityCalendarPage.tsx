@@ -4,10 +4,11 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Alert, Box, Button, Group, Loader, Paper, Select, Stack, Text, Title } from '@mantine/core';
-import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Plus, Users } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, ServerStarting, useBackendStatus } from '@stayos/ui';
 import { getProperties, getPropertyRooms } from '../../lib/inventory-api';
+import { getGroupHolds, type GroupHoldDto } from '../../lib/operations-api';
 import { getPropertyReservations } from '../../lib/reservation-api';
 
 const DAY_MS = 86_400_000;
@@ -37,6 +38,7 @@ export function AvailabilityCalendarPage() {
   const [propertyId, setPropertyId] = useState('');
   const [rooms, setRooms] = useState<Array<{ id: string; roomNumber: string; roomTypeId?: string; roomTypeName?: string; operationalStatus?: string }>>([]);
   const [reservations, setReservations] = useState<Array<{ id: string; guestName?: string; roomId?: string; arrivalDate: string; departureDate: string; status: string; reservationCode: string }>>([]);
+  const [groupHolds, setGroupHolds] = useState<GroupHoldDto[]>([]);
   const [rangeDays, setRangeDays] = useState(14);
   const [offsetDays, setOffsetDays] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -73,8 +75,9 @@ export function AvailabilityCalendarPage() {
     Promise.all([
       getPropertyRooms(propertyId, controller.signal),
       getPropertyReservations(propertyId, controller.signal),
+      getGroupHolds(propertyId, controller.signal),
     ])
-      .then(([roomsData, resDataRaw]) => {
+      .then(([roomsData, resDataRaw, holdsData]) => {
         const rd = roomsData as Array<Record<string, unknown>>;
         setRooms(rd.map((r) => ({
           id: String(r.id),
@@ -93,6 +96,7 @@ export function AvailabilityCalendarPage() {
           status: String(r.status),
           reservationCode: String(r.reservationCode),
         })));
+        setGroupHolds(holdsData.filter((hold) => hold.status === 'ON_HOLD' || hold.status === 'CONFIRMED'));
         setLoadError(undefined);
       })
       .catch((error) => {
@@ -148,11 +152,26 @@ export function AvailabilityCalendarPage() {
               w={110}
               size="sm"
             />
+            <Button component={Link} href="/reservations/group-quote" variant="light" color="stayosBrand" size="sm" leftSection={<Users size={16} />}>Group Quote</Button>
             <Button component={Link} href="/reservations/new" color="stayosBrand" size="sm">New Booking</Button>
           </Group>
         </Group>
 
         {loadError ? <Alert color="red" variant="light">{loadError}</Alert> : null}
+
+        {groupHolds.length ? (
+          <Paper radius={radius.lg} p={12} style={{ background: '#fff7ed', border: '1px solid #fed7aa' }}>
+            <Group justify="space-between" align="flex-start">
+              <Stack gap={2}>
+                <Text fw={800} c="#9a3412">Group holds blocking inventory</Text>
+                <Text size="sm" c="#9a3412">
+                  {groupHolds.map((hold) => `${hold.groupCode}: ${hold.groupName} (${hold.roomBlocks.map((block) => `${block.rooms} ${block.roomTypeName}`).join(' + ')})`).join(' | ')}
+                </Text>
+              </Stack>
+              <Button component={Link} href="/reservations/group-quote" variant="light" color="orange" size="xs">Manage</Button>
+            </Group>
+          </Paper>
+        ) : null}
 
         <Paper radius={radius.lg} style={{ background: '#ffffff', border: '1px solid #e2e8f0', overflow: 'auto' }}>
           {isLoading ? (

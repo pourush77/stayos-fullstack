@@ -1,0 +1,8 @@
+export enum GroupBookingStatus {
+  ON_HOLD = 'ON_HOLD',
+  CONFIRMED = 'CONFIRMED',
+  RELEASED = 'RELEASED',
+  CANCELLED = 'CANCELLED',
+  CHECKED_IN = 'CHECKED_IN',
+  CHECKED_OUT = 'CHECKED_OUT',
+}

@@ -1,3 +1,14 @@
 {
-  "CodeGPT.apiKey": "OpenAI"
+  "CodeGPT.apiKey": "OpenAI",
+  "chat.tools.terminal.autoApprove": {
+    "npm run typecheck": true,
+    "/^cd c:\\\\Users\\\\Pourush\\\\Projects\\\\stayOS-fullstack\\\\stayos-fullstack\\\\stayos-api; npx jest src/core/operations/tests/operations\\.services\\.spec\\.ts --runInBand$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^npx jest src/core/operations/tests/operations\\.services\\.spec\\.ts --runInBand$/": {
+      "approve": true,
+      "matchCommandLine": true
+    }
+  }
 }

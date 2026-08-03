@@ -9,6 +9,7 @@ import { RoomEntity } from '../../rooms/infrastructure/room.entity';
 import {
   ActivityFeedItemDto,
   AvailableRoomDto,
+  GroupContextDto,
   NeedsAttentionItemDto,
   OperationsAttentionLevel,
   OperationsPriority,
@@ -22,6 +23,7 @@ export class OperationsMapper {
     room: RoomEntity,
     currentStay: ReservationEntity | null,
     today: string,
+    groupContext?: GroupContextDto | null,
   ): RoomBoardItemDto {
     return {
       roomId: room.id,
@@ -40,6 +42,7 @@ export class OperationsMapper {
       operationalStatus: room.operationalStatus,
       currentStay: currentStay ? this.toReservationSummary(currentStay) : null,
       checkoutLabel: currentStay ? this.toCheckoutLabel(currentStay.departureDate, today) : null,
+      groupContext: groupContext ?? null,
       primaryAction: this.toPrimaryAction(room, currentStay),
       attentionLevel: this.toAttentionLevel(room, currentStay, today),
     };

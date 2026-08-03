@@ -2,6 +2,8 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { ActivityEventEntity } from '../../activity/infrastructure/activity-event.entity';
 import { AuditEventEntity } from '../../audit/infrastructure/audit-event.entity';
+import { FolioChargeType } from '../../billing/domain/folio-charge-type.enum';
+import { FolioPaymentMethod } from '../../billing/domain/folio-payment-method.enum';
 import { PropertiesService } from '../../properties/properties.service';
 import { ReservationPaymentStatus } from '../../reservations/domain/reservation-payment-status.enum';
 import { ReservationSource } from '../../reservations/domain/reservation-source.enum';
@@ -10,7 +12,14 @@ import { ReservationEntity } from '../../reservations/infrastructure/reservation
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
 import { RoomStatus } from '../../rooms/domain/room-status.enum';
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
+import { GroupBookingRoomAssignmentEntity } from '../infrastructure/group-booking-room-assignment.entity';
+import { GroupBookingRoomBlockEntity } from '../infrastructure/group-booking-room-block.entity';
+import { GroupBookingEntity } from '../infrastructure/group-booking.entity';
+import { GroupMasterFolioEntity } from '../infrastructure/group-master-folio.entity';
+import { GroupStayEntity } from '../infrastructure/group-stay.entity';
+import { GroupBookingService } from '../services/group-booking.service';
 import { ActivityFeedService } from '../services/activity-feed.service';
+import { GroupRoomMixService } from '../services/group-room-mix.service';
 import { NeedsAttentionService } from '../services/needs-attention.service';
 import { RoomAvailabilityService } from '../services/room-availability.service';
 import { RoomBoardService } from '../services/room-board.service';
@@ -73,6 +82,9 @@ const asRepository = <T extends object>(repository: MockRepository<T>): Reposito
 describe('Operations services', () => {
   let roomsRepository: MockRepository<RoomEntity>;
   let reservationsRepository: MockRepository<ReservationEntity>;
+  let groupBlocksRepository: MockRepository<GroupBookingRoomBlockEntity>;
+  let groupAssignmentsRepository: MockRepository<GroupBookingRoomAssignmentEntity>;
+  let groupMasterFoliosRepository: MockRepository<GroupMasterFolioEntity>;
   let activityRepository: MockRepository<ActivityEventEntity>;
   let auditRepository: MockRepository<AuditEventEntity>;
   const propertiesService = { findOne: jest.fn() } as unknown as jest.Mocked<PropertiesService>;
@@ -94,6 +106,16 @@ describe('Operations services', () => {
         getMany: jest.fn().mockResolvedValue([]),
       }),
     };
+    groupBlocksRepository = {
+      createQueryBuilder: jest.fn().mockReturnValue({
+        innerJoin: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([]),
+      }),
+    };
+    groupAssignmentsRepository = { find: jest.fn().mockResolvedValue([]) };
+    groupMasterFoliosRepository = { find: jest.fn().mockResolvedValue([]) };
     activityRepository = { find: jest.fn().mockResolvedValue([]) };
     auditRepository = { find: jest.fn().mockResolvedValue([]) };
     propertiesService.findOne.mockResolvedValue({ id: propertyId } as never);
@@ -112,6 +134,8 @@ describe('Operations services', () => {
     const service = new RoomBoardService(
       asRepository(roomsRepository),
       asRepository(reservationsRepository),
+      asRepository(groupAssignmentsRepository),
+      asRepository(groupMasterFoliosRepository),
       propertiesService,
     );
 
@@ -124,11 +148,40 @@ describe('Operations services', () => {
     });
   });
 
+  it('drops group context for rooms whose group has already checked out', async () => {
+    reservationsRepository.find?.mockResolvedValue([]);
+    groupAssignmentsRepository.find = jest.fn().mockResolvedValue([
+      {
+        roomId,
+        room: { propertyId },
+        groupBooking: {
+          id: 'group-booking-id',
+          groupCode: 'GRP-00001',
+          groupName: 'Hillston Family',
+          status: 'CHECKED_OUT',
+        },
+      },
+    ]);
+    const service = new RoomBoardService(
+      asRepository(roomsRepository),
+      asRepository(reservationsRepository),
+      asRepository(groupAssignmentsRepository),
+      asRepository(groupMasterFoliosRepository),
+      propertiesService,
+    );
+
+    const result = await service.getRoomBoard(propertyId);
+
+    expect(result[0].groupContext).toBeNull();
+  });
+
   it('propagates property not found', async () => {
     propertiesService.findOne.mockRejectedValue(new NotFoundException());
     const service = new RoomBoardService(
       asRepository(roomsRepository),
       asRepository(reservationsRepository),
+      asRepository(groupAssignmentsRepository),
+      asRepository(groupMasterFoliosRepository),
       propertiesService,
     );
 
@@ -142,6 +195,8 @@ describe('Operations services', () => {
       asRepository(reservationsRepository),
       asRepository(activityRepository),
       asRepository(auditRepository),
+      asRepository(groupAssignmentsRepository),
+      asRepository(groupMasterFoliosRepository),
       propertiesService,
     );
 
@@ -181,6 +236,315 @@ describe('Operations services', () => {
         roomTypeId,
       }),
     ).resolves.toHaveLength(1);
+  });
+
+  it('returns a structured master folio detail for a checked-in group', async () => {
+    const groupBookingsRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'group-booking-id',
+        arrivalDate: '2026-07-01',
+        departureDate: '2026-07-03',
+        depositRequired: '300',
+        estimatedTotal: '2400',
+        groupCode: 'GRP-00001',
+        groupName: 'Hillston Family',
+      }),
+    };
+    const groupStaysRepository = { findOne: jest.fn().mockResolvedValue({ status: 'IN_HOUSE' }) };
+    const groupMasterFoliosRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'folio-id',
+        folioNumber: 'GFO-00001',
+        currency: 'INR',
+        status: 'OPEN',
+        estimatedTotal: '2400',
+      }),
+    };
+    const roomBlocksRepository = {
+      find: jest.fn().mockResolvedValue([
+        {
+          id: 'block-1',
+          rooms: 2,
+          roomTypeId: roomTypeId,
+          roomType: { name: 'Deluxe' },
+          estimatedTotal: '1800',
+        },
+      ]),
+    };
+    const roomAssignmentsRepository = {
+      find: jest
+        .fn()
+        .mockResolvedValue([
+          { roomId: roomId, room: { roomNumber: '204', roomTypeId, roomType: { name: 'Deluxe' } } },
+        ]),
+    };
+
+    const service = new GroupBookingService(
+      groupBookingsRepository as never,
+      roomBlocksRepository as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      roomAssignmentsRepository as never,
+      groupStaysRepository as never,
+      groupMasterFoliosRepository as never,
+      {} as never,
+      propertiesService as never,
+      {} as never,
+    );
+
+    await expect(
+      service.getGroupMasterFolioDetail(propertyId, 'group-booking-id'),
+    ).resolves.toMatchObject({
+      folioNumber: 'GFO-00001',
+      checkoutSummary: {
+        balanceDue: 2100,
+        occupiedRoomCount: 1,
+        checkoutEligible: true,
+        checkoutBlockers: [],
+      },
+    });
+    expect(groupMasterFoliosRepository.findOne).toHaveBeenCalled();
+  });
+
+  it('posts a new charge to a group master folio', async () => {
+    const groupBookingsRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'group-booking-id',
+        arrivalDate: '2026-07-01',
+        departureDate: '2026-07-03',
+        depositRequired: '300',
+        estimatedTotal: '2400',
+        groupCode: 'GRP-00001',
+        groupName: 'Hillston Family',
+        status: 'CHECKED_IN',
+      }),
+    };
+    const groupMasterFoliosRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'folio-id',
+        folioNumber: 'GFO-00001',
+        currency: 'INR',
+        status: 'OPEN',
+        estimatedTotal: '2400',
+        charges: [],
+        payments: [],
+      }),
+      save: jest.fn().mockImplementation(async (folio) => folio),
+    };
+
+    const service = new GroupBookingService(
+      groupBookingsRepository as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      { findOne: jest.fn().mockResolvedValue({}) } as never,
+      groupMasterFoliosRepository as never,
+      {} as never,
+      propertiesService as never,
+      {} as never,
+    );
+
+    const result = await service.postGroupMasterFolioCharge(propertyId, 'group-booking-id', {
+      amount: 175,
+      label: 'Mini bar',
+      quantity: 1,
+      type: FolioChargeType.MINIBAR,
+    });
+
+    expect(result.charges).toHaveLength(1);
+    expect(result.charges[0]).toMatchObject({ label: 'Mini bar', amount: 175 });
+    expect(groupMasterFoliosRepository.save).toHaveBeenCalled();
+  });
+
+  it('records a payment against a group master folio', async () => {
+    const groupBookingsRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'group-booking-id',
+        arrivalDate: '2026-07-01',
+        departureDate: '2026-07-03',
+        depositRequired: '300',
+        estimatedTotal: '2400',
+        groupCode: 'GRP-00001',
+        groupName: 'Hillston Family',
+        status: 'CHECKED_IN',
+      }),
+    };
+    const groupMasterFoliosRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'folio-id',
+        folioNumber: 'GFO-00001',
+        currency: 'INR',
+        status: 'OPEN',
+        estimatedTotal: '2400',
+        charges: [],
+        payments: [],
+      }),
+      save: jest.fn().mockImplementation(async (folio) => folio),
+    };
+
+    const service = new GroupBookingService(
+      groupBookingsRepository as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      { findOne: jest.fn().mockResolvedValue({}) } as never,
+      groupMasterFoliosRepository as never,
+      {} as never,
+      propertiesService as never,
+      {} as never,
+    );
+
+    const result = await service.postGroupMasterFolioPayment(propertyId, 'group-booking-id', {
+      amount: 500,
+      method: FolioPaymentMethod.CARD,
+      reference: 'TXN-001',
+    });
+
+    expect(result.payments).toHaveLength(1);
+    expect(result.payments[0]).toMatchObject({ amount: 500, method: FolioPaymentMethod.CARD });
+    expect(groupMasterFoliosRepository.save).toHaveBeenCalled();
+  });
+
+  it('finalizes checkout for a settled group folio', async () => {
+    const group = {
+      id: 'group-booking-id',
+      arrivalDate: '2026-07-01',
+      departureDate: '2026-07-03',
+      depositRequired: '0',
+      estimatedTotal: '2400',
+      groupCode: 'GRP-00001',
+      groupName: 'Hillston Family',
+      status: 'CHECKED_IN',
+      save: jest.fn().mockResolvedValue({}),
+    };
+    const groupBookingsRepository = {
+      findOne: jest.fn().mockResolvedValue(group),
+      save: jest.fn().mockResolvedValue(group),
+    };
+    const groupMasterFoliosRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'folio-id',
+        folioNumber: 'GFO-00001',
+        currency: 'INR',
+        status: 'OPEN',
+        estimatedTotal: '2400',
+        charges: [],
+        payments: [{ amount: 2400, method: 'CARD', receivedAt: '2026-07-03T00:00:00.000Z' }],
+      }),
+      save: jest.fn().mockImplementation(async (folio) => folio),
+    };
+    const roomAssignmentsRepository = {
+      find: jest.fn().mockResolvedValue([{ roomId: roomId, room: { roomNumber: '204' } }]),
+    };
+    const groupStaysRepository = {
+      findOne: jest.fn().mockResolvedValue({ id: 'stay-id', status: 'IN_HOUSE' }),
+      save: jest.fn().mockResolvedValue({ id: 'stay-id', status: 'CHECKED_OUT' }),
+    };
+
+    const service = new GroupBookingService(
+      groupBookingsRepository as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      {} as never,
+      { update: jest.fn().mockResolvedValue({}) } as never,
+      {} as never,
+      {} as never,
+      roomAssignmentsRepository as never,
+      groupStaysRepository as never,
+      groupMasterFoliosRepository as never,
+      {
+        transaction: jest.fn().mockImplementation(async (callback) =>
+          callback({
+            getRepository: (entity: unknown) => {
+              if (entity === GroupBookingEntity) return groupBookingsRepository;
+              if (entity === GroupStayEntity) return groupStaysRepository;
+              if (entity === GroupMasterFolioEntity) return groupMasterFoliosRepository;
+              if (entity === RoomEntity) return { update: jest.fn().mockResolvedValue({}) };
+              return {};
+            },
+          }),
+        ),
+      } as never,
+      propertiesService as never,
+      {} as never,
+    );
+
+    const result = await service.completeGroupCheckout(propertyId, 'group-booking-id');
+
+    expect(result.status).toBe('SETTLED');
+    expect(groupBookingsRepository.save).toHaveBeenCalled();
+    expect(groupStaysRepository.save).toHaveBeenCalled();
+  });
+
+  it('suggests a feasible room mix for a family group', async () => {
+    roomsRepository.find?.mockResolvedValue([
+      room({ id: 'room-1', roomNumber: '301' }),
+      room({ id: 'room-2', roomNumber: '302' }),
+      room({
+        id: 'room-3',
+        roomNumber: '309',
+        roomTypeId: 'suite-id',
+        roomType: {
+          code: 'STE',
+          id: 'suite-id',
+          maxAdults: 2,
+          maxChildren: 2,
+          maxOccupancy: 4,
+          name: 'Suite',
+        } as never,
+      }),
+    ]);
+    reservationsRepository.find?.mockResolvedValue([]);
+    const service = new GroupRoomMixService(
+      asRepository(roomsRepository),
+      asRepository(reservationsRepository),
+      asRepository(groupBlocksRepository),
+      propertiesService,
+    );
+
+    const suggestion = await service.suggestRoomMix(propertyId, {
+      adults: 4,
+      arrivalDate: '2026-08-03',
+      children: 4,
+      departureDate: '2026-08-05',
+    });
+
+    expect(suggestion.options[0]).toMatchObject({
+      adultCapacity: 6,
+      childCapacity: 4,
+      spareCapacity: 2,
+      totalRooms: 3,
+    });
+    expect(suggestion.channelManagerSyncReady).toBe(true);
+  });
+
+  it('returns a warning when no group room mix can fit the request', async () => {
+    reservationsRepository.find?.mockResolvedValue([]);
+    const service = new GroupRoomMixService(
+      asRepository(roomsRepository),
+      asRepository(reservationsRepository),
+      asRepository(groupBlocksRepository),
+      propertiesService,
+    );
+
+    const suggestion = await service.suggestRoomMix(propertyId, {
+      adults: 20,
+      arrivalDate: '2026-08-03',
+      children: 10,
+      departureDate: '2026-08-05',
+    });
+
+    expect(suggestion.options).toEqual([]);
+    expect(suggestion.warnings).toContain(
+      'No feasible room mix can fit this group with current room capacity rules.',
+    );
   });
 
   it('rejects Deluxe availability when child capacity is exceeded', async () => {
