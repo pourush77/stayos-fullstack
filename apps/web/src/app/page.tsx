@@ -6,8 +6,8 @@ import {
   Button,
   Card,
   Group,
-  Menu,
   Paper,
+  SegmentedControl,
   Stack,
   Text,
   ThemeIcon,
@@ -23,19 +23,18 @@ import {
   Crown,
   DoorOpen,
   LogOut,
-  Plus,
-  UserPlus,
+  Search,
   Users,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
-import { ArrivalWorkspace } from '../features/arrivals/components/ArrivalWorkspace';
 import { type FrontDeskTask, useFrontDeskData } from '../lib/front-desk-api';
 import styles from './front-desk.module.css';
 
 type Tone = 'red' | 'amber' | 'green' | 'blue' | 'purple' | 'neutral';
 type QuickAction = {
+  destination: string;
   href?: string;
   icon: ReactNode;
   label: string;
@@ -50,21 +49,17 @@ type SummaryMetric = {
   icon: ReactNode;
   tone: Tone;
   href?: string;
+  routeHint: string;
 };
 
-function buildQuickActions(onNewArrival: () => void): QuickAction[] {
+function buildQuickActions(): QuickAction[] {
   return [
-    { label: 'New Arrival', subtitle: 'Guest is here now - book + check in', icon: <UserPlus size={18} />, onClick: onNewArrival, tone: 'green' },
-    { label: 'New Booking', subtitle: 'Future reservation', icon: <CalendarPlus size={18} />, href: '/reservations/new', tone: 'purple' },
-    { label: 'Check Out', subtitle: 'Departing guests', icon: <LogOut size={18} />, href: '/rooms', tone: 'amber' },
-  ];
-}
-
-function buildSecondaryActions(): QuickAction[] {
-  return [
-    { label: 'Availability', icon: <ClipboardCheck size={18} />, href: '/reservations/availability', tone: 'blue' },
-    { label: 'Find Guest', icon: <Users size={18} />, href: '/guests', tone: 'neutral' },
-    { label: 'View Rooms', icon: <DoorOpen size={18} />, href: '/rooms', tone: 'blue' },
+    { label: 'New Booking', subtitle: 'Single guest or walk-in', destination: 'Opens booking form', icon: <CalendarPlus size={18} />, href: '/reservations/new', tone: 'green' },
+    { label: 'Assign Room', subtitle: 'Ready rooms only', destination: 'Shows assignable rooms', icon: <DoorOpen size={18} />, href: '/rooms?mode=assign&status=ready', tone: 'red' },
+    { label: 'Group / Block', subtitle: 'Multiple rooms or event', destination: 'Opens group quote', icon: <BriefcaseBusiness size={18} />, href: '/reservations/group-quote', tone: 'blue' },
+    { label: 'Availability', subtitle: 'Room mix + dates', destination: 'Opens calendar', icon: <ClipboardCheck size={18} />, href: '/reservations/availability', tone: 'blue' },
+    { label: 'Find Guest', subtitle: 'Profile or stay', destination: 'Opens guest search', icon: <Search size={18} />, href: '/guests', tone: 'neutral' },
+    { label: 'Check Out', subtitle: 'Departures due', destination: 'Shows due checkouts', icon: <LogOut size={18} />, href: '/reservations?filter=departures-today', tone: 'amber' },
   ];
 }
 
@@ -147,28 +142,32 @@ function buildSummaryMetrics({
       value: loadingValue ?? String(arrivalsToday),
       icon: <Users size={16} />,
       tone: 'blue',
-      href: '/reservations',
+      href: '/reservations?filter=arrivals-today',
+      routeHint: 'Opens arrivals list',
     },
     {
       label: 'Departures Today',
       value: loadingValue ?? String(departuresToday),
       icon: <Users size={16} />,
       tone: 'neutral',
-      href: '/rooms',
+      href: '/reservations?filter=departures-today',
+      routeHint: 'Opens checkout list',
     },
     {
       label: 'Guests In House',
       value: loadingValue ?? String(guestsInHouse),
       icon: <Users size={16} />,
       tone: 'blue',
-      href: '/guests',
+      href: '/reservations?filter=checked-in',
+      routeHint: 'Opens in-house stays',
     },
     {
       label: 'Rooms To Clean',
       value: loadingValue ?? String(roomsToClean),
       icon: <ClipboardCheck size={16} />,
       tone: 'amber',
-      href: '/rooms',
+      href: '/rooms?status=needs-cleaning',
+      routeHint: 'Opens rooms to clean',
     },
   ];
 }
@@ -183,6 +182,7 @@ function QuickActionCard({ action }: { action: QuickAction }) {
         <Box className={styles.quickText}>
           <Text className={styles.quickLabel}>{action.label}</Text>
           {action.subtitle ? <Text className={styles.quickSubtitle}>{action.subtitle}</Text> : null}
+          <Text className={styles.quickDestination}>{action.destination}</Text>
         </Box>
       </Group>
     </Paper>
@@ -201,39 +201,14 @@ function QuickActionCard({ action }: { action: QuickAction }) {
   );
 }
 
-function QuickActions({ onNewArrival }: { onNewArrival: () => void }) {
-  const quickActions = buildQuickActions(onNewArrival);
-  const secondaryActions = buildSecondaryActions();
+function QuickActions() {
+  const quickActions = buildQuickActions();
 
   return (
     <Box className={styles.quickActionsGrid}>
       {quickActions.map((action) => (
         <QuickActionCard key={action.label} action={action} />
       ))}
-      <Menu shadow="md" width={220}>
-        <Menu.Target>
-          <UnstyledButton className={styles.cardLink}>
-            <Paper className={`${styles.quickActionCard} ${toneClass('neutral')}`} radius={radius.lg}>
-              <Group gap={spacing[3]} wrap="nowrap">
-                <ThemeIcon className={styles.quickIcon} variant="light" radius={radius.md} size={34}>
-                  <Plus size={18} />
-                </ThemeIcon>
-                <Box className={styles.quickText}>
-                  <Text className={styles.quickLabel}>More</Text>
-                  <Text className={styles.quickSubtitle}>Availability, guests, rooms</Text>
-                </Box>
-              </Group>
-            </Paper>
-          </UnstyledButton>
-        </Menu.Target>
-        <Menu.Dropdown>
-          {secondaryActions.map((action) => (
-            <Menu.Item key={action.label} component={Link} href={action.href ?? '#'} leftSection={action.icon}>
-              {action.label}
-            </Menu.Item>
-          ))}
-        </Menu.Dropdown>
-      </Menu>
     </Box>
   );
 }
@@ -246,8 +221,13 @@ function SummaryStrip({ metrics }: { metrics: SummaryMetric[] }) {
           <ThemeIcon className={`${styles.summaryStripIcon} ${toneClass(metric.tone)}`} variant="light" radius={radius.full} size={30}>
             {metric.icon}
           </ThemeIcon>
-          <Text className={styles.summaryStripValue}>{metric.value}</Text>
-          <Text className={styles.summaryStripLabel}>{metric.label}</Text>
+          <Box className={styles.summaryStripText}>
+            <Group gap={7} wrap="nowrap">
+              <Text className={styles.summaryStripValue}>{metric.value}</Text>
+              <Text className={styles.summaryStripLabel}>{metric.label}</Text>
+            </Group>
+            <Text className={styles.summaryStripHint}>{metric.routeHint}</Text>
+          </Box>
         </Link>
       ))}
     </Paper>
@@ -307,17 +287,26 @@ function NeedsAttention({
   isLoading: boolean;
   items: FrontDeskTask[];
 }) {
-  const visibleItems = items;
-  ///const totalTasks = 12;
-  //const criticalTasks = attentionItems.filter((item) => item.priority === 'critical').length;
+  const [filter, setFilter] = useState('all');
+  const arrivalCount = items.filter((item) => item.category === 'Arrival').length;
+  const roomCount = items.filter((item) => item.category === 'Room Ready' || item.category === 'Maintenance').length;
+  const vipCount = items.filter((item) => item.category === 'VIP').length;
+  const visibleItems =
+    filter === 'all'
+      ? items
+      : items.filter((item) => {
+          if (filter === 'arrivals') return item.category === 'Arrival';
+          if (filter === 'rooms') return item.category === 'Room Ready' || item.category === 'Maintenance';
+          return item.category === 'VIP';
+        });
 
   return (
     <Card className={styles.sectionCard} radius={radius.lg} p={0}>
-      <Group justify="space-between" align="center" className={styles.sectionHeader}>
+      <Group justify="space-between" align="center" className={styles.sectionHeader} wrap="nowrap">
         <Box>
           <Group gap={spacing[2]}>
             <Title order={2} className={styles.sectionTitle}>
-              Needs Attention
+              Action Queue
             </Title>
           </Group>
           <Text className={styles.sectionSubtitle}>
@@ -331,9 +320,18 @@ function NeedsAttention({
           </Text>
         </Box>
 
-        <Button variant="subtle" size="compact-sm">
-          View Queue
-        </Button>
+        <SegmentedControl
+          className={styles.queueFilters}
+          size="xs"
+          value={filter}
+          onChange={setFilter}
+          data={[
+            { label: `All ${items.length}`, value: 'all' },
+            { label: `Arrivals ${arrivalCount}`, value: 'arrivals' },
+            { label: `Rooms ${roomCount}`, value: 'rooms' },
+            { label: `VIP ${vipCount}`, value: 'vip' },
+          ]}
+        />
       </Group>
 
       <Stack gap={0} className={styles.attentionList}>
@@ -356,12 +354,11 @@ function NeedsAttention({
 
 export default function HomePage() {
   const frontDesk = useFrontDeskData();
-  const [arrivalOpened, setArrivalOpened] = useState(false);
   const summaryMetrics = buildSummaryMetrics({ ...frontDesk.summary, isLoading: frontDesk.isLoading });
 
   return (
     <Stack gap={spacing[3]} className={styles.pageShell}>
-      <QuickActions onNewArrival={() => setArrivalOpened(true)} />
+      <QuickActions />
 
       <Box className={styles.desktopGrid}>
         <Stack gap={spacing[3]} className={styles.mainColumn}>
@@ -373,7 +370,6 @@ export default function HomePage() {
           />
         </Stack>
       </Box>
-      <ArrivalWorkspace opened={arrivalOpened} onClose={() => setArrivalOpened(false)} />
     </Stack>
   );
 }

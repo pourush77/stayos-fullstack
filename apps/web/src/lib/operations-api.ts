@@ -127,6 +127,23 @@ export type OperationsRoomDetailsDto = Record<string, unknown>;
 
 export type OperationsAvailableRoomDto = OperationsRoomBoardItemDto;
 
+export type AssignableReservationDto = {
+  adults: number;
+  arrivalDate: string;
+  arrivingToday: boolean;
+  bookedRoomTypeId: string;
+  bookedRoomTypeName: string;
+  children: number;
+  confirmationNumber: string;
+  departureDate: string;
+  guestId: string;
+  guestName: string;
+  reservationId: string;
+  reservationStatus: string;
+  specialRequests?: string | null;
+  totalGuestCount: number;
+};
+
 export type OperationsAttentionItemDto = {
   type: string;
   title: string;
@@ -238,6 +255,7 @@ export type GroupHoldDto = {
   depositRequired: number;
   estimatedTotal: number;
   groupCode: string;
+  groupBookingId?: string;
   groupName: string;
   id: string;
   leadEmail: string | null;
@@ -472,6 +490,21 @@ export function getAvailableRooms(
 
   return get<OperationsAvailableRoomDto[]>(
     `/properties/${propertyId}/operations/available-rooms${suffix}`,
+    signal,
+  );
+}
+
+export function getAssignableReservations(
+  propertyId: string,
+  params: { roomId?: string } = {},
+  signal?: AbortSignal,
+) {
+  const query = new URLSearchParams();
+  if (params.roomId) query.set('roomId', params.roomId);
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+
+  return get<AssignableReservationDto[]>(
+    `/properties/${propertyId}/operations/assignable-reservations${suffix}`,
     signal,
   );
 }

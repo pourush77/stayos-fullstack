@@ -236,6 +236,21 @@ describe('CheckInService', () => {
     expect(workspace.identity.verified).toBe(true);
   });
 
+  it('rejects invalid Aadhaar identity numbers', async () => {
+    reservationsRepository.findOne?.mockResolvedValue(reservation());
+    guestsRepository.findOne?.mockResolvedValue(guest());
+    identityRepository.findOne?.mockResolvedValue(null);
+
+    await expect(
+      service.updateIdentity(propertyId, reservationId, {
+        idType: IdentityDocumentType.AADHAAR,
+        idNumber: '123456789012345',
+        verified: true,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(identityRepository.save).not.toHaveBeenCalled();
+  });
+
   it('updates payment review state', async () => {
     reservationsRepository.findOne?.mockResolvedValue(reservation({ paymentReviewed: false }));
     guestsRepository.findOne?.mockResolvedValue(guest());

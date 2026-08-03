@@ -6,12 +6,10 @@
 }
 
 .pageShell {
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 /* Shared cards */
@@ -84,7 +82,7 @@
 
 .quickActionsGrid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -94,13 +92,15 @@
 }
 
 .quickActionCard {
-  height: 74px;
-  padding: 12px 16px;
+  min-height: 88px;
+  padding: 16px 16px;
   display: flex;
   align-items: center;
   border-radius: 16px;
   background: #ffffff;
   cursor: pointer;
+  position: relative;
+  overflow: hidden;
   transition:
     transform 180ms ease,
     box-shadow 180ms ease,
@@ -109,12 +109,26 @@
 }
 
 .quickActionCard:hover {
-  transform: translateY(-2px);
-  border-color: #d8e2ee;
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--tone) 24%, #d8e2ee);
   background: #fcfdff;
   box-shadow:
-    0 8px 18px rgba(15, 23, 42, 0.05),
-    0 2px 6px rgba(15, 23, 42, 0.03);
+    0 14px 28px rgba(15, 23, 42, 0.07),
+    0 4px 10px rgba(15, 23, 42, 0.04);
+}
+
+.quickActionCard::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--tone);
+  opacity: 0.88;
+}
+
+.cardLink:focus-visible .quickActionCard {
+  outline: 3px solid color-mix(in srgb, var(--tone) 22%, transparent);
+  outline-offset: 3px;
 }
 
 .quickActionCard:active {
@@ -122,19 +136,19 @@
 }
 
 .quickIcon {
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  margin-right: 14px;
+  width: 46px;
+  height: 46px;
+  min-width: 46px;
+  margin-right: 13px;
   color: var(--tone);
   background: var(--tone-bg);
-  border-radius: 12px;
+  border-radius: 13px;
 }
 
 .quickLabel {
   color: #0f172a;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 750;
   line-height: 20px;
   letter-spacing: 0;
 }
@@ -147,8 +161,17 @@
   margin-top: 2px;
   color: #64748b;
   font-size: 12px;
-  font-weight: 500;
-  line-height: 15px;
+  font-weight: 550;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.quickDestination {
+  margin-top: 6px;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 14px;
 }
 
 /* Main Grid */
@@ -158,7 +181,7 @@
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-items: start;
-  min-height: 0;
+  min-height: 360px;
 }
 
 .mainColumn,
@@ -199,7 +222,8 @@
 
 .summaryStripItem {
   min-width: 0;
-  padding: 12px 14px;
+  min-height: 54px;
+  padding: 10px 14px;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -228,6 +252,18 @@
   font-size: 12px;
   font-weight: 650;
   line-height: 15px;
+}
+
+.summaryStripText {
+  min-width: 0;
+}
+
+.summaryStripHint {
+  margin-top: 1px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 14px;
 }
 
 .summaryCard:hover {
@@ -273,7 +309,7 @@
 .sectionCard {
   display: flex;
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 360px;
   flex-direction: column;
   overflow: hidden;
   border-radius: 16px;
@@ -284,7 +320,7 @@
   top: 0;
   z-index: 2;
   flex: 0 0 auto;
-  padding: 10px 16px;
+  padding: 12px 16px;
   border-bottom: 1px solid #e2e8f0;
   background: rgba(255, 255, 255, 0.98);
   backdrop-filter: blur(10px);
@@ -306,9 +342,13 @@
   line-height: 14px;
 }
 
+.queueFilters {
+  flex: 0 0 auto;
+}
+
 /* New premium task queue row */
 .attentionCard {
-  min-height: 76px;
+  min-height: 82px;
   padding: 12px 16px;
   border: 0;
   border-left: 4px solid var(--tone);
@@ -368,8 +408,8 @@
 .attentionGrid {
   display: grid;
   width: 100%;
-  grid-template-columns: 42px minmax(0, 1fr) 164px;
-  gap: 12px;
+  grid-template-columns: 42px minmax(280px, 0.72fr) minmax(180px, 0.28fr);
+  gap: 14px;
   align-items: center;
 }
 
@@ -383,6 +423,10 @@
 }
 
 .attentionBody {
+  min-width: 0;
+}
+
+.attentionBody :global(.mantine-Group-root) {
   min-width: 0;
 }
 
@@ -436,11 +480,18 @@
 }
 
 .attentionActionButton {
-  width: 164px;
+  width: 172px;
+  max-width: 100%;
   height: 36px;
+  justify-self: end;
   border-radius: 11px;
   font-size: 13px;
   font-weight: 600;
+}
+
+.attentionGrid > .cardLink {
+  width: auto;
+  justify-self: end;
 }
 
 /* Old classes retained safely in case other components still reference them */
@@ -587,6 +638,10 @@
 }
 
 @media (max-width: 88em) {
+  .quickActionsGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .desktopGrid {
     grid-template-columns: 1fr;
   }
@@ -626,41 +681,33 @@
   }
 
   .quickActionCard {
-    height: 70px;
+    min-height: 82px;
     padding: 12px 14px;
   }
 
+  .sectionHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .queueFilters {
+    width: 100%;
+  }
+
   .quickIcon {
-    width: 36px;
-    height: 36px;
-    min-width: 36px;
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
     margin-right: 12px;
   }
 
   .quickLabel {
-    font-size: 13px;
-  }
-
-  .searchHints {
-    margin-left: 390px;
-    margin-top: -6px;
-    color: #64748b;
-    font-size: 12px;
+    font-size: 14px;
   }
 
   .commandTitle {
     width: auto;
     flex: 0 0 auto;
-  }
-
-  .attentionGrid {
-    grid-template-columns: 34px 40px minmax(0, 1fr);
-  }
-
-  .attentionActionButton {
-    grid-column: 3 / -1;
-    justify-self: start;
-    margin-top: 8px;
   }
 
   .sideColumn {
@@ -732,7 +779,7 @@
   }
 
   .quickActionCard {
-    height: 64px;
+    min-height: 76px;
     padding: 12px;
   }
 
@@ -744,18 +791,6 @@
     padding: 12px;
   }
 
-  .attentionGrid {
-    grid-template-columns: 32px minmax(0, 1fr);
-  }
-
-  .attentionIcon {
-    display: none;
-  }
-
-  .attentionActionButton {
-    grid-column: 2 / -1;
-    width: 100%;
-  }
 }
 
 @media (max-height: 820px) and (min-width: 40.001em) {

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Alert,
   Badge,
@@ -21,7 +22,7 @@ import {
   Title,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
-import { Baby, CalendarDays, Copy, Hotel, Pencil, Trash2, Undo2, Users } from 'lucide-react';
+import { Baby, CalendarDays, ChevronLeft, Copy, Hotel, Pencil, Trash2, Undo2, Users } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
 import { getProperties } from '../../lib/guest-api';
@@ -179,6 +180,7 @@ function OptionCard({
 }
 
 export function GroupQuotePage() {
+  const router = useRouter();
   const backend = useBackendStatus();
   const [propertyId, setPropertyId] = useState('');
   const [dateRange, setDateRange] = useState<[Date | null, Date | null]>(() => {
@@ -379,9 +381,14 @@ export function GroupQuotePage() {
               Suggest room mixes for families, groups, walk-ins, corporate bookings, and future channel-manager sourced groups.
             </Text>
           </Box>
-          <Button component={Link} href="/reservations/quote" variant="light" color="gray">
-            Single-room quote
-          </Button>
+          <Group gap={8}>
+            <Button component={Link} href="/" variant="light" color="gray" leftSection={<ChevronLeft size={16} />}>
+              Back to Front Desk
+            </Button>
+            <Button component={Link} href="/reservations/quote" variant="light" color="gray">
+              Single-room quote
+            </Button>
+          </Group>
         </Group>
 
         <Card radius={radius.lg} p={18} style={panelStyle}>
@@ -435,44 +442,106 @@ export function GroupQuotePage() {
 
         {error ? <Alert color="red">{error}</Alert> : null}
 
-        {groupHolds.length ? (
-          <Card radius={radius.lg} p={16} style={panelStyle}>
+        <SimpleGrid cols={{ base: 1, lg: 3 }} spacing={spacing[3]}>
+          <Card radius={radius.lg} p={16} style={{ ...panelStyle, alignSelf: 'start' }}>
             <Group justify="space-between" align="flex-start" mb={spacing[2]}>
               <Box>
-                <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 850 }}>Current Group Holds</Title>
-                <Text c="#64748b" size="sm">Open, edit, release, or cancel saved inventory blocks.</Text>
+                <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 850 }}>Saved Holds</Title>
+                <Text c="#64748b" size="sm">Inventory already blocked.</Text>
               </Box>
               <Badge color="stayosBrand" variant="light">{groupHolds.length} total</Badge>
             </Group>
-            <SimpleGrid cols={{ base: 1, md: 2 }} spacing={spacing[2]}>
-              {groupHolds.map((hold) => (
-                <Paper key={hold.id} radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
-                  <Group justify="space-between" align="flex-start">
-                    <Box>
-                      <Group gap={6}>
-                        <Text fw={850} c="#101828">{hold.groupCode}</Text>
-                        <Badge color={hold.status === 'ON_HOLD' ? 'yellow' : hold.status === 'CONFIRMED' ? 'green' : 'gray'} variant="light">{hold.status.replace('_', ' ')}</Badge>
-                      </Group>
-                      <Text c="#101828" fw={750}>{hold.groupName}</Text>
-                      <Text c="#64748b" size="sm">{formatDate(hold.arrivalDate)} to {formatDate(hold.departureDate)} - {hold.adults + hold.children} guests</Text>
-                      <Text c="#64748b" size="sm">{hold.roomBlocks.map((block) => `${block.rooms} ${block.roomTypeName}`).join(' + ')}</Text>
-                    </Box>
-                    <Group gap={6}>
-                      <Button component={Link} href={`/reservations/group-holds/${hold.id}`} size="xs" variant="light" color="stayosBrand">Details</Button>
-                      <Button size="xs" variant="light" color="gray" leftSection={<Pencil size={13} />} onClick={() => openHoldDetails(hold)}>
+            {groupHolds.length ? (
+              <Stack gap={8} style={{ maxHeight: 520, overflow: 'auto', paddingRight: 2 }}>
+                {groupHolds.map((hold) => (
+                  <Paper
+                    key={hold.id}
+                    role="button"
+                    tabIndex={0}
+                    radius={radius.md}
+                    p={12}
+                    onClick={() => router.push(`/reservations/group-holds/${hold.id}`)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        router.push(`/reservations/group-holds/${hold.id}`);
+                      }
+                    }}
+                    style={{
+                      background: '#f8fafc',
+                      border: '1px solid #eef2f7',
+                      color: 'inherit',
+                      display: 'block',
+                      textDecoration: 'none',
+                      transition: 'transform .14s ease, border-color .14s ease, box-shadow .14s ease',
+                    }}
+                    onMouseEnter={(event) => {
+                      event.currentTarget.style.borderColor = '#7d4dd6';
+                      event.currentTarget.style.boxShadow = '0 10px 22px rgba(15,23,42,0.08)';
+                      event.currentTarget.style.transform = 'translateY(-1px)';
+                    }}
+                    onMouseLeave={(event) => {
+                      event.currentTarget.style.borderColor = '#eef2f7';
+                      event.currentTarget.style.boxShadow = 'none';
+                      event.currentTarget.style.transform = 'translateY(0)';
+                    }}
+                  >
+                    <Group justify="space-between" align="flex-start" wrap="nowrap">
+                      <Box style={{ minWidth: 0 }}>
+                        <Group gap={6}>
+                          <Text fw={850} c="#101828">{hold.groupCode}</Text>
+                          <Badge color={hold.status === 'ON_HOLD' ? 'yellow' : hold.status === 'CONFIRMED' ? 'green' : 'gray'} variant="light">{hold.status.replace('_', ' ')}</Badge>
+                        </Group>
+                        <Text c="#101828" fw={750} truncate>{hold.groupName}</Text>
+                        <Text c="#64748b" size="sm">{formatDate(hold.arrivalDate)} to {formatDate(hold.departureDate)}</Text>
+                        <Text c="#64748b" size="sm" truncate>{hold.roomBlocks.map((block) => `${block.rooms} ${block.roomTypeName}`).join(' + ')}</Text>
+                      </Box>
+                      <Button
+                        size="xs"
+                        variant="subtle"
+                        color="gray"
+                        leftSection={<Pencil size={13} />}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          openHoldDetails(hold);
+                        }}
+                      >
                         Edit
                       </Button>
                     </Group>
-                  </Group>
-                </Paper>
-              ))}
-            </SimpleGrid>
+                  </Paper>
+                ))}
+              </Stack>
+            ) : (
+              <Paper radius={radius.md} p={14} style={{ background: '#f8fafc', border: '1px dashed #cbd5e1' }}>
+                <Text fw={800} c="#101828">No holds yet</Text>
+                <Text c="#64748b" size="sm">Find a room mix, then create a hold from the best option.</Text>
+              </Paper>
+            )}
           </Card>
-        ) : null}
 
-        {suggestion ? (
-          <SimpleGrid cols={{ base: 1, lg: 3 }} spacing={spacing[3]}>
+          <Stack gap={spacing[3]} style={{ gridColumn: 'span 2' }}>
             <Card radius={radius.lg} p={16} style={panelStyle}>
+              <Group justify="space-between" align="flex-start">
+                <Box>
+                  <Title order={2} c="#101828" style={{ fontSize: 20, fontWeight: 850 }}>
+                    Room Mix Suggestions
+                  </Title>
+                  <Text c="#64748b" size="sm">
+                    Generated from the dates, guest count, and preference above.
+                  </Text>
+                </Box>
+                {suggestion ? (
+                  <Badge color="green" variant="light">{suggestion.options.length} options</Badge>
+                ) : (
+                  <Badge color="gray" variant="light">Not generated</Badge>
+                )}
+              </Group>
+            </Card>
+
+            {suggestion ? (
+              <>
+                <Card radius={radius.lg} p={16} style={panelStyle}>
               <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 850 }}>
                 Availability
               </Title>
@@ -496,7 +565,6 @@ export function GroupQuotePage() {
               </Stack>
             </Card>
 
-            <Stack gap={spacing[3]} style={{ gridColumn: 'span 2' }}>
               {suggestion.warnings.length ? (
                 <Alert color="yellow">
                   {suggestion.warnings.join(' ')}
@@ -514,9 +582,17 @@ export function GroupQuotePage() {
                   </Text>
                 </Card>
               )}
-            </Stack>
-          </SimpleGrid>
-        ) : null}
+              </>
+            ) : (
+              <Card radius={radius.lg} p={24} style={{ ...panelStyle, borderStyle: 'dashed' }}>
+                <Text fw={850} c="#101828">Ready to quote a group</Text>
+                <Text c="#64748b" size="sm" mt={4}>
+                  Confirm dates and guest count, then use Find Room Mix. The saved holds list stays visible while suggestions appear here.
+                </Text>
+              </Card>
+            )}
+          </Stack>
+        </SimpleGrid>
       </Stack>
       <Modal
         centered

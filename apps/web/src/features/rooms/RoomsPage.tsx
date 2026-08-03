@@ -1,5 +1,6 @@
-'use client';
+﻿'use client';
 
+import Link from 'next/link';
 import {
   Alert,
   Badge,
@@ -9,6 +10,7 @@ import {
   Checkbox,
   Drawer,
   Group,
+  Loader,
   MultiSelect,
   Paper,
   ScrollArea,
@@ -65,8 +67,10 @@ import { type Reservation, useReservations } from '../../lib/reservation-hooks';
 import {
   getRoomBoard,
   getActivityFeed,
+  getAssignableReservations,
   getAvailableRooms,
   getNeedsAttention,
+  type AssignableReservationDto,
   type OperationsActivityItemDto,
   type OperationsAttentionItemDto,
   type OperationsAvailableRoomDto,
@@ -645,7 +649,7 @@ function RoomCard({
               textTransform: 'uppercase',
             }}
           >
-            GROUP · {room.groupContext.groupCode}
+            GROUP - {room.groupContext.groupCode}
           </Box>
         ) : null}
 
@@ -696,7 +700,7 @@ function RoomCard({
             lineClamp={1}
             style={{ fontSize: 12, fontWeight: 600, lineHeight: '16px' }}
           >
-            {room.reservation} Â· {room.stayDates}
+            {room.reservation} - {room.stayDates}
           </Text>
         ) : null}
 
@@ -765,15 +769,15 @@ function getDrawerContext(room: Room) {
   if (room.groupContext) {
     return {
       title: 'Group Occupied',
-      headline: `${room.groupContext.groupCode} · ${room.groupContext.groupName}`,
-      detail: `Master folio ${room.groupContext.masterFolioNumber} · ${room.groupContext.status}`,
+      headline: `${room.groupContext.groupCode} - ${room.groupContext.groupName}`,
+      detail: `Master folio ${room.groupContext.masterFolioNumber} - ${room.groupContext.status}`,
     };
   }
   if (hasAssignedBooking(room) && isRoomReadyForAssignment(room)) {
     return {
       title: 'Assigned Booking',
       headline: room.guest ?? room.reservation,
-      detail: `${room.reservation} Â· ${room.stayDates}`,
+      detail: `${room.reservation} - ${room.stayDates}`,
     };
   }
 
@@ -789,7 +793,7 @@ function getDrawerContext(room: Room) {
     return {
       title: 'Current Stay',
       headline: room.guest ?? 'Guest in house',
-      detail: `${room.reservation} · ${room.stayDates}`,
+      detail: `${room.reservation} - ${room.stayDates}`,
     };
   }
 
@@ -797,7 +801,7 @@ function getDrawerContext(room: Room) {
     return {
       title: 'Housekeeping',
       headline: room.status === 'inspection' ? 'Waiting for inspection' : 'Cleaning in progress',
-      detail: `${room.housekeeping.assignedStaff} · ${room.housekeeping.estimatedFinish}`,
+      detail: `${room.housekeeping.assignedStaff} - ${room.housekeeping.estimatedFinish}`,
     };
   }
 
@@ -809,7 +813,7 @@ function getDrawerContext(room: Room) {
     return {
       title: 'Maintenance',
       headline: room.maintenance.issue || 'Room unavailable',
-      detail: `${room.maintenance.status} · ${room.maintenance.priority}`,
+      detail: `${room.maintenance.status} - ${room.maintenance.priority}`,
     };
   }
 
@@ -898,12 +902,18 @@ function formatActivityTime(value: string) {
   return parsed.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
 
+function formatShortDate(value: string) {
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+}
+
 function AssignGuestModal({
   loading,
   onAssign,
   onClose,
   opened,
-  reservations,
+  propertyId,
   room,
   selectedReservationId,
   setSelectedReservationId,
@@ -912,42 +922,65 @@ function AssignGuestModal({
   onAssign: () => void;
   onClose: () => void;
   opened: boolean;
-  reservations: Reservation[];
+  propertyId?: string;
   room: Room | null;
   selectedReservationId?: string;
   setSelectedReservationId: (value: string | undefined) => void;
 }) {
   const [query, setQuery] = useState('');
+  const [assignableReservations, setAssignableReservations] = useState<AssignableReservationDto[]>(
+    [],
+  );
+  const [isLoadingReservations, setIsLoadingReservations] = useState(false);
+  const [loadError, setLoadError] = useState<string | undefined>();
 
   useEffect(() => {
     if (opened) setQuery('');
   }, [opened, room?.id]);
 
+  useEffect(() => {
+    if (!opened || !propertyId) return undefined;
+
+    const controller = new AbortController();
+    setIsLoadingReservations(true);
+    setLoadError(undefined);
+
+    getAssignableReservations(propertyId, { roomId: room?.id }, controller.signal)
+      .then((reservations) => {
+        setAssignableReservations(reservations);
+        if (
+          selectedReservationId &&
+          !reservations.some((reservation) => reservation.reservationId === selectedReservationId)
+        ) {
+          setSelectedReservationId(undefined);
+        }
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        setAssignableReservations([]);
+        setLoadError(
+          error instanceof Error ? error.message : 'Unable to load assignable reservations.',
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoadingReservations(false);
+      });
+
+    return () => controller.abort();
+  }, [opened, propertyId, room?.id, selectedReservationId, setSelectedReservationId]);
+
   const visibleReservations = useMemo(() => {
     const normalized = query.trim().toLowerCase();
 
-    return reservations.filter((reservation) => {
-      if (reservation.status !== 'Confirmed' && reservation.status !== 'Pending') return false;
+    return assignableReservations.filter((reservation) => {
       if (!normalized) return true;
 
-      return [
-        reservation.id,
-        reservation.guest,
-        reservation.phone,
-        reservation.roomType,
-        reservation.occupancy,
-      ]
+      return [reservation.guestName, reservation.confirmationNumber]
         .join(' ')
         .toLowerCase()
         .includes(normalized);
     });
-  }, [query, reservations]);
-  const selectedReservation = reservations.find(
-    (reservation) => reservation.backendId === selectedReservationId,
-  );
-  const selectedIssue = selectedReservation
-    ? assignmentIssue(room, selectedReservation)
-    : undefined;
+  }, [assignableReservations, query]);
 
   return (
     <Modal
@@ -955,6 +988,10 @@ function AssignGuestModal({
       onClose={onClose}
       centered
       size="min(92vw, 640px)"
+      styles={{
+        body: { padding: 0 },
+        content: { maxHeight: 'min(760px, calc(100dvh - 48px))', overflow: 'hidden' },
+      }}
       title={
         <Box>
           <Text className={styles.modalTitle}>Assign Guest</Text>
@@ -964,65 +1001,70 @@ function AssignGuestModal({
         </Box>
       }
     >
-      <Stack gap={spacing[3]}>
-        {room ? (
-          <Paper radius={radius.lg} p={14} className={styles.surfaceCard}>
-            <Group justify="space-between" wrap="nowrap">
-              <Box>
-                <Text c="#101828" style={{ fontSize: 15, fontWeight: 650 }}>
-                  Room {room.number}
-                </Text>
-                <Text c="#64748b" mt={3} style={{ fontSize: 13, fontWeight: 450 }}>
-                  {room.roomType} · {compactFloorLabel(room.floor)}
-                </Text>
-              </Box>
-              <RoomBadge status={room.status}>{statusLabel(room.status)}</RoomBadge>
+      <Box className={styles.assignGuestModalShell}>
+        <Stack gap={spacing[3]} className={styles.assignGuestModalHeader}>
+          {room ? (
+            <Paper radius={radius.lg} p={14} className={styles.surfaceCard}>
+              <Group justify="space-between" wrap="nowrap">
+                <Box>
+                  <Text c="#101828" style={{ fontSize: 15, fontWeight: 650 }}>
+                    Room {room.number}
+                  </Text>
+                  <Text c="#64748b" mt={3} style={{ fontSize: 13, fontWeight: 450 }}>
+                    {room.roomType} · {compactFloorLabel(room.floor)}
+                  </Text>
+                </Box>
+                <RoomBadge status={room.status}>{statusLabel(room.status)}</RoomBadge>
+              </Group>
+            </Paper>
+          ) : null}
+
+          <TextInput
+            leftSection={<Search size={15} />}
+            placeholder="Search guest or confirmation number..."
+            value={query}
+            onChange={(event) => {
+              setQuery(event.currentTarget.value);
+              setSelectedReservationId(undefined);
+            }}
+            styles={{
+              input: {
+                borderColor: '#dbe3ef',
+                borderRadius: 12,
+                fontSize: 13,
+                minHeight: 40,
+              },
+            }}
+          />
+        </Stack>
+
+        <Stack gap={8} className={styles.assignGuestModalList}>
+          {isLoadingReservations ? (
+            <Group justify="center" p={20}>
+              <Loader color="stayosBrand" size="sm" />
+              <Text c="#64748b" size="sm">
+                Loading assignable reservations...
+              </Text>
             </Group>
-          </Paper>
-        ) : null}
-
-        <TextInput
-          leftSection={<Search size={15} />}
-          placeholder="Search booking, guest, phone or room type..."
-          value={query}
-          onChange={(event) => {
-            setQuery(event.currentTarget.value);
-            setSelectedReservationId(undefined);
-          }}
-          styles={{
-            input: {
-              borderColor: '#dbe3ef',
-              borderRadius: 12,
-              fontSize: 13,
-              minHeight: 40,
-            },
-          }}
-        />
-
-        <Stack gap={8}>
-          {visibleReservations.length > 0 ? (
+          ) : loadError ? (
+            <Alert color="red" variant="light" radius={radius.lg}>
+              {loadError}
+            </Alert>
+          ) : visibleReservations.length > 0 ? (
             visibleReservations.map((reservation) => {
-              const selected = selectedReservationId === reservation.backendId;
-              const issue = assignmentIssue(room, reservation);
-              const canSelect = !issue;
+              const selected = selectedReservationId === reservation.reservationId;
 
               return (
                 <UnstyledButton
-                  key={reservation.backendId}
-                  aria-disabled={!canSelect}
-                  onClick={() => {
-                    if (canSelect) setSelectedReservationId(reservation.backendId);
-                  }}
+                  key={reservation.reservationId}
+                  onClick={() => setSelectedReservationId(reservation.reservationId)}
                   style={{
                     background: selected ? '#f5f3ff' : '#ffffff',
                     border: selected
                       ? '1px solid rgba(109, 93, 252, 0.35)'
-                      : issue
-                        ? '1px solid #e5e7eb'
-                        : '1px solid #eef2f7',
+                      : '1px solid #eef2f7',
                     borderRadius: radius.lg,
-                    cursor: canSelect ? 'pointer' : 'not-allowed',
-                    opacity: canSelect ? 1 : 0.72,
+                    cursor: 'pointer',
                     padding: 12,
                     textAlign: 'left',
                     width: '100%',
@@ -1032,36 +1074,43 @@ function AssignGuestModal({
                     <Box style={{ minWidth: 0 }}>
                       <Group gap={6}>
                         <Text c="#101828" style={{ fontSize: 14, fontWeight: 700 }}>
-                          {reservation.guest}
+                          {reservation.guestName}
                         </Text>
-                        {reservation.isVip ? (
+                        {reservation.arrivingToday ? (
                           <Badge color="stayosBrand" variant="light" radius={radius.full}>
-                            VIP
+                            Arriving today
                           </Badge>
                         ) : null}
                       </Group>
                       <Text c="#64748b" mt={4} style={{ fontSize: 12, fontWeight: 450 }}>
-                        {reservation.id} · {reservation.stayDates}
+                        {reservation.confirmationNumber} · {reservation.bookedRoomTypeName}
                       </Text>
                       <Text c="#475569" mt={4} style={{ fontSize: 12, fontWeight: 500 }}>
-                        {reservation.roomType} · {reservation.occupancy}
+                        {formatShortDate(reservation.arrivalDate)} –{' '}
+                        {formatShortDate(reservation.departureDate)} · {reservation.adults}{' '}
+                        {reservation.adults === 1 ? 'adult' : 'adults'}
+                        {reservation.children > 0
+                          ? `, ${reservation.children} ${
+                              reservation.children === 1 ? 'child' : 'children'
+                            }`
+                          : ''}
                       </Text>
-                      {issue ? (
+                      {reservation.specialRequests ? (
                         <Text
-                          c="#b45309"
+                          c="#64748b"
                           mt={7}
                           style={{ fontSize: 12, fontWeight: 600, lineHeight: '17px' }}
                         >
-                          {issue}
+                          {reservation.specialRequests}
                         </Text>
                       ) : null}
                     </Box>
                     <Badge
                       variant={selected ? 'filled' : 'light'}
-                      color={issue ? 'gray' : 'stayosBrand'}
+                      color="stayosBrand"
                       radius={radius.full}
                     >
-                      {issue ? 'Unavailable' : selected ? 'Selected' : 'Select'}
+                      {selected ? 'Selected' : 'Select'}
                     </Badge>
                   </Group>
                 </UnstyledButton>
@@ -1070,33 +1119,34 @@ function AssignGuestModal({
           ) : (
             <Paper radius={radius.lg} p={16} className={styles.modalEmpty}>
               <Text className={styles.modalEmptyText}>
-                No confirmed or pending bookings match this search.
+                {query.trim()
+                  ? 'No eligible reservations match this search.'
+                  : 'No reservations are currently eligible for assignment to this room.'}
               </Text>
             </Paper>
           )}
         </Stack>
 
-        {selectedIssue ? (
-          <Alert color="yellow" variant="light" radius={radius.lg}>
-            {selectedIssue}
-          </Alert>
-        ) : null}
-
-        <Group justify="flex-end" mt={spacing[2]}>
+        <Group justify="space-between" className={styles.assignGuestModalFooter}>
+          <Text c="#64748b" style={{ fontSize: 12, fontWeight: 550 }}>
+            {selectedReservationId ? 'Ready to assign selected booking.' : 'Select a booking.'}
+          </Text>
+          <Group gap={8}>
           <Button variant="subtle" color="gray" onClick={onClose}>
             Cancel
           </Button>
           <Button
             color="stayosBrand"
-            disabled={!selectedReservationId || !room || Boolean(selectedIssue)}
+            disabled={!selectedReservationId || !room}
             loading={loading}
             onClick={onAssign}
             className={styles.primaryButtonText}
           >
             Assign Room
           </Button>
+          </Group>
         </Group>
-      </Stack>
+      </Box>
     </Modal>
   );
 }
@@ -1777,6 +1827,11 @@ export default function RoomsPage() {
     useDisclosure(false);
   const [assignmentRoom, setAssignmentRoom] = useState<Room | null>(null);
   const [selectedReservationId, setSelectedReservationId] = useState<string>();
+  const [assignedFollowUp, setAssignedFollowUp] = useState<{
+    guestName: string;
+    reservationId: string;
+    roomNumber: string;
+  }>();
   const [isAssigningRoom, setIsAssigningRoom] = useState(false);
   const [changeRoomOpened, { open: openChangeRoomModal, close: closeChangeRoomModal }] =
     useDisclosure(false);
@@ -1793,18 +1848,39 @@ export default function RoomsPage() {
   const [checkInRoom, setCheckInRoom] = useState<Room | null>(null);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
+  const isAssignmentFocus = searchParams.get('mode') === 'assign';
+  const assignmentReservationId = searchParams.get('reservationId') ?? undefined;
 
   useEffect(() => {
     if (searchParams.get('checkout') !== 'success') return;
     const guest = searchParams.get('guest') ?? 'Guest';
     const room = searchParams.get('room') ?? 'Room';
     showToast({
+      autoClose: 8000,
       color: 'green',
       title: 'Checkout complete',
-      message: `${guest} checked out. ${room} is now in housekeeping for cleaning.`,
+      message: `${guest} checked out. ${room} is ready for housekeeping follow-up.`,
     });
     router.replace('/rooms');
   }, [router, searchParams]);
+
+  useEffect(() => {
+    if (!isAssignmentFocus) return;
+    setFilters((current) => ({
+      ...current,
+      status: searchParams.get('status') ?? 'ready',
+    }));
+  }, [isAssignmentFocus, searchParams]);
+
+  useEffect(() => {
+    if (isAssignmentFocus) return;
+    const status = searchParams.get('status');
+    if (!status) return;
+    setFilters((current) => ({
+      ...current,
+      status,
+    }));
+  }, [isAssignmentFocus, searchParams]);
 
   useEffect(() => {
     if (!backend.isOnline || !inventory.propertyId || inventory.isFallback) return;
@@ -1886,7 +1962,7 @@ export default function RoomsPage() {
 
   const openAssignGuest = (room: Room) => {
     setAssignmentRoom(room);
-    setSelectedReservationId(undefined);
+    setSelectedReservationId(assignmentReservationId);
     openAssignmentModal();
   };
 
@@ -1994,19 +2070,34 @@ export default function RoomsPage() {
       await assignRoomToReservation(inventory.propertyId, selectedReservationId, assignmentRoom.id);
 
       showToast({
+        autoClose: 7000,
         color: 'green',
-        message: `Room ${assignmentRoom.number} assigned successfully.`,
+        message: assignmentReservationId
+          ? `Room ${assignmentRoom.number} assigned. Continue check-in.`
+          : `Room ${assignmentRoom.number} assigned successfully.`,
         title: 'Room assigned',
       });
+
+      const followUp = {
+        guestName: selectedReservation.guest,
+        reservationId: selectedReservationId,
+        roomNumber: assignmentRoom.number,
+      };
 
       closeAssignmentModal();
       closeDrawer();
       setAssignmentRoom(null);
       setSelectedReservationId(undefined);
 
+      if (assignmentReservationId) {
+        router.push(`/reservations/${selectedReservationId}/check-in`);
+        return;
+      }
+
       await Promise.all([inventory.refreshInventory(), reservationsState.refreshReservations()]);
 
       setSidebarRefreshKey((current) => current + 1);
+      setAssignedFollowUp(followUp);
     } catch (error) {
       showToast({
         color: 'red',
@@ -2093,9 +2184,10 @@ export default function RoomsPage() {
       await checkInReservation(inventory.propertyId, checkInRoom.reservationId);
 
       showToast({
+        autoClose: 8000,
         color: 'green',
-        title: 'Guest checked in',
-        message: `${reservation?.guest ?? checkInRoom.guest ?? 'Guest'} checked in to Room ${checkInRoom.number}.`,
+        title: 'Check-in complete',
+        message: `${reservation?.guest ?? checkInRoom.guest ?? 'Guest'} is now in Room ${checkInRoom.number}.`,
       });
 
       closeCheckInModal();
@@ -2203,13 +2295,24 @@ export default function RoomsPage() {
           Rooms
         </Title>
         <Text mt={spacing[1]} className={styles.pageSubtitle}>
-          Manage live room operations across the property.
+          {isAssignmentFocus
+            ? 'Showing rooms ready for today assignment.'
+            : 'Manage live room operations across the property.'}
         </Text>
         <Text mt={spacing[2]} className={styles.pageMeta}>
           {displayRooms.length} Rooms - {summary[1].value} Occupied - {summary[0].value} Ready -{' '}
           {summary[2].value} Need Cleaning
         </Text>
       </Box>
+      <Button
+        component={Link}
+        href="/"
+        variant="light"
+        color="gray"
+        leftSection={<ChevronRight size={16} style={{ transform: 'rotate(180deg)' }} />}
+      >
+        Back to Front Desk
+      </Button>
     </Group>
   );
 
@@ -2273,6 +2376,37 @@ export default function RoomsPage() {
         </Alert>
       ) : null}
 
+      {isAssignmentFocus && !inventory.isLoading ? (
+        <Paper radius={radius.lg} p={14} className={styles.assignmentFocusBanner}>
+          <Group justify="space-between" align="center" wrap="wrap">
+            <Group gap={spacing[3]} wrap="nowrap">
+              <ThemeIcon color="green" variant="light" radius={radius.full} size={38}>
+                <CheckCircle2 size={19} />
+              </ThemeIcon>
+              <Box>
+                <Text className={styles.assignmentFocusTitle}>
+                  Ready rooms for assignment
+                </Text>
+                <Text className={styles.assignmentFocusDetail}>
+                  Filter applied: only rooms that can be assigned now are shown.
+                </Text>
+              </Box>
+            </Group>
+            <Button
+              variant="subtle"
+              color="gray"
+              size="compact-sm"
+              onClick={() => {
+                setFilters(defaultRoomFilters);
+                router.replace('/rooms');
+              }}
+            >
+              Show all rooms
+            </Button>
+          </Group>
+        </Paper>
+      ) : null}
+
       {process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true' &&
       inventory.isFallback &&
       inventory.error ? (
@@ -2299,7 +2433,7 @@ export default function RoomsPage() {
             className={styles.statusSelect}
             data={[
               { label: 'All Statuses', value: 'all' },
-              { label: 'Ready', value: 'ready' },
+              { label: isAssignmentFocus ? 'Ready to Assign' : 'Ready', value: 'ready' },
               { label: 'Occupied', value: 'occupied' },
               { label: 'Needs Cleaning', value: 'needs-cleaning' },
               { label: 'Unavailable', value: 'unavailable' },
@@ -2470,7 +2604,7 @@ export default function RoomsPage() {
         onAssign={handleAssignGuest}
         onClose={closeAssignmentModal}
         opened={assignmentOpened}
-        reservations={reservationsState.reservations}
+        propertyId={inventory.propertyId}
         room={assignmentRoom}
         selectedReservationId={selectedReservationId}
         setSelectedReservationId={setSelectedReservationId}
@@ -2495,6 +2629,40 @@ export default function RoomsPage() {
         reservation={reservationForRoom(checkInRoom)}
         room={checkInRoom}
       />
+
+      <Modal
+        opened={Boolean(assignedFollowUp)}
+        onClose={() => setAssignedFollowUp(undefined)}
+        centered
+        size="min(92vw, 460px)"
+        title={<Text className={styles.modalTitle}>Room assigned</Text>}
+      >
+        <Stack gap={spacing[4]}>
+          <Text className={styles.dialogBody}>
+            {assignedFollowUp
+              ? `${assignedFollowUp.guestName} is now assigned to Room ${assignedFollowUp.roomNumber}.`
+              : 'The room has been assigned.'}
+          </Text>
+          <Text c="#64748b" size="sm">
+            Next step for front desk is to complete guest registration, ID verification, payment review, and check-in.
+          </Text>
+
+          <Group justify="flex-end">
+            <Button variant="subtle" color="gray" onClick={() => setAssignedFollowUp(undefined)}>
+              Stay on Rooms
+            </Button>
+            <Button
+              color="stayosBrand"
+              onClick={() => {
+                if (!assignedFollowUp) return;
+                router.push(`/reservations/${assignedFollowUp.reservationId}/check-in`);
+              }}
+            >
+              Start Check-in
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       <Modal
         opened={removeAssignmentOpened}
@@ -2530,3 +2698,5 @@ export default function RoomsPage() {
     </Stack>
   );
 }
+
+

@@ -15,7 +15,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
 
   useEffect(() => {
     if (!auth.isBootstrapping && auth.user && !isAllowed) {
-      router.replace('/front-desk');
+      router.replace('/');
     }
   }, [auth.isBootstrapping, auth.user, isAllowed, router]);
 

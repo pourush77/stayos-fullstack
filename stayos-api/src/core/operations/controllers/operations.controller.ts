@@ -19,6 +19,8 @@ import {
   ActivityFeedQueryDto,
   AddGroupRoomingListItemDto,
   AssignGroupRoomDto,
+  AssignableReservationDto,
+  AssignableReservationsQueryDto,
   AvailableRoomDto,
   AvailableRoomsQueryDto,
   CreateGroupHoldDto,
@@ -38,6 +40,7 @@ import {
   UpdateGroupHoldDto,
 } from '../dto/operations.dto';
 import { ActivityFeedService } from '../services/activity-feed.service';
+import { AssignableReservationsService } from '../services/assignable-reservations.service';
 import { GroupBookingService } from '../services/group-booking.service';
 import { GroupRoomMixService } from '../services/group-room-mix.service';
 import { NeedsAttentionService } from '../services/needs-attention.service';
@@ -57,6 +60,7 @@ export class OperationsController {
     private readonly groupRoomMixService: GroupRoomMixService,
     private readonly needsAttentionService: NeedsAttentionService,
     private readonly activityFeedService: ActivityFeedService,
+    private readonly assignableReservationsService: AssignableReservationsService,
   ) {}
 
   @Get('operations/room-board')
@@ -120,6 +124,27 @@ export class OperationsController {
     @Query() query: AvailableRoomsQueryDto,
   ): Promise<AvailableRoomDto[]> {
     return this.roomAvailabilityService.getAvailableRooms(propertyId, query);
+  }
+
+  @Get('operations/assignable-reservations')
+  @RequirePermissions(Permissions.OperationsView, Permissions.RoomsView)
+  @ApiOperation({
+    summary: 'Get reservations eligible for room assignment',
+    description:
+      'Returns only unassigned, operationally valid reservations. When roomId is supplied, results are filtered to reservations compatible with that room.',
+  })
+  @ApiParam({ name: 'propertyId', format: 'uuid' })
+  @ApiQuery({ name: 'roomId', required: false, type: String })
+  @ApiStandardListResponse(AssignableReservationDto)
+  @ApiBadRequestResponse({
+    description: 'Room is not assignable or query is invalid. Stable code: VALIDATION_ERROR.',
+  })
+  @ApiNotFoundResponse({ description: 'Property or room not found. Stable code: NOT_FOUND.' })
+  getAssignableReservations(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Query() query: AssignableReservationsQueryDto,
+  ): Promise<AssignableReservationDto[]> {
+    return this.assignableReservationsService.getAssignableReservations(propertyId, query);
   }
 
   @Get('operations/group-room-mix-suggestions')

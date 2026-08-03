@@ -1,7 +1,7 @@
-'use client';
+﻿'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Alert, Badge, Box, Button, Card, Checkbox, Group, Loader, Paper, Select, SimpleGrid, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
 import { AlertTriangle, BedDouble, Camera, Check, ChevronLeft, Clock3, CreditCard, IdCard, Info, ShieldCheck, Sparkles, Trash2, Upload, UserRound, Users, X } from 'lucide-react';
@@ -24,6 +24,9 @@ import { FaceMatchCard } from './components/FaceMatchCard';
 import { SendToPhoneModal } from './components/SendToPhoneModal';
 import { CheckoutModal } from './components/CheckoutModal';
 import { COMMON_COUNTRIES, COMMON_NATIONALITIES, INDIAN_STATES, PURPOSE_OF_VISIT } from './constants/guest-form-options';
+import styles from './CheckInWorkspacePage.module.css';
+
+type CheckInWizardStep = 'identity' | 'guest' | 'payment' | 'room';
 
 const cardStyle = {
   background: '#ffffff',
@@ -43,7 +46,57 @@ function idTypeLabel(type: string): string {
   }
 }
 
-// Common cities per Indian state — used as placeholder suggestion for the city field.
+function normalizeIdNumber(type: string, value: string) {
+  if (type === 'AADHAAR') return value.replace(/\D/g, '').slice(0, 12);
+  if (type === 'PAN') return value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+  if (type === 'VOTER_ID') return value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+  if (type === 'PASSPORT') return value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 9);
+  if (type === 'DRIVING_LICENSE') return value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+  return value.trimStart().slice(0, 80);
+}
+
+function idNumberRule(type: string) {
+  switch (type) {
+    case 'AADHAAR':
+      return {
+        hint: 'Enter exactly 12 digits. Example: 1234 5678 9012.',
+        maxLength: 12,
+        pattern: /^\d{12}$/,
+      };
+    case 'PAN':
+      return {
+        hint: 'Enter 10 characters. Format: ABCDE1234F.',
+        maxLength: 10,
+        pattern: /^[A-Z]{5}\d{4}[A-Z]$/,
+      };
+    case 'VOTER_ID':
+      return {
+        hint: 'Enter 10 letters/numbers from the voter ID.',
+        maxLength: 10,
+        pattern: /^[A-Z0-9]{10}$/,
+      };
+    case 'PASSPORT':
+      return {
+        hint: 'Enter 8 to 9 letters/numbers from the passport.',
+        maxLength: 9,
+        pattern: /^[A-Z0-9]{8,9}$/,
+      };
+    case 'DRIVING_LICENSE':
+      return {
+        hint: 'Enter up to 16 letters/numbers from the driving license.',
+        maxLength: 16,
+        pattern: /^[A-Z0-9]{8,16}$/,
+      };
+    default:
+      return {
+        hint: 'Enter the ID number shown on the document.',
+        maxLength: 80,
+        pattern: /^.{3,80}$/,
+      };
+  }
+}
+
+// Common cities per Indian state - used as placeholder suggestion for the city field.
 const STATE_HINT_CITY: Record<string, string> = {
   'Madhya Pradesh': 'Indore',
   'Maharashtra': 'Mumbai',
@@ -73,11 +126,23 @@ function cityPlaceholder(state: string): string {
   return `e.g. ${STATE_HINT_CITY[state] ?? 'Indore'}`;
 }
 
+function normalizeNationality(value?: string | null): string {
+  return value?.trim() ? value.trim().toUpperCase() : 'INDIAN';
+}
+
 function computeNights(arrival: string, departure: string): number {
   const a = new Date(arrival + 'T00:00:00');
   const d = new Date(departure + 'T00:00:00');
   const diff = Math.round((d.getTime() - a.getTime()) / (24 * 60 * 60 * 1000));
   return diff > 0 ? diff : 1;
+}
+
+function recommendedWizardStep(checklist: CheckInWorkspaceDto['finalChecklist']): CheckInWizardStep {
+  if (!checklist.identityVerified) return 'identity';
+  if (!checklist.guestRegistrationComplete) return 'guest';
+  if (!checklist.roomReady) return 'room';
+  if (!checklist.paymentReviewed) return 'payment';
+  return 'identity';
 }
 
 const BLOCKER_MESSAGES: Record<string, string> = {
@@ -102,10 +167,26 @@ function ChecklistPill({ ok, label }: { ok: boolean; label: string }) {
 
 function StepCard({ icon, title, complete, children }: { icon: React.ReactNode; title: string; complete: boolean; children: React.ReactNode }) {
   return (
-    <Card radius={radius.lg} p={20} style={cardStyle}>
+    <Card
+      radius={radius.lg}
+      p={20}
+      style={{
+        ...cardStyle,
+        border: complete ? '1px solid rgba(34,197,94,0.22)' : '1px solid rgba(226,232,240,0.78)',
+        boxShadow: '0 16px 40px rgba(15,23,42,0.045)',
+      }}
+    >
       <Group justify="space-between" align="center" mb={12}>
         <Group gap={10}>
-          <ThemeIcon color={complete ? 'green' : 'stayosBrand'} variant="light" radius={radius.md} size={34}>{icon}</ThemeIcon>
+          <ThemeIcon
+            color={complete ? 'green' : 'stayosBrand'}
+            variant="light"
+            radius={radius.md}
+            size={38}
+            style={{ boxShadow: complete ? '0 8px 18px rgba(34,197,94,0.12)' : '0 8px 18px rgba(125,77,214,0.12)' }}
+          >
+            {icon}
+          </ThemeIcon>
           <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 800 }}>{title}</Title>
         </Group>
         <Badge color={complete ? 'green' : 'gray'} variant="light" size="sm">{complete ? 'Complete' : 'Pending'}</Badge>
@@ -185,13 +266,14 @@ function IdPhotoTile({
       radius={radius.md}
       p={12}
       style={{
-        background: hasImage || isPdf ? '#ffffff' : '#f8fafc',
-        border: `1px dashed ${hasImage || isPdf ? '#7d4dd6' : '#cbd5e1'}`,
-        minHeight: 180,
+        background: hasImage || isPdf ? '#ffffff' : 'linear-gradient(180deg,#ffffff 0%,#f8fafc 100%)',
+        border: `1px dashed ${hasImage || isPdf ? 'rgba(125,77,214,0.55)' : 'rgba(148,163,184,0.42)'}`,
+        boxShadow: hasImage || isPdf ? '0 10px 24px rgba(125,77,214,0.06)' : 'inset 0 1px 0 rgba(255,255,255,0.9)',
+        minHeight: 152,
       }}
       data-testid={`id-photo-tile-${side}`}
     >
-      <Stack gap={8} align="center" justify="center" style={{ minHeight: 156 }}>
+      <Stack gap={8} align="center" justify="center" style={{ minHeight: 128 }}>
         <input
           ref={inputRef}
           type="file"
@@ -209,7 +291,7 @@ function IdPhotoTile({
             src={previewUrl}
             alt={`${label} preview`}
             style={{
-              maxHeight: 120,
+              maxHeight: 96,
               maxWidth: '100%',
               objectFit: 'contain',
               borderRadius: 8,
@@ -273,7 +355,7 @@ export function CheckInWorkspacePage() {
   const [fullName, setFullName] = useState('');
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
-  const [nationality, setNationality] = useState<string>('Indian');
+  const [nationality, setNationality] = useState<string>('INDIAN');
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [addressLine1, setAddressLine1] = useState('');
   const [city, setCity] = useState('');
@@ -295,13 +377,36 @@ export function CheckInWorkspacePage() {
   // Payment form state
   const [paymentMethod, setPaymentMethod] = useState<string>('CASH');
   const [paymentCollectionOpened, setPaymentCollectionOpened] = useState(false);
+  const [activeStep, setActiveStep] = useState<CheckInWizardStep>('identity');
+  const [savedStep, setSavedStep] = useState<CheckInWizardStep | null>(null);
+  const [cameraSkipped, setCameraSkipped] = useState(false);
+  const [showAllGuestDetails, setShowAllGuestDetails] = useState(false);
 
-  const applyWorkspace = useCallback((next: CheckInWorkspaceDto) => {
+  const flashSavedStep = (step: CheckInWizardStep) => {
+    setSavedStep(step);
+    window.setTimeout(() => setSavedStep((current) => (current === step ? null : current)), 1800);
+  };
+
+  useEffect(() => {
+    if (!workspace) return;
+    if (activeStep === 'guest') setShowAllGuestDetails(false);
+    const handle = window.setTimeout(() => {
+      const activePanel = document.querySelector(`[data-checkin-step="${activeStep}"]`);
+      const firstInput = activePanel?.querySelector<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>(
+        'input:not([type="hidden"]):not(:disabled), button:not(:disabled), select:not(:disabled)',
+      );
+      firstInput?.focus();
+    }, 80);
+    return () => window.clearTimeout(handle);
+  }, [activeStep, workspace?.booking.reservationId]);
+
+  const applyWorkspace = useCallback((next: CheckInWorkspaceDto, options?: { keepStep?: boolean }) => {
     setWorkspace(next);
+    if (!options?.keepStep) setActiveStep(recommendedWizardStep(next.finalChecklist));
     setFullName(next.guest.fullName ?? '');
     setMobile(next.guest.mobile ?? '');
     setEmail(next.guest.email ?? '');
-    setNationality(next.guest.nationality ?? 'Indian');
+    setNationality(normalizeNationality(next.guest.nationality));
     setDateOfBirth(next.guest.dateOfBirth ? next.guest.dateOfBirth.slice(0, 10) : '');
     setAddressLine1(next.guest.address ?? '');
     setCity(next.guest.city ?? '');
@@ -321,7 +426,7 @@ export function CheckInWorkspacePage() {
     if (detected.idType !== 'OTHER') {
       setIdType(detected.idType);
       if (detected.idNumber) {
-        setIdNumber(detected.idNumber);
+        setIdNumber(normalizeIdNumber(detected.idType, detected.idNumber));
         flags.idNumber = true;
         bits.push(`${detected.idType.replace('_', ' ')}: ${detected.idNumber}`);
       } else {
@@ -438,23 +543,28 @@ export function CheckInWorkspacePage() {
     };
   }, [propertyId, workspace?.booking.reservationId, guestFaceDocId]);
 
-  // Manual workspace reload — used after phone uploads or face-snap persistence completes.
+  // Manual workspace reload - used after phone uploads or face-snap persistence completes.
   const refreshWorkspace = useCallback(() => {
     if (!propertyId || !params.reservationId) return;
-    void getCheckInWorkspace(propertyId, params.reservationId).then(applyWorkspace).catch(() => undefined);
+    void getCheckInWorkspace(propertyId, params.reservationId)
+      .then((next) => applyWorkspace(next, { keepStep: true }))
+      .catch(() => undefined);
   }, [propertyId, params.reservationId, applyWorkspace]);
 
   if (loadError) {
     return (
       <Stack gap={spacing[3]}>
         <Alert color="red" variant="light" icon={<AlertTriangle size={17} />}>{loadError}</Alert>
-        <Button component={Link} href={`/reservations/${params.reservationId}`} variant="light" color="stayosBrand" leftSection={<ChevronLeft size={16} />}>Back to booking</Button>
+        <Group gap={8}>
+          <Button component={Link} href={`/reservations/${params.reservationId}`} variant="light" color="stayosBrand" leftSection={<ChevronLeft size={16} />}>Back to booking</Button>
+          <Button component={Link} href="/" variant="light" color="gray" leftSection={<ChevronLeft size={16} />}>Back to Front Desk</Button>
+        </Group>
       </Stack>
     );
   }
 
   if (!workspace) {
-    return <Alert color="blue" variant="light">Loading check-in workspace…</Alert>;
+    return <Alert color="blue" variant="light">Loading check-in workspace...</Alert>;
   }
 
   const saveGuestRegistration = async () => {
@@ -473,7 +583,9 @@ export function CheckInWorkspacePage() {
         country: country.trim() || undefined,
         purposeOfVisit: purposeOfVisit.trim() || undefined,
       });
-      applyWorkspace(next);
+      applyWorkspace(next, { keepStep: true });
+      setActiveStep(next.finalChecklist.paymentReviewed ? 'room' : 'payment');
+      flashSavedStep('guest');
       showToast({ color: 'green', title: 'Guest details saved', message: 'Registration updated.' });
     } catch (error) {
       showToast({ color: 'red', title: 'Save failed', message: error instanceof Error ? error.message : 'Please try again.' });
@@ -484,18 +596,29 @@ export function CheckInWorkspacePage() {
 
   const saveIdentity = async () => {
     if (!propertyId) return;
-    if (!idNumber.trim() && !workspace.identity.idNumberMasked) {
+    const nextIdNumber = normalizeIdNumber(idType, idNumber);
+    if (!nextIdNumber && !workspace.identity.idNumberMasked) {
       showToast({ color: 'red', title: 'ID number required', message: 'Enter the ID number to save.' });
+      return;
+    }
+    if (nextIdNumber && !idNumberRule(idType).pattern.test(nextIdNumber)) {
+      showToast({ color: 'red', title: 'Invalid ID number', message: idNumberRule(idType).hint });
+      return;
+    }
+    if (!idVerified) {
+      showToast({ color: 'yellow', title: 'Verify physically', message: 'Confirm the ID matches the guest before saving.' });
       return;
     }
     setIsSubmitting('identity');
     try {
       const next = await updateIdentityVerification(propertyId, workspace.booking.reservationId, {
         idType,
-        idNumber: idNumber.trim() || workspace.identity.idNumberMasked || '',
+        idNumber: nextIdNumber || workspace.identity.idNumberMasked || '',
         verified: idVerified,
       });
-      applyWorkspace(next);
+      applyWorkspace(next, { keepStep: true });
+      setActiveStep(next.finalChecklist.guestRegistrationComplete ? (next.finalChecklist.paymentReviewed ? 'room' : 'payment') : 'guest');
+      flashSavedStep('identity');
       setIdNumber('');
       showToast({ color: 'green', title: 'Identity saved', message: idVerified ? 'Marked verified.' : 'Details saved (not yet verified).' });
     } catch (error) {
@@ -511,10 +634,10 @@ export function CheckInWorkspacePage() {
     try {
       await uploadCheckInDocument(propertyId, workspace.booking.reservationId, side, file);
       const next = await getCheckInWorkspace(propertyId, workspace.booking.reservationId);
-      applyWorkspace(next);
+      applyWorkspace(next, { keepStep: true });
       showToast({ color: 'green', title: 'Photo uploaded', message: `${side === 'front' ? 'Front' : 'Back'} of ID saved.` });
 
-      // Auto-detect ID type + number + name from the front photo (client-side OCR — Tesseract.js).
+      // Auto-detect ID type + number + name from the front photo (client-side OCR - Tesseract.js).
       if (file.type.startsWith('image/')) {
         try {
           setIsDetecting(true);
@@ -525,7 +648,7 @@ export function CheckInWorkspacePage() {
             const flags: Record<string, boolean> = {};
             if (detected.idType !== 'OTHER' && detected.idNumber) {
               setIdType(detected.idType);
-              setIdNumber(detected.idNumber);
+              setIdNumber(normalizeIdNumber(detected.idType, detected.idNumber));
               flags.idNumber = true;
               bits.push(`${detected.idType.replace('_', ' ')}: ${detected.idNumber}`);
             }
@@ -535,7 +658,7 @@ export function CheckInWorkspacePage() {
               flags.fullName = true;
               bits.push(`Name: ${detected.fullName}`);
             } else if (detected.fullName && detected.fullName.toLowerCase() !== fullName.trim().toLowerCase()) {
-              // Guest already has a name — don't overwrite, just surface the detected one so front desk can compare.
+              // Guest already has a name - don't overwrite, just surface the detected one so front desk can compare.
               bits.push(`ID name: ${detected.fullName}`);
             }
             if (detected.dateOfBirth && !dateOfBirth.trim()) {
@@ -550,13 +673,13 @@ export function CheckInWorkspacePage() {
               showToast({
                 color: 'green',
                 title: 'Auto-filled from ID',
-                message: `${bits.join(' · ')} — please confirm and save.`,
+                message: `${bits.join(' · ')} - please confirm and save.`,
               });
             } else {
               showToast({
                 color: 'yellow',
                 title: 'Could not read ID clearly',
-                message: 'The photo looks blurry / not an ID. Try a well-lit, close-up snap in daylight — or type the ID number manually below.',
+                message: 'The photo looks blurry / not an ID. Try a well-lit, close-up snap in daylight, or type the ID number manually below.',
                 autoClose: 8000,
               });
             }
@@ -631,7 +754,7 @@ export function CheckInWorkspacePage() {
     try {
       await deleteCheckInDocument(propertyId, workspace.booking.reservationId, documentId);
       const next = await getCheckInWorkspace(propertyId, workspace.booking.reservationId);
-      applyWorkspace(next);
+      applyWorkspace(next, { keepStep: true });
       showToast({ color: 'green', title: 'Photo removed', message: 'ID photo deleted.' });
     } catch (error) {
       showToast({ color: 'red', title: 'Delete failed', message: error instanceof Error ? error.message : 'Please try again.' });
@@ -649,6 +772,8 @@ export function CheckInWorkspacePage() {
         paymentMethod,
       });
       applyWorkspace(next);
+      setActiveStep('room');
+      flashSavedStep('payment');
       showToast({ color: 'green', title: 'Payment reviewed', message: 'Payment step is complete.' });
     } catch (error) {
       showToast({ color: 'red', title: 'Save failed', message: error instanceof Error ? error.message : 'Please try again.' });
@@ -672,11 +797,16 @@ export function CheckInWorkspacePage() {
             notes: 'Auto-marked: collect at checkout',
           });
         } catch {
-          // Non-blocking — actual money collection happens in the Stay Workspace.
+          // Non-blocking - actual money collection happens in the Stay Workspace.
         }
       }
       await checkInReservation(propertyId, workspace.booking.reservationId);
-      showToast({ color: 'green', title: 'Guest checked in', message: 'Redirecting to the stay workspace — collect payment from Billing panel.' });
+      showToast({
+        autoClose: 9000,
+        color: 'green',
+        title: 'Check-in complete',
+        message: `${workspace.guest.fullName || 'Guest'} is now in Room ${workspace.room.roomNumber ?? 'assigned'}. Opening the stay workspace.`,
+      });
       router.push(`/guest-stay/${workspace.booking.reservationId}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to check in.';
@@ -690,12 +820,90 @@ export function CheckInWorkspacePage() {
 
   const c = workspace.finalChecklist;
   const room = workspace.room;
-  // Payment review is treated as an optional step for walk-ins — we auto-mark it as
+  // Payment review is treated as an optional step for walk-ins - we auto-mark it as
   // "collect at checkout" when the receptionist hits Complete Check-In. So the CTA
   // becomes clickable as soon as everything except the payment review is done.
   const nonPaymentBlockers = c.blockers.filter((code) => code !== 'CHECKIN_PAYMENT_NOT_REVIEWED');
   const canCheckInSoft = c.guestRegistrationComplete && c.identityVerified && c.roomReady && nonPaymentBlockers.length === 0;
   const blockerMessages = c.blockers.map((code) => BLOCKER_MESSAGES[code] ?? code);
+  const completedSteps = [
+    c.identityVerified,
+    c.guestRegistrationComplete,
+    c.paymentReviewed,
+    c.roomReady,
+  ].filter(Boolean).length;
+  const nextAction = !c.identityVerified
+    ? {
+        detail: 'Snap or upload the guest ID, then mark the physical ID as verified.',
+        label: 'Verify identity',
+        target: 'Step 1',
+      }
+    : !c.guestRegistrationComplete
+      ? {
+          detail: 'Fill the missing guest registration fields and save guest details.',
+          label: 'Complete guest details',
+          target: 'Step 2',
+        }
+      : !c.roomReady
+        ? {
+            detail: 'Room must be assigned and ready before the guest can be checked in.',
+            label: 'Resolve room readiness',
+            target: 'Step 4',
+          }
+        : !c.paymentReviewed
+          ? {
+              detail: 'Payment can be marked as collect at checkout if money will be handled after check-in.',
+              label: 'Review payment plan',
+              target: 'Step 3',
+            }
+          : {
+              detail: 'All required checks are complete. Finish check-in and open the stay workspace.',
+              label: 'Complete check-in',
+              target: 'Final step',
+            };
+  const wizardSteps: Array<{
+    complete: boolean;
+    description: string;
+    key: CheckInWizardStep;
+    label: string;
+    number: number;
+  }> = [
+    {
+      complete: c.identityVerified,
+      description: 'ID photos, ID number and face snap',
+      key: 'identity',
+      label: 'Identity',
+      number: 1,
+    },
+    {
+      complete: c.guestRegistrationComplete,
+      description: 'Address, mobile and visit purpose',
+      key: 'guest',
+      label: 'Guest details',
+      number: 2,
+    },
+    {
+      complete: c.paymentReviewed,
+      description: 'Collect now or mark checkout plan',
+      key: 'payment',
+      label: 'Payment',
+      number: 3,
+    },
+    {
+      complete: c.roomReady,
+      description: 'Assigned ready room',
+      key: 'room',
+      label: 'Room',
+      number: 4,
+    },
+  ];
+  const activeStepIndex = wizardSteps.findIndex((step) => step.key === activeStep);
+  const activeWizardStep = activeStepIndex >= 0 ? wizardSteps[activeStepIndex] : wizardSteps[0];
+  const previousStep = activeStepIndex > 0 ? wizardSteps[activeStepIndex - 1] : undefined;
+  const nextStep =
+    activeStepIndex >= 0 && activeStepIndex < wizardSteps.length - 1
+      ? wizardSteps[activeStepIndex + 1]
+      : undefined;
   const missingFieldLabels: Record<string, string> = {
     fullName: 'Full name',
     nationality: 'Nationality',
@@ -715,89 +923,352 @@ export function CheckInWorkspacePage() {
     visaExpiryDate: 'Visa expiry date',
   };
   const missingFields = c.missingRegistrationFields ?? [];
-  const isMissing = (field: string) => missingFields.includes(field);
+  const requiredGuestValue: Record<string, string> = {
+    addressLine1,
+    city,
+    country,
+    fullName,
+    mobile,
+    nationality,
+    purposeOfVisit,
+    state,
+  };
+  const currentMissingFields = missingFields.filter((field) => {
+    if (!(field in requiredGuestValue)) return true;
+    return !requiredGuestValue[field]?.trim();
+  });
+  const isMissing = (field: string) => currentMissingFields.includes(field);
+  const idRule = idNumberRule(idType);
+  const normalizedIdNumber = normalizeIdNumber(idType, idNumber);
+  const hasExistingIdNumber = Boolean(workspace.identity.idNumberMasked);
+  const idNumberValid = idRule.pattern.test(normalizedIdNumber);
+  const canSaveIdentity = (idNumberValid || (hasExistingIdNumber && !idNumber.trim())) && idVerified;
+  const idNumberError =
+    idNumber.trim() && !idNumberValid ? `${idTypeLabel(idType)} number format is not valid.` : undefined;
+  const guestDisplayName = workspace.guest.fullName || fullName.trim() || 'guest';
+  const roomDisplayName = room.roomNumber ? `Room ${room.roomNumber}` : 'the room';
+  const footerTitle =
+    activeStep === 'identity'
+      ? (c.identityVerified ? 'Identity is saved' : 'Save identity to continue')
+      : activeStep === 'guest'
+        ? (c.guestRegistrationComplete ? 'Guest details are complete' : 'Save guest details to continue')
+        : activeStep === 'payment'
+          ? (c.paymentReviewed ? 'Payment plan reviewed' : 'Review payment plan')
+          : canCheckInSoft
+            ? 'Ready to check in'
+            : 'Room must be ready before check-in';
+  const footerDetail =
+    activeStep === 'identity'
+      ? 'Confirm the ID number and tick physical verification.'
+      : activeStep === 'guest'
+        ? currentMissingFields.length > 0
+          ? `${currentMissingFields.length} registration field${currentMissingFields.length === 1 ? '' : 's'} still missing.`
+          : 'Registration details are ready to save.'
+        : activeStep === 'payment'
+          ? 'Mark the payment plan now, or collect money from the stay workspace after check-in.'
+          : canCheckInSoft
+            ? 'Guest, ID and room are ready. Finish check-in to open the stay workspace.'
+            : 'Open the rooms board if the room needs assignment or readiness work.';
+  const footerActionLabel =
+    activeStep === 'identity'
+      ? 'Save identity'
+    : activeStep === 'guest'
+        ? `Save ${currentMissingFields.length || ''} guest detail${currentMissingFields.length === 1 ? '' : 's'}`.replace('  ', ' ')
+        : activeStep === 'payment'
+          ? 'Mark payment reviewed'
+          : canCheckInSoft
+            ? `Check in ${guestDisplayName} to ${roomDisplayName}`
+            : 'Open rooms board';
+  const footerActionDisabled =
+    activeStep === 'identity'
+      ? !canSaveIdentity
+      : activeStep === 'room'
+        ? false
+        : false;
+  const footerActionLoading =
+    (activeStep === 'identity' && isSubmitting === 'identity') ||
+    (activeStep === 'guest' && isSubmitting === 'guest') ||
+    (activeStep === 'payment' && isSubmitting === 'payment') ||
+    (activeStep === 'room' && isSubmitting === 'complete');
+  const footerActionTestId =
+    activeStep === 'identity'
+      ? 'checkin-save-identity'
+      : activeStep === 'guest'
+        ? 'checkin-save-guest'
+        : activeStep === 'payment'
+          ? 'checkin-save-payment'
+          : canCheckInSoft
+            ? 'checkin-complete'
+            : 'checkin-open-rooms';
+  const canRunFooterAction = !footerActionDisabled && !footerActionLoading;
+  const runFooterAction = () => {
+    if (activeStep === 'identity') void saveIdentity();
+    else if (activeStep === 'guest') void saveGuestRegistration();
+    else if (activeStep === 'payment') void savePayment();
+    else if (canCheckInSoft) void completeCheckIn();
+    else router.push(`/rooms?mode=assign&status=ready&reservationId=${workspace.booking.reservationId}`);
+  };
+  const handleStepKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+    const target = event.target as HTMLElement | null;
+    if (!target) return;
+    if (target.closest('[role="combobox"], [data-no-enter-save="true"]')) return;
+    const tagName = target.tagName.toLowerCase();
+    if (tagName !== 'input') return;
+    if (!canRunFooterAction) return;
+    event.preventDefault();
+    runFooterAction();
+  };
 
   const stateOptions = country === 'India' ? INDIAN_STATES : undefined;
   const autoBadge = (key: string) =>
     autoFilled[key] ? (
       <Badge color="green" size="xs" variant="light" leftSection={<Sparkles size={10} />}>Auto</Badge>
     ) : null;
+  const guestFieldOrder = ['fullName', 'mobile', 'addressLine1', 'country', 'state', 'city', 'purposeOfVisit', 'nationality'];
+  const missingGuestFields = guestFieldOrder.filter((field) => isMissing(field));
+  const remainingGuestFields = guestFieldOrder.filter((field) => !isMissing(field));
+  const renderGuestField = (field: string) => {
+    switch (field) {
+      case 'fullName':
+        return (
+          <TextInput
+            key={field}
+            label="Full name"
+            value={fullName}
+            required
+            error={isMissing('fullName') ? 'Required for registration' : undefined}
+            onChange={(e) => { setFullName(e.currentTarget.value); setAutoFilled((prev) => ({ ...prev, fullName: false })); }}
+            rightSection={autoBadge('fullName')}
+            data-testid="checkin-full-name"
+          />
+        );
+      case 'mobile':
+        return (
+          <TextInput
+            key={field}
+            label="Mobile"
+            required
+            error={isMissing('mobile') ? 'Mobile is needed for registration' : undefined}
+            value={mobile}
+            onChange={(e) => setMobile(e.currentTarget.value)}
+            data-testid="checkin-mobile"
+          />
+        );
+      case 'addressLine1':
+        return (
+          <TextInput
+            key={field}
+            label="Address"
+            required
+            error={isMissing('addressLine1') ? 'Address is needed for registration' : undefined}
+            value={addressLine1}
+            onChange={(e) => setAddressLine1(e.currentTarget.value)}
+            data-testid="checkin-address"
+          />
+        );
+      case 'country':
+        return (
+          <Select
+            key={field}
+            label="Country"
+            required
+            error={isMissing('country') ? 'Required' : undefined}
+            value={country || 'India'}
+            onChange={(v) => setCountry(v ?? 'India')}
+            data={COMMON_COUNTRIES}
+            searchable
+            data-testid="checkin-country"
+          />
+        );
+      case 'state':
+        return stateOptions ? (
+          <Select
+            key={field}
+            label="State"
+            required
+            error={isMissing('state') ? 'Please pick a state' : undefined}
+            value={state || null}
+            onChange={(v) => setState(v ?? '')}
+            data={stateOptions}
+            searchable
+            clearable
+            placeholder="Select state"
+            data-testid="checkin-state"
+          />
+        ) : (
+          <TextInput
+            key={field}
+            label="State / Region"
+            required
+            error={isMissing('state') ? 'Required' : undefined}
+            value={state}
+            onChange={(e) => setState(e.currentTarget.value)}
+            placeholder="e.g. California"
+            data-testid="checkin-state"
+          />
+        );
+      case 'city':
+        return (
+          <TextInput
+            key={field}
+            label="City"
+            required
+            error={isMissing('city') ? 'Required' : undefined}
+            value={city}
+            onChange={(e) => setCity(e.currentTarget.value)}
+            placeholder={cityPlaceholder(state)}
+            data-testid="checkin-city"
+          />
+        );
+      case 'purposeOfVisit':
+        return (
+          <Select
+            key={field}
+            label="Purpose of visit"
+            required
+            error={isMissing('purposeOfVisit') ? 'Required' : undefined}
+            value={purposeOfVisit || 'Leisure'}
+            onChange={(v) => setPurposeOfVisit(v ?? 'Leisure')}
+            data={PURPOSE_OF_VISIT}
+            data-testid="checkin-purpose"
+          />
+        );
+      case 'nationality':
+        return (
+          <Select
+            key={field}
+            label="Nationality"
+            required
+            error={isMissing('nationality') ? 'Required' : undefined}
+            value={nationality || 'INDIAN'}
+            onChange={(v) => setNationality(v ?? 'INDIAN')}
+            data={COMMON_NATIONALITIES}
+            searchable
+            data-testid="checkin-nationality"
+          />
+        );
+      default:
+        return null;
+    }
+  };
 
   const totalPax = (workspace.booking.adults ?? 0) + (workspace.booking.children ?? 0);
   const needsExtraRoom = totalPax > 2;
+  const stepStatusBadge = (step: CheckInWizardStep, complete: boolean) => {
+    if (savedStep === step) return { color: 'green', label: 'Saved' };
+    if (complete) return { color: 'green', label: 'Ready' };
+    if (step === 'guest' && missingGuestFields.length > 0) return { color: 'orange', label: `${missingGuestFields.length} missing` };
+    if (step === 'payment') return { color: 'blue', label: 'Optional' };
+    if (step === 'identity') return { color: 'orange', label: 'Needed' };
+    return { color: 'gray', label: 'Pending' };
+  };
 
   return (
     <Stack gap={spacing[3]}>
-      <Group justify="space-between" align="flex-start" gap={spacing[4]}>
-        <Stack gap={6}>
-          <Button component={Link} href={`/reservations/${workspace.booking.reservationId}`} variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content">Back to booking</Button>
-          <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 800 }}>Check-In · {workspace.booking.reservationCode}</Title>
-          <Group gap={8} wrap="wrap">
-            <Text c="#64748b" size="sm">
-              {workspace.guest.fullName || 'Guest'} · {workspace.booking.arrivalDate} → {workspace.booking.departureDate} · Room {room.roomNumber ?? 'Unassigned'} ({room.roomType ?? '—'})
-            </Text>
-            <Badge color="stayosBrand" variant="light" leftSection={<Users size={12} />}>
-              {workspace.booking.adults} adult{workspace.booking.adults === 1 ? '' : 's'}
-              {workspace.booking.children > 0 ? ` · ${workspace.booking.children} child${workspace.booking.children === 1 ? '' : 'ren'}` : ''}
-            </Badge>
-            <Badge color="gray" variant="light" leftSection={<Clock3 size={12} />} data-testid="checkin-nights">
-              {computeNights(workspace.booking.arrivalDate, workspace.booking.departureDate)} night{computeNights(workspace.booking.arrivalDate, workspace.booking.departureDate) === 1 ? '' : 's'} · arrive 2:00 PM · depart 12:00 PM
-            </Badge>
-          </Group>
-        </Stack>
-      </Group>
-
-      {/* Quick-reference "how to check in" strip — keeps the receptionist oriented */}
-      <Alert color="stayosBrand" variant="light" icon={<Info size={17} />} data-testid="checkin-howto">
-        <Group gap={spacing[3]} wrap="wrap">
-          <Text size="sm" fw={700} c="#5b21b6">Walk-in flow:</Text>
-          <Text size="sm" c="#334155"><b>1.</b> Snap the ID front — we auto-fill name, DOB, ID number.</Text>
-          <Text size="sm" c="#334155"><b>2.</b> Confirm the guest details and click <b>Save guest details</b>.</Text>
-          <Text size="sm" c="#334155"><b>3.</b> Snap the guest for the face match.</Text>
-          <Text size="sm" c="#334155"><b>4.</b> Hit <b>Complete Check-In →</b>. Collect money after, from the Stay Workspace (Cash / Card / UPI / Razorpay).</Text>
+      <Paper radius={radius.lg} p={18} style={cardStyle}>
+        <Group justify="space-between" align="flex-start" gap={spacing[3]} wrap="wrap">
+          <Stack gap={8}>
+            <Group gap={12}>
+              <Button component={Link} href={`/reservations/${workspace.booking.reservationId}`} variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content">Back to booking</Button>
+              <Button component={Link} href="/" variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content">Back to Front Desk</Button>
+            </Group>
+            <Box>
+              <Text c="#64748b" size="xs" fw={800} tt="uppercase">Check-in</Text>
+              <Title order={1} c="#101828" style={{ fontSize: 28, fontWeight: 850 }}>
+                {workspace.booking.reservationCode}
+              </Title>
+            </Box>
+            <Group gap={8} wrap="wrap">
+              <Badge color="gray" variant="light">{workspace.guest.fullName || 'Guest'}</Badge>
+              <Badge color="gray" variant="light">
+                {workspace.booking.adults} adult{workspace.booking.adults === 1 ? '' : 's'}{workspace.booking.children > 0 ? `, ${workspace.booking.children} child${workspace.booking.children === 1 ? '' : 'ren'}` : ''}
+              </Badge>
+              <Badge color="gray" variant="light">{computeNights(workspace.booking.arrivalDate, workspace.booking.departureDate)} nights</Badge>
+              <Badge color="gray" variant="light">Room {room.roomNumber ?? 'Unassigned'} - {room.roomType ?? '-'}</Badge>
+            </Group>
+          </Stack>
+          <Badge color={canCheckInSoft ? 'green' : 'stayosBrand'} variant="light" size="lg">
+            {completedSteps}/4 ready
+          </Badge>
         </Group>
-      </Alert>
-
-      {needsExtraRoom ? (
-        <Alert color="orange" variant="light" icon={<AlertTriangle size={17} />} data-testid="checkin-group-note">
-          <Text size="sm">
-            This booking is for <b>{totalPax} guests</b>. If they need an additional room, use <b>Back to booking → Move Room</b> or create a separate reservation for the extra guests before checking in.
-          </Text>
-        </Alert>
-      ) : null}
-
-      <Paper radius={radius.lg} p={12} style={cardStyle}>
-        <Group gap={8} wrap="wrap">
-          <ChecklistPill ok={c.guestRegistrationComplete} label="Guest registration" />
-          <ChecklistPill ok={c.identityVerified} label="Identity verified" />
-          <ChecklistPill ok={c.paymentReviewed} label="Payment reviewed" />
-          <ChecklistPill ok={c.roomReady} label="Room ready" />
-        </Group>
-        {blockerMessages.length > 0 ? (
-          <Alert mt={12} color="orange" variant="light" icon={<AlertTriangle size={17} />} data-testid="checkin-blockers">
-            <Stack gap={6}>
-              {blockerMessages.map((msg, i) => <Text key={i} size="sm">{msg}</Text>)}
-              {missingFields.length > 0 ? (
-                <Group gap={6} wrap="wrap" mt={4}>
-                  <Text size="xs" fw={700} c="#78350f">Missing fields:</Text>
-                  {missingFields.map((f) => (
-                    <Badge key={f} color="orange" variant="filled" size="sm" data-testid={`missing-${f}`}>
-                      {missingFieldLabels[f] ?? f}
-                    </Badge>
-                  ))}
-                </Group>
-              ) : null}
-            </Stack>
-          </Alert>
-        ) : null}
       </Paper>
+      <Box className={styles.checkInShell}>
+        <Paper radius={radius.lg} p={16} className={styles.checkInSidebar} style={cardStyle} data-testid="checkin-wizard-nav">
+          <Stack gap={spacing[3]}>
+            <Box>
+              <Text c="#64748b" size="xs" fw={900} tt="uppercase">Check-in flow</Text>
+              <Text c="#101828" fw={900} mt={2}>{nextAction.label}</Text>
+              <Text c="#64748b" size="sm" mt={4}>{nextAction.detail}</Text>
+            </Box>
+            <Stack gap={8}>
+              {wizardSteps.map((step) => {
+                const selected = activeStep === step.key;
+                const status = stepStatusBadge(step.key, step.complete);
+                return (
+                  <Button
+                    key={step.key}
+                    variant={selected ? 'filled' : 'subtle'}
+                    color={step.complete ? 'green' : selected ? 'stayosBrand' : 'gray'}
+                    justify="flex-start"
+                    h="auto"
+                    py={10}
+                    leftSection={
+                      <ThemeIcon color={step.complete ? 'green' : selected ? 'stayosBrand' : 'gray'} variant={selected ? 'white' : 'light'} radius="xl" size={28}>
+                        {step.complete ? <Check size={15} /> : <Text size="xs" fw={900}>{step.number}</Text>}
+                      </ThemeIcon>
+                    }
+                    onClick={() => setActiveStep(step.key)}
+                    styles={{ label: { width: '100%' } }}
+                  >
+                    <Stack gap={1} align="flex-start">
+                      <Group justify="space-between" w="100%" gap={8} wrap="nowrap">
+                        <Text fw={850} size="sm">{step.label}</Text>
+                        <Badge
+                          color={status.color}
+                          variant={selected ? 'white' : 'light'}
+                          size="xs"
+                          className={savedStep === step.key ? styles.savedPulse : undefined}
+                        >
+                          {status.label}
+                        </Badge>
+                      </Group>
+                      <Text size="xs" c={selected ? 'rgba(255,255,255,0.82)' : '#64748b'}>
+                        {step.key === 'guest' && !step.complete && missingGuestFields.length > 0
+                          ? `${missingGuestFields.length} missing`
+                          : step.complete ? 'Done' : step.description}
+                      </Text>
+                    </Stack>
+                  </Button>
+                );
+              })}
+            </Stack>
+            {activeStep === 'guest' && missingGuestFields.length > 0 ? (
+              <Alert color="orange" variant="light" icon={<AlertTriangle size={17} />} data-testid="checkin-blockers">
+                <Stack gap={6}>
+                  <Text size="xs" fw={800}>Missing guest details</Text>
+                  <Group gap={5} wrap="wrap">
+                    {missingGuestFields.map((f) => (
+                      <Badge key={f} color="orange" variant="filled" size="xs" data-testid={`missing-${f}`}>
+                        {missingFieldLabels[f] ?? f}
+                      </Badge>
+                    ))}
+                  </Group>
+                </Stack>
+              </Alert>
+            ) : null}
+          </Stack>
+        </Paper>
 
-      {/* Identity FIRST — snapping ID auto-fills the guest form below */}
-      <StepCard icon={<IdCard size={17} />} title="Step 1 · Snap the ID (auto-fills the guest form)" complete={c.identityVerified}>
+        <Stack gap={spacing[3]} onKeyDown={handleStepKeyDown}>
+
+      {activeStep === 'identity' ? (
+      <Box data-checkin-step="identity">
+      <StepCard icon={<IdCard size={17} />} title="Step 1 · Verify identity" complete={c.identityVerified}>
         <Stack gap={spacing[3]}>
           {isDetecting ? (
             <Alert color="blue" variant="light" icon={<Loader size="xs" color="blue" />} data-testid="checkin-ocr-progress">
-              <Text size="sm" fw={700}>Reading the ID…</Text>
+              <Text size="sm" fw={700}>Reading the ID...</Text>
               <Text size="xs" c="#64748b">Reading uploaded ID photos. If nothing fills, continue manually.</Text>
             </Alert>
           ) : (
@@ -832,7 +1303,11 @@ export function CheckInWorkspacePage() {
             <Text size="xs" fw={800} c="#334155" mb={8} tt="uppercase">1a. Pick the ID type first</Text>
             <Select
               value={idType}
-              onChange={(v) => setIdType(v ?? 'AADHAAR')}
+              onChange={(v) => {
+                const nextType = v ?? 'AADHAAR';
+                setIdType(nextType);
+                setIdNumber((current) => normalizeIdNumber(nextType, current));
+              }}
               data={[
                 { label: 'Aadhaar', value: 'AADHAAR' },
                 { label: 'Passport', value: 'PASSPORT' },
@@ -848,7 +1323,7 @@ export function CheckInWorkspacePage() {
           <Group grow align="stretch">
             <IdPhotoTile
               side="front"
-              label={`${idTypeLabel(idType)} — front`}
+              label={`${idTypeLabel(idType)} - front`}
               document={workspace.documents.find((d) => d.side === 'ID_FRONT')}
               propertyId={propertyId}
               reservationId={workspace.booking.reservationId}
@@ -858,7 +1333,7 @@ export function CheckInWorkspacePage() {
             />
             <IdPhotoTile
               side="back"
-              label={`${idTypeLabel(idType)} — back (optional)`}
+              label={`${idTypeLabel(idType)} - back (optional)`}
               document={workspace.documents.find((d) => d.side === 'ID_BACK')}
               propertyId={propertyId}
               reservationId={workspace.booking.reservationId}
@@ -867,147 +1342,138 @@ export function CheckInWorkspacePage() {
               uploading={isSubmitting === 'id-back'}
             />
           </Group>
-          <Text size="xs" fw={800} c="#334155" mt={4} tt="uppercase">1c. Face match — save the guest snap</Text>
-          <FaceMatchCard
-            idPhotoUrl={idFrontPreviewUrl}
-            persistedSnapUrl={guestFacePreviewUrl}
-            propertyId={propertyId}
-            reservationId={workspace.booking.reservationId}
-            onSaved={refreshWorkspace}
-          />
+          <Text size="xs" fw={800} c="#334155" mt={4} tt="uppercase">1c. Face match - save the guest snap</Text>
+          {cameraSkipped ? (
+            <Alert color="blue" variant="light" icon={<Info size={17} />}>
+              Face snap skipped for now. The receptionist can still complete ID verification after checking the physical ID.
+            </Alert>
+          ) : (
+            <FaceMatchCard
+              compact
+              idPhotoUrl={idFrontPreviewUrl}
+              persistedSnapUrl={guestFacePreviewUrl}
+              propertyId={propertyId}
+              reservationId={workspace.booking.reservationId}
+              onSaved={refreshWorkspace}
+            />
+          )}
+          <Group justify="flex-end">
+            <Button
+              variant="subtle"
+              color="gray"
+              size="xs"
+              onClick={() => setCameraSkipped((current) => !current)}
+              data-no-enter-save="true"
+            >
+              {cameraSkipped ? 'Use face camera' : 'Skip camera for now'}
+            </Button>
+          </Group>
           <Text size="xs" fw={800} c="#334155" mt={4} tt="uppercase">1d. Confirm the ID number, then save</Text>
           <Group grow>
             <TextInput
               label={workspace.identity.idNumberMasked ? `ID number (on file: ${workspace.identity.idNumberMasked})` : 'ID number'}
               value={idNumber}
-              onChange={(e) => { setIdNumber(e.currentTarget.value); setAutoFilled((prev) => ({ ...prev, idNumber: false })); }}
+              error={idNumberError}
+              description={idRule.hint}
+              maxLength={idRule.maxLength}
+              inputMode={idType === 'AADHAAR' ? 'numeric' : 'text'}
+              onChange={(e) => { setIdNumber(normalizeIdNumber(idType, e.currentTarget.value)); setAutoFilled((prev) => ({ ...prev, idNumber: false })); }}
               rightSection={isDetecting ? <Loader size="xs" color="stayosBrand" /> : autoBadge('idNumber')}
-              placeholder={isDetecting ? 'Reading ID…' : undefined}
+              placeholder={isDetecting ? 'Reading ID...' : undefined}
               data-testid="checkin-id-number"
             />
           </Group>
           <Checkbox label="I have physically verified the ID matches the guest" checked={idVerified} onChange={(e) => setIdVerified(e.currentTarget.checked)} data-testid="checkin-id-verified" />
-          <Group justify="flex-end">
-            <Button color="stayosBrand" loading={isSubmitting === 'identity'} onClick={() => void saveIdentity()} data-testid="checkin-save-identity">Save identity</Button>
-          </Group>
         </Stack>
       </StepCard>
+      </Box>
+      ) : null}
 
-      <StepCard icon={<UserRound size={17} />} title="Step 2 · Confirm guest details" complete={c.guestRegistrationComplete}>
+      {activeStep === 'guest' ? (
+      <Box data-checkin-step="guest">
+      <StepCard icon={<UserRound size={17} />} title="Step 2 · Guest details" complete={c.guestRegistrationComplete}>
         <Stack gap={spacing[3]}>
-          <Group grow>
-            <TextInput
-              label="Full name"
-              value={fullName}
-              required
-              error={isMissing('fullName') ? 'Required' : undefined}
-              onChange={(e) => { setFullName(e.currentTarget.value); setAutoFilled((prev) => ({ ...prev, fullName: false })); }}
-              rightSection={autoBadge('fullName')}
-              data-testid="checkin-full-name"
-            />
-            <TextInput
-              label="Mobile"
-              required
-              error={isMissing('mobile') ? 'Required' : undefined}
-              value={mobile}
-              onChange={(e) => setMobile(e.currentTarget.value)}
-              data-testid="checkin-mobile"
-            />
-          </Group>
-          <Group grow>
-            <TextInput label="Email" value={email} onChange={(e) => setEmail(e.currentTarget.value)} />
-            <Select
-              label="Nationality"
-              required
-              error={isMissing('nationality') ? 'Required' : undefined}
-              value={nationality || 'Indian'}
-              onChange={(v) => setNationality(v ?? 'Indian')}
-              data={COMMON_NATIONALITIES}
-              searchable
-              data-testid="checkin-nationality"
-            />
-            <TextInput
-              label="Date of birth"
-              type="date"
-              value={dateOfBirth}
-              onChange={(e) => { setDateOfBirth(e.currentTarget.value); setAutoFilled((prev) => ({ ...prev, dateOfBirth: false })); }}
-              rightSection={autoBadge('dateOfBirth')}
-              data-testid="checkin-dob"
-            />
-          </Group>
-          <TextInput
-            label="Address"
-            required
-            error={isMissing('addressLine1') ? 'Required' : undefined}
-            value={addressLine1}
-            onChange={(e) => setAddressLine1(e.currentTarget.value)}
-            data-testid="checkin-address"
-          />
-          <Group grow>
-            <Select
-              label="Country"
-              required
-              error={isMissing('country') ? 'Required' : undefined}
-              value={country || 'India'}
-              onChange={(v) => setCountry(v ?? 'India')}
-              data={COMMON_COUNTRIES}
-              searchable
-              data-testid="checkin-country"
-            />
-            {stateOptions ? (
-              <Select
-                label="State"
-                required
-                error={isMissing('state') ? 'Please pick a state' : undefined}
-                value={state || null}
-                onChange={(v) => setState(v ?? '')}
-                data={stateOptions}
-                searchable
-                clearable
-                placeholder="Select state"
-                data-testid="checkin-state"
-              />
-            ) : (
+          {missingGuestFields.length > 0 ? (
+            <Paper
+              radius={radius.md}
+              p={14}
+              style={{
+                background: 'linear-gradient(180deg,#fffaf0 0%,#fff7ed 100%)',
+                border: '1px solid rgba(251,146,60,0.36)',
+              }}
+            >
+              <Group justify="space-between" mb={10} gap={8}>
+                <Box>
+                  <Text fw={900} c="#9a3412">Finish these first</Text>
+                  <Text size="sm" c="#9a3412">
+                    {missingGuestFields.length} field{missingGuestFields.length === 1 ? '' : 's'} needed before check-in.
+                  </Text>
+                </Box>
+                <Badge color="orange" variant="filled">{missingGuestFields.length} missing</Badge>
+              </Group>
+              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+                {missingGuestFields.map(renderGuestField)}
+              </SimpleGrid>
+            </Paper>
+          ) : (
+            <Alert color="green" variant="light" icon={<Check size={17} />}>
+              Required registration details are complete. Review anything below only if needed.
+            </Alert>
+          )}
+
+          {(showAllGuestDetails || missingGuestFields.length === 0) ? (
+          <Paper
+              radius={radius.md}
+              p={14}
+              style={{
+                background: '#ffffff',
+                border: '1px solid rgba(226,232,240,0.78)',
+                boxShadow: '0 8px 22px rgba(15,23,42,0.025)',
+              }}
+            >
+            <Group justify="space-between" mb={10} gap={8}>
+              <Box>
+                <Text fw={850} c="#101828">Registration details</Text>
+                <Text size="sm" c="#64748b">Already captured fields stay editable for corrections.</Text>
+              </Box>
+              {missingGuestFields.length > 0 ? (
+                <Button variant="subtle" color="gray" size="xs" onClick={() => setShowAllGuestDetails(false)} data-no-enter-save="true">
+                  Missing only
+                </Button>
+              ) : null}
+            </Group>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+              {remainingGuestFields.map(renderGuestField)}
+              <TextInput label="Email" value={email} onChange={(e) => setEmail(e.currentTarget.value)} />
               <TextInput
-                label="State / Region"
-                required
-                error={isMissing('state') ? 'Required' : undefined}
-                value={state}
-                onChange={(e) => setState(e.currentTarget.value)}
-                placeholder="e.g. California"
-                data-testid="checkin-state"
+                label="Date of birth"
+                type="date"
+                value={dateOfBirth}
+                onChange={(e) => { setDateOfBirth(e.currentTarget.value); setAutoFilled((prev) => ({ ...prev, dateOfBirth: false })); }}
+                rightSection={autoBadge('dateOfBirth')}
+                data-testid="checkin-dob"
               />
-            )}
-            <TextInput
-              label="City"
-              required
-              error={isMissing('city') ? 'Required' : undefined}
-              value={city}
-              onChange={(e) => setCity(e.currentTarget.value)}
-              placeholder={cityPlaceholder(state)}
-              data-testid="checkin-city"
-            />
-          </Group>
-          <Select
-            label="Purpose of visit"
-            required
-            error={isMissing('purposeOfVisit') ? 'Required' : undefined}
-            value={purposeOfVisit || 'Leisure'}
-            onChange={(v) => setPurposeOfVisit(v ?? 'Leisure')}
-            data={PURPOSE_OF_VISIT}
-            data-testid="checkin-purpose"
-          />
-          <Group justify="flex-end">
-            <Button color="stayosBrand" loading={isSubmitting === 'guest'} onClick={() => void saveGuestRegistration()} data-testid="checkin-save-guest">Save guest details</Button>
-          </Group>
+            </SimpleGrid>
+          </Paper>
+          ) : (
+            <Group justify="flex-end">
+              <Button variant="light" color="stayosBrand" size="sm" onClick={() => setShowAllGuestDetails(true)} data-no-enter-save="true">
+                Show all details
+              </Button>
+            </Group>
+          )}
         </Stack>
       </StepCard>
+      </Box>
+      ) : null}
 
-      <StepCard icon={<CreditCard size={17} />} title="Step 3 · Payment plan (optional)" complete={c.paymentReviewed}>
+      {activeStep === 'payment' ? (
+      <Box data-checkin-step="payment">
+      <StepCard icon={<CreditCard size={17} />} title="Step 3 · Payment plan" complete={c.paymentReviewed}>
         <Stack gap={spacing[3]}>
           <Alert color="stayosBrand" variant="light" icon={<Info size={17} />}>
             <Text size="sm">
-              <b>This step just records the plan</b> — e.g. &quot;Card at checkout&quot;. You&apos;ll actually swipe / charge / accept UPI or Razorpay from the <b>Stay Workspace</b> after you complete check-in. Feel free to <b>Collect at checkout</b> here for a walk-in and collect the money after IDs are verified.
+              <b>This step just records the plan</b>. You can collect now, or mark it as collect at checkout and handle money from the <b>Stay Workspace</b> after check-in.
             </Text>
           </Alert>
 
@@ -1016,7 +1482,7 @@ export function CheckInWorkspacePage() {
             <Paper p={14} radius={radius.md} style={{ background: workspace.payment.outstandingAmount > 0 ? '#fff7ed' : '#f0fdf4', border: `1px solid ${workspace.payment.outstandingAmount > 0 ? '#fdba74' : '#86efac'}` }}>
               <Text c="#64748b" size="xs" fw={700} tt="uppercase">Outstanding</Text>
               <Text fw={900} size="xl" mt={2} c={workspace.payment.outstandingAmount > 0 ? '#c2410c' : '#166534'} data-testid="payment-outstanding">
-                ₹{workspace.payment.outstandingAmount.toLocaleString('en-IN')}
+                Rs {workspace.payment.outstandingAmount.toLocaleString('en-IN')}
               </Text>
               <Text size="xs" c="#94a3b8" mt={2}>
                 {workspace.payment.outstandingAmount > 0 ? 'Due before checkout' : 'Fully paid'}
@@ -1038,7 +1504,7 @@ export function CheckInWorkspacePage() {
             </Paper>
           </SimpleGrid>
 
-          {/* Payment method chips — one-click choice */}
+          {/* Payment method chips - one-click choice */}
           <Stack gap={6}>
             <Text c="#334155" size="xs" fw={800} tt="uppercase">Preferred payment method (planned)</Text>
             <Group gap={8}>
@@ -1063,32 +1529,22 @@ export function CheckInWorkspacePage() {
             </Group>
           </Stack>
 
-          <Group justify="space-between" wrap="wrap" gap={8}>
-            <Button
-              variant="subtle"
-              color="gray"
-              loading={isSubmitting === 'payment'}
-              onClick={() => void savePayment()}
-              data-testid="checkin-skip-payment"
-            >
-              Collect at checkout — skip for now
+          <Group justify="flex-end" wrap="wrap" gap={8}>
+            <Button color="stayosBrand" leftSection={<CreditCard size={16} />} onClick={() => setPaymentCollectionOpened(true)} data-testid="checkin-collect-payment">
+              Collect payment now
             </Button>
-            <Group gap={8}>
-              <Button variant="light" color="stayosBrand" loading={isSubmitting === 'payment'} onClick={() => void savePayment()} data-testid="checkin-save-payment">
-                Mark reviewed
-              </Button>
-              <Button color="stayosBrand" leftSection={<CreditCard size={16} />} onClick={() => setPaymentCollectionOpened(true)} data-testid="checkin-collect-payment">
-                Collect payment now
-              </Button>
-            </Group>
           </Group>
         </Stack>
       </StepCard>
+      </Box>
+      ) : null}
 
+      {activeStep === 'room' ? (
+      <Box data-checkin-step="room">
       <StepCard icon={<BedDouble size={17} />} title="Step 4 · Room readiness" complete={c.roomReady}>
         <Stack gap={8}>
           <Text size="sm">
-            <b>Room {room.roomNumber ?? 'Unassigned'}</b> · {room.roomType ?? '—'} · Status: <b>{room.operationalStatus ?? 'N/A'}</b>
+            <b>Room {room.roomNumber ?? 'Unassigned'}</b> · {room.roomType ?? '-'} · Status: <b>{room.operationalStatus ?? 'N/A'}</b>
           </Text>
           {room.warnings.length > 0 ? (
             <Alert color="orange" variant="light" icon={<AlertTriangle size={16} />}>
@@ -1098,53 +1554,66 @@ export function CheckInWorkspacePage() {
             </Alert>
           ) : null}
           {!room.roomId ? (
-            <Button component={Link} href={`/reservations/${workspace.booking.reservationId}`} variant="light" color="stayosBrand" w="fit-content">Assign a room →</Button>
+            <Button component={Link} href={`/reservations/${workspace.booking.reservationId}`} variant="light" color="stayosBrand" w="fit-content">Assign a room</Button>
           ) : !c.roomReady ? (
-            <Button component={Link} href={`/rooms`} variant="light" color="stayosBrand" w="fit-content">Open rooms board →</Button>
+            <Button component={Link} href={`/rooms`} variant="light" color="stayosBrand" w="fit-content">Open rooms board</Button>
           ) : null}
         </Stack>
       </StepCard>
+      </Box>
+      ) : null}
 
       <Card
         radius={radius.lg}
         p={16}
         style={{
-          background: c.canCheckIn ? 'linear-gradient(135deg,#7d4dd6 0%,#5b21b6 100%)' : '#f8fafc',
-          border: c.canCheckIn ? 'none' : '1px dashed #cbd5e1',
+          background: '#ffffff',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 -10px 24px rgba(15, 23, 42, 0.06)',
           position: 'sticky',
           bottom: 12,
+          zIndex: 2,
         }}
       >
         <Group justify="space-between" wrap="wrap" gap={8}>
           <Group gap={10}>
-            <ThemeIcon color={canCheckInSoft ? 'white' : 'gray'} variant={canCheckInSoft ? 'white' : 'light'} radius="xl" size={40}>
-              <ShieldCheck size={20} color={canCheckInSoft ? '#5b21b6' : '#64748b'} />
+            <ThemeIcon color={canCheckInSoft ? 'green' : 'stayosBrand'} variant="light" radius="xl" size={40}>
+              <ShieldCheck size={20} />
             </ThemeIcon>
             <Stack gap={2}>
-              <Text c={canCheckInSoft ? '#ffffff' : '#101828'} fw={800}>
-                {canCheckInSoft ? 'Ready to check in' : 'Complete the steps above to check in'}
-              </Text>
-              <Text c={canCheckInSoft ? 'rgba(255,255,255,0.82)' : '#64748b'} size="sm">
-                {canCheckInSoft
-                  ? (c.paymentReviewed ? 'Guest, ID, payment and room are all set.' : 'Payment plan will be recorded as “collect at checkout”.')
-                  : `${nonPaymentBlockers.length} step${nonPaymentBlockers.length === 1 ? '' : 's'} pending.`}
-              </Text>
+              <Text c="#101828" fw={800}>{footerTitle}</Text>
+              <Text c="#64748b" size="sm">{footerDetail}</Text>
             </Stack>
           </Group>
-          <Button
-            size="lg"
-            disabled={!canCheckInSoft}
-            loading={isSubmitting === 'complete'}
-            onClick={() => void completeCheckIn()}
-            variant={canCheckInSoft ? 'white' : 'filled'}
-            color={canCheckInSoft ? undefined : 'gray'}
-            c={canCheckInSoft ? '#5b21b6' : undefined}
-            data-testid="checkin-complete"
-          >
-            Complete Check-In →
-          </Button>
+          <Group gap={8}>
+            <Button
+              variant="subtle"
+              color="gray"
+              disabled={!previousStep}
+              onClick={() => previousStep && setActiveStep(previousStep.key)}
+            >
+              Back
+            </Button>
+            {activeStep !== 'room' && activeWizardStep.complete && nextStep ? (
+              <Button variant="light" color="stayosBrand" onClick={() => setActiveStep(nextStep.key)}>
+                Next: {nextStep.label}
+              </Button>
+            ) : null}
+            <Button
+              size="md"
+              color={activeStep === 'room' && canCheckInSoft ? 'green' : 'stayosBrand'}
+              disabled={footerActionDisabled}
+              loading={footerActionLoading}
+              onClick={runFooterAction}
+              data-testid={footerActionTestId}
+            >
+              {footerActionLabel}
+            </Button>
+          </Group>
         </Group>
       </Card>
+        </Stack>
+      </Box>
 
       <SendToPhoneModal
         opened={sendToPhoneOpened}

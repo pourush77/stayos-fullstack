@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -17,7 +18,7 @@ import {
   ThemeIcon,
   Title,
 } from '@mantine/core';
-import { AlertCircle, CalendarDays, Edit, Plus, Search, UserPlus, Users } from 'lucide-react';
+import { AlertCircle, CalendarDays, ChevronLeft, Edit, Plus, Search, UserPlus, Users } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import {
   BackendUnavailable,
@@ -47,6 +48,9 @@ const cardStyle = {
 };
 
 function nextAction(booking: Booking) {
+  if (booking.status === 'CHECKED_IN' && booking.departureDate === dateKey(new Date())) {
+    return 'Check Out';
+  }
   if (booking.status === 'PENDING') return 'Confirm Booking';
   if (booking.status === 'CONFIRMED' && booking.room === 'Unassigned') return 'Assign Room';
   if (booking.status === 'CONFIRMED') return 'Start Check In';
@@ -58,6 +62,7 @@ function nextAction(booking: Booking) {
 function matchesFilter(booking: Booking, filter: BookingFilter) {
   const today = dateKey(new Date());
   if (filter === 'arrivals-today') return booking.arrivalDate === today;
+  if (filter === 'departures-today') return booking.departureDate === today && booking.status === 'CHECKED_IN';
   if (filter === 'pending') return booking.status === 'PENDING';
   if (filter === 'confirmed') return booking.status === 'CONFIRMED';
   if (filter === 'checked-in') return booking.status === 'CHECKED_IN';
@@ -70,6 +75,7 @@ function matchesFilter(booking: Booking, filter: BookingFilter) {
 }
 
 export default function BookingsPage() {
+  const searchParams = useSearchParams();
   const backend = useBackendStatus();
   const allowMockFallback = process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
   const enabled =
@@ -77,7 +83,12 @@ export default function BookingsPage() {
     (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
   const bookingState = useBookings({ allowMockFallback, enabled });
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<BookingFilter>('all');
+  const initialFilter = bookingFilterOptions.some(
+    (option) => option.value === searchParams.get('filter'),
+  )
+    ? (searchParams.get('filter') as BookingFilter)
+    : 'all';
+  const [filter, setFilter] = useState<BookingFilter>(initialFilter);
   const [groupHolds, setGroupHolds] = useState<GroupHoldDto[]>([]);
   const [recentlyDepartedGroups, setRecentlyDepartedGroups] = useState<GroupHoldDto[]>([]);
   const [inHouseGroups, setInHouseGroups] = useState<InHouseGroupDto[]>([]);
@@ -165,6 +176,14 @@ export default function BookingsPage() {
       return (!normalized || searchable.includes(normalized)) && matchesFilter(booking, filter);
     });
   }, [bookingState.bookings, filter, query]);
+  const today = dateKey(new Date());
+  const visibleInHouseGroups = inHouseGroups.filter((group) => {
+    if (filter === 'checked-in' || filter === 'all') return true;
+    if (filter === 'departures-today') return group.departureDate === today;
+    return false;
+  });
+  const showRecentlyDepartedGroups = filter === 'all';
+  const showGroupHolds = filter === 'all';
 
   const retryBackend = () => void backend.retry();
   const checkBackendStatus = () => void backend.checkHealth();
@@ -175,15 +194,20 @@ export default function BookingsPage() {
           Bookings
         </Title>
         <Text c="#64748b" mt={spacing[1]} size="sm">
-          Create bookings, assign rooms, start check-in, and track payment status.
+          {filter === 'departures-today'
+            ? 'Guests expected to leave today. Open each stay, settle balance, then complete checkout.'
+            : 'Create bookings, assign rooms, start check-in, and track payment status.'}
         </Text>
         <Text c="#334155" mt={spacing[2]} size="sm" fw={600}>
-          {bookingState.bookings.length} bookings -{' '}
+          {filter === 'all' ? bookingState.bookings.length : bookings.length} {filter === 'all' ? 'bookings' : 'shown'} -{' '}
           {bookingState.bookings.filter((booking) => booking.room === 'Unassigned').length}{' '}
           unassigned
         </Text>
       </Box>
       <Group gap={8}>
+        <Button component={Link} href="/" variant="light" color="gray" leftSection={<ChevronLeft size={16} />}>
+          Back to Front Desk
+        </Button>
         <Button
           component={Link}
           href="/reservations/group-quote"
@@ -257,7 +281,22 @@ export default function BookingsPage() {
           await bookingState.refreshBookings();
         }}
       />
-      {inHouseGroups.length ? (
+      {filter === 'departures-today' ? (
+        <Alert color="orange" variant="light" icon={<CalendarDays size={17} />} radius={radius.lg}>
+          Showing checked-in guests departing today. Open a booking to settle dues and complete checkout.
+        </Alert>
+      ) : null}
+      {filter === 'arrivals-today' ? (
+        <Alert color="blue" variant="light" icon={<CalendarDays size={17} />} radius={radius.lg}>
+          Showing guests arriving today. Open a booking to assign a room and start check-in.
+        </Alert>
+      ) : null}
+      {filter === 'checked-in' ? (
+        <Alert color="green" variant="light" icon={<CalendarDays size={17} />} radius={radius.lg}>
+          Showing guests currently in house. Open a stay to manage service, payment, or checkout.
+        </Alert>
+      ) : null}
+      {visibleInHouseGroups.length ? (
         <Card
           radius={radius.lg}
           p={12}
@@ -278,7 +317,7 @@ export default function BookingsPage() {
               </Badge>
             </Group>
             <Stack gap={8}>
-              {inHouseGroups.map((group) => (
+              {visibleInHouseGroups.map((group) => (
                 <Card
                   key={group.groupBookingId}
                   radius="md"
@@ -297,7 +336,7 @@ export default function BookingsPage() {
                         {group.occupiedRooms.length
                           ? `Rooms ${group.occupiedRooms.join(', ')}`
                           : 'Rooms pending'}{' '}
-                        • Master folio {group.masterFolioNumber}
+                        - Master folio {group.masterFolioNumber}
                       </Text>
                       <Text size="xs" c="#64748b">
                         {formatStayDates(group.arrivalDate, group.departureDate)}
@@ -330,7 +369,7 @@ export default function BookingsPage() {
           </Stack>
         </Card>
       ) : null}
-      {recentlyDepartedGroups.length ? (
+      {showRecentlyDepartedGroups && recentlyDepartedGroups.length ? (
         <Card
           radius={radius.lg}
           p={12}
@@ -396,7 +435,7 @@ export default function BookingsPage() {
           </Stack>
         </Card>
       ) : null}
-      {groupHolds.length ? (
+      {showGroupHolds && groupHolds.length ? (
         <Card
           radius={radius.lg}
           p={12}

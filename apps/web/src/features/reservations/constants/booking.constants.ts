@@ -3,6 +3,7 @@ import type { Booking, BookingFilter } from '../types/booking.types';
 export const bookingFilterOptions: { label: string; value: BookingFilter }[] = [
   { label: 'All', value: 'all' },
   { label: 'Arrivals Today', value: 'arrivals-today' },
+  { label: 'Departures Today', value: 'departures-today' },
   { label: 'Pending', value: 'pending' },
   { label: 'Confirmed', value: 'confirmed' },
   { label: 'Checked In', value: 'checked-in' },

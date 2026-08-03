@@ -18,15 +18,36 @@ const roleLabels: Record<string, string> = {
   READ_ONLY: 'Read Only',
 };
 
-const roleNavigation: Record<string, string[]> = {
-  ACCOUNTS: ['/rooms', '/billing', '/reports', '/marketplace'],
-  ADMIN: ['*'],
-  FRONT_DESK: ['/', '/reservations', '/rooms', '/guests', '/housekeeping', '/maintenance', '/marketplace'],
-  HOUSEKEEPING: ['/housekeeping'],
-  MAINTENANCE: ['/rooms', '/maintenance', '/marketplace'],
-  MANAGER: ['/', '/reservations', '/rooms', '/guests', '/housekeeping', '/maintenance', '/reports', '/marketplace', '/settings/employees'],
-  OWNER: ['*'],
-  READ_ONLY: ['/', '/rooms', '/marketplace'],
+const navigationPermissions: Record<string, string[]> = {
+  '/': ['operations.view'],
+  '/billing': ['billing.view'],
+  '/guests': ['guests.view'],
+  '/housekeeping': ['housekeeping.view'],
+  '/maintenance': ['maintenance.view'],
+  '/marketplace': ['settings.manage'],
+  '/reports': ['reports.view'],
+  '/reservations': ['bookings.view'],
+  '/rooms': ['rooms.view'],
+  '/settings': ['settings.view'],
+  '/settings/employees': ['employees.view'],
+};
+
+const protectedRoutePermissions: Array<{ path: string; permissions: string[] }> = [
+  { path: '/billing', permissions: ['billing.view'] },
+  { path: '/guests', permissions: ['guests.view'] },
+  { path: '/guest-stay', permissions: ['stay.view'] },
+  { path: '/housekeeping', permissions: ['housekeeping.view'] },
+  { path: '/maintenance', permissions: ['maintenance.view'] },
+  { path: '/reports', permissions: ['reports.view'] },
+  { path: '/reservations', permissions: ['bookings.view'] },
+  { path: '/rooms', permissions: ['rooms.view'] },
+  { path: '/settings/employees', permissions: ['employees.view'] },
+  { path: '/settings', permissions: ['settings.view'] },
+];
+
+const navigationRoleAllowList: Record<string, string[]> = {
+  '/billing': ['OWNER', 'ADMIN', 'MANAGER', 'ACCOUNTS'],
+  '/settings/employees': ['OWNER', 'ADMIN', 'MANAGER'],
 };
 
 function initials(name: string) {
@@ -38,16 +59,41 @@ function hasPermission(permissions: string[] | undefined, permission: string) {
   return Boolean(permissions?.includes(permission) || permissions?.includes('*'));
 }
 
+function hasAnyPermission(permissions: string[] | undefined, required: string[]) {
+  return required.some((permission) => hasPermission(permissions, permission));
+}
+
+function defaultRouteForRole(role: string) {
+  switch (role) {
+    case 'HOUSEKEEPING':
+      return '/housekeeping';
+    case 'MAINTENANCE':
+      return '/maintenance';
+    case 'ACCOUNTS':
+      return '/billing';
+    default:
+      return '/';
+  }
+}
+
 function navigationForRole(role: string, permissions: string[] | undefined) {
-  const allowed = roleNavigation[role] ?? roleNavigation.FRONT_DESK;
-  const base = allowed.includes('*')
-    ? primaryNavigation
-    : primaryNavigation.filter((item) => allowed.includes(item.href));
-  return base.filter((item) => {
-    if (item.href === '/settings/employees') return hasPermission(permissions, 'employees.view');
-    if (item.href === '/maintenance') return hasPermission(permissions, 'maintenance.view');
-    return true;
+  if (role === 'OWNER' || role === 'ADMIN') return primaryNavigation;
+  return primaryNavigation.filter((item) => {
+    const allowedRoles = navigationRoleAllowList[item.href];
+    if (allowedRoles && !allowedRoles.includes(role)) return false;
+    return hasAnyPermission(permissions, navigationPermissions[item.href] ?? []);
   });
+}
+
+function canAccessPath(pathname: string, role: string, permissions: string[] | undefined) {
+  if (role === 'OWNER' || role === 'ADMIN') return true;
+  const rule = protectedRoutePermissions.find((item) =>
+    pathname === item.path || pathname.startsWith(`${item.path}/`),
+  );
+  if (!rule) return true;
+  const allowedRoles = navigationRoleAllowList[rule.path];
+  if (allowedRoles && !allowedRoles.includes(role)) return false;
+  return hasAnyPermission(permissions, rule.permissions);
 }
 
 function BrandedLoader() {
@@ -169,6 +215,12 @@ export function AppFrame({ children }: { children: ReactNode }) {
     if (auth.isBootstrapping || isPublicRoute || role !== 'HOUSEKEEPING') return;
     if (pathname === '/rooms' || pathname.startsWith('/rooms/')) router.replace('/housekeeping');
   }, [auth.isBootstrapping, isPublicRoute, pathname, role, router]);
+
+  useEffect(() => {
+    if (auth.isBootstrapping || isPublicRoute || !auth.isAuthenticated || !pathname) return;
+    if (canAccessPath(pathname, role, auth.user?.permissions)) return;
+    router.replace(defaultRouteForRole(role));
+  }, [auth.isAuthenticated, auth.isBootstrapping, auth.user?.permissions, isPublicRoute, pathname, role, router]);
 
   useEffect(() => {
     if (auth.isBootstrapping || isPublicRoute || auth.isAuthenticated) return;

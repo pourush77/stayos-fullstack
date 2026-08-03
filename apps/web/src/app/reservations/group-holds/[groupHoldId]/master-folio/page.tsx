@@ -1,5 +1,6 @@
 import { GroupMasterFolioPage } from '../../../../../features/reservations/GroupMasterFolioPage';
 
-export default function Page({ params }: { params: { groupHoldId: string } }) {
-  return <GroupMasterFolioPage groupBookingId={params.groupHoldId} />;
+export default async function Page({ params }: { params: Promise<{ groupHoldId: string }> }) {
+  const { groupHoldId } = await params;
+  return <GroupMasterFolioPage groupBookingId={groupHoldId} />;
 }

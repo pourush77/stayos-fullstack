@@ -63,6 +63,13 @@ function voucherText(hold: GroupHoldDto) {
 
 type RoomOption = { label: string; roomTypeId: string; value: string };
 
+function isAbortError(err: unknown) {
+  return (
+    (err instanceof DOMException && err.name === 'AbortError') ||
+    (err instanceof Error && /aborted|abort/i.test(err.message))
+  );
+}
+
 export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
   const backend = useBackendStatus();
   const [propertyId, setPropertyId] = useState('');
@@ -76,12 +83,14 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const hasValidGroupHoldId = Boolean(groupHoldId && groupHoldId !== 'undefined');
 
-  const load = async (id = propertyId) => {
-    if (!id) return;
+  const load = async (id = propertyId, signal?: AbortSignal) => {
+    if (!id || !hasValidGroupHoldId) return;
+    setError(undefined);
     const [nextHold, roomRows] = await Promise.all([
-      getGroupHold(id, groupHoldId),
-      getPropertyRooms(id),
+      getGroupHold(id, groupHoldId, signal),
+      getPropertyRooms(id, signal),
     ]);
     setHold(nextHold);
     setRooms(
@@ -96,6 +105,11 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
   };
 
   useEffect(() => {
+    if (!hasValidGroupHoldId) {
+      setError('Group hold link is missing a valid id.');
+      return undefined;
+    }
+
     const controller = new AbortController();
     getProperties(controller.signal)
       .then(async (properties) => {
@@ -105,11 +119,14 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
           ) ?? properties[0];
         const id = typeof active?.id === 'string' ? active.id : '';
         setPropertyId(id);
-        await load(id);
+        await load(id, controller.signal);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Unable to load group hold.'));
+      .catch((err) => {
+        if (controller.signal.aborted || isAbortError(err)) return;
+        setError(err instanceof Error ? err.message : 'Unable to load group hold.');
+      });
     return () => controller.abort();
-  }, [groupHoldId]);
+  }, [groupHoldId, hasValidGroupHoldId]);
 
   const assignableRooms = useMemo(() => {
     if (!hold) return [];

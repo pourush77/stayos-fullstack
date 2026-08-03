@@ -1,5 +1,6 @@
 import { GroupHoldDetailPage } from '../../../../features/reservations/GroupHoldDetailPage';
 
-export default function Page({ params }: { params: { groupHoldId: string } }) {
-  return <GroupHoldDetailPage groupHoldId={params.groupHoldId} />;
+export default async function Page({ params }: { params: Promise<{ groupHoldId: string }> }) {
+  const { groupHoldId } = await params;
+  return <GroupHoldDetailPage groupHoldId={groupHoldId} />;
 }

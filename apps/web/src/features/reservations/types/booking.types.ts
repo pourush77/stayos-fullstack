@@ -4,6 +4,7 @@ export type BookingSource = 'DIRECT' | 'WALK_IN' | 'OTA' | 'CORPORATE';
 export type BookingFilter =
   | 'all'
   | 'arrivals-today'
+  | 'departures-today'
   | 'pending'
   | 'confirmed'
   | 'checked-in'

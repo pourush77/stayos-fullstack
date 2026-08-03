@@ -407,6 +407,57 @@ export class AvailableRoomDto {
   primaryAction!: string;
 }
 
+export class AssignableReservationsQueryDto {
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  roomId?: string;
+}
+
+export class AssignableReservationDto {
+  @ApiProperty({ format: 'uuid' })
+  reservationId!: string;
+
+  @ApiProperty()
+  confirmationNumber!: string;
+
+  @ApiProperty({ format: 'uuid' })
+  guestId!: string;
+
+  @ApiProperty()
+  guestName!: string;
+
+  @ApiProperty({ format: 'date' })
+  arrivalDate!: string;
+
+  @ApiProperty({ format: 'date' })
+  departureDate!: string;
+
+  @ApiProperty({ format: 'uuid' })
+  bookedRoomTypeId!: string;
+
+  @ApiProperty()
+  bookedRoomTypeName!: string;
+
+  @ApiProperty()
+  adults!: number;
+
+  @ApiProperty()
+  children!: number;
+
+  @ApiProperty()
+  totalGuestCount!: number;
+
+  @ApiProperty({ enum: ReservationStatus })
+  reservationStatus!: ReservationStatus;
+
+  @ApiPropertyOptional()
+  specialRequests!: string | null;
+
+  @ApiProperty()
+  arrivingToday!: boolean;
+}
+
 export class GroupRoomMixSuggestionQueryDto {
   @ApiProperty({ format: 'date' })
   @IsDateString()

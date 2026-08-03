@@ -140,8 +140,13 @@ function defaultRouteForRole(role?: AuthRole) {
     case 'FRONT_DESK':
     case 'READ_ONLY':
     default:
-      return '/front-desk';
+      return '/';
   }
+}
+
+function shouldHonorLoginNext(role: AuthRole, next: string | null) {
+  if (!next?.startsWith('/')) return false;
+  return role !== 'FRONT_DESK';
 }
 
 function stringValue(record: Record<string, unknown> | undefined, keys: string[], fallback = '') {
@@ -361,7 +366,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const wasManualLogout = hasManualLogout();
       clearManualLogout();
       const next = wasManualLogout ? null : new URLSearchParams(window.location.search).get('next');
-      router.replace(next && next.startsWith('/') ? next : defaultRouteForRole(currentUser.role));
+      let destination = defaultRouteForRole(currentUser.role);
+      if (shouldHonorLoginNext(currentUser.role, next) && next) {
+        destination = next;
+      }
+      router.replace(destination);
     },
     [router],
   );

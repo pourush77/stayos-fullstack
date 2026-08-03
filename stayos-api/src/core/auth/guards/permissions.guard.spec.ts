@@ -17,6 +17,30 @@ const contextWithUser = (permissions: string[]): ExecutionContext =>
   }) as unknown as ExecutionContext;
 
 describe('PermissionsGuard', () => {
+  it('keeps front desk away from employee directory permissions', () => {
+    expect(getPermissionsForRole(UserRole.FRONT_DESK)).not.toContain(Permissions.EmployeesView);
+    expect(getPermissionsForRole(UserRole.FRONT_DESK)).not.toContain(Permissions.EmployeesManage);
+  });
+
+  it('keeps demo role permission bundles aligned with V1 sidebar ownership', () => {
+    expect(getPermissionsForRole(UserRole.MANAGER)).toEqual(
+      expect.arrayContaining([
+        Permissions.EmployeesView,
+        Permissions.BillingView,
+        Permissions.ReportsView,
+      ]),
+    );
+    expect(getPermissionsForRole(UserRole.ACCOUNTS)).toEqual(
+      expect.arrayContaining([Permissions.BillingView, Permissions.BillingManage, Permissions.ReportsView]),
+    );
+    expect(getPermissionsForRole(UserRole.HOUSEKEEPING)).toEqual(
+      expect.arrayContaining([Permissions.HousekeepingView, Permissions.HousekeepingManage]),
+    );
+    expect(getPermissionsForRole(UserRole.MAINTENANCE)).toEqual(
+      expect.arrayContaining([Permissions.MaintenanceView, Permissions.MaintenanceManage]),
+    );
+  });
+
   it('allows users with any required permission', () => {
     const reflector = {
       getAllAndOverride: jest.fn().mockReturnValue([Permissions.CheckinManage]),

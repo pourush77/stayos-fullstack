@@ -19,6 +19,7 @@ import { GroupMasterFolioEntity } from '../infrastructure/group-master-folio.ent
 import { GroupStayEntity } from '../infrastructure/group-stay.entity';
 import { GroupBookingService } from '../services/group-booking.service';
 import { ActivityFeedService } from '../services/activity-feed.service';
+import { AssignableReservationsService } from '../services/assignable-reservations.service';
 import { GroupRoomMixService } from '../services/group-room-mix.service';
 import { NeedsAttentionService } from '../services/needs-attention.service';
 import { RoomAvailabilityService } from '../services/room-availability.service';
@@ -79,6 +80,26 @@ const reservation = (overrides: Partial<ReservationEntity> = {}): ReservationEnt
 const asRepository = <T extends object>(repository: MockRepository<T>): Repository<T> =>
   repository as unknown as Repository<T>;
 
+const dateKey = (offsetDays = 0) => {
+  const value = new Date();
+  value.setDate(value.getDate() + offsetDays);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(
+    value.getDate(),
+  ).padStart(2, '0')}`;
+};
+
+const assignableReservation = (overrides: Partial<ReservationEntity> = {}) =>
+  reservation({
+    arrivalDate: dateKey(),
+    departureDate: dateKey(2),
+    guest: { displayName: 'Daniel Lee', firstName: 'Daniel', lastName: 'Lee' } as never,
+    room: undefined as never,
+    roomId: null,
+    roomType: { code: 'DLX', name: 'Deluxe', maxOccupancy: 3, maxAdults: 2, maxChildren: 1 } as never,
+    status: ReservationStatus.CONFIRMED,
+    ...overrides,
+  });
+
 describe('Operations services', () => {
   let roomsRepository: MockRepository<RoomEntity>;
   let reservationsRepository: MockRepository<ReservationEntity>;
@@ -96,6 +117,7 @@ describe('Operations services', () => {
       findOne: jest.fn().mockResolvedValue(room()),
     };
     reservationsRepository = {
+      count: jest.fn().mockResolvedValue(0),
       find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn().mockResolvedValue(null),
       createQueryBuilder: jest.fn().mockReturnValue({
@@ -595,5 +617,123 @@ describe('Operations services', () => {
     );
 
     await expect(service.getNeedsAttention(propertyId)).resolves.toEqual([]);
+  });
+
+  it('returns assignable reservations only for valid unassigned active bookings', async () => {
+    reservationsRepository.find?.mockResolvedValue([assignableReservation()]);
+    const service = new AssignableReservationsService(
+      asRepository(reservationsRepository),
+      asRepository(roomsRepository),
+      propertiesService,
+    );
+
+    await expect(service.getAssignableReservations(propertyId, {})).resolves.toMatchObject([
+      {
+        adults: 2,
+        bookedRoomTypeName: 'Deluxe',
+        children: 0,
+        confirmationNumber: 'RSV-001',
+        guestName: 'Daniel Lee',
+        totalGuestCount: 2,
+      },
+    ]);
+  });
+
+  it.each([
+    ['past completed reservation', assignableReservation({ departureDate: dateKey(-1) })],
+    ['checked-out reservation', assignableReservation({ status: ReservationStatus.CHECKED_OUT })],
+    ['cancelled reservation', assignableReservation({ status: ReservationStatus.CANCELLED })],
+    ['already assigned reservation', assignableReservation({ roomId })],
+    ['reservation from another property', assignableReservation({ propertyId: 'other-property' })],
+    [
+      'reservation without valid guest information',
+      assignableReservation({ guest: { displayName: '' } as never, guestId: '' }),
+    ],
+  ])('excludes %s from assignable reservations', async (_label, candidate) => {
+    reservationsRepository.find?.mockResolvedValue([candidate]);
+    const service = new AssignableReservationsService(
+      asRepository(reservationsRepository),
+      asRepository(roomsRepository),
+      propertiesService,
+    );
+
+    await expect(service.getAssignableReservations(propertyId, {})).resolves.toEqual([]);
+  });
+
+  it('excludes incompatible room types when a room filter is supplied', async () => {
+    roomsRepository.findOne?.mockResolvedValue(room({ roomTypeId: 'suite-type-id' }));
+    reservationsRepository.find?.mockResolvedValue([assignableReservation()]);
+    const service = new AssignableReservationsService(
+      asRepository(reservationsRepository),
+      asRepository(roomsRepository),
+      propertiesService,
+    );
+
+    await expect(service.getAssignableReservations(propertyId, { roomId })).resolves.toEqual([]);
+  });
+
+  it('excludes reservations when the selected room capacity is insufficient', async () => {
+    reservationsRepository.find?.mockResolvedValue([assignableReservation({ children: 2 })]);
+    const service = new AssignableReservationsService(
+      asRepository(reservationsRepository),
+      asRepository(roomsRepository),
+      propertiesService,
+    );
+
+    await expect(service.getAssignableReservations(propertyId, { roomId })).resolves.toEqual([]);
+  });
+
+  it('excludes reservations when the selected room is not ready for assignment', async () => {
+    roomsRepository.findOne?.mockResolvedValue(
+      room({ operationalStatus: RoomOperationalStatus.OCCUPIED }),
+    );
+    const service = new AssignableReservationsService(
+      asRepository(reservationsRepository),
+      asRepository(roomsRepository),
+      propertiesService,
+    );
+
+    await expect(service.getAssignableReservations(propertyId, { roomId })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('sorts assignable reservations by today arrival, then arrival date, then guest name', async () => {
+    reservationsRepository.find?.mockResolvedValue([
+      assignableReservation({
+        arrivalDate: dateKey(2),
+        guest: { displayName: 'Zara Khan' } as never,
+        id: 'upcoming-zara',
+      }),
+      assignableReservation({
+        arrivalDate: dateKey(),
+        guest: { displayName: 'Nidhi Agrawal' } as never,
+        id: 'today-nidhi',
+      }),
+      assignableReservation({
+        arrivalDate: dateKey(),
+        guest: { displayName: 'Daniel Lee' } as never,
+        id: 'today-daniel',
+      }),
+      assignableReservation({
+        arrivalDate: dateKey(1),
+        guest: { displayName: 'Amit Patel' } as never,
+        id: 'upcoming-amit',
+      }),
+    ]);
+    const service = new AssignableReservationsService(
+      asRepository(reservationsRepository),
+      asRepository(roomsRepository),
+      propertiesService,
+    );
+
+    const result = await service.getAssignableReservations(propertyId, {});
+
+    expect(result.map((item) => item.guestName)).toEqual([
+      'Daniel Lee',
+      'Nidhi Agrawal',
+      'Amit Patel',
+      'Zara Khan',
+    ]);
   });
 });

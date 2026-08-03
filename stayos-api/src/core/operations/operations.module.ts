@@ -14,6 +14,7 @@ import { GroupBookingEntity } from './infrastructure/group-booking.entity';
 import { GroupMasterFolioEntity } from './infrastructure/group-master-folio.entity';
 import { GroupStayEntity } from './infrastructure/group-stay.entity';
 import { ActivityFeedService } from './services/activity-feed.service';
+import { AssignableReservationsService } from './services/assignable-reservations.service';
 import { GroupBookingService } from './services/group-booking.service';
 import { GroupRoomMixService } from './services/group-room-mix.service';
 import { NeedsAttentionService } from './services/needs-attention.service';
@@ -47,6 +48,7 @@ import { RoomDetailsService } from './services/room-details.service';
     GroupRoomMixService,
     NeedsAttentionService,
     ActivityFeedService,
+    AssignableReservationsService,
   ],
 })
 export class OperationsModule {}

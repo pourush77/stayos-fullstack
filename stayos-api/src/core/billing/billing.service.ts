@@ -13,9 +13,12 @@ import { FolioChargeEntity } from './infrastructure/folio-charge.entity';
 import { FolioPaymentEntity } from './infrastructure/folio-payment.entity';
 import { FolioEntity } from './infrastructure/folio.entity';
 import { FolioStatus } from './domain/folio-status.enum';
+import { FolioPaymentMethod } from './domain/folio-payment-method.enum';
 import { CreateFolioChargeDto } from './dto/create-folio-charge.dto';
 import { CreateFolioPaymentDto } from './dto/create-folio-payment.dto';
 import { calculateTotals } from './billing.mapper';
+
+const BOOKING_MARKED_PAID_REFERENCE = 'BOOKING_MARKED_PAID';
 
 @Injectable()
 export class BillingService {
@@ -70,7 +73,7 @@ export class BillingService {
       where: { reservationId, propertyId },
       relations: { guest: true, reservation: true, charges: true, payments: true },
     });
-    if (existing) return existing;
+    if (existing) return this.syncPaidReservationFolio(propertyId, existing, reservation);
 
     const folioNumber = await this.generateFolioNumber(propertyId);
     const nights = this.calculateNights(reservation.arrivalDate, reservation.departureDate);
@@ -88,7 +91,7 @@ export class BillingService {
 
       if (nights > 0) {
         const nightlyRate = 3500;
-        await manager.getRepository(FolioChargeEntity).save(
+        const roomCharge = await manager.getRepository(FolioChargeEntity).save(
           manager.getRepository(FolioChargeEntity).create({
             folioId: created.id,
             type: 'ROOM' as never,
@@ -100,10 +103,54 @@ export class BillingService {
             chargedAt: new Date(),
           }),
         );
+        if (reservation.paymentStatus === ReservationPaymentStatus.PAID) {
+          const totals = calculateTotals([roomCharge], []);
+          const amount = parseFloat(totals.balance);
+          if (amount > 0.01) {
+            await manager.getRepository(FolioPaymentEntity).save(
+              manager.getRepository(FolioPaymentEntity).create({
+                folioId: created.id,
+                method: FolioPaymentMethod.OTHER,
+                amount: amount.toFixed(2),
+                reference: BOOKING_MARKED_PAID_REFERENCE,
+                notes: 'Auto-posted because the reservation was already marked paid before folio creation.',
+                receivedAt: new Date(),
+                receivedByUserId: null,
+              }),
+            );
+          }
+        }
       }
       return created;
     });
 
+    return this.getFolio(propertyId, folio.id);
+  }
+
+  private async syncPaidReservationFolio(
+    propertyId: string,
+    folio: FolioEntity,
+    reservation: ReservationEntity,
+  ): Promise<FolioEntity> {
+    if (reservation.paymentStatus !== ReservationPaymentStatus.PAID) return folio;
+    const payments = folio.payments ?? [];
+    if (payments.some((payment) => payment.reference === BOOKING_MARKED_PAID_REFERENCE)) return folio;
+
+    const totals = calculateTotals(folio.charges ?? [], payments);
+    const balance = parseFloat(totals.balance);
+    if (!Number.isFinite(balance) || balance <= 0.01) return folio;
+
+    const payment = this.paymentsRepository.create({
+      folioId: folio.id,
+      method: FolioPaymentMethod.OTHER,
+      amount: balance.toFixed(2),
+      reference: BOOKING_MARKED_PAID_REFERENCE,
+      notes: 'Auto-posted because the reservation was already marked paid before folio payment recording.',
+      receivedAt: new Date(),
+      receivedByUserId: null,
+    });
+    await this.paymentsRepository.save(payment);
+    await this.foliosRepository.update({ id: folio.id }, { updatedAt: new Date() });
     return this.getFolio(propertyId, folio.id);
   }
 

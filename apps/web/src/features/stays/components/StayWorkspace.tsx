@@ -78,9 +78,14 @@ function StayHeader({
     <Card radius={radius.lg} p={20} style={cardStyle}>
       <Group justify="space-between" align="flex-start" gap={spacing[4]}>
         <Stack gap={8}>
-          <Button component={Link} href="/rooms" variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content">
-            Back to Rooms
-          </Button>
+          <Group gap={12}>
+            <Button component={Link} href="/rooms" variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content">
+              Back to Rooms
+            </Button>
+            <Button component={Link} href="/" variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content">
+              Back to Front Desk
+            </Button>
+          </Group>
           <Group gap={8}>
             <Badge color="blue" variant="light" radius={radius.full}>{stay.status}</Badge>
             {stay.isVip ? <Badge color="stayosBrand" variant="light" radius={radius.full}>VIP</Badge> : null}
@@ -610,7 +615,12 @@ export default function StayWorkspace() {
     setIsCheckingOut(true);
     try {
       await stayState.checkOutStay();
-      showToast({ color: 'green', title: 'Guest checked out', message: 'Guest checked out successfully.' });
+      showToast({
+        autoClose: 9000,
+        color: 'green',
+        title: 'Checkout complete',
+        message: `${stay.guestName} checked out. Room ${stay.roomNumber} is ready for housekeeping follow-up.`,
+      });
       setCheckoutOpened(false);
       const query = new URLSearchParams({
         checkout: 'success',

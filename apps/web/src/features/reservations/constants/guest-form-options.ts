@@ -2,22 +2,22 @@
 // Kept intentionally short: the top-of-mind picks for an Indian hotel front desk.
 
 export const COMMON_NATIONALITIES = [
-  'Indian',
-  'American',
-  'Australian',
-  'Bangladeshi',
-  'British',
-  'Canadian',
-  'Chinese',
-  'French',
-  'German',
-  'Italian',
-  'Japanese',
-  'Nepali',
-  'Russian',
-  'Singaporean',
-  'Sri Lankan',
-  'Other',
+  'INDIAN',
+  'AMERICAN',
+  'AUSTRALIAN',
+  'BANGLADESHI',
+  'BRITISH',
+  'CANADIAN',
+  'CHINESE',
+  'FRENCH',
+  'GERMAN',
+  'ITALIAN',
+  'JAPANESE',
+  'NEPALI',
+  'RUSSIAN',
+  'SINGAPOREAN',
+  'SRI LANKAN',
+  'OTHER',
 ];
 
 export const COMMON_COUNTRIES = [

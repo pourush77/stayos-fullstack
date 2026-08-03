@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Alert, Badge, Box, Button, Card, Group, NumberInput, Paper, Stack, Text, Title } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
-import { Baby, BedDouble, CalendarDays, Copy, Users } from 'lucide-react';
+import { Baby, BedDouble, CalendarDays, ChevronLeft, Copy, Users } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
 import { getPropertyRoomTypes } from '../../lib/inventory-api';
@@ -148,9 +148,14 @@ export function AvailabilityPage() {
               <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 800 }}>Check Availability</Title>
               <Text c="#64748b" size="sm">Quick quote for walk-in and phone enquiries. No booking is created until you click Book.</Text>
             </Box>
-            <Button component={Link} href="/reservations/group-quote" variant="light" color="stayosBrand">
-              Group Quote
-            </Button>
+            <Group gap={8}>
+              <Button component={Link} href="/" variant="light" color="gray" leftSection={<ChevronLeft size={16} />}>
+                Back to Front Desk
+              </Button>
+              <Button component={Link} href="/reservations/group-quote" variant="light" color="stayosBrand">
+                Group Quote
+              </Button>
+            </Group>
           </Group>
         </Stack>
 

@@ -48,6 +48,7 @@ export type FrontDeskState = {
 };
 
 type ReservationView = {
+  backendId: string;
   id: string;
   arrivalDate: string;
   departureDate: string;
@@ -62,6 +63,11 @@ type RoomView = {
   id: string;
   number: string;
   status: string;
+};
+
+type LoadResult<T> = {
+  data: T;
+  error?: string;
 };
 
 const emptySummary: FrontDeskSummary = {
@@ -112,6 +118,10 @@ function getId(record: Record<string, unknown>) {
 
 function isActiveProperty(record: Record<string, unknown>) {
   return getString(record, ['status'], 'ACTIVE').toUpperCase() === 'ACTIVE';
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
 }
 
 function todayKey() {
@@ -165,6 +175,7 @@ function mapReservation(dto: ReservationDto, guests: Map<string, GuestDto>): Res
   const arrivalDate = normalizeDate(getString(dto, ['arrivalDate', 'checkInDate', 'startDate']));
   const departureDate = normalizeDate(getString(dto, ['departureDate', 'checkOutDate', 'endDate']));
   return {
+    backendId: getString(dto, ['id', '_id', 'uuid']),
     id: getString(dto, ['reservationCode', 'code', 'bookingCode', 'id', '_id'], 'Reservation'),
     arrivalDate,
     departureDate,
@@ -210,7 +221,7 @@ function buildSummary(reservations: ReservationView[], rooms: RoomView[]): Front
       (reservation) => reservation.arrivalDate === today && isArrivalStatus(reservation.status),
     ).length,
     departuresToday: reservations.filter(
-      (reservation) => reservation.departureDate === today && normalizeStatus(reservation.status) !== 'CANCELLED',
+      (reservation) => reservation.departureDate === today && isInHouseStatus(reservation.status),
     ).length,
     guestsInHouse: Math.max(reservationGuestsInHouse, occupiedRooms),
     roomsToClean: rooms.filter((room) => isRoomCleaning(room.status)).length,
@@ -241,7 +252,7 @@ function buildTasks(reservations: ReservationView[], rooms: RoomView[]): FrontDe
         signal: urgency ? `Arrival in ${urgency} min` : 'Arriving today',
         action: 'Assign Room',
         tone: 'red',
-        href: '/rooms',
+        href: `/rooms?mode=assign&status=ready&reservationId=${encodeURIComponent(reservation.backendId)}`,
       });
     }
 
@@ -328,32 +339,50 @@ async function loadFrontDesk(
   preferredPropertyId?: string,
 ): Promise<Omit<FrontDeskState, 'isLoading' | 'error'> & { error?: string }> {
   const propertyId = await getCurrentProperty(signal, preferredPropertyId);
-  const [reservationResult, roomDtos, guestDtos] = await Promise.all([
+  const [reservationResult, roomResult, guestResult] = await Promise.all([
     getPropertyReservations(propertyId, signal).then(
-      (reservations) => ({ reservations, error: undefined }),
+      (reservations): LoadResult<ReservationDto[]> => ({ data: reservations }),
       (error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') throw error;
 
         return {
-          reservations: [] as ReservationDto[],
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Reservation data is temporarily unavailable.',
+          data: [] as ReservationDto[],
+          error: errorMessage(error, 'Reservation data is temporarily unavailable.'),
         };
       },
     ),
-    getPropertyRooms(propertyId, signal),
-    getPropertyGuests(propertyId, signal),
+    getPropertyRooms(propertyId, signal).then(
+      (rooms): LoadResult<InventoryRoomDto[]> => ({ data: rooms }),
+      (error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') throw error;
+
+        return {
+          data: [] as InventoryRoomDto[],
+          error: errorMessage(error, 'Room data is temporarily unavailable.'),
+        };
+      },
+    ),
+    getPropertyGuests(propertyId, signal).then(
+      (guests): LoadResult<GuestDto[]> => ({ data: guests }),
+      (error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') throw error;
+
+        return {
+          data: [] as GuestDto[],
+          error: errorMessage(error, 'Guest data is temporarily unavailable.'),
+        };
+      },
+    ),
   ]);
-  const guests = createLookup(guestDtos);
-  const reservations = reservationResult.reservations.map((reservation) =>
+  const guests = createLookup(guestResult.data);
+  const reservations = reservationResult.data.map((reservation) =>
     mapReservation(reservation, guests),
   );
-  const rooms = roomDtos.map(mapRoom);
+  const rooms = roomResult.data.map(mapRoom);
+  const dataErrors = [reservationResult.error, roomResult.error, guestResult.error].filter(Boolean);
 
   return {
-    error: reservationResult.error,
+    error: dataErrors.length > 0 ? dataErrors.join(' ') : undefined,
     propertyId,
     summary: buildSummary(reservations, rooms),
     tasks: buildTasks(reservations, rooms),

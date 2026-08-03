@@ -141,9 +141,11 @@ export class CheckInService {
           reservationId: parts.reservation.id,
         });
       const previousState = this.identityState(identity);
+      const normalizedIdNumber = this.normalizeIdentityNumber(dto.idType, dto.idNumber);
+      this.assertValidIdentityNumber(dto.idType, normalizedIdNumber);
 
       identity.idType = dto.idType;
-      identity.idNumberMasked = this.maskIdentifier(dto.idNumber);
+      identity.idNumberMasked = this.maskIdentifier(normalizedIdNumber);
       identity.documentFrontUrl = dto.documentFrontUrl ?? null;
       identity.documentBackUrl = dto.documentBackUrl ?? null;
       identity.verified = dto.verified;
@@ -439,6 +441,39 @@ export class CheckInService {
     const compact = value.replace(/\s+/g, '');
     if (compact.length <= 4) return '*'.repeat(compact.length);
     return `${'*'.repeat(Math.max(0, compact.length - 4))}${compact.slice(-4)}`;
+  }
+
+  private normalizeIdentityNumber(type: IdentityDocumentType, value: string): string {
+    if (type === IdentityDocumentType.AADHAAR) return value.replace(/\D/g, '');
+    if (type === IdentityDocumentType.PAN) return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (type === IdentityDocumentType.VOTER_ID) return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (type === IdentityDocumentType.PASSPORT) return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (type === IdentityDocumentType.DRIVING_LICENSE) {
+      return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    }
+    return value.trim();
+  }
+
+  private assertValidIdentityNumber(type: IdentityDocumentType, value: string): void {
+    const valid =
+      type === IdentityDocumentType.AADHAAR
+        ? /^\d{12}$/.test(value)
+        : type === IdentityDocumentType.PAN
+          ? /^[A-Z]{5}\d{4}[A-Z]$/.test(value)
+          : type === IdentityDocumentType.VOTER_ID
+            ? /^[A-Z0-9]{10}$/.test(value)
+            : type === IdentityDocumentType.PASSPORT
+              ? /^[A-Z0-9]{8,9}$/.test(value)
+              : type === IdentityDocumentType.DRIVING_LICENSE
+                ? /^[A-Z0-9]{8,16}$/.test(value)
+                : value.length >= 3 && value.length <= 80;
+
+    if (!valid) {
+      throw this.badRequest(
+        ApiErrorCode.CHECKIN_IDENTITY_NOT_VERIFIED,
+        `${type.replace('_', ' ')} number format is invalid`,
+      );
+    }
   }
 
   private registrationState(reservation: ReservationEntity, guest: GuestEntity): Record<string, unknown> {

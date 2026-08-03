@@ -9,6 +9,7 @@ import { uploadCheckInDocument } from '../../../lib/reservation-api';
 
 export type FaceCaptureProps = {
   idPhotoUrl?: string;
+  compact?: boolean;
   // The persisted snap URL (from workspace documents). Shown as the initial snapshot state.
   persistedSnapUrl?: string;
   // When provided, the snap will be uploaded to the backend as a GUEST_FACE document.
@@ -23,7 +24,7 @@ export type FaceCaptureProps = {
  * receptionist can eyeball a face match. When propertyId + reservationId are
  * provided, the snap is auto-persisted to the guest's document folder.
  */
-export function FaceMatchCard({ idPhotoUrl, persistedSnapUrl, propertyId, reservationId, onCapture, onSaved }: FaceCaptureProps) {
+export function FaceMatchCard({ idPhotoUrl, compact = false, persistedSnapUrl, propertyId, reservationId, onCapture, onSaved }: FaceCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [snapshot, setSnapshot] = useState<string | undefined>(persistedSnapUrl);
@@ -119,7 +120,7 @@ export function FaceMatchCard({ idPhotoUrl, persistedSnapUrl, propertyId, reserv
     background: '#0f172a',
     border: '1px solid #1e293b',
     borderRadius: radius.md,
-    minHeight: 220,
+    minHeight: compact ? 150 : 220,
     overflow: 'hidden',
     position: 'relative',
     display: 'flex',
@@ -128,7 +129,16 @@ export function FaceMatchCard({ idPhotoUrl, persistedSnapUrl, propertyId, reserv
   };
 
   return (
-    <Paper radius={radius.lg} p={16} style={{ background: '#ffffff', border: '1px solid rgba(226,232,240,0.9)', boxShadow: '0 8px 24px rgba(15,23,42,0.035)' }} data-testid="face-match-card">
+    <Paper
+      radius={radius.lg}
+      p={16}
+      style={{
+        background: 'linear-gradient(180deg,#ffffff 0%,#fbfdff 100%)',
+        border: '1px solid rgba(226,232,240,0.78)',
+        boxShadow: '0 14px 34px rgba(15,23,42,0.04)',
+      }}
+      data-testid="face-match-card"
+    >
       <Group justify="space-between" align="center" mb={12}>
         <Group gap={10}>
           <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={30}><Camera size={16} /></ThemeIcon>
@@ -149,7 +159,7 @@ export function FaceMatchCard({ idPhotoUrl, persistedSnapUrl, propertyId, reserv
           <Text size="xs" fw={700} c="#64748b">ID PHOTO</Text>
           <Box style={tileStyle}>
             {idPhotoUrl ? (
-              <Box component="img" src={idPhotoUrl} alt="ID photo" style={{ maxWidth: '100%', maxHeight: 220, objectFit: 'contain' }} />
+              <Box component="img" src={idPhotoUrl} alt="ID photo" style={{ maxWidth: '100%', maxHeight: compact ? 150 : 220, objectFit: 'contain' }} />
             ) : (
               <Stack align="center" gap={6}>
                 <ThemeIcon size={44} radius="xl" color="gray" variant="light"><Camera size={22} /></ThemeIcon>
@@ -164,7 +174,7 @@ export function FaceMatchCard({ idPhotoUrl, persistedSnapUrl, propertyId, reserv
           <Text size="xs" fw={700} c="#64748b">GUEST</Text>
           <Box style={tileStyle}>
             {snapshot ? (
-              <Box component="img" src={snapshot} alt="Guest snapshot" style={{ maxWidth: '100%', maxHeight: 220, objectFit: 'contain' }} />
+              <Box component="img" src={snapshot} alt="Guest snapshot" style={{ maxWidth: '100%', maxHeight: compact ? 150 : 220, objectFit: 'contain' }} />
             ) : stream ? (
               <Box
                 component="video"
@@ -172,7 +182,7 @@ export function FaceMatchCard({ idPhotoUrl, persistedSnapUrl, propertyId, reserv
                 autoPlay
                 muted
                 playsInline
-                style={{ width: '100%', height: 220, objectFit: 'cover', transform: 'scaleX(-1)' }}
+                style={{ width: '100%', height: compact ? 150 : 220, objectFit: 'cover', transform: 'scaleX(-1)' }}
               />
             ) : (
               <Stack align="center" gap={6}>

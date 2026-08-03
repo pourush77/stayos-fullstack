@@ -460,7 +460,12 @@ export default function BookingDetailPage() {
     setIsActing(true);
     try {
       await bookingState.checkOutBooking();
-      showToast({ color: 'green', title: 'Checked out', message: 'The guest is now checked out. Room sent to housekeeping.' });
+      showToast({
+        autoClose: 9000,
+        color: 'green',
+        title: 'Checkout complete',
+        message: 'Guest checked out. The room is ready for housekeeping follow-up.',
+      });
       setFolioSummary(undefined);
     } catch (error) {
       showToast({ color: 'red', title: 'Unable to check out', message: friendlyBookingError(error) });
@@ -489,7 +494,10 @@ export default function BookingDetailPage() {
       <Card radius={radius.lg} p={20} style={cardStyle}>
         <Group justify="space-between" align="flex-start" gap={spacing[4]}>
           <Stack gap={8}>
-            <Button component={Link} href="/reservations" variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content">Back to Bookings</Button>
+            <Group gap={12}>
+              <Button component={Link} href="/reservations" variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content">Back to Bookings</Button>
+              <Button component={Link} href="/" variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content">Back to Front Desk</Button>
+            </Group>
             <Group gap={8}><BookingStatusBadge status={booking.status} /><PaymentStatusBadge status={booking.paymentStatus} />{booking.isVip ? <Text c="#7c3aed" size="xs" fw={800}>VIP</Text> : null}</Group>
             <Title order={1} c="#101828" style={{ fontSize: 34, fontWeight: 800 }}>{booking.bookingId}</Title>
             <Group gap={8}>

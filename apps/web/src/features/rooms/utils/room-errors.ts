@@ -11,6 +11,9 @@ export function friendlyAssignmentError(error: unknown) {
   if (normalized.includes('ROOM_NOT_READY') || normalized.includes('NOT_READY')) {
     return 'This room is not ready for guest assignment yet.';
   }
+  if (normalized.includes('ROOM_ALREADY_ASSIGNED')) {
+    return 'This room is already assigned to another active overlapping booking. Refresh the room board and choose another ready room.';
+  }
   if (normalized.includes('BOOKING_ALREADY_ASSIGNED') || normalized.includes('ALREADY_ASSIGNED')) {
     return 'This booking already has a room assigned.';
   }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Badge,
@@ -265,9 +265,11 @@ function CheckInStep({ arrival, onStart }: { arrival: ReturnType<typeof useArriv
 }
 
 export function ArrivalWorkspace({
+  initialFlow,
   onClose,
   opened,
 }: {
+  initialFlow?: ArrivalFlow;
   onClose: () => void;
   opened: boolean;
 }) {
@@ -284,18 +286,32 @@ export function ArrivalWorkspace({
     onClose();
   };
 
-  return (
-    <Modal opened={opened} onClose={close} centered size="min(96vw, 980px)" title={<Text fw={800}>New Arrival</Text>}>
-      <Stack gap={spacing[4]}>
-        <Group gap={8}>
-          {['select', 'search', 'guest', 'booking', 'room', 'check-in', 'complete'].map((step) => (
-            <Badge key={step} color={arrival.step === step ? 'stayosBrand' : 'gray'} variant={arrival.step === step ? 'filled' : 'light'} radius={radius.full} style={{ textTransform: 'none' }}>
-              {step === 'check-in' ? 'Check In' : step.replace('-', ' ')}
-            </Badge>
-          ))}
-        </Group>
+  useEffect(() => {
+    if (opened && initialFlow && arrival.step === 'select') {
+      arrival.selectFlow(initialFlow);
+    }
+  }, [arrival, initialFlow, opened]);
 
-        {arrival.step === 'select' ? <FlowSelector onSelect={arrival.selectFlow} /> : null}
+  return (
+    <Modal
+      opened={opened}
+      onClose={close}
+      centered
+      size="min(96vw, 980px)"
+      title={<Text fw={800}>{initialFlow === 'walk-in' ? 'Walk-in Arrival' : 'New Arrival'}</Text>}
+    >
+      <Stack gap={spacing[4]}>
+        {!initialFlow ? (
+          <Group gap={8}>
+            {['select', 'search', 'guest', 'booking', 'room', 'check-in', 'complete'].map((step) => (
+              <Badge key={step} color={arrival.step === step ? 'stayosBrand' : 'gray'} variant={arrival.step === step ? 'filled' : 'light'} radius={radius.full} style={{ textTransform: 'none' }}>
+                {step === 'check-in' ? 'Check In' : step.replace('-', ' ')}
+              </Badge>
+            ))}
+          </Group>
+        ) : null}
+
+        {arrival.step === 'select' && !initialFlow ? <FlowSelector onSelect={arrival.selectFlow} /> : null}
         {arrival.step === 'search' ? <SearchStep arrival={arrival} /> : null}
         {arrival.step === 'guest' ? (
           <GuestForm

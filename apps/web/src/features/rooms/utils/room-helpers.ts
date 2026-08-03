@@ -62,6 +62,19 @@ export function roomTypesMatch(roomType: string, bookingRoomType: string) {
   return room.includes(booking) || booking.includes(room);
 }
 
+function dateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate(),
+  ).padStart(2, '0')}`;
+}
+
+function normalizeDate(value: string) {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) return dateKey(parsed);
+  return value.slice(0, 10);
+}
+
 export function assignmentIssue(room: Room | null, reservation: Reservation) {
   if (!room) return 'Select a room first.';
   if (reservation.status !== 'Confirmed' && reservation.status !== 'Pending') {
@@ -72,6 +85,13 @@ export function assignmentIssue(room: Room | null, reservation: Reservation) {
   }
   if (!isRoomReadyForAssignment(room)) {
     return 'This room is not ready for guest assignment yet.';
+  }
+
+  const today = dateKey(new Date());
+  const departureDate = normalizeDate(reservation.departureDate);
+
+  if (departureDate && departureDate < today) {
+    return 'This booking stay date has already passed.';
   }
 
   const roomCapacity = parseRoomCapacity(room.capacity);

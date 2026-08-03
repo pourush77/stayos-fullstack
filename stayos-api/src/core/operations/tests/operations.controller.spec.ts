@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { OperationsController } from '../controllers/operations.controller';
 import { ActivityFeedService } from '../services/activity-feed.service';
+import { AssignableReservationsService } from '../services/assignable-reservations.service';
 import { GroupBookingService } from '../services/group-booking.service';
 import { GroupRoomMixService } from '../services/group-room-mix.service';
 import { NeedsAttentionService } from '../services/needs-attention.service';
@@ -28,6 +29,7 @@ describe('OperationsController', () => {
   const groupRoomMixService = { suggestRoomMix: jest.fn() };
   const needsAttentionService = { getNeedsAttention: jest.fn() };
   const activityFeedService = { getActivityFeed: jest.fn() };
+  const assignableReservationsService = { getAssignableReservations: jest.fn() };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -41,6 +43,7 @@ describe('OperationsController', () => {
         { provide: GroupRoomMixService, useValue: groupRoomMixService },
         { provide: NeedsAttentionService, useValue: needsAttentionService },
         { provide: ActivityFeedService, useValue: activityFeedService },
+        { provide: AssignableReservationsService, useValue: assignableReservationsService },
       ],
     }).compile();
 
@@ -69,6 +72,20 @@ describe('OperationsController', () => {
 
     await expect(controller.getAvailableRooms(propertyId, query)).resolves.toEqual([]);
     expect(roomAvailabilityService.getAvailableRooms).toHaveBeenCalledWith(propertyId, query);
+  });
+
+  it('delegates assignable reservation requests with room filters', async () => {
+    const query = { roomId };
+    const response = [{ reservationId: 'reservation-id' }];
+    assignableReservationsService.getAssignableReservations.mockResolvedValue(response);
+
+    await expect(controller.getAssignableReservations(propertyId, query)).resolves.toEqual(
+      response,
+    );
+    expect(assignableReservationsService.getAssignableReservations).toHaveBeenCalledWith(
+      propertyId,
+      query,
+    );
   });
 
   it('delegates group room mix suggestion requests', async () => {
