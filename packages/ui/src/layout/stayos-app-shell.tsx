@@ -1,5 +1,12 @@
 'use client';
 
+declare const process: {
+  env: {
+    NEXT_PUBLIC_API_BASE_URL?: string;
+    NEXT_PUBLIC_API_URL?: string;
+  };
+};
+
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -14,7 +21,6 @@ import {
   Group,
   Menu,
   Paper,
-  Popover,
   ScrollArea,
   Stack,
   Text,
@@ -24,7 +30,6 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
-  BedDouble,
   Building2,
   ChevronDown,
   ChevronsLeft,
@@ -36,17 +41,16 @@ import {
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
-  Search,
   Sun,
   UserRound,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { animations, colors, radius, shadows, spacing, typography, zIndex } from '@stayos/theme';
 import { OperationalTaskCard } from '../components/operational-task-card';
 import { getTasksForPath } from '../operations/task-engine';
-import { SearchInput } from '../components/search-input';
+import { GlobalSearch } from './global-search';
 import { mobileNavigation, primaryNavigation } from './navigation';
 import { ShellContent } from './shell-content';
 
@@ -736,153 +740,6 @@ function UserProfile({
   );
 }
 
-function GlobalSearch() {
-  const [opened, setOpened] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault();
-        setOpened(true);
-        window.requestAnimationFrame(() => searchInputRef.current?.focus());
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  const results = [
-    {
-      title: 'Ananya Rao',
-      detail: 'Guest profile - returning VIP',
-      href: '/guests/ananya-rao',
-      icon: UserRound,
-    },
-    {
-      title: 'Suite 402',
-      detail: 'Occupied - Ananya Rao',
-      href: '/rooms/402',
-      icon: BedDouble,
-    },
-    {
-      title: 'Booking ST1842',
-      detail: 'Checked in - view current stay',
-      href: '/guest-stay/ST1842',
-      icon: Search,
-    },
-  ];
-
-  return (
-    <Popover opened={opened} onChange={setOpened} width={460} position="bottom" shadow="md">
-      <Popover.Target>
-        <SearchInput
-          ref={searchInputRef}
-          visibleFrom="md"
-          w="100%"
-          leftSection={<Search size={15} />}
-          rightSection={
-            <Group gap={4} wrap="nowrap">
-              <Box
-                style={{
-                  border: '1px solid #d9e1ef',
-                  borderRadius: 6,
-                  color: '#52627a',
-                  fontSize: 11,
-                  fontWeight: 500,
-                  lineHeight: '16px',
-                  minWidth: 24,
-                  textAlign: 'center',
-                }}
-              >
-                Ctrl
-              </Box>
-              <Box
-                style={{
-                  border: '1px solid #d9e1ef',
-                  borderRadius: 6,
-                  color: '#52627a',
-                  fontSize: 11,
-                  fontWeight: 500,
-                  lineHeight: '16px',
-                  minWidth: 20,
-                  textAlign: 'center',
-                }}
-              >
-                K
-              </Box>
-            </Group>
-          }
-          rightSectionWidth={64}
-          placeholder="Search guests, rooms, bookings or ask StayOS..."
-          aria-label="Global search"
-          onFocus={() => setOpened(true)}
-          onBlur={() => window.setTimeout(() => setOpened(false), 150)}
-          styles={{
-            input: {
-              borderColor: '#d9e1ef',
-              borderRadius: 12,
-              boxShadow: '0 8px 24px rgba(15, 23, 42, 0.04)',
-              height: 42,
-            },
-          }}
-        />
-      </Popover.Target>
-      <Popover.Dropdown p={spacing[2]}>
-        <Text
-          c={colors.text.muted}
-          px={spacing[2]}
-          py={spacing[1]}
-          style={typography.styles.caption}
-        >
-          Quick commands
-        </Text>
-        <Stack gap={spacing[1]}>
-          {results.map((result) => (
-            <UnstyledButton
-              key={result.title}
-              component={Link}
-              href={result.href}
-              style={{
-                borderRadius: radius.md,
-                padding: spacing[3],
-                width: '100%',
-              }}
-            >
-              <Group gap={spacing[3]} wrap="nowrap">
-                <Box
-                  aria-hidden
-                  style={{
-                    alignItems: 'center',
-                    background: colors.brand[50],
-                    borderRadius: radius.md,
-                    color: colors.brand[500],
-                    display: 'flex',
-                    height: 32,
-                    justifyContent: 'center',
-                    width: 32,
-                  }}
-                >
-                  <result.icon size={16} />
-                </Box>
-                <Box>
-                  <Text c={colors.text.strong} style={typography.styles.label}>
-                    {result.title}
-                  </Text>
-                  <Text c={colors.text.muted} mt={2} style={typography.styles.caption}>
-                    {result.detail}
-                  </Text>
-                </Box>
-              </Group>
-            </UnstyledButton>
-          ))}
-        </Stack>
-      </Popover.Dropdown>
-    </Popover>
-  );
-}
-
 function Sidebar({
   collapsed,
   navigationItems,
@@ -960,12 +817,14 @@ function Sidebar({
 
 function TopHeader({
   workspaceTitle,
+  propertyId,
   onOpenMobileMenu,
   utilityPanelOpen,
   utilityPanelAvailable,
   onToggleUtilityPanel,
 }: {
   workspaceTitle: string;
+  propertyId?: string;
   onOpenMobileMenu: () => void;
   utilityPanelOpen: boolean;
   utilityPanelAvailable: boolean;
@@ -1012,7 +871,7 @@ function TopHeader({
         </Group>
 
         <Stack gap={6} visibleFrom="md" style={{ flex: 1, maxWidth: 760 }}>
-          <GlobalSearch />
+          <GlobalSearch apiBaseUrl={apiBaseUrl()} propertyId={propertyId} />
         </Stack>
 
         <Group gap={spacing[2]} wrap="nowrap">
@@ -1712,6 +1571,7 @@ function ProtectedStayOSAppShell({
   navigationItems,
   onLockSession,
   onSignOut,
+  propertyId,
   propertyName: propertyNameProp,
   user,
 }: Omit<StayOSAppShellProps, 'isPublicRoute'>) {
@@ -1724,7 +1584,8 @@ function ProtectedStayOSAppShell({
   const propertyMeta =
     propertyNameProp || user?.propertyName ? { name: propertyName } : activeProperty;
   const sidebarWidth = sidebarCollapsed ? 78 : 264;
-  const utilityPanelAvailable = !pathname.startsWith('/rooms') && !pathname.startsWith('/housekeeping');
+  const utilityPanelAvailable =
+    !pathname.startsWith('/rooms') && !pathname.startsWith('/housekeeping');
   const workspaceTitle = workspaceTitleForPath(pathname);
 
   return (
@@ -1779,6 +1640,7 @@ function ProtectedStayOSAppShell({
           >
             <TopHeader
               workspaceTitle={workspaceTitle}
+              propertyId={propertyId ?? user?.propertyId}
               onOpenMobileMenu={openMobileMenu}
               utilityPanelOpen={utilityPanelOpen}
               utilityPanelAvailable={utilityPanelAvailable}

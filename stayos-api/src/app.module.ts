@@ -21,6 +21,7 @@ import { MaintenanceModule } from './core/maintenance/maintenance.module';
 import { AmenitiesModule } from './core/amenities/amenities.module';
 import configuration from './core/config/configuration';
 import { validateEnvironment } from './core/config/environment.validation';
+import { GlobalSearchModule } from './core/global-search/global-search.module';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { validateEnvironment } from './core/config/environment.validation';
     ReportsModule,
     MaintenanceModule,
     AmenitiesModule,
+    GlobalSearchModule,
   ],
 })
 export class AppModule {}
