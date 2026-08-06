@@ -24,6 +24,7 @@
     "bootstrap:demo-employees": "node scripts/bootstrap-demo-employees.js",
     "verify:hillston": "ts-node -r dotenv/config scripts/verify-hillston.ts",
     "setup:dev": "docker compose up -d && npm install && npm run migration:run && npm run bootstrap:hillston",
+    "seed:hillston-uat": "ts-node -r tsconfig-paths/register scripts/bootstrap-hillston-uat.ts",
     "sync:dev": "npm run migration:run && npm run bootstrap:hillston && npm run verify:hillston",
     "test": "jest --runInBand"
   },

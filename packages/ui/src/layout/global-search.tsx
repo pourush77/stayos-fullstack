@@ -12,14 +12,22 @@ import {
   Text,
   UnstyledButton,
 } from '@mantine/core';
-import { BedDouble, CalendarDays, FileText, Hotel, Search, UserRound } from 'lucide-react';
+import {
+  BedDouble,
+  CalendarDays,
+  FileText,
+  Hotel,
+  Search,
+  UserRound,
+  UsersRound,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { colors, radius, spacing, typography } from '@stayos/theme';
 import { SearchInput } from '../components/search-input';
 
-type GlobalSearchResultType = 'guest' | 'reservation' | 'stay' | 'room' | 'folio';
+type GlobalSearchResultType = 'guest' | 'reservation' | 'stay' | 'room' | 'folio' | 'group_booking';
 
 type GlobalSearchResult = {
   id: string;
@@ -38,6 +46,7 @@ type GlobalSearchGroups = {
   guests: GlobalSearchResult[];
   rooms: GlobalSearchResult[];
   folios: GlobalSearchResult[];
+  groupBookings?: GlobalSearchResult[];
 };
 
 type GlobalSearchResponse = {
@@ -75,6 +84,11 @@ const searchGroups: SearchGroupDefinition[] = [
     icon: CalendarDays,
   },
   {
+    key: 'groupBookings',
+    label: 'Group bookings',
+    icon: UsersRound,
+  },
+  {
     key: 'guests',
     label: 'Guests',
     icon: UserRound,
@@ -110,6 +124,9 @@ function resultIcon(type: GlobalSearchResultType): LucideIcon {
     case 'reservation':
       return CalendarDays;
 
+    case 'group_booking':
+      return UsersRound;
+
     case 'room':
       return BedDouble;
 
@@ -129,6 +146,9 @@ function badgeColor(type: GlobalSearchResultType) {
 
     case 'reservation':
       return 'blue';
+
+    case 'group_booking':
+      return 'indigo';
 
     case 'folio':
       return 'orange';
@@ -210,7 +230,7 @@ export function GlobalSearch({ apiBaseUrl, propertyId }: GlobalSearchProps) {
       return [];
     }
 
-    return searchGroups.flatMap((group) => searchResponse.results[group.key]);
+    return searchGroups.flatMap((group) => searchResponse.results[group.key] ?? []);
   }, [searchResponse]);
 
   useEffect(() => {
@@ -431,7 +451,8 @@ export function GlobalSearch({ apiBaseUrl, propertyId }: GlobalSearchProps) {
             </Text>
 
             <Text c={colors.text.muted} mt={4} style={typography.styles.caption}>
-              Enter at least two characters to search guests, reservations, rooms, stays and folios.
+              Enter at least two characters to search guests, reservations, group bookings, rooms,
+              stays and folios.
             </Text>
           </Box>
         ) : null}
@@ -470,7 +491,8 @@ export function GlobalSearch({ apiBaseUrl, propertyId }: GlobalSearchProps) {
               </Text>
 
               <Text c={colors.text.muted} ta="center" style={typography.styles.caption}>
-                Try a guest name, mobile number, booking code, room number or folio number.
+                Try a guest name, mobile number, booking code, group name, room number or folio
+                number.
               </Text>
             </Stack>
           </Center>
@@ -480,7 +502,7 @@ export function GlobalSearch({ apiBaseUrl, propertyId }: GlobalSearchProps) {
           <ScrollArea.Autosize mah={500}>
             <Stack gap={0} py={spacing[2]}>
               {searchGroups.map((group) => {
-                const results = searchResponse.results[group.key];
+                const results = searchResponse.results[group.key] ?? [];
 
                 if (results.length === 0) {
                   return null;

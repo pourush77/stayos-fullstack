@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FolioEntity } from '../billing/infrastructure/folio.entity';
 import { GuestEntity } from '../guests/infrastructure/guest.entity';
+import { GroupBookingEntity } from '../operations/infrastructure/group-booking.entity';
 import { PropertiesModule } from '../properties/properties.module';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 import { RoomEntity } from '../rooms/infrastructure/room.entity';
@@ -10,7 +11,13 @@ import { GlobalSearchService } from './global-search.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([GuestEntity, ReservationEntity, RoomEntity, FolioEntity]),
+    TypeOrmModule.forFeature([
+      GuestEntity,
+      ReservationEntity,
+      RoomEntity,
+      FolioEntity,
+      GroupBookingEntity,
+    ]),
     PropertiesModule,
   ],
   controllers: [GlobalSearchController],

@@ -6,6 +6,7 @@ export enum GlobalSearchResultType {
   STAY = 'stay',
   ROOM = 'room',
   FOLIO = 'folio',
+  GROUP_BOOKING = 'group_booking',
 }
 
 export class GlobalSearchResultDto {
@@ -53,6 +54,9 @@ export class GlobalSearchGroupsDto {
 
   @ApiProperty({ type: [GlobalSearchResultDto] })
   folios!: GlobalSearchResultDto[];
+
+  @ApiProperty({ type: [GlobalSearchResultDto] })
+  groupBookings!: GlobalSearchResultDto[];
 }
 
 export class GlobalSearchResponseDto {

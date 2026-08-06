@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { FolioEntity } from '../billing/infrastructure/folio.entity';
 import { GuestEntity } from '../guests/infrastructure/guest.entity';
+import { GroupBookingEntity } from '../operations/infrastructure/group-booking.entity';
 import { PropertiesService } from '../properties/properties.service';
 import { ReservationStatus } from '../reservations/domain/reservation-status.enum';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
@@ -29,6 +30,9 @@ export class GlobalSearchService {
     @InjectRepository(FolioEntity)
     private readonly foliosRepository: Repository<FolioEntity>,
 
+    @InjectRepository(GroupBookingEntity)
+    private readonly groupBookingsRepository: Repository<GroupBookingEntity>,
+
     private readonly propertiesService: PropertiesService,
   ) {}
 
@@ -41,23 +45,31 @@ export class GlobalSearchService {
     const normalizedDigits = term.replace(/\D/g, '');
     const limit = query.limit ?? 5;
 
-    const [stays, reservations, guests, rooms, folios] = await Promise.all([
+    const [stays, reservations, guests, rooms, folios, groupBookings] = await Promise.all([
       this.searchStays(propertyId, term, likeTerm, startsWithTerm, normalizedDigits, limit),
       this.searchReservations(propertyId, term, likeTerm, startsWithTerm, normalizedDigits, limit),
       this.searchGuests(propertyId, term, likeTerm, startsWithTerm, normalizedDigits, limit),
       this.searchRooms(propertyId, term, likeTerm, startsWithTerm, limit),
       this.searchFolios(propertyId, term, likeTerm, startsWithTerm, normalizedDigits, limit),
+      this.searchGroupBookings(propertyId, term, likeTerm, startsWithTerm, normalizedDigits, limit),
     ]);
 
     return {
       query: term,
-      total: stays.length + reservations.length + guests.length + rooms.length + folios.length,
+      total:
+        stays.length +
+        reservations.length +
+        guests.length +
+        rooms.length +
+        folios.length +
+        groupBookings.length,
       results: {
         stays,
         reservations,
         guests,
         rooms,
         folios,
+        groupBookings,
       },
     };
   }
@@ -419,6 +431,77 @@ export class GlobalSearchService {
       badge: folio.status,
       route: `/billing/${folio.id}`,
       priority: this.calculatePriority(term, folio.folioNumber, folio.guest.displayName, 75),
+    }));
+  }
+
+  private async searchGroupBookings(
+    propertyId: string,
+    term: string,
+    likeTerm: string,
+    startsWithTerm: string,
+    normalizedDigits: string,
+    limit: number,
+  ): Promise<GlobalSearchResultDto[]> {
+    const queryBuilder = this.groupBookingsRepository
+      .createQueryBuilder('groupBooking')
+      .where('groupBooking.propertyId = :propertyId', { propertyId })
+      .andWhere(
+        `(
+          groupBooking.groupName ILIKE :likeTerm
+          OR groupBooking.groupCode ILIKE :likeTerm
+          OR groupBooking.leadName ILIKE :likeTerm
+          OR groupBooking.leadPhone ILIKE :likeTerm
+          OR groupBooking.leadEmail ILIKE :likeTerm
+          OR groupBooking.notes ILIKE :likeTerm
+          ${
+            normalizedDigits
+              ? `OR regexp_replace(
+                  COALESCE(groupBooking.leadPhone, ''),
+                  '[^0-9]',
+                  '',
+                  'g'
+                ) LIKE :digits`
+              : ''
+          }
+        )`,
+        {
+          likeTerm,
+          ...(normalizedDigits ? { digits: `%${normalizedDigits}%` } : {}),
+        },
+      )
+      .addSelect(
+        `CASE
+          WHEN lower(groupBooking.groupName) = lower(:term) THEN 1
+          WHEN lower(groupBooking.groupCode) = lower(:term) THEN 2
+          WHEN lower(groupBooking.groupName) LIKE lower(:startsWithTerm) THEN 3
+          WHEN lower(groupBooking.leadName) = lower(:term) THEN 4
+          WHEN lower(groupBooking.leadName) LIKE lower(:startsWithTerm) THEN 5
+          ELSE 6
+        END`,
+        'search_rank',
+      )
+      .orderBy('search_rank', 'ASC')
+      .addOrderBy('groupBooking.arrivalDate', 'ASC')
+      .setParameters({
+        term,
+        startsWithTerm,
+      })
+      .take(limit);
+
+    const groupBookings = await queryBuilder.getMany();
+
+    return groupBookings.map((groupBooking) => ({
+      id: groupBooking.id,
+      type: GlobalSearchResultType.GROUP_BOOKING,
+      title: groupBooking.groupName,
+      subtitle:
+        `${groupBooking.groupCode} · ` +
+        `${groupBooking.arrivalDate} → ${groupBooking.departureDate}`,
+      description:
+        `${groupBooking.leadName} · ` + `${groupBooking.adults + groupBooking.children} guests`,
+      badge: groupBooking.status,
+      route: `/reservations/group-holds/${groupBooking.id}`,
+      priority: this.calculatePriority(term, groupBooking.groupName, groupBooking.groupCode, 90),
     }));
   }
 
