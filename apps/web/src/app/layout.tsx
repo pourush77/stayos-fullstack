@@ -6,6 +6,7 @@ import '@mantine/notifications/styles.css';
 import { BackendConnectivityProvider, StayOSProvider } from '@stayos/ui';
 import { AppFrame } from '../features/auth/AppFrame';
 import { AuthProvider } from '../features/auth/auth-context';
+import { SessionActivityProvider } from '../features/auth/session-activity-provider';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -24,7 +25,9 @@ export default function RootLayout({
         <StayOSProvider brand="purple">
           <BackendConnectivityProvider>
             <AuthProvider>
-              <AppFrame>{children}</AppFrame>
+              <SessionActivityProvider>
+                <AppFrame>{children}</AppFrame>
+              </SessionActivityProvider>
             </AuthProvider>
           </BackendConnectivityProvider>
         </StayOSProvider>

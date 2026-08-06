@@ -26,6 +26,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { colors, radius, spacing, typography } from '@stayos/theme';
 import { SearchInput } from '../components/search-input';
+import { highlightMatch } from '../utils/highlight-match';
 
 type GlobalSearchResultType = 'guest' | 'reservation' | 'stay' | 'room' | 'folio' | 'group_booking';
 
@@ -592,7 +593,7 @@ export function GlobalSearch({ apiBaseUrl, propertyId }: GlobalSearchProps) {
                                     lineClamp={1}
                                     style={typography.styles.label}
                                   >
-                                    {result.title}
+                                    {highlightMatch(result.title, trimmedQuery)}
                                   </Text>
 
                                   {result.badge ? (
@@ -612,7 +613,7 @@ export function GlobalSearch({ apiBaseUrl, propertyId }: GlobalSearchProps) {
                                   mt={2}
                                   style={typography.styles.caption}
                                 >
-                                  {result.subtitle}
+                                  {highlightMatch(result.subtitle, trimmedQuery)}
                                 </Text>
 
                                 {result.description ? (
@@ -625,7 +626,7 @@ export function GlobalSearch({ apiBaseUrl, propertyId }: GlobalSearchProps) {
                                       fontSize: 11,
                                     }}
                                   >
-                                    {result.description}
+                                    {highlightMatch(result.description, trimmedQuery)}
                                   </Text>
                                 ) : null}
                               </Box>

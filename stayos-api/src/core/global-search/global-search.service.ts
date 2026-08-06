@@ -14,6 +14,7 @@ import {
   GlobalSearchResultDto,
   GlobalSearchResultType,
 } from './dto/global-search-response.dto';
+import { calculateSearchPriority } from './global-search-ranking';
 
 @Injectable()
 export class GlobalSearchService {
@@ -137,16 +138,28 @@ export class GlobalSearchService {
 
     const guests = await queryBuilder.getMany();
 
-    return guests.map((guest) => ({
-      id: guest.id,
-      type: GlobalSearchResultType.GUEST,
-      title: guest.displayName,
-      subtitle: [guest.phone, guest.email].filter(Boolean).join(' · '),
-      description: guest.companyName ?? undefined,
-      badge: guest.vipStatus ? 'VIP' : 'GUEST',
-      route: `/guests/${guest.id}`,
-      priority: this.calculatePriority(term, guest.displayName, guest.phone ?? '', 60),
-    }));
+    return guests
+      .map((guest) => ({
+        id: guest.id,
+        type: GlobalSearchResultType.GUEST,
+        title: guest.displayName,
+        subtitle: [guest.phone, guest.email].filter(Boolean).join(' · '),
+        description: guest.companyName ?? undefined,
+        badge: guest.vipStatus ? 'VIP' : 'GUEST',
+        route: `/guests/${guest.id}`,
+        priority: calculateSearchPriority({
+          query: term,
+          basePriority: 60,
+          fields: [
+            { value: guest.displayName, weight: 100 },
+            { value: guest.phone, weight: 90, normalizeDigits: true },
+            { value: guest.alternatePhone, weight: 80, normalizeDigits: true },
+            { value: guest.email, weight: 70 },
+            { value: guest.companyName, weight: 60 },
+          ],
+        }),
+      }))
+      .sort((a, b) => b.priority - a.priority || a.title.localeCompare(b.title));
   }
 
   private async searchReservations(
@@ -210,25 +223,33 @@ export class GlobalSearchService {
 
     const reservations = await queryBuilder.getMany();
 
-    return reservations.map((reservation) => ({
-      id: reservation.id,
-      type: GlobalSearchResultType.RESERVATION,
-      title: reservation.guest.displayName,
-      subtitle:
-        `${reservation.reservationCode} · ` +
-        `${reservation.arrivalDate} → ${reservation.departureDate}`,
-      description: reservation.room
-        ? `Room ${reservation.room.roomNumber} · ${reservation.roomType.name}`
-        : reservation.roomType.name,
-      badge: reservation.status,
-      route: `/reservations/${reservation.id}`,
-      priority: this.calculatePriority(
-        term,
-        reservation.reservationCode,
-        reservation.guest.displayName,
-        80,
-      ),
-    }));
+    return reservations
+      .map((reservation) => ({
+        id: reservation.id,
+        type: GlobalSearchResultType.RESERVATION,
+        title: reservation.guest.displayName,
+        subtitle:
+          `${reservation.reservationCode} · ` +
+          `${reservation.arrivalDate} → ${reservation.departureDate}`,
+        description: reservation.room
+          ? `Room ${reservation.room.roomNumber} · ${reservation.roomType.name}`
+          : reservation.roomType.name,
+        badge: reservation.status,
+        route: `/reservations/${reservation.id}`,
+        priority: calculateSearchPriority({
+          query: term,
+          basePriority: 80,
+          fields: [
+            { value: reservation.reservationCode, weight: 120 },
+            { value: reservation.room?.roomNumber, weight: 110 },
+            { value: reservation.guest.displayName, weight: 100 },
+            { value: reservation.guest.phone, weight: 90, normalizeDigits: true },
+            { value: reservation.guest.email, weight: 70 },
+            { value: reservation.roomType?.name, weight: 40 },
+          ],
+        }),
+      }))
+      .sort((a, b) => b.priority - a.priority || a.title.localeCompare(b.title));
   }
 
   private async searchStays(
@@ -293,23 +314,31 @@ export class GlobalSearchService {
 
     const stays = await queryBuilder.getMany();
 
-    return stays.map((stay) => ({
-      id: stay.id,
-      type: GlobalSearchResultType.STAY,
-      title: stay.guest.displayName,
-      subtitle: `${
-        stay.room ? `Room ${stay.room.roomNumber}` : stay.roomType.name
-      } · Due out ${stay.departureDate}`,
-      description: `${stay.reservationCode} · ${stay.guest.phone ?? ''}`,
-      badge: 'IN HOUSE',
-      route: `/guest-stay/${stay.id}`,
-      priority: this.calculatePriority(
-        term,
-        stay.room?.roomNumber ?? '',
-        stay.guest.displayName,
-        100,
-      ),
-    }));
+    return stays
+      .map((stay) => ({
+        id: stay.id,
+        type: GlobalSearchResultType.STAY,
+        title: stay.guest.displayName,
+        subtitle: `${
+          stay.room ? `Room ${stay.room.roomNumber}` : stay.roomType.name
+        } · Due out ${stay.departureDate}`,
+        description: `${stay.reservationCode} · ${stay.guest.phone ?? ''}`,
+        badge: 'IN HOUSE',
+        route: `/guest-stay/${stay.id}`,
+        priority: calculateSearchPriority({
+          query: term,
+          basePriority: 100,
+          fields: [
+            { value: stay.room?.roomNumber, weight: 130 },
+            { value: stay.reservationCode, weight: 120 },
+            { value: stay.guest.displayName, weight: 100 },
+            { value: stay.guest.phone, weight: 90, normalizeDigits: true },
+            { value: stay.guest.email, weight: 70 },
+            { value: stay.roomType?.name, weight: 40 },
+          ],
+        }),
+      }))
+      .sort((a, b) => b.priority - a.priority || a.title.localeCompare(b.title));
   }
 
   private async searchRooms(
@@ -352,16 +381,28 @@ export class GlobalSearchService {
       .take(limit)
       .getMany();
 
-    return rooms.map((room) => ({
-      id: room.id,
-      type: GlobalSearchResultType.ROOM,
-      title: `Room ${room.roomNumber}`,
-      subtitle: [room.roomType?.name, room.floor?.name].filter(Boolean).join(' · '),
-      description: room.displayName ?? undefined,
-      badge: room.operationalStatus,
-      route: `/rooms/${room.id}`,
-      priority: this.calculatePriority(term, room.roomNumber, room.displayName ?? '', 70),
-    }));
+    return rooms
+      .map((room) => ({
+        id: room.id,
+        type: GlobalSearchResultType.ROOM,
+        title: `Room ${room.roomNumber}`,
+        subtitle: [room.roomType?.name, room.floor?.name].filter(Boolean).join(' · '),
+        description: room.displayName ?? undefined,
+        badge: room.operationalStatus,
+        route: `/rooms/${room.id}`,
+        priority: calculateSearchPriority({
+          query: term,
+          basePriority: 70,
+          fields: [
+            { value: room.roomNumber, weight: 140 },
+            { value: room.displayName, weight: 100 },
+            { value: room.roomType?.code, weight: 80 },
+            { value: room.roomType?.name, weight: 70 },
+            { value: room.floor?.name, weight: 40 },
+          ],
+        }),
+      }))
+      .sort((a, b) => b.priority - a.priority || a.title.localeCompare(b.title));
   }
 
   private async searchFolios(
@@ -422,16 +463,30 @@ export class GlobalSearchService {
       .take(limit)
       .getMany();
 
-    return folios.map((folio) => ({
-      id: folio.id,
-      type: GlobalSearchResultType.FOLIO,
-      title: folio.folioNumber,
-      subtitle: `${folio.guest.displayName} · ` + `${folio.reservation.reservationCode}`,
-      description: folio.reservation.room ? `Room ${folio.reservation.room.roomNumber}` : undefined,
-      badge: folio.status,
-      route: `/billing/${folio.id}`,
-      priority: this.calculatePriority(term, folio.folioNumber, folio.guest.displayName, 75),
-    }));
+    return folios
+      .map((folio) => ({
+        id: folio.id,
+        type: GlobalSearchResultType.FOLIO,
+        title: folio.folioNumber,
+        subtitle: `${folio.guest.displayName} · ` + `${folio.reservation.reservationCode}`,
+        description: folio.reservation.room
+          ? `Room ${folio.reservation.room.roomNumber}`
+          : undefined,
+        badge: folio.status,
+        route: `/billing/${folio.id}`,
+        priority: calculateSearchPriority({
+          query: term,
+          basePriority: 75,
+          fields: [
+            { value: folio.folioNumber, weight: 140 },
+            { value: folio.reservation.reservationCode, weight: 120 },
+            { value: folio.reservation.room?.roomNumber, weight: 110 },
+            { value: folio.guest.displayName, weight: 100 },
+            { value: folio.guest.phone, weight: 90, normalizeDigits: true },
+          ],
+        }),
+      }))
+      .sort((a, b) => b.priority - a.priority || a.title.localeCompare(b.title));
   }
 
   private async searchGroupBookings(
@@ -490,47 +545,31 @@ export class GlobalSearchService {
 
     const groupBookings = await queryBuilder.getMany();
 
-    return groupBookings.map((groupBooking) => ({
-      id: groupBooking.id,
-      type: GlobalSearchResultType.GROUP_BOOKING,
-      title: groupBooking.groupName,
-      subtitle:
-        `${groupBooking.groupCode} · ` +
-        `${groupBooking.arrivalDate} → ${groupBooking.departureDate}`,
-      description:
-        `${groupBooking.leadName} · ` + `${groupBooking.adults + groupBooking.children} guests`,
-      badge: groupBooking.status,
-      route: `/reservations/group-holds/${groupBooking.id}`,
-      priority: this.calculatePriority(term, groupBooking.groupName, groupBooking.groupCode, 90),
-    }));
-  }
-
-  private calculatePriority(
-    term: string,
-    primaryValue: string,
-    secondaryValue: string,
-    basePriority: number,
-  ): number {
-    const normalizedTerm = term.toLowerCase();
-    const normalizedPrimary = (primaryValue ?? '').toLowerCase();
-    const normalizedSecondary = (secondaryValue ?? '').toLowerCase();
-
-    if (normalizedPrimary === normalizedTerm) {
-      return basePriority + 30;
-    }
-
-    if (normalizedSecondary === normalizedTerm) {
-      return basePriority + 25;
-    }
-
-    if (normalizedPrimary.startsWith(normalizedTerm)) {
-      return basePriority + 20;
-    }
-
-    if (normalizedSecondary.startsWith(normalizedTerm)) {
-      return basePriority + 15;
-    }
-
-    return basePriority;
+    return groupBookings
+      .map((groupBooking) => ({
+        id: groupBooking.id,
+        type: GlobalSearchResultType.GROUP_BOOKING,
+        title: groupBooking.groupName,
+        subtitle:
+          `${groupBooking.groupCode} · ` +
+          `${groupBooking.arrivalDate} → ${groupBooking.departureDate}`,
+        description:
+          `${groupBooking.leadName} · ` + `${groupBooking.adults + groupBooking.children} guests`,
+        badge: groupBooking.status,
+        route: `/reservations/group-holds/${groupBooking.id}`,
+        priority: calculateSearchPriority({
+          query: term,
+          basePriority: 90,
+          fields: [
+            { value: groupBooking.groupCode, weight: 140 },
+            { value: groupBooking.groupName, weight: 130 },
+            { value: groupBooking.leadName, weight: 100 },
+            { value: groupBooking.leadPhone, weight: 90, normalizeDigits: true },
+            { value: groupBooking.leadEmail, weight: 70 },
+            { value: groupBooking.notes, weight: 30 },
+          ],
+        }),
+      }))
+      .sort((a, b) => b.priority - a.priority || a.title.localeCompare(b.title));
   }
 }

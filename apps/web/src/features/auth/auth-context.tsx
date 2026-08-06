@@ -47,6 +47,7 @@ type AuthContextValue = {
   isAuthenticated: boolean;
   isBootstrapping: boolean;
   isLocked: boolean;
+  continueSession: () => Promise<void>;
   login: (payload: LoginPayload) => Promise<void>;
   logout: () => Promise<void>;
   lockSession: () => void;
@@ -64,6 +65,11 @@ const refreshTokenKey = 'stayos.refreshToken';
 const rememberDeviceKey = 'stayos.rememberDevice';
 const manualLogoutKey = 'stayos.manualLogout';
 const publicPaths = new Set(['/login']);
+const refreshExcludedPaths = ['/auth/login', '/auth/logout', '/auth/refresh', '/auth/unlock'];
+
+function isRefreshExcludedUrl(url: string) {
+  return refreshExcludedPaths.some((path) => url.includes(path));
+}
 
 function isPublicPath(pathname: string | null) {
   return Boolean(
@@ -237,6 +243,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLocked, setIsLocked] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const rawFetchRef = useRef<typeof fetch | undefined>(undefined);
+  const refreshPromiseRef = useRef<Promise<string> | null>(null);
 
   const redirectToLogin = useCallback(() => {
     if (hasManualLogout()) {
@@ -247,29 +254,68 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.replace(`/login${next}`);
   }, [pathname, router]);
 
-  const refreshTokens = useCallback(async () => {
-    const refreshToken = readToken(refreshTokenKey);
-    if (!refreshToken) throw new Error('Missing refresh token.');
+  const refreshTokens = useCallback((): Promise<string> => {
+    if (refreshPromiseRef.current) {
+      return refreshPromiseRef.current;
+    }
 
-    const response = await (rawFetchRef.current ?? fetch)(`${API_BASE_URL}/auth/refresh`, {
-      body: JSON.stringify({ refreshToken }),
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      method: 'POST',
-    });
-    const payload = await parseJson(response);
-    if (!response.ok) throw new Error(getMessage(payload, 'Session expired.'));
+    const refreshPromise = (async () => {
+      const refreshToken = readToken(refreshTokenKey);
+      if (!refreshToken) throw new Error('Missing refresh token.');
 
-    const data = unwrap<Record<string, unknown>>(payload as ApiResponse<Record<string, unknown>>);
-    const nextAccessToken = stringValue(data, ['accessToken', 'token']);
-    const nextRefreshToken = stringValue(data, ['refreshToken']);
-    if (!nextAccessToken) throw new Error('Refresh response did not include an access token.');
+      const response = await (rawFetchRef.current ?? fetch)(`${API_BASE_URL}/auth/refresh`, {
+        body: JSON.stringify({ refreshToken }),
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        method: 'POST',
+      });
+      const payload = await parseJson(response);
+      if (!response.ok) throw new Error(getMessage(payload, 'Session expired.'));
 
-    const persistent = window.localStorage.getItem(rememberDeviceKey) === 'true';
-    writeToken(accessTokenKey, nextAccessToken, persistent);
-    if (nextRefreshToken) writeToken(refreshTokenKey, nextRefreshToken, persistent);
-    setAccessToken(nextAccessToken);
-    return nextAccessToken;
+      const data = unwrap<Record<string, unknown>>(payload as ApiResponse<Record<string, unknown>>);
+      const nextAccessToken = stringValue(data, ['accessToken', 'token']);
+      const nextRefreshToken = stringValue(data, ['refreshToken']);
+      if (!nextAccessToken) throw new Error('Refresh response did not include an access token.');
+
+      const persistent = window.localStorage.getItem(rememberDeviceKey) === 'true';
+      writeToken(accessTokenKey, nextAccessToken, persistent);
+      if (nextRefreshToken) writeToken(refreshTokenKey, nextRefreshToken, persistent);
+      setAccessToken(nextAccessToken);
+      return nextAccessToken;
+    })();
+
+    refreshPromiseRef.current = refreshPromise;
+
+    void refreshPromise.then(
+      () => {
+        if (refreshPromiseRef.current === refreshPromise) {
+          refreshPromiseRef.current = null;
+        }
+      },
+      () => {
+        if (refreshPromiseRef.current === refreshPromise) {
+          refreshPromiseRef.current = null;
+        }
+      },
+    );
+
+    return refreshPromise;
   }, []);
+
+  const continueSession = useCallback(async () => {
+    setError(undefined);
+
+    try {
+      await refreshTokens();
+    } catch (continueError) {
+      const message =
+        continueError instanceof Error ? continueError.message : 'Unable to continue your session.';
+
+      setError(message);
+      throw new Error(message, {
+        cause: continueError,
+      });
+    }
+  }, [refreshTokens]);
 
   const authedFetch = useCallback(
     async (input: RequestInfo | URL, init: RequestInit = {}, retry = true): Promise<Response> => {
@@ -282,7 +328,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const payload = await parseJson(clone);
       const code = getErrorCode(payload);
 
-      if (response.status === 401 && code === 'SESSION_LOCKED') {
+      if ((response.status === 401 || response.status === 403) && code === 'SESSION_LOCKED') {
         setIsLocked(true);
         return response;
       }
@@ -377,17 +423,76 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const unlock = useCallback(
     async (password: string) => {
-      const response = await authedFetch(`${API_BASE_URL}/auth/unlock`, {
-        body: JSON.stringify({ password }),
-        headers: { 'Content-Type': 'application/json' },
+      const refreshToken = readToken(refreshTokenKey);
+
+      if (!refreshToken) {
+        clearTokens();
+        setAccessToken(undefined);
+        setUser(undefined);
+        setIsLocked(false);
+        redirectToLogin();
+        throw new Error('Your session has expired. Please sign in again.');
+      }
+
+      const response = await (rawFetchRef.current ?? fetch)(`${API_BASE_URL}/auth/unlock`, {
+        body: JSON.stringify({ refreshToken, password }),
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
         method: 'POST',
       });
+
       const payload = await parseJson(response);
-      if (!response.ok) throw new Error(getMessage(payload, 'Unable to unlock session.'));
+
+      if (!response.ok) {
+        const code = getErrorCode(payload);
+
+        if (code === 'INVALID_CREDENTIALS') {
+          throw new Error('The password you entered is incorrect.');
+        }
+
+        if (response.status === 401 || response.status === 403) {
+          const message = getMessage(payload, 'Unable to unlock session.');
+
+          if (code !== 'SESSION_LOCKED') {
+            clearTokens();
+            setAccessToken(undefined);
+            setUser(undefined);
+            setIsLocked(false);
+            redirectToLogin();
+          }
+
+          throw new Error(message);
+        }
+
+        throw new Error(getMessage(payload, 'Unable to unlock session.'));
+      }
+
+      const data = unwrap<Record<string, unknown>>(payload as ApiResponse<Record<string, unknown>>);
+      const nextAccessToken = stringValue(data, ['accessToken', 'token']);
+      const nextRefreshToken = stringValue(data, ['refreshToken']);
+
+      if (!nextAccessToken || !nextRefreshToken) {
+        throw new Error('Unlock response did not include session tokens.');
+      }
+
+      const persistent = window.localStorage.getItem(rememberDeviceKey) === 'true';
+      writeToken(accessTokenKey, nextAccessToken, persistent);
+      writeToken(refreshTokenKey, nextRefreshToken, persistent);
+      setAccessToken(nextAccessToken);
+
+      const meResponse = await (rawFetchRef.current ?? fetch)(`${API_BASE_URL}/auth/me`, {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${nextAccessToken}` },
+      });
+      const mePayload = await parseJson(meResponse);
+
+      if (!meResponse.ok) {
+        throw new Error(getMessage(mePayload, 'Unable to restore your workspace.'));
+      }
+
+      setUser(mapUser(unwrap(mePayload as ApiResponse<unknown>)));
       setIsLocked(false);
-      await refreshCurrentUser();
+      setError(undefined);
     },
-    [authedFetch, refreshCurrentUser],
+    [redirectToLogin],
   );
 
   const lockSession = useCallback(() => {
@@ -411,12 +516,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const response = await rawFetch(input, { ...init, headers });
-      if (
-        !isStayApi ||
-        response.status !== 401 ||
-        url.includes('/auth/refresh') ||
-        isCurrentRoutePublic
-      ) {
+      if (!isStayApi || isRefreshExcludedUrl(url) || isCurrentRoutePublic) {
+        return response;
+      }
+
+      if (response.status !== 401 && response.status !== 403) {
         return response;
       }
 
@@ -424,6 +528,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const code = getErrorCode(payload);
       if (code === 'SESSION_LOCKED') {
         setIsLocked(true);
+        return response;
+      }
+
+      if (response.status !== 401) {
         return response;
       }
 
@@ -483,6 +591,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(
     () => ({
       accessToken,
+      continueSession,
       error,
       isAuthenticated: Boolean(user && accessToken),
       isBootstrapping,
@@ -496,6 +605,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }),
     [
       accessToken,
+      continueSession,
       error,
       isBootstrapping,
       isLocked,
