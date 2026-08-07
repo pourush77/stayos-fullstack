@@ -4,6 +4,11 @@ import { Alert, Button, Group, Modal, Stack, Text, Title } from '@mantine/core';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useAuth } from './auth-context';
+import {
+  createSessionSourceId,
+  publishSessionEvent,
+  subscribeToSessionEvents,
+} from './session-channel';
 
 const DEFAULT_WARNING_MINUTES = 18;
 const DEFAULT_LOCK_MINUTES = 20;
@@ -56,68 +61,66 @@ export function SessionActivityProvider({ children }: { children: ReactNode }) {
   const countdownTimerRef = useRef<number | null>(null);
   const lastHandledActivityRef = useRef(0);
   const warningOpenRef = useRef(false);
+  const sessionSourceIdRef = useRef(createSessionSourceId());
 
   const [warningOpen, setWarningOpen] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(warningCountdownSeconds);
   const [isContinuing, setIsContinuing] = useState(false);
   const [continueError, setContinueError] = useState<string>();
 
-  const clearTimers = useCallback(() => {
-    if (warningTimerRef.current) {
-      window.clearTimeout(warningTimerRef.current);
-      warningTimerRef.current = null;
-    }
-
-    if (lockTimerRef.current) {
-      window.clearTimeout(lockTimerRef.current);
-      lockTimerRef.current = null;
-    }
-
-    if (countdownTimerRef.current) {
+  const clearCountdownTimer = useCallback(() => {
+    if (countdownTimerRef.current !== null) {
       window.clearInterval(countdownTimerRef.current);
       countdownTimerRef.current = null;
     }
   }, []);
+
+  const clearIdleTimers = useCallback(() => {
+    if (warningTimerRef.current !== null) {
+      window.clearTimeout(warningTimerRef.current);
+      warningTimerRef.current = null;
+    }
+
+    if (lockTimerRef.current !== null) {
+      window.clearTimeout(lockTimerRef.current);
+      lockTimerRef.current = null;
+    }
+
+    clearCountdownTimer();
+  }, [clearCountdownTimer]);
 
   const closeWarning = useCallback(() => {
     warningOpenRef.current = false;
     setWarningOpen(false);
     setContinueError(undefined);
     setSecondsRemaining(warningCountdownSeconds);
-
-    if (countdownTimerRef.current) {
-      window.clearInterval(countdownTimerRef.current);
-      countdownTimerRef.current = null;
-    }
-  }, [warningCountdownSeconds]);
+    clearCountdownTimer();
+  }, [clearCountdownTimer, warningCountdownSeconds]);
 
   const lockApplication = useCallback(() => {
-    clearTimers();
+    clearIdleTimers();
     closeWarning();
     auth.lockSession();
-  }, [auth, clearTimers, closeWarning]);
+  }, [auth, clearIdleTimers, closeWarning]);
 
   const startCountdown = useCallback(() => {
     let remaining = warningCountdownSeconds;
-    setSecondsRemaining(remaining);
 
-    if (countdownTimerRef.current) {
-      window.clearInterval(countdownTimerRef.current);
-    }
+    setSecondsRemaining(remaining);
+    clearCountdownTimer();
 
     countdownTimerRef.current = window.setInterval(() => {
       remaining -= 1;
       setSecondsRemaining(Math.max(0, remaining));
 
-      if (remaining <= 0 && countdownTimerRef.current) {
-        window.clearInterval(countdownTimerRef.current);
-        countdownTimerRef.current = null;
+      if (remaining <= 0) {
+        clearCountdownTimer();
       }
     }, 1_000);
-  }, [warningCountdownSeconds]);
+  }, [clearCountdownTimer, warningCountdownSeconds]);
 
   const scheduleIdleTimers = useCallback(() => {
-    clearTimers();
+    clearIdleTimers();
 
     if (!auth.isAuthenticated || auth.isBootstrapping || auth.isLocked || isPublicPath(pathname)) {
       return;
@@ -137,13 +140,41 @@ export function SessionActivityProvider({ children }: { children: ReactNode }) {
     auth.isAuthenticated,
     auth.isBootstrapping,
     auth.isLocked,
-    clearTimers,
+    clearIdleTimers,
     lockApplication,
     lockMs,
     pathname,
     startCountdown,
     warningMs,
   ]);
+
+  const resetFromActivity = useCallback(
+    (shouldCloseWarning: boolean) => {
+      if (
+        !auth.isAuthenticated ||
+        auth.isBootstrapping ||
+        auth.isLocked ||
+        isPublicPath(pathname)
+      ) {
+        return;
+      }
+
+      if (shouldCloseWarning) {
+        closeWarning();
+      }
+
+      lastHandledActivityRef.current = Date.now();
+      scheduleIdleTimers();
+    },
+    [
+      auth.isAuthenticated,
+      auth.isBootstrapping,
+      auth.isLocked,
+      closeWarning,
+      pathname,
+      scheduleIdleTimers,
+    ],
+  );
 
   const registerActivity = useCallback(() => {
     if (
@@ -164,9 +195,19 @@ export function SessionActivityProvider({ children }: { children: ReactNode }) {
 
     lastHandledActivityRef.current = now;
     scheduleIdleTimers();
+
+    publishSessionEvent({
+      type: 'activity',
+      timestamp: now,
+      sourceId: sessionSourceIdRef.current,
+    });
   }, [auth.isAuthenticated, auth.isBootstrapping, auth.isLocked, pathname, scheduleIdleTimers]);
 
   const continueWorking = useCallback(async () => {
+    if (isContinuing) {
+      return;
+    }
+
     setIsContinuing(true);
     setContinueError(undefined);
 
@@ -180,7 +221,7 @@ export function SessionActivityProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsContinuing(false);
     }
-  }, [auth, closeWarning, scheduleIdleTimers]);
+  }, [auth, closeWarning, isContinuing, scheduleIdleTimers]);
 
   useEffect(() => {
     warningOpenRef.current = warningOpen;
@@ -190,9 +231,41 @@ export function SessionActivityProvider({ children }: { children: ReactNode }) {
     scheduleIdleTimers();
 
     return () => {
-      clearTimers();
+      clearIdleTimers();
     };
-  }, [clearTimers, scheduleIdleTimers]);
+  }, [clearIdleTimers, scheduleIdleTimers]);
+
+  useEffect(() => {
+    return subscribeToSessionEvents((event) => {
+      if (event.sourceId === sessionSourceIdRef.current) {
+        return;
+      }
+
+      switch (event.type) {
+        case 'activity':
+          resetFromActivity(true);
+          break;
+
+        case 'tokens-refreshed':
+        case 'unlocked':
+          resetFromActivity(true);
+          break;
+
+        case 'locked':
+          clearIdleTimers();
+          closeWarning();
+          break;
+
+        case 'logout':
+          clearIdleTimers();
+          closeWarning();
+          break;
+
+        default:
+          break;
+      }
+    });
+  }, [clearIdleTimers, closeWarning, resetFromActivity]);
 
   useEffect(() => {
     if (!auth.isAuthenticated || auth.isBootstrapping || auth.isLocked || isPublicPath(pathname)) {
@@ -240,60 +313,81 @@ export function SessionActivityProvider({ children }: { children: ReactNode }) {
         closeOnEscape={false}
         onClose={() => undefined}
         opened={warningOpen && !auth.isLocked}
+        overlayProps={{
+          backgroundOpacity: 0.55,
+          blur: 2,
+        }}
         title={null}
+        trapFocus
         withCloseButton={false}
       >
-        <Stack gap="lg">
-          <Stack gap={6}>
-            <Title order={2} style={{ fontSize: 22, lineHeight: 1.25 }}>
-              Still working?
-            </Title>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void continueWorking();
+          }}
+        >
+          <Stack gap="lg">
+            <Stack gap={6}>
+              <Title order={2} style={{ fontSize: 22, lineHeight: 1.25 }}>
+                Your session is about to lock
+              </Title>
 
-            <Text c="dimmed" size="sm">
-              StayOS will lock because there has been no activity.
+              <Text c="dimmed" size="sm">
+                You have been inactive for a while. Continue working to keep your StayOS session
+                active.
+              </Text>
+            </Stack>
+
+            <Stack align="center" gap={4}>
+              <Text c="dimmed" size="xs" tt="uppercase" fw={700}>
+                Time remaining
+              </Text>
+
+              <Text
+                fw={700}
+                ta="center"
+                aria-live="polite"
+                style={{
+                  fontSize: 36,
+                  fontVariantNumeric: 'tabular-nums',
+                  letterSpacing: '0.04em',
+                  lineHeight: 1.2,
+                }}
+              >
+                {formatCountdown(secondsRemaining)}
+              </Text>
+            </Stack>
+
+            {continueError ? (
+              <Alert color="red" title="Unable to continue session">
+                {continueError}
+              </Alert>
+            ) : null}
+
+            <Group grow>
+              <Button autoFocus loading={isContinuing} type="submit">
+                Continue working
+              </Button>
+
+              <Button
+                color="gray"
+                disabled={isContinuing}
+                type="button"
+                variant="light"
+                onClick={() => {
+                  void auth.logout();
+                }}
+              >
+                Logout
+              </Button>
+            </Group>
+
+            <Text c="dimmed" size="xs" ta="center">
+              Press Enter to continue your session.
             </Text>
           </Stack>
-
-          <Text
-            fw={700}
-            ta="center"
-            style={{
-              fontSize: 34,
-              fontVariantNumeric: 'tabular-nums',
-              letterSpacing: '0.04em',
-            }}
-          >
-            {formatCountdown(secondsRemaining)}
-          </Text>
-
-          {continueError ? (
-            <Alert color="red" title="Unable to continue session">
-              {continueError}
-            </Alert>
-          ) : null}
-
-          <Group grow>
-            <Button
-              loading={isContinuing}
-              onClick={() => {
-                void continueWorking();
-              }}
-            >
-              Continue working
-            </Button>
-
-            <Button
-              color="gray"
-              disabled={isContinuing}
-              variant="light"
-              onClick={() => {
-                void auth.logout();
-              }}
-            >
-              Logout
-            </Button>
-          </Group>
-        </Stack>
+        </form>
       </Modal>
     </>
   );

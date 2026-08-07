@@ -13,6 +13,11 @@ import {
 import type { ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { API_BASE_URL } from '../../lib/api-base';
+import {
+  createSessionSourceId,
+  publishSessionEvent,
+  subscribeToSessionEvents,
+} from './session-channel';
 
 type AuthRole =
   | 'FRONT_DESK'
@@ -244,6 +249,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | undefined>();
   const rawFetchRef = useRef<typeof fetch | undefined>(undefined);
   const refreshPromiseRef = useRef<Promise<string> | null>(null);
+  const sessionSourceIdRef = useRef(createSessionSourceId());
 
   const redirectToLogin = useCallback(() => {
     if (hasManualLogout()) {
@@ -280,6 +286,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       writeToken(accessTokenKey, nextAccessToken, persistent);
       if (nextRefreshToken) writeToken(refreshTokenKey, nextRefreshToken, persistent);
       setAccessToken(nextAccessToken);
+
+      publishSessionEvent({
+        type: 'tokens-refreshed',
+        timestamp: Date.now(),
+        sourceId: sessionSourceIdRef.current,
+        accessToken: nextAccessToken,
+        refreshToken: nextRefreshToken || undefined,
+        persistent,
+      });
+
       return nextAccessToken;
     })();
 
@@ -374,6 +390,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAccessToken(undefined);
     setUser(undefined);
     setIsLocked(false);
+
+    publishSessionEvent({
+      type: 'logout',
+      timestamp: Date.now(),
+      sourceId: sessionSourceIdRef.current,
+    });
+
     router.replace('/login');
   }, [authedFetch, router]);
 
@@ -400,6 +423,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       writeToken(accessTokenKey, nextAccessToken, rememberDevice);
       writeToken(refreshTokenKey, nextRefreshToken, rememberDevice);
       setAccessToken(nextAccessToken);
+
+      publishSessionEvent({
+        type: 'tokens-refreshed',
+        timestamp: Date.now(),
+        sourceId: sessionSourceIdRef.current,
+        accessToken: nextAccessToken,
+        refreshToken: nextRefreshToken,
+        persistent: rememberDevice,
+      });
 
       const meResponse = await (rawFetchRef.current ?? fetch)(`${API_BASE_URL}/auth/me`, {
         headers: { Accept: 'application/json', Authorization: `Bearer ${nextAccessToken}` },
@@ -491,13 +523,85 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(mapUser(unwrap(mePayload as ApiResponse<unknown>)));
       setIsLocked(false);
       setError(undefined);
+
+      publishSessionEvent({
+        type: 'unlocked',
+        timestamp: Date.now(),
+        sourceId: sessionSourceIdRef.current,
+        accessToken: nextAccessToken,
+        refreshToken: nextRefreshToken,
+        persistent,
+      });
     },
     [redirectToLogin],
   );
 
   const lockSession = useCallback(() => {
     setIsLocked(true);
+
+    publishSessionEvent({
+      type: 'locked',
+      timestamp: Date.now(),
+      sourceId: sessionSourceIdRef.current,
+    });
   }, []);
+
+  useEffect(() => {
+    return subscribeToSessionEvents((event) => {
+      if (event.sourceId === sessionSourceIdRef.current) {
+        return;
+      }
+
+      switch (event.type) {
+        case 'tokens-refreshed': {
+          writeToken(accessTokenKey, event.accessToken, event.persistent);
+
+          if (event.refreshToken) {
+            writeToken(refreshTokenKey, event.refreshToken, event.persistent);
+          }
+
+          setAccessToken(event.accessToken);
+          setError(undefined);
+          break;
+        }
+
+        case 'locked': {
+          setIsLocked(true);
+          break;
+        }
+
+        case 'unlocked': {
+          if (event.accessToken && typeof event.persistent === 'boolean') {
+            writeToken(accessTokenKey, event.accessToken, event.persistent);
+            setAccessToken(event.accessToken);
+          }
+
+          if (event.refreshToken && typeof event.persistent === 'boolean') {
+            writeToken(refreshTokenKey, event.refreshToken, event.persistent);
+          }
+
+          setIsLocked(false);
+          setError(undefined);
+          break;
+        }
+
+        case 'logout': {
+          clearTokens();
+          setAccessToken(undefined);
+          setUser(undefined);
+          setIsLocked(false);
+          setError(undefined);
+          setManualLogout();
+          router.replace('/login');
+          break;
+        }
+
+        case 'activity':
+        default:
+          break;
+      }
+    });
+  }, [router]);
 
   useLayoutEffect(() => {
     if (typeof window === 'undefined') return undefined;
