@@ -56,6 +56,13 @@ export function SessionActivityProvider({ children }: { children: ReactNode }) {
   const lockMs = Math.max(lockMinutes * 60_000, warningMs + 1_000);
   const warningCountdownSeconds = Math.max(1, Math.ceil((lockMs - warningMs) / 1_000));
 
+  console.log('SESSION CONFIG', {
+    warningMinutes,
+    lockMinutes,
+    warningMs,
+    lockMs,
+  });
+
   const warningTimerRef = useRef<number | null>(null);
   const lockTimerRef = useRef<number | null>(null);
   const countdownTimerRef = useRef<number | null>(null);
