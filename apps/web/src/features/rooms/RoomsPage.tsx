@@ -16,6 +16,7 @@ import {
   ScrollArea,
   Select,
   SimpleGrid,
+  Skeleton,
   Stack,
   Text,
   TextInput,
@@ -36,7 +37,6 @@ import {
   Brush,
   CheckCircle2,
   DoorOpen,
-  Hotel,
   MapPin,
   Search,
   Sparkles,
@@ -1999,6 +1999,94 @@ function FilterPills({
   );
 }
 
+function RoomsPageLoading({ isAssignmentFocus }: { isAssignmentFocus: boolean }) {
+  return (
+    <Stack gap={spacing[3]} aria-label="Loading rooms" aria-busy="true">
+      <Group justify="space-between" align="flex-start" gap={spacing[4]}>
+        <Box>
+          <Title order={1} className={styles.pageTitle}>
+            Rooms
+          </Title>
+          <Text mt={spacing[1]} className={styles.pageSubtitle}>
+            {isAssignmentFocus
+              ? 'Showing rooms ready for today assignment.'
+              : 'Manage live room operations across the property.'}
+          </Text>
+          <Skeleton mt={spacing[2]} height={13} width={280} radius="sm" />
+        </Box>
+
+        <Skeleton height={36} width={160} radius="md" />
+      </Group>
+
+      <SimpleGrid cols={{ base: 1, xs: 2, md: 3, xl: 6 }} spacing={spacing[3]}>
+        {Array.from({ length: 5 }).map((_, index) => (
+          <Paper
+            key={`room-summary-skeleton-${index}`}
+            radius={radius.lg}
+            p={18}
+            className={styles.summaryCard}
+          >
+            <Group justify="space-between" align="flex-start" wrap="nowrap">
+              <Box style={{ flex: 1 }}>
+                <Skeleton height={12} width={82} radius="sm" />
+                <Skeleton mt={8} height={28} width={34} radius="sm" />
+                <Skeleton mt={7} height={11} width="78%" radius="sm" />
+              </Box>
+              <Skeleton height={34} width={34} radius={radius.full} />
+            </Group>
+          </Paper>
+        ))}
+      </SimpleGrid>
+
+      <Card radius={radius.lg} p={12} className={styles.surfaceCard}>
+        <Group gap={spacing[2]} align="center" wrap="wrap">
+          <Skeleton height={40} style={{ flex: 1, minWidth: 280 }} radius="md" />
+          <Skeleton height={40} width={190} radius="md" />
+          <Skeleton height={40} width={210} radius="md" />
+        </Group>
+      </Card>
+
+      <Card radius={radius.lg} p={12} className={styles.surfaceCard}>
+        <Stack gap={spacing[3]}>
+          <Group gap={12} wrap="wrap">
+            <Skeleton height={30} width={90} radius={radius.full} />
+            <Skeleton height={30} width={110} radius={radius.full} />
+            <Skeleton height={30} width={100} radius={radius.full} />
+          </Group>
+
+          <SimpleGrid cols={{ base: 1, sm: 2, md: 3, xl: 4 }} spacing={spacing[3]}>
+            {Array.from({ length: 12 }).map((_, index) => (
+              <Paper
+                key={`room-card-skeleton-${index}`}
+                radius={radius.lg}
+                p={11}
+                style={{ ...cardStyle, minHeight: 165 }}
+              >
+                <Stack gap={9}>
+                  <Group justify="space-between" align="flex-start" wrap="nowrap">
+                    <Box style={{ flex: 1 }}>
+                      <Skeleton height={27} width={52} radius="sm" />
+                      <Group mt={7} gap={6}>
+                        <Skeleton height={26} width={76} radius={radius.full} />
+                        <Skeleton height={24} width={42} radius={radius.full} />
+                      </Group>
+                    </Box>
+                    <Skeleton height={24} width={72} radius={radius.full} />
+                  </Group>
+
+                  <Skeleton height={12} width="58%" radius="sm" />
+                  <Skeleton height={11} width="78%" radius="sm" />
+                  <Skeleton mt={3} height={30} width="100%" radius="md" />
+                </Stack>
+              </Paper>
+            ))}
+          </SimpleGrid>
+        </Stack>
+      </Card>
+    </Stack>
+  );
+}
+
 export default function RoomsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -2049,6 +2137,7 @@ export default function RoomsPage() {
   const [maintenanceReportRoom, setMaintenanceReportRoom] = useState<Room | null>(null);
   const [isReportingMaintenance, setIsReportingMaintenance] = useState(false);
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
+  const [isLoadingSidebar, setIsLoadingSidebar] = useState(true);
   const isAssignmentFocus = searchParams.get('mode') === 'assign';
   const assignmentReservationId = searchParams.get('reservationId') ?? undefined;
 
@@ -2084,9 +2173,18 @@ export default function RoomsPage() {
   }, [isAssignmentFocus, searchParams]);
 
   useEffect(() => {
-    if (!backend.isOnline || !inventory.propertyId || inventory.isFallback) return;
+    if (!backend.isOnline || inventory.isFallback) {
+      setIsLoadingSidebar(false);
+      return undefined;
+    }
+
+    if (!inventory.propertyId) {
+      setIsLoadingSidebar(true);
+      return undefined;
+    }
 
     const controller = new AbortController();
+    setIsLoadingSidebar(true);
 
     async function loadSidebar() {
       try {
@@ -2098,8 +2196,13 @@ export default function RoomsPage() {
         setAttentionItems(attention);
         setActivityItems(activity);
       } catch {
+        if (controller.signal.aborted) return;
         setAttentionItems([]);
         setActivityItems([]);
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoadingSidebar(false);
+        }
       }
     }
 
@@ -2642,6 +2745,15 @@ export default function RoomsPage() {
     );
   }
 
+  const isInitialPageLoading =
+    backend.isOnline &&
+    !inventory.isFallback &&
+    (inventory.isLoading || reservationsState.isLoading || isLoadingSidebar);
+
+  if (isInitialPageLoading) {
+    return <RoomsPageLoading isAssignmentFocus={isAssignmentFocus} />;
+  }
+
   return (
     <Stack gap={spacing[3]}>
       {pageHeader}
@@ -2651,12 +2763,6 @@ export default function RoomsPage() {
           <SummaryCard key={item.label} {...item} />
         ))}
       </SimpleGrid>
-
-      {inventory.isLoading ? (
-        <Alert color="blue" variant="light" icon={<Hotel size={17} />} radius={radius.lg}>
-          Loading live room inventory...
-        </Alert>
-      ) : null}
 
       {isAssignmentFocus && !inventory.isLoading ? (
         <Paper radius={radius.lg} p={14} className={styles.assignmentFocusBanner}>

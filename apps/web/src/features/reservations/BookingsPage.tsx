@@ -10,7 +10,9 @@ import {
   Button,
   Card,
   Group,
+  Loader,
   Select,
+  Skeleton,
   Stack,
   Table,
   Text,
@@ -18,7 +20,16 @@ import {
   ThemeIcon,
   Title,
 } from '@mantine/core';
-import { AlertCircle, CalendarDays, ChevronLeft, Edit, Plus, Search, UserPlus, Users } from 'lucide-react';
+import {
+  AlertCircle,
+  CalendarDays,
+  ChevronLeft,
+  Edit,
+  Plus,
+  Search,
+  UserPlus,
+  Users,
+} from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import {
   BackendUnavailable,
@@ -62,7 +73,8 @@ function nextAction(booking: Booking) {
 function matchesFilter(booking: Booking, filter: BookingFilter) {
   const today = dateKey(new Date());
   if (filter === 'arrivals-today') return booking.arrivalDate === today;
-  if (filter === 'departures-today') return booking.departureDate === today && booking.status === 'CHECKED_IN';
+  if (filter === 'departures-today')
+    return booking.departureDate === today && booking.status === 'CHECKED_IN';
   if (filter === 'pending') return booking.status === 'PENDING';
   if (filter === 'confirmed') return booking.status === 'CONFIRMED';
   if (filter === 'checked-in') return booking.status === 'CHECKED_IN';
@@ -72,6 +84,80 @@ function matchesFilter(booking: Booking, filter: BookingFilter) {
   if (filter === 'vip') return booking.isVip;
   if (filter === 'cancelled') return booking.status === 'CANCELLED';
   return true;
+}
+
+function BookingsPageLoading() {
+  return (
+    <Stack gap={spacing[3]} aria-label="Loading bookings" aria-busy="true">
+      <Group justify="space-between" align="flex-start" gap={spacing[4]}>
+        <Stack gap={8}>
+          <Skeleton height={36} width={180} radius="sm" />
+          <Skeleton height={18} width={520} maw="75vw" radius="sm" />
+          <Skeleton height={16} width={260} radius="sm" />
+        </Stack>
+
+        <Group gap={8}>
+          <Skeleton height={36} width={150} radius="md" />
+          <Skeleton height={36} width={125} radius="md" />
+          <Skeleton height={36} width={125} radius="md" />
+          <Skeleton height={36} width={125} radius="md" />
+        </Group>
+      </Group>
+
+      <Card radius={radius.lg} p={12} style={cardStyle}>
+        <Group gap={spacing[2]} wrap="wrap">
+          <Skeleton height={38} style={{ flex: 1, minWidth: 280 }} radius="md" />
+          <Skeleton height={38} width={220} radius="md" />
+        </Group>
+      </Card>
+
+      <Card p={0} radius={radius.lg} style={{ ...cardStyle, overflow: 'hidden' }}>
+        <Box p={18} bg="#f8fafc">
+          <Group justify="space-between" wrap="nowrap">
+            {Array.from({ length: 7 }).map((_, index) => (
+              <Skeleton
+                key={`booking-header-${index}`}
+                height={12}
+                width={index < 2 ? 110 : 75}
+                radius="sm"
+              />
+            ))}
+          </Group>
+        </Box>
+
+        <Stack gap={0}>
+          {Array.from({ length: 7 }).map((_, rowIndex) => (
+            <Box
+              key={`booking-loading-row-${rowIndex}`}
+              px={18}
+              py={16}
+              style={{ borderTop: '1px solid #eef2f7' }}
+            >
+              <Group justify="space-between" wrap="nowrap">
+                <Skeleton height={16} width={105} radius="sm" />
+                <Stack gap={5} w={145}>
+                  <Skeleton height={15} width="80%" radius="sm" />
+                  <Skeleton height={11} width="60%" radius="sm" />
+                </Stack>
+                <Skeleton height={15} width={115} radius="sm" />
+                <Skeleton height={15} width={90} radius="sm" />
+                <Skeleton height={24} width={78} radius="xl" />
+                <Skeleton height={24} width={78} radius="xl" />
+                <Skeleton height={30} width={92} radius="md" />
+              </Group>
+            </Box>
+          ))}
+        </Stack>
+      </Card>
+
+      <Group justify="center" gap={8} py={4}>
+        <Loader color="stayosBrand" size="xs" />
+        <Text c="#64748b" size="sm">
+          Loading complete booking information...
+        </Text>
+      </Group>
+    </Stack>
+  );
 }
 
 export default function BookingsPage() {
@@ -94,6 +180,7 @@ export default function BookingsPage() {
   const [inHouseGroups, setInHouseGroups] = useState<InHouseGroupDto[]>([]);
   const [walkInOpen, setWalkInOpen] = useState(false);
   const [activePropertyId, setActivePropertyId] = useState<string>('');
+  const [isLoadingGroups, setIsLoadingGroups] = useState(true);
 
   useEffect(() => {
     if (!enabled) return undefined;
@@ -114,8 +201,14 @@ export default function BookingsPage() {
   }, [bookingState.refreshBookings, enabled]);
 
   useEffect(() => {
-    if (!enabled) return undefined;
+    if (!enabled) {
+      setIsLoadingGroups(false);
+      return undefined;
+    }
+
     const controller = new AbortController();
+    setIsLoadingGroups(true);
+
     (async () => {
       try {
         const properties = await getProperties(controller.signal);
@@ -123,13 +216,24 @@ export default function BookingsPage() {
           properties.find(
             (property) => String(property.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE',
           ) ?? properties[0];
+
         const propertyId = typeof active?.id === 'string' ? active.id : '';
-        if (!propertyId) return;
+
+        if (!propertyId) {
+          setActivePropertyId('');
+          setGroupHolds([]);
+          setRecentlyDepartedGroups([]);
+          setInHouseGroups([]);
+          return;
+        }
+
         setActivePropertyId(propertyId);
+
         const [holds, groups] = await Promise.all([
           getGroupHolds(propertyId, controller.signal),
           getInHouseGroups(propertyId, controller.signal),
         ]);
+
         setGroupHolds(
           holds.filter((hold) => hold.status === 'ON_HOLD' || hold.status === 'CONFIRMED'),
         );
@@ -141,8 +245,13 @@ export default function BookingsPage() {
           setRecentlyDepartedGroups([]);
           setInHouseGroups([]);
         }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoadingGroups(false);
+        }
       }
     })();
+
     return () => controller.abort();
   }, [enabled]);
 
@@ -199,13 +308,20 @@ export default function BookingsPage() {
             : 'Create bookings, assign rooms, start check-in, and track payment status.'}
         </Text>
         <Text c="#334155" mt={spacing[2]} size="sm" fw={600}>
-          {filter === 'all' ? bookingState.bookings.length : bookings.length} {filter === 'all' ? 'bookings' : 'shown'} -{' '}
+          {filter === 'all' ? bookingState.bookings.length : bookings.length}{' '}
+          {filter === 'all' ? 'bookings' : 'shown'} -{' '}
           {bookingState.bookings.filter((booking) => booking.room === 'Unassigned').length}{' '}
           unassigned
         </Text>
       </Box>
       <Group gap={8}>
-        <Button component={Link} href="/" variant="light" color="gray" leftSection={<ChevronLeft size={16} />}>
+        <Button
+          component={Link}
+          href="/"
+          variant="light"
+          color="gray"
+          leftSection={<ChevronLeft size={16} />}
+        >
           Back to Front Desk
         </Button>
         <Button
@@ -269,6 +385,12 @@ export default function BookingsPage() {
       </Stack>
     );
 
+  const isInitialPageLoading = bookingState.isLoading || isLoadingGroups;
+
+  if (isInitialPageLoading) {
+    return <BookingsPageLoading />;
+  }
+
   return (
     <Stack gap={spacing[3]}>
       {pageHeader}
@@ -283,7 +405,8 @@ export default function BookingsPage() {
       />
       {filter === 'departures-today' ? (
         <Alert color="orange" variant="light" icon={<CalendarDays size={17} />} radius={radius.lg}>
-          Showing checked-in guests departing today. Open a booking to settle dues and complete checkout.
+          Showing checked-in guests departing today. Open a booking to settle dues and complete
+          checkout.
         </Alert>
       ) : null}
       {filter === 'arrivals-today' ? (
@@ -467,11 +590,6 @@ export default function BookingsPage() {
           </Group>
         </Card>
       ) : null}
-      {bookingState.isLoading ? (
-        <Alert color="blue" variant="light" icon={<CalendarDays size={17} />} radius={radius.lg}>
-          Loading bookings...
-        </Alert>
-      ) : null}
       {bookingState.isFallback && bookingState.error ? (
         <Alert color="yellow" variant="light" icon={<AlertCircle size={17} />} radius={radius.lg}>
           Demo fallback is enabled, so Bookings is showing sample data.
@@ -530,7 +648,10 @@ export default function BookingsPage() {
               </Table.Thead>
               <Table.Tbody>
                 {bookings.map((booking) => (
-                  <Table.Tr key={booking.backendId} data-testid={`booking-row-${booking.backendId}`}>
+                  <Table.Tr
+                    key={booking.backendId}
+                    data-testid={`booking-row-${booking.backendId}`}
+                  >
                     <Table.Td>
                       <Text
                         component={Link}

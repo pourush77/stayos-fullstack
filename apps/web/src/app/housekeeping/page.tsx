@@ -14,6 +14,7 @@ import {
   Popover,
   Select,
   SimpleGrid,
+  Skeleton,
   Stack,
   Text,
   TextInput,
@@ -281,7 +282,11 @@ function getHousekeepingAgeLabel(room: HousekeepingRoom) {
     const elapsed = formatElapsedTime(room.inspectedAt ?? fallbackAt, { includeAgo: true });
     return elapsed ? `Ready since ${elapsed}` : 'Recently updated';
   }
-  if (room.status === 'maintenance' || room.status === 'out-of-order' || room.status === 'out-of-service') {
+  if (
+    room.status === 'maintenance' ||
+    room.status === 'out-of-order' ||
+    room.status === 'out-of-service'
+  ) {
     const elapsed = formatElapsedTime(fallbackAt);
     return elapsed ? `Blocked for ${elapsed}` : 'Recently updated';
   }
@@ -391,7 +396,10 @@ export function housekeepingGroupCount(
 }
 
 export function housekeepingVisibleRoomTotal(rooms: HousekeepingRoom[]) {
-  return groups.reduce((total, group) => total + rooms.filter((room) => roomMatchesGroup(room, group.key)).length, 0);
+  return groups.reduce(
+    (total, group) => total + rooms.filter((room) => roomMatchesGroup(room, group.key)).length,
+    0,
+  );
 }
 
 function ChecklistButtons({
@@ -804,6 +812,148 @@ function RoomCard({
   );
 }
 
+function HousekeepingPageLoading() {
+  return (
+    <Stack
+      gap={spacing[3]}
+      mih="100%"
+      aria-label="Loading housekeeping"
+      aria-busy="true"
+      data-testid="housekeeping-page-loading"
+    >
+      <Group justify="space-between" align="flex-start" gap={spacing[4]} wrap="wrap">
+        <Box>
+          <Skeleton height={38} width={220} radius="sm" />
+          <Skeleton mt={6} height={15} width={420} maw="70vw" radius="sm" />
+        </Box>
+
+        <Group gap={spacing[2]} justify="flex-end" wrap="wrap">
+          <Skeleton height={28} width={82} radius={radius.full} />
+          <Skeleton height={28} width={105} radius={radius.full} />
+          <Skeleton height={28} width={112} radius={radius.full} />
+          <Skeleton height={36} width={125} radius="md" />
+        </Group>
+      </Group>
+
+      <SimpleGrid cols={{ base: 1, xs: 2, md: 3, xl: 6 }} spacing={spacing[3]}>
+        {Array.from({ length: 6 }).map((_, index) => (
+          <Paper
+            key={`housekeeping-summary-skeleton-${index}`}
+            radius={radius.lg}
+            p={16}
+            style={cardStyle}
+          >
+            <Group justify="space-between" align="flex-start" wrap="nowrap">
+              <Box style={{ flex: 1 }}>
+                <Skeleton height={12} width={95} radius="sm" />
+                <Skeleton mt={8} height={28} width={38} radius="sm" />
+              </Box>
+              <Skeleton height={36} width={36} radius={radius.full} />
+            </Group>
+          </Paper>
+        ))}
+      </SimpleGrid>
+
+      <Card radius={radius.lg} p={16} style={cardStyle}>
+        <Group justify="space-between" align="center" gap={spacing[3]} wrap="wrap">
+          <Group gap={10} wrap="nowrap">
+            <Skeleton height={36} width={36} radius={radius.full} />
+            <Box>
+              <Skeleton height={18} width={175} radius="sm" />
+              <Skeleton mt={6} height={12} width={280} radius="sm" />
+            </Box>
+          </Group>
+          <Skeleton height={26} width={70} radius={radius.full} />
+        </Group>
+
+        <Stack gap={8} mt={spacing[3]}>
+          {Array.from({ length: 2 }).map((_, index) => (
+            <Paper
+              key={`guest-request-skeleton-${index}`}
+              radius={radius.md}
+              p={12}
+              style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}
+            >
+              <Group justify="space-between" align="center" wrap="nowrap">
+                <Group gap={10} wrap="nowrap" style={{ flex: 1 }}>
+                  <Skeleton height={34} width={34} radius={radius.md} />
+                  <Box style={{ flex: 1 }}>
+                    <Skeleton height={14} width="42%" radius="sm" />
+                    <Skeleton mt={6} height={11} width="58%" radius="sm" />
+                  </Box>
+                </Group>
+                <Skeleton height={30} width={90} radius="md" />
+              </Group>
+            </Paper>
+          ))}
+        </Stack>
+      </Card>
+
+      <Card radius={radius.lg} p={16} style={cardStyle}>
+        <Group gap={spacing[2]} wrap="wrap">
+          <Skeleton height={38} style={{ flex: 1, minWidth: 260 }} radius="md" />
+          <Skeleton height={38} width={170} radius="md" />
+          <Skeleton height={38} width={190} radius="md" />
+          <Skeleton height={38} width={180} radius="md" />
+        </Group>
+      </Card>
+
+      <Stack gap={spacing[3]}>
+        {Array.from({ length: 3 }).map((_, sectionIndex) => (
+          <Card
+            key={`housekeeping-section-skeleton-${sectionIndex}`}
+            radius={radius.lg}
+            p={16}
+            style={cardStyle}
+          >
+            <Group justify="space-between" align="center" mb={spacing[3]}>
+              <Group gap={10}>
+                <Skeleton height={34} width={34} radius={radius.full} />
+                <Box>
+                  <Skeleton height={17} width={150} radius="sm" />
+                  <Skeleton mt={5} height={11} width={120} radius="sm" />
+                </Box>
+              </Group>
+              <Skeleton height={28} width={76} radius={radius.full} />
+            </Group>
+
+            <SimpleGrid cols={{ base: 1, md: 2, xl: 3 }} spacing={spacing[3]}>
+              {Array.from({ length: 3 }).map((_, roomIndex) => (
+                <Paper
+                  key={`housekeeping-room-skeleton-${sectionIndex}-${roomIndex}`}
+                  radius={radius.lg}
+                  p={18}
+                  style={cardStyle}
+                >
+                  <Group justify="space-between" align="center" wrap="nowrap">
+                    <Group gap={10} wrap="nowrap" style={{ flex: 1 }}>
+                      <Skeleton height={36} width={58} radius="sm" />
+                      <Skeleton height={24} width={86} radius={radius.full} />
+                    </Group>
+                  </Group>
+
+                  <Stack gap={8} mt={16}>
+                    <Group gap={8}>
+                      <Skeleton height={13} width={95} radius="sm" />
+                      <Skeleton height={22} width={60} radius={radius.full} />
+                    </Group>
+                    <Skeleton height={13} width="68%" radius="sm" />
+                    <Skeleton height={11} width="44%" radius="sm" />
+                  </Stack>
+
+                  <Group mt={20} justify="flex-end">
+                    <Skeleton height={36} width={115} radius="md" />
+                  </Group>
+                </Paper>
+              ))}
+            </SimpleGrid>
+          </Card>
+        ))}
+      </Stack>
+    </Stack>
+  );
+}
+
 export default function HousekeepingPage() {
   const auth = useAuth();
   const canManageEmployees = hasPermission(auth.user?.permissions, 'employees.manage');
@@ -832,6 +982,8 @@ export default function HousekeepingPage() {
   const [origin, setOrigin] = useState('');
   const [error, setError] = useState<string>();
   const [isLoading, setIsLoading] = useState(true);
+  const [hasLoadedDashboard, setHasLoadedDashboard] = useState(false);
+  const [hasLoadedEmployees, setHasLoadedEmployees] = useState(false);
   const [isEmployeeLoading, setIsEmployeeLoading] = useState(false);
   const [employeeError, setEmployeeError] = useState<string>();
   const [loadingRoomId, setLoadingRoomId] = useState<string>();
@@ -899,18 +1051,21 @@ export default function HousekeepingPage() {
     }, 2400);
   }, []);
 
-  const resolvePropertyId = useCallback(async (signal?: AbortSignal) => {
-    if (propertyIdRef.current) return propertyIdRef.current;
-    if (auth.user?.propertyId) {
-      propertyIdRef.current = auth.user.propertyId;
-      setPropertyId(auth.user.propertyId);
-      return auth.user.propertyId;
-    }
-    const nextPropertyId = await getCurrentPropertyId(signal);
-    propertyIdRef.current = nextPropertyId;
-    if (isMountedRef.current) setPropertyId(nextPropertyId);
-    return nextPropertyId;
-  }, [auth.user?.propertyId]);
+  const resolvePropertyId = useCallback(
+    async (signal?: AbortSignal) => {
+      if (propertyIdRef.current) return propertyIdRef.current;
+      if (auth.user?.propertyId) {
+        propertyIdRef.current = auth.user.propertyId;
+        setPropertyId(auth.user.propertyId);
+        return auth.user.propertyId;
+      }
+      const nextPropertyId = await getCurrentPropertyId(signal);
+      propertyIdRef.current = nextPropertyId;
+      if (isMountedRef.current) setPropertyId(nextPropertyId);
+      return nextPropertyId;
+    },
+    [auth.user?.propertyId],
+  );
 
   const loadDashboard = useCallback(
     async (signal?: AbortSignal) => {
@@ -925,12 +1080,17 @@ export default function HousekeepingPage() {
         if (!isMountedRef.current) return;
         setRooms(dashboard.rooms);
         setSummary(dashboard.summary);
-        setGuestServiceRequests(activeRequests.filter((request) => !['COMPLETED', 'CANCELLED'].includes(request.status)));
+        setGuestServiceRequests(
+          activeRequests.filter((request) => !['COMPLETED', 'CANCELLED'].includes(request.status)),
+        );
       } catch (loadError) {
         if (loadError instanceof DOMException && loadError.name === 'AbortError') return;
         if (isMountedRef.current) setError('Housekeeping is temporarily unavailable.');
       } finally {
-        if (isMountedRef.current) setIsLoading(false);
+        if (isMountedRef.current) {
+          setIsLoading(false);
+          setHasLoadedDashboard(true);
+        }
       }
     },
     [resolvePropertyId],
@@ -955,7 +1115,10 @@ export default function HousekeepingPage() {
         if (isMountedRef.current) setEmployeeError('Unable to load housekeeping staff.');
         return employees;
       } finally {
-        if (isMountedRef.current) setIsEmployeeLoading(false);
+        if (isMountedRef.current) {
+          setIsEmployeeLoading(false);
+          setHasLoadedEmployees(true);
+        }
       }
     },
     [employees, resolvePropertyId],
@@ -1062,7 +1225,13 @@ export default function HousekeepingPage() {
   const filteredRooms = useMemo(() => {
     const query = roomSearch.trim().toLowerCase();
     return rooms.filter((room) => {
-      if (isHousekeepingOnly && (room.status === 'occupied' || room.status === 'maintenance' || room.status === 'out-of-order' || room.status === 'out-of-service')) {
+      if (
+        isHousekeepingOnly &&
+        (room.status === 'occupied' ||
+          room.status === 'maintenance' ||
+          room.status === 'out-of-order' ||
+          room.status === 'out-of-service')
+      ) {
         return false;
       }
       const matchesSearch =
@@ -1088,7 +1257,11 @@ export default function HousekeepingPage() {
       rooms
         .filter((room) => {
           if (!isHousekeepingOnly) return true;
-          return room.status !== 'maintenance' && room.status !== 'out-of-order' && room.status !== 'out-of-service';
+          return (
+            room.status !== 'maintenance' &&
+            room.status !== 'out-of-order' &&
+            room.status !== 'out-of-service'
+          );
         })
         .map((room) => ({ reason: attentionReason(room), room }))
         .filter((item): item is { reason: string; room: HousekeepingRoom } => Boolean(item.reason))
@@ -1216,9 +1389,17 @@ export default function HousekeepingPage() {
     try {
       await transitionGuestRequest(propertyId, request.id, action);
       await loadDashboard();
-      showToast({ color: 'green', title: 'Request updated', message: `${request.title} is now updated.` });
+      showToast({
+        color: 'green',
+        title: 'Request updated',
+        message: `${request.title} is now updated.`,
+      });
     } catch {
-      showToast({ color: 'red', title: 'Request update failed', message: 'Unable to update this guest request.' });
+      showToast({
+        color: 'red',
+        title: 'Request update failed',
+        message: 'Unable to update this guest request.',
+      });
     }
   };
 
@@ -1277,6 +1458,12 @@ export default function HousekeepingPage() {
       setStaffAccessBusy(undefined);
     }
   };
+
+  const isInitialPageLoading = !hasLoadedDashboard || !hasLoadedEmployees;
+
+  if (isInitialPageLoading) {
+    return <HousekeepingPageLoading />;
+  }
 
   return (
     <Stack gap={spacing[3]} mih="100%" data-testid="housekeeping-page">
@@ -1386,9 +1573,11 @@ export default function HousekeepingPage() {
       </Group>
 
       {error ? <Alert color="red">{error}</Alert> : null}
-      {isLoading ? <Alert color="blue">Loading housekeeping rooms...</Alert> : null}
 
-      <SimpleGrid cols={{ base: 1, xs: 2, md: 3, xl: isHousekeepingOnly ? 4 : 6 }} spacing={spacing[3]}>
+      <SimpleGrid
+        cols={{ base: 1, xs: 2, md: 3, xl: isHousekeepingOnly ? 4 : 6 }}
+        spacing={spacing[3]}
+      >
         {visibleGroups.map((group) => {
           const status = group.key === 'maintenance-group' ? 'out-of-order' : group.key;
           const count = housekeepingGroupCount(rooms, group.key, summary);
@@ -1437,7 +1626,10 @@ export default function HousekeepingPage() {
                     {count}
                   </Text>
                 </Box>
-                <ThemeIcon radius={radius.full} style={{ background: tone.background, color: tone.color }}>
+                <ThemeIcon
+                  radius={radius.full}
+                  style={{ background: tone.background, color: tone.color }}
+                >
                   {statusIcon(status as HousekeepingStatus)}
                 </ThemeIcon>
               </Group>
@@ -1461,7 +1653,11 @@ export default function HousekeepingPage() {
               </Text>
             </Box>
           </Group>
-          <Badge radius={radius.full} color={guestServiceRequests.length > 0 ? 'stayosBrand' : 'green'} variant="light">
+          <Badge
+            radius={radius.full}
+            color={guestServiceRequests.length > 0 ? 'stayosBrand' : 'green'}
+            variant="light"
+          >
             {guestServiceRequests.length} open
           </Badge>
         </Group>
@@ -1470,14 +1666,28 @@ export default function HousekeepingPage() {
             guestServiceRequests.map((request) => {
               const actions =
                 request.status === 'REQUESTED'
-                  ? [{ label: 'Accept', action: 'accept' as const }, { label: 'Cancel', action: 'cancel' as const }]
+                  ? [
+                      { label: 'Accept', action: 'accept' as const },
+                      { label: 'Cancel', action: 'cancel' as const },
+                    ]
                   : request.status === 'ACCEPTED'
-                    ? [{ label: 'Start', action: 'start' as const }, { label: 'Cancel', action: 'cancel' as const }]
+                    ? [
+                        { label: 'Start', action: 'start' as const },
+                        { label: 'Cancel', action: 'cancel' as const },
+                      ]
                     : request.status === 'IN_PROGRESS'
-                      ? [{ label: 'Complete', action: 'complete' as const }, { label: 'Cancel', action: 'cancel' as const }]
+                      ? [
+                          { label: 'Complete', action: 'complete' as const },
+                          { label: 'Cancel', action: 'cancel' as const },
+                        ]
                       : [];
               return (
-                <Paper key={request.id} radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                <Paper
+                  key={request.id}
+                  radius={radius.md}
+                  p={12}
+                  style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}
+                >
                   <Group justify="space-between" align="flex-start" gap={spacing[3]}>
                     <Group gap={10} wrap="nowrap" style={{ minWidth: 0 }}>
                       <ThemeIcon radius={radius.md} color="stayosBrand" variant="light">
@@ -1488,7 +1698,14 @@ export default function HousekeepingPage() {
                           Room {request.roomNumber ?? 'not assigned'} - {request.title}
                         </Text>
                         <Text c="#64748b" style={{ fontSize: 12, fontWeight: 650 }}>
-                          {request.guestDisplayName ?? 'Guest'} - {request.reservationCode ?? 'No booking'} - {request.dueAt ? new Date(request.dueAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No due time'}
+                          {request.guestDisplayName ?? 'Guest'} -{' '}
+                          {request.reservationCode ?? 'No booking'} -{' '}
+                          {request.dueAt
+                            ? new Date(request.dueAt).toLocaleTimeString([], {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
+                            : 'No due time'}
                         </Text>
                         {request.description ? (
                           <Text c="#334155" mt={4} style={{ fontSize: 12 }}>
@@ -1499,8 +1716,20 @@ export default function HousekeepingPage() {
                     </Group>
                     <Stack align="flex-end" gap={8}>
                       <Group gap={6}>
-                        <Badge color="blue" variant="light" radius={radius.full}>{request.status.replace(/_/g, ' ')}</Badge>
-                        <Badge color={request.priority === 'HIGH' || request.priority === 'VIP' ? 'red' : 'gray'} variant="light" radius={radius.full}>{request.priority}</Badge>
+                        <Badge color="blue" variant="light" radius={radius.full}>
+                          {request.status.replace(/_/g, ' ')}
+                        </Badge>
+                        <Badge
+                          color={
+                            request.priority === 'HIGH' || request.priority === 'VIP'
+                              ? 'red'
+                              : 'gray'
+                          }
+                          variant="light"
+                          radius={radius.full}
+                        >
+                          {request.priority}
+                        </Badge>
                       </Group>
                       <Group gap={6}>
                         {actions.map((item) => (
@@ -1521,7 +1750,11 @@ export default function HousekeepingPage() {
               );
             })
           ) : (
-            <Paper radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px dashed #cbd5e1' }}>
+            <Paper
+              radius={radius.md}
+              p={12}
+              style={{ background: '#f8fafc', border: '1px dashed #cbd5e1' }}
+            >
               <Text c="#64748b" style={{ fontSize: 13, fontWeight: 700 }}>
                 No open guest service requests for housekeeping.
               </Text>
@@ -1545,7 +1778,11 @@ export default function HousekeepingPage() {
               </Text>
             </Box>
           </Group>
-          <Badge radius={radius.full} color={attentionRooms.length > 0 ? 'yellow' : 'green'} variant="light">
+          <Badge
+            radius={radius.full}
+            color={attentionRooms.length > 0 ? 'yellow' : 'green'}
+            variant="light"
+          >
             {attentionRooms.length} {attentionRooms.length === 1 ? 'item' : 'items'}
           </Badge>
         </Group>
@@ -1563,7 +1800,8 @@ export default function HousekeepingPage() {
                   onClick={() => scrollToRoom(room)}
                   style={{
                     alignItems: 'center',
-                    background: room.status === 'dirty' && !room.assignedEmployeeId ? '#fffbeb' : '#ffffff',
+                    background:
+                      room.status === 'dirty' && !room.assignedEmployeeId ? '#fffbeb' : '#ffffff',
                     border: `1px solid ${tone.border}`,
                     cursor: 'pointer',
                     display: 'flex',
@@ -1574,7 +1812,10 @@ export default function HousekeepingPage() {
                   }}
                 >
                   <Group gap={10} wrap="nowrap" style={{ minWidth: 0 }}>
-                    <ThemeIcon radius={radius.full} style={{ background: tone.background, color: tone.color }}>
+                    <ThemeIcon
+                      radius={radius.full}
+                      style={{ background: tone.background, color: tone.color }}
+                    >
                       {statusIcon(room.status)}
                     </ThemeIcon>
                     <Box style={{ minWidth: 0 }}>
@@ -1591,7 +1832,11 @@ export default function HousekeepingPage() {
               );
             })
           ) : (
-            <Paper radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px dashed #cbd5e1' }}>
+            <Paper
+              radius={radius.md}
+              p={12}
+              style={{ background: '#f8fafc', border: '1px dashed #cbd5e1' }}
+            >
               <Text c="#64748b" style={{ fontSize: 13, fontWeight: 700 }}>
                 No urgent housekeeping rooms right now.
               </Text>
@@ -1600,11 +1845,7 @@ export default function HousekeepingPage() {
         </Stack>
       </Card>
 
-      <Card
-        radius={radius.lg}
-        p={0}
-        style={{ ...cardStyle, overflow: 'hidden' }}
-      >
+      <Card radius={radius.lg} p={0} style={{ ...cardStyle, overflow: 'hidden' }}>
         <Group
           p={16}
           justify="space-between"
@@ -1620,86 +1861,95 @@ export default function HousekeepingPage() {
               {filteredRoomTotal} rooms
             </Badge>
             {isHousekeepingOnly ? null : (
-            <Popover width={360} position="bottom-end" shadow="md">
-              <Popover.Target>
-                <Button variant="light" color="gray" size="xs" leftSection={<UserPlus size={14} />}>
-                  Staff Workload
-                </Button>
-              </Popover.Target>
-              <Popover.Dropdown p={spacing[3]}>
-                <Stack gap={spacing[2]}>
-                  <Group justify="space-between" gap={spacing[2]} wrap="nowrap">
-                    <Text c="#101828" style={{ fontSize: 14, fontWeight: 800 }}>
-                      Staff Workload
-                    </Text>
-                    <Badge radius={radius.full} variant="light" color="gray">
-                      {filteredRoomTotal} rooms
-                    </Badge>
-                  </Group>
-                  <Divider />
-                  {staffWorkload.rows.length > 0 ? (
-                    <Stack gap={8}>
-                      {staffWorkload.rows.map((staff) => (
-                        <Group
-                          key={staff.employeeId}
-                          justify="space-between"
-                          align="flex-start"
-                          gap={spacing[2]}
-                          wrap="nowrap"
-                        >
-                          <Box style={{ minWidth: 0 }}>
-                            <Text c="#334155" style={{ fontSize: 13, fontWeight: 800 }}>
-                              {staff.employeeName}
-                            </Text>
-                            <Text c="#64748b" style={{ fontSize: 12, fontWeight: 650 }}>
-                              {[
-                                `${staff.assigned} assigned`,
-                                staff.cleaning > 0 ? `${staff.cleaning} in progress` : null,
-                                staff.inspection > 0 ? `${staff.inspection} inspection` : null,
-                              ]
-                                .filter(Boolean)
-                                .join(' / ')}
-                            </Text>
-                          </Box>
-                          <Badge radius={radius.full} variant="light" color="blue">
-                            {staff.rooms} {staff.rooms === 1 ? 'room' : 'rooms'}
-                          </Badge>
-                        </Group>
-                      ))}
-                    </Stack>
-                  ) : (
-                    <Text c="#94a3b8" style={{ fontSize: 13, fontWeight: 650 }}>
-                      No assigned rooms in the current view.
-                    </Text>
-                  )}
-                  <Divider />
-                  <Group justify="space-between" gap={spacing[2]} wrap="nowrap">
-                    <Text c="#334155" style={{ fontSize: 13, fontWeight: 800 }}>
-                      Unassigned
-                    </Text>
-                    <Badge radius={radius.full} variant="light" color="yellow">
-                      {staffWorkload.unassigned} {staffWorkload.unassigned === 1 ? 'room' : 'rooms'}
-                    </Badge>
-                  </Group>
-                  <Group justify="space-between" gap={spacing[2]} wrap="nowrap">
-                    <Text c="#334155" style={{ fontSize: 13, fontWeight: 800 }}>
-                      Idle staff
-                    </Text>
-                    <Badge radius={radius.full} variant="light" color="green">
-                      {staffWorkload.idleStaff.length}
-                    </Badge>
-                  </Group>
-                  {staffWorkload.idleStaff.length > 0 ? (
-                    <Text c="#64748b" style={{ fontSize: 12, fontWeight: 650, lineHeight: '18px' }}>
-                      {staffWorkload.idleStaff.slice(0, 4).join(', ')}
-                      {staffWorkload.idleStaff.length > 4
-                        ? ` +${staffWorkload.idleStaff.length - 4} more`
-                        : ''}
-                    </Text>
-                  ) : null}
-                </Stack>
-              </Popover.Dropdown>
-            </Popover>
+              <Popover width={360} position="bottom-end" shadow="md">
+                <Popover.Target>
+                  <Button
+                    variant="light"
+                    color="gray"
+                    size="xs"
+                    leftSection={<UserPlus size={14} />}
+                  >
+                    Staff Workload
+                  </Button>
+                </Popover.Target>
+                <Popover.Dropdown p={spacing[3]}>
+                  <Stack gap={spacing[2]}>
+                    <Group justify="space-between" gap={spacing[2]} wrap="nowrap">
+                      <Text c="#101828" style={{ fontSize: 14, fontWeight: 800 }}>
+                        Staff Workload
+                      </Text>
+                      <Badge radius={radius.full} variant="light" color="gray">
+                        {filteredRoomTotal} rooms
+                      </Badge>
+                    </Group>
+                    <Divider />
+                    {staffWorkload.rows.length > 0 ? (
+                      <Stack gap={8}>
+                        {staffWorkload.rows.map((staff) => (
+                          <Group
+                            key={staff.employeeId}
+                            justify="space-between"
+                            align="flex-start"
+                            gap={spacing[2]}
+                            wrap="nowrap"
+                          >
+                            <Box style={{ minWidth: 0 }}>
+                              <Text c="#334155" style={{ fontSize: 13, fontWeight: 800 }}>
+                                {staff.employeeName}
+                              </Text>
+                              <Text c="#64748b" style={{ fontSize: 12, fontWeight: 650 }}>
+                                {[
+                                  `${staff.assigned} assigned`,
+                                  staff.cleaning > 0 ? `${staff.cleaning} in progress` : null,
+                                  staff.inspection > 0 ? `${staff.inspection} inspection` : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(' / ')}
+                              </Text>
+                            </Box>
+                            <Badge radius={radius.full} variant="light" color="blue">
+                              {staff.rooms} {staff.rooms === 1 ? 'room' : 'rooms'}
+                            </Badge>
+                          </Group>
+                        ))}
+                      </Stack>
+                    ) : (
+                      <Text c="#94a3b8" style={{ fontSize: 13, fontWeight: 650 }}>
+                        No assigned rooms in the current view.
+                      </Text>
+                    )}
+                    <Divider />
+                    <Group justify="space-between" gap={spacing[2]} wrap="nowrap">
+                      <Text c="#334155" style={{ fontSize: 13, fontWeight: 800 }}>
+                        Unassigned
+                      </Text>
+                      <Badge radius={radius.full} variant="light" color="yellow">
+                        {staffWorkload.unassigned}{' '}
+                        {staffWorkload.unassigned === 1 ? 'room' : 'rooms'}
+                      </Badge>
+                    </Group>
+                    <Group justify="space-between" gap={spacing[2]} wrap="nowrap">
+                      <Text c="#334155" style={{ fontSize: 13, fontWeight: 800 }}>
+                        Idle staff
+                      </Text>
+                      <Badge radius={radius.full} variant="light" color="green">
+                        {staffWorkload.idleStaff.length}
+                      </Badge>
+                    </Group>
+                    {staffWorkload.idleStaff.length > 0 ? (
+                      <Text
+                        c="#64748b"
+                        style={{ fontSize: 12, fontWeight: 650, lineHeight: '18px' }}
+                      >
+                        {staffWorkload.idleStaff.slice(0, 4).join(', ')}
+                        {staffWorkload.idleStaff.length > 4
+                          ? ` +${staffWorkload.idleStaff.length - 4} more`
+                          : ''}
+                      </Text>
+                    ) : null}
+                  </Stack>
+                </Popover.Dropdown>
+              </Popover>
             )}
           </Group>
         </Group>
@@ -1808,7 +2058,8 @@ export default function HousekeepingPage() {
                       boxShadow: isHighlighted ? `0 0 0 3px ${tone.shadow}` : undefined,
                       height: 'auto',
                       padding: '12px 14px',
-                      transition: 'border-color 160ms ease, box-shadow 160ms ease, background 160ms ease',
+                      transition:
+                        'border-color 160ms ease, box-shadow 160ms ease, background 160ms ease',
                     },
                     inner: { justifyContent: 'space-between' },
                     label: { width: '100%' },
@@ -1945,7 +2196,11 @@ export default function HousekeepingPage() {
             <Alert color="red">
               <Group justify="space-between" gap={8}>
                 <Text size="sm">{employeeError}</Text>
-                <Button size="xs" variant="light" onClick={() => void loadEmployees({ force: true })}>
+                <Button
+                  size="xs"
+                  variant="light"
+                  onClick={() => void loadEmployees({ force: true })}
+                >
                   Retry
                 </Button>
               </Group>
@@ -2024,7 +2279,11 @@ export default function HousekeepingPage() {
             <Alert color="red">
               <Group justify="space-between" gap={8}>
                 <Text size="sm">{employeeError}</Text>
-                <Button size="xs" variant="light" onClick={() => void loadEmployees({ force: true })}>
+                <Button
+                  size="xs"
+                  variant="light"
+                  onClick={() => void loadEmployees({ force: true })}
+                >
                   Retry
                 </Button>
               </Group>
@@ -2209,7 +2468,6 @@ export default function HousekeepingPage() {
         propertyId={propertyId}
         propertyName={auth.user?.propertyName}
       />
-
     </Stack>
   );
 }

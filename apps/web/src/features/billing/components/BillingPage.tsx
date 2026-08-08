@@ -6,9 +6,11 @@ import {
   Badge,
   Box,
   Group,
+  Loader,
   Paper,
   Select,
   SimpleGrid,
+  Skeleton,
   Stack,
   Table,
   Text,
@@ -19,11 +21,7 @@ import { ChevronRight, RefreshCcw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
 import { useAuth } from '../../auth/auth-context';
-import {
-  formatCurrency,
-  getBillingOverview,
-  listFolios,
-} from '../api/billing-api';
+import { formatCurrency, getBillingOverview, listFolios } from '../api/billing-api';
 import type { BillingOverview, Folio, FolioStatus } from '../types/billing.types';
 
 const statusFilters: Array<{ value: FolioStatus; label: string }> = [
@@ -54,12 +52,7 @@ function StatCard({
   testId?: string;
 }) {
   return (
-    <Paper
-      data-testid={testId}
-      radius={radius.lg}
-      p={18}
-      style={{ border: '1px solid #e2e8f0' }}
-    >
+    <Paper data-testid={testId} radius={radius.lg} p={18} style={{ border: '1px solid #e2e8f0' }}>
       <Text c="#64748b" size="xs" fw={800} tt="uppercase">
         {label}
       </Text>
@@ -67,6 +60,81 @@ function StatCard({
         {value}
       </Text>
     </Paper>
+  );
+}
+
+function BillingPageLoading() {
+  return (
+    <Stack gap={spacing[3]} aria-label="Loading billing" aria-busy="true">
+      <Box>
+        <Skeleton height={38} width={145} radius="sm" />
+        <Skeleton mt={6} height={15} width={380} maw="70vw" radius="sm" />
+      </Box>
+
+      <SimpleGrid cols={{ base: 2, sm: 3, lg: 5 }} spacing={spacing[3]}>
+        {Array.from({ length: 5 }).map((_, index) => (
+          <Paper
+            key={`billing-stat-skeleton-${index}`}
+            radius={radius.lg}
+            p={18}
+            style={{ border: '1px solid #e2e8f0' }}
+          >
+            <Skeleton height={11} width={95} radius="sm" />
+            <Skeleton mt={9} height={27} width={78} radius="sm" />
+          </Paper>
+        ))}
+      </SimpleGrid>
+
+      <Paper radius={radius.lg} p={16} style={{ border: '1px solid #e2e8f0' }}>
+        <Group grow align="flex-end" wrap="wrap">
+          <Box>
+            <Skeleton height={12} width={55} radius="sm" />
+            <Skeleton mt={7} height={38} width="100%" radius="md" />
+          </Box>
+          <Box>
+            <Skeleton height={12} width={45} radius="sm" />
+            <Skeleton mt={7} height={38} width="100%" radius="md" />
+          </Box>
+        </Group>
+      </Paper>
+
+      <Paper radius={radius.lg} p={0} style={{ border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+        <Box px={18} py={14} bg="#f8fafc">
+          <Group justify="space-between" wrap="nowrap">
+            {Array.from({ length: 8 }).map((_, index) => (
+              <Skeleton
+                key={`billing-header-skeleton-${index}`}
+                height={11}
+                width={index < 3 ? 90 : 65}
+                radius="sm"
+              />
+            ))}
+          </Group>
+        </Box>
+
+        <Stack gap={0}>
+          {Array.from({ length: 7 }).map((_, rowIndex) => (
+            <Box
+              key={`billing-row-skeleton-${rowIndex}`}
+              px={18}
+              py={14}
+              style={{ borderTop: '1px solid #eef2f7' }}
+            >
+              <Group justify="space-between" wrap="nowrap">
+                <Skeleton height={14} width={90} radius="sm" />
+                <Skeleton height={14} width={120} radius="sm" />
+                <Skeleton height={14} width={95} radius="sm" />
+                <Skeleton height={24} width={68} radius={radius.full} />
+                <Skeleton height={14} width={70} radius="sm" />
+                <Skeleton height={14} width={70} radius="sm" />
+                <Skeleton height={14} width={70} radius="sm" />
+                <Skeleton height={28} width={58} radius="md" />
+              </Group>
+            </Box>
+          ))}
+        </Stack>
+      </Paper>
+    </Stack>
   );
 }
 
@@ -80,12 +148,14 @@ export function BillingPage() {
   const [status, setStatus] = useState<FolioStatus | undefined>();
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
       if (!canView || !propertyId) {
         setIsLoading(false);
+        setHasLoadedOnce(true);
         return;
       }
       setIsLoading(true);
@@ -101,7 +171,14 @@ export function BillingPage() {
         if (loadError instanceof DOMException && loadError.name === 'AbortError') return;
         setError('Unable to load billing data.');
       } finally {
-        setIsLoading(false);
+        // An aborted request is not a completed load. This matters in
+        // React development mode and when filters change quickly, because
+        // effect cleanup can cancel an in-flight request before the next
+        // request starts.
+        if (!signal?.aborted) {
+          setIsLoading(false);
+          setHasLoadedOnce(true);
+        }
       }
     },
     [canView, propertyId, status],
@@ -117,7 +194,8 @@ export function BillingPage() {
     const term = search.trim().toLowerCase();
     if (!term) return folios;
     return folios.filter((folio) => {
-      const haystack = `${folio.folioNumber} ${folio.guest.displayName} ${folio.reservation.reservationCode}`.toLowerCase();
+      const haystack =
+        `${folio.folioNumber} ${folio.guest.displayName} ${folio.reservation.reservationCode}`.toLowerCase();
       return haystack.includes(term);
     });
   }, [folios, search]);
@@ -128,6 +206,10 @@ export function BillingPage() {
         You do not have permission to view billing.
       </Alert>
     );
+  }
+
+  if (!hasLoadedOnce && isLoading) {
+    return <BillingPageLoading />;
   }
 
   return (
@@ -219,7 +301,14 @@ export function BillingPage() {
         </Alert>
       ) : null}
 
-      {isLoading ? <Alert color="blue">Loading folios...</Alert> : null}
+      {isLoading ? (
+        <Group gap={8} role="status" aria-live="polite">
+          <Loader color="stayosBrand" size="xs" />
+          <Text c="#64748b" size="sm" fw={600}>
+            Updating billing data...
+          </Text>
+        </Group>
+      ) : null}
 
       {!isLoading && !error && filtered.length === 0 ? (
         <Paper radius={radius.lg} p={28} style={{ border: '1px solid #e2e8f0' }}>
@@ -280,10 +369,7 @@ export function BillingPage() {
                       </Text>
                     </Table.Td>
                     <Table.Td>
-                      <Text
-                        c={Number(folio.totals.balance) > 0 ? '#c92a2a' : '#0f8f4b'}
-                        fw={800}
-                      >
+                      <Text c={Number(folio.totals.balance) > 0 ? '#c92a2a' : '#0f8f4b'} fw={800}>
                         {formatCurrency(folio.totals.balance)}
                       </Text>
                     </Table.Td>
