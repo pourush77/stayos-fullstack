@@ -3,7 +3,9 @@ import { allPermissions, Permission, Permissions } from './permissions';
 
 export const rolePermissions: Record<UserRole, Permission[]> = {
   [UserRole.OWNER]: allPermissions,
+
   [UserRole.ADMIN]: allPermissions,
+
   [UserRole.MANAGER]: [
     Permissions.RoomsView,
     Permissions.RoomsManage,
@@ -22,6 +24,7 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     Permissions.EmployeesView,
     Permissions.EmployeesManage,
     Permissions.MaintenanceView,
+    Permissions.MaintenanceReport,
     Permissions.OperationsView,
     Permissions.GuestRequestsView,
     Permissions.GuestRequestsManage,
@@ -29,6 +32,7 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     Permissions.UsersView,
     Permissions.SessionsView,
   ],
+
   [UserRole.FRONT_DESK]: [
     Permissions.RoomsView,
     Permissions.RoomsManage,
@@ -44,11 +48,17 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     Permissions.BillingView,
     Permissions.BillingManage,
     Permissions.HousekeepingView,
+
+    // Front Desk can view maintenance information and report issues,
+    // but cannot assign, resolve, cancel, or manage maintenance tickets.
     Permissions.MaintenanceView,
+    Permissions.MaintenanceReport,
+
     Permissions.OperationsView,
     Permissions.GuestRequestsView,
     Permissions.GuestRequestsManage,
   ],
+
   [UserRole.HOUSEKEEPING]: [
     Permissions.RoomsView,
     Permissions.RoomsStatusManage,
@@ -59,15 +69,21 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     Permissions.GuestRequestsView,
     Permissions.GuestRequestsManage,
   ],
+
   [UserRole.MAINTENANCE]: [
     Permissions.RoomsView,
     Permissions.RoomsStatusManage,
+
+    // Maintenance team has full maintenance workflow access.
     Permissions.MaintenanceView,
+    Permissions.MaintenanceReport,
     Permissions.MaintenanceManage,
+
     Permissions.OperationsView,
     Permissions.GuestRequestsView,
     Permissions.GuestRequestsManage,
   ],
+
   [UserRole.ACCOUNTS]: [
     Permissions.GuestsView,
     Permissions.BookingsView,
@@ -76,6 +92,7 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     Permissions.BillingManage,
     Permissions.ReportsView,
   ],
+
   [UserRole.READ_ONLY]: [
     Permissions.RoomsView,
     Permissions.GuestsView,

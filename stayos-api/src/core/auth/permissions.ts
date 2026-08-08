@@ -2,38 +2,56 @@ export const Permissions = {
   RoomsView: 'rooms.view',
   RoomsManage: 'rooms.manage',
   RoomsStatusManage: 'rooms.status.manage',
+
   GuestsView: 'guests.view',
   GuestsManage: 'guests.manage',
   GuestsDocumentsManage: 'guests.documents.manage',
+
   BookingsView: 'bookings.view',
   BookingsManage: 'bookings.manage',
   BookingsCancel: 'bookings.cancel',
+
   ArrivalManage: 'arrival.manage',
   CheckinManage: 'checkin.manage',
   CheckoutManage: 'checkout.manage',
+
   StayView: 'stay.view',
   StayManage: 'stay.manage',
+
   BillingView: 'billing.view',
   BillingManage: 'billing.manage',
+
   HousekeepingView: 'housekeeping.view',
   HousekeepingManage: 'housekeeping.manage',
+
   EmployeesView: 'employees.view',
   EmployeesManage: 'employees.manage',
+
+  // Maintenance
   MaintenanceView: 'maintenance.view',
+  MaintenanceReport: 'maintenance.report',
   MaintenanceManage: 'maintenance.manage',
+
   OperationsView: 'operations.view',
   OperationsManage: 'operations.manage',
+
   GuestRequestsView: 'guest-requests.view',
   GuestRequestsManage: 'guest-requests.manage',
+
   ReportsView: 'reports.view',
+
   UsersView: 'users.view',
   UsersManage: 'users.manage',
+
   RolesManage: 'roles.manage',
+
   SettingsView: 'settings.view',
   SettingsManage: 'settings.manage',
+
   SessionsView: 'sessions.view',
   SessionsManage: 'sessions.manage',
 } as const;
 
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
+
 export const allPermissions = Object.values(Permissions);

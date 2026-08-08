@@ -1,6 +1,9 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { ApiStandardListResponse, ApiStandardOkResponse } from '../../common/decorators/api-standard-response.decorator';
+import {
+  ApiStandardListResponse,
+  ApiStandardOkResponse,
+} from '../../common/decorators/api-standard-response.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
 import { Permissions } from '../auth/permissions';
@@ -25,7 +28,10 @@ export class MaintenanceController {
   @Get()
   @RequirePermissions(Permissions.MaintenanceView)
   @ApiStandardListResponse(MaintenanceTicketResponseDto)
-  findAll(@Param('propertyId', ParseUUIDPipe) propertyId: string, @Query() query: MaintenanceTicketQueryDto) {
+  findAll(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Query() query: MaintenanceTicketQueryDto,
+  ) {
     return this.maintenanceService.findAll(propertyId, query);
   }
 
@@ -37,7 +43,7 @@ export class MaintenanceController {
   }
 
   @Post()
-  @RequirePermissions(Permissions.MaintenanceManage)
+  @RequirePermissions(Permissions.MaintenanceReport)
   @ApiOperation({ summary: 'Create maintenance ticket' })
   create(
     @Param('propertyId', ParseUUIDPipe) propertyId: string,
@@ -49,31 +55,49 @@ export class MaintenanceController {
 
   @Get(':ticketId')
   @RequirePermissions(Permissions.MaintenanceView)
-  findOne(@Param('propertyId', ParseUUIDPipe) propertyId: string, @Param('ticketId', ParseUUIDPipe) ticketId: string) {
+  findOne(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('ticketId', ParseUUIDPipe) ticketId: string,
+  ) {
     return this.maintenanceService.findOne(propertyId, ticketId);
   }
 
   @Patch(':ticketId')
   @RequirePermissions(Permissions.MaintenanceManage)
-  update(@Param('propertyId', ParseUUIDPipe) propertyId: string, @Param('ticketId', ParseUUIDPipe) ticketId: string, @Body() dto: UpdateMaintenanceTicketDto) {
+  update(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('ticketId', ParseUUIDPipe) ticketId: string,
+    @Body() dto: UpdateMaintenanceTicketDto,
+  ) {
     return this.maintenanceService.update(propertyId, ticketId, dto);
   }
 
   @Patch(':ticketId/assign')
   @RequirePermissions(Permissions.MaintenanceManage)
-  assign(@Param('propertyId', ParseUUIDPipe) propertyId: string, @Param('ticketId', ParseUUIDPipe) ticketId: string, @Body() dto: AssignMaintenanceTicketDto) {
+  assign(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('ticketId', ParseUUIDPipe) ticketId: string,
+    @Body() dto: AssignMaintenanceTicketDto,
+  ) {
     return this.maintenanceService.assign(propertyId, ticketId, dto);
   }
 
   @Patch(':ticketId/resolve')
   @RequirePermissions(Permissions.MaintenanceManage)
-  resolve(@Param('propertyId', ParseUUIDPipe) propertyId: string, @Param('ticketId', ParseUUIDPipe) ticketId: string, @Body() dto: ResolveMaintenanceTicketDto) {
+  resolve(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('ticketId', ParseUUIDPipe) ticketId: string,
+    @Body() dto: ResolveMaintenanceTicketDto,
+  ) {
     return this.maintenanceService.resolve(propertyId, ticketId, dto);
   }
 
   @Patch(':ticketId/cancel')
   @RequirePermissions(Permissions.MaintenanceManage)
-  cancel(@Param('propertyId', ParseUUIDPipe) propertyId: string, @Param('ticketId', ParseUUIDPipe) ticketId: string) {
+  cancel(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('ticketId', ParseUUIDPipe) ticketId: string,
+  ) {
     return this.maintenanceService.cancel(propertyId, ticketId);
   }
 }

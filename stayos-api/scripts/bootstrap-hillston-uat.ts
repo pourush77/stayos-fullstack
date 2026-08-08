@@ -10,6 +10,11 @@ import { ReservationPaymentStatus } from '../src/core/reservations/domain/reserv
 import { RoomEntity } from '../src/core/rooms/infrastructure/room.entity';
 import { RoomOperationalStatus } from '../src/core/rooms/domain/room-operational-status.enum';
 import { RoomTypeEntity } from '../src/core/room-types/infrastructure/room-type.entity';
+import { UserEntity } from '../src/core/auth/infrastructure/user.entity';
+import { MaintenanceTicketEntity } from '../src/core/maintenance/infrastructure/maintenance-ticket.entity';
+import { MaintenanceTicketCategory } from '../src/core/maintenance/domain/maintenance-ticket-category.enum';
+import { MaintenanceTicketPriority } from '../src/core/maintenance/domain/maintenance-ticket-priority.enum';
+import { MaintenanceTicketStatus } from '../src/core/maintenance/domain/maintenance-ticket-status.enum';
 import { FolioEntity } from '../src/core/billing/infrastructure/folio.entity';
 import { FolioStatus } from '../src/core/billing/domain/folio-status.enum';
 import { FolioChargeEntity } from '../src/core/billing/infrastructure/folio-charge.entity';
@@ -642,12 +647,29 @@ async function seedOperationalData(manager: EntityManager): Promise<void> {
   const roomTypeRepository = manager.getRepository(RoomTypeEntity);
   const reservationRepository = manager.getRepository(ReservationEntity);
   const groupRepository = manager.getRepository(GroupBookingEntity);
+  const userRepository = manager.getRepository(UserEntity);
+  const maintenanceRepository = manager.getRepository(MaintenanceTicketEntity);
 
   const rooms = await roomRepository.find({ where: { propertyId: property.id } });
   const roomTypes = await roomTypeRepository.find({ where: { propertyId: property.id } });
   const roomByNumber = new Map(rooms.map((room) => [room.roomNumber, room]));
   const roomTypeByCode = new Map(roomTypes.map((roomType) => [roomType.code, roomType]));
   const guests = await upsertGuests(manager, property.id);
+
+  const maintenanceReporter = await userRepository
+    .createQueryBuilder('user')
+    .where('user.propertyId = :propertyId', { propertyId: property.id })
+    .orWhere('user.propertyId IS NULL')
+    .orderBy('CASE WHEN user.propertyId = :propertyId THEN 0 ELSE 1 END', 'ASC')
+    .addOrderBy('user.createdAt', 'ASC')
+    .setParameter('propertyId', property.id)
+    .getOne();
+
+  if (!maintenanceReporter) {
+    throw new Error(
+      'Hillston UAT maintenance scenario requires at least one property or global user.',
+    );
+  }
 
   // Reset only the room operational fields used by this UAT scenario.
   for (const room of rooms) {
@@ -729,7 +751,37 @@ async function seedOperationalData(manager: EntityManager): Promise<void> {
     maintenanceRoom.operationalStatusReason = 'AC not cooling';
     maintenanceRoom.operationalStatusNote = 'UAT maintenance scenario';
     maintenanceRoom.startedAt = atLocalTime(0, 9);
+    maintenanceRoom.completedAt = null;
+    maintenanceRoom.inspectedAt = null;
     await roomRepository.save(maintenanceRoom);
+
+    const maintenanceTicketTitle = 'AC not cooling';
+    const existingMaintenanceTicket = await maintenanceRepository.findOne({
+      where: {
+        propertyId: property.id,
+        roomId: maintenanceRoom.id,
+        title: maintenanceTicketTitle,
+      },
+    });
+
+    await maintenanceRepository.save(
+      maintenanceRepository.create({
+        ...(existingMaintenanceTicket ?? {}),
+        propertyId: property.id,
+        roomId: maintenanceRoom.id,
+        reportedByUserId: maintenanceReporter.id,
+        assignedToUserId: null,
+        title: maintenanceTicketTitle,
+        description:
+          'Room 311 air-conditioning is not cooling properly. UAT scenario for maintenance workflow testing.',
+        category: MaintenanceTicketCategory.HVAC,
+        priority: MaintenanceTicketPriority.HIGH,
+        status: MaintenanceTicketStatus.OPEN,
+        reportedAt: atLocalTime(0, 9),
+        resolvedAt: null,
+        resolutionNote: null,
+      }),
+    );
   }
 
   const existingGroup = await groupRepository.findOne({

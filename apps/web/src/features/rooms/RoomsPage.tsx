@@ -19,6 +19,7 @@ import {
   Stack,
   Text,
   TextInput,
+  Textarea,
   ThemeIcon,
   Timeline,
   Title,
@@ -63,6 +64,11 @@ import {
   unassignRoomFromReservation,
 } from '../../lib/reservation-api';
 import { type Reservation, useReservations } from '../../lib/reservation-hooks';
+import {
+  createMaintenanceTicket,
+  type MaintenanceTicketCategory,
+  type MaintenanceTicketPriority,
+} from '../maintenance/api/maintenance-api';
 
 import {
   getRoomBoard,
@@ -867,37 +873,50 @@ function getContextBanner(room: Room) {
 
 function OperationRow({
   color = '#475569',
+  disabled = false,
   icon,
   label,
+  loading = false,
   onClick,
 }: {
   color?: string;
+  disabled?: boolean;
   icon: ReactNode;
   label: string;
+  loading?: boolean;
   onClick?: () => void;
 }) {
   return (
     <UnstyledButton
+      disabled={disabled || loading}
       onClick={onClick}
       style={{
         alignItems: 'center',
         borderRadius: radius.md,
+        cursor: disabled || loading ? 'not-allowed' : 'pointer',
         display: 'flex',
         gap: 10,
         minHeight: 42,
+        opacity: disabled ? 0.55 : 1,
         padding: '9px 10px',
         width: '100%',
       }}
       onMouseEnter={(event) => {
-        event.currentTarget.style.background = '#f8fafc';
+        if (!disabled && !loading) {
+          event.currentTarget.style.background = '#f8fafc';
+        }
       }}
       onMouseLeave={(event) => {
         event.currentTarget.style.background = 'transparent';
       }}
     >
-      <Box style={{ color, display: 'flex', flex: '0 0 auto' }}>{icon}</Box>
-      <Text className={styles.operationLabel}>{label}</Text>
-      <ChevronRight size={15} color="#94a3b8" />
+      <Box style={{ color, display: 'flex', flex: '0 0 auto' }}>
+        {loading ? <Loader color="stayosBrand" size={16} /> : icon}
+      </Box>
+      <Text className={styles.operationLabel} style={{ flex: 1 }}>
+        {loading ? `${label}...` : label}
+      </Text>
+      {!loading ? <ChevronRight size={15} color="#94a3b8" /> : null}
     </UnstyledButton>
   );
 }
@@ -1068,9 +1087,7 @@ function AssignGuestModal({
                   onClick={() => setSelectedReservationId(reservation.reservationId)}
                   style={{
                     background: selected ? '#f5f3ff' : '#ffffff',
-                    border: selected
-                      ? '1px solid rgba(109, 93, 252, 0.35)'
-                      : '1px solid #eef2f7',
+                    border: selected ? '1px solid rgba(109, 93, 252, 0.35)' : '1px solid #eef2f7',
                     borderRadius: radius.lg,
                     cursor: 'pointer',
                     padding: 12,
@@ -1140,22 +1157,178 @@ function AssignGuestModal({
             {selectedReservationId ? 'Ready to assign selected booking.' : 'Select a booking.'}
           </Text>
           <Group gap={8}>
-          <Button variant="subtle" color="gray" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            data-testid="assign-guest-submit"
-            color="stayosBrand"
-            disabled={!selectedReservationId || !room}
-            loading={loading}
-            onClick={onAssign}
-            className={styles.primaryButtonText}
-          >
-            Assign Room
-          </Button>
+            <Button variant="subtle" color="gray" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              data-testid="assign-guest-submit"
+              color="stayosBrand"
+              disabled={!selectedReservationId || !room}
+              loading={loading}
+              onClick={onAssign}
+              className={styles.primaryButtonText}
+            >
+              Assign Room
+            </Button>
           </Group>
         </Group>
       </Box>
+    </Modal>
+  );
+}
+
+function ReportMaintenanceModal({
+  loading,
+  onClose,
+  onSubmit,
+  opened,
+  room,
+}: {
+  loading: boolean;
+  onClose: () => void;
+  onSubmit: (payload: {
+    category: MaintenanceTicketCategory;
+    description?: string;
+    priority: MaintenanceTicketPriority;
+    title: string;
+  }) => void;
+  opened: boolean;
+  room: Room | null;
+}) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState<MaintenanceTicketCategory>('OTHER');
+  const [priority, setPriority] = useState<MaintenanceTicketPriority>('NORMAL');
+
+  useEffect(() => {
+    if (!opened) return;
+
+    setTitle('');
+    setDescription('');
+    setCategory('OTHER');
+    setPriority('NORMAL');
+  }, [opened, room?.id]);
+
+  const trimmedTitle = title.trim();
+
+  return (
+    <Modal
+      opened={opened}
+      onClose={loading ? () => undefined : onClose}
+      closeOnClickOutside={!loading}
+      closeOnEscape={!loading}
+      centered
+      size="min(92vw, 620px)"
+      title={
+        <Box>
+          <Text className={styles.modalTitle}>Report Maintenance Issue</Text>
+          <Text mt={3} className={styles.modalSubtitle}>
+            {room ? `Create a maintenance ticket for Room ${room.number}.` : 'Select a room first.'}
+          </Text>
+        </Box>
+      }
+    >
+      <Stack gap={spacing[4]}>
+        {room ? (
+          <Paper radius={radius.lg} p={14} className={styles.surfaceCard}>
+            <Group justify="space-between" wrap="nowrap">
+              <Box>
+                <Text c="#101828" style={{ fontSize: 15, fontWeight: 650 }}>
+                  Room {room.number}
+                </Text>
+                <Text c="#64748b" mt={3} style={{ fontSize: 13, fontWeight: 450 }}>
+                  {room.roomType} · {compactFloorLabel(room.floor)}
+                </Text>
+              </Box>
+              <RoomBadge status={room.status}>{statusLabel(room.status)}</RoomBadge>
+            </Group>
+          </Paper>
+        ) : null}
+
+        <TextInput
+          autoFocus
+          required
+          disabled={loading}
+          label="Issue"
+          placeholder="e.g. AC not cooling"
+          value={title}
+          onChange={(event) => setTitle(event.currentTarget.value)}
+        />
+
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+          <Select
+            required
+            disabled={loading}
+            label="Category"
+            data={[
+              { label: 'Plumbing', value: 'PLUMBING' },
+              { label: 'Electrical', value: 'ELECTRICAL' },
+              { label: 'HVAC / Air Conditioning', value: 'HVAC' },
+              { label: 'Appliance', value: 'APPLIANCE' },
+              { label: 'Other', value: 'OTHER' },
+            ]}
+            value={category}
+            onChange={(value) =>
+              setCategory((value as MaintenanceTicketCategory | null) ?? 'OTHER')
+            }
+          />
+
+          <Select
+            required
+            disabled={loading}
+            label="Priority"
+            data={[
+              { label: 'Low', value: 'LOW' },
+              { label: 'Normal', value: 'NORMAL' },
+              { label: 'High', value: 'HIGH' },
+            ]}
+            value={priority}
+            onChange={(value) =>
+              setPriority((value as MaintenanceTicketPriority | null) ?? 'NORMAL')
+            }
+          />
+        </SimpleGrid>
+
+        <Textarea
+          disabled={loading}
+          autosize
+          minRows={3}
+          maxRows={6}
+          label="Description"
+          placeholder="Add useful details for the maintenance team..."
+          value={description}
+          onChange={(event) => setDescription(event.currentTarget.value)}
+        />
+
+        <Alert color="blue" variant="light" radius={radius.lg}>
+          Submitting this issue will create a maintenance ticket and make the room unavailable until
+          the maintenance workflow is completed.
+        </Alert>
+
+        <Group justify="flex-end">
+          <Button variant="subtle" color="gray" disabled={loading} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            color="stayosBrand"
+            loading={loading}
+            disabled={!room || !trimmedTitle}
+            onClick={() => {
+              if (!room || !trimmedTitle) return;
+
+              onSubmit({
+                category,
+                description: description.trim() || undefined,
+                priority,
+                title: trimmedTitle,
+              });
+            }}
+            className={styles.primaryButtonText}
+          >
+            Report Issue
+          </Button>
+        </Group>
+      </Stack>
     </Modal>
   );
 }
@@ -1378,6 +1551,7 @@ function ChangeRoomModal({
 
 function RoomDrawer({
   activityItems,
+  loadingAction,
   onAction,
   onAssignGuest,
   onCheckIn,
@@ -1389,6 +1563,7 @@ function RoomDrawer({
   room,
 }: {
   activityItems: OperationsActivityItemDto[];
+  loadingAction?: string;
   onAction: (room: Room, action: RoomAction) => void;
   onAssignGuest: (room: Room) => void;
   onCheckIn: (room: Room) => void;
@@ -1489,6 +1664,11 @@ function RoomDrawer({
 
               <Button
                 fullWidth
+                loading={action ? loadingAction === roomActionKey(room, action) : false}
+                disabled={
+                  Boolean(loadingAction) &&
+                  !(action && loadingAction === roomActionKey(room, action))
+                }
                 onClick={handlePrimaryClick}
                 color="stayosBrand"
                 variant={isReady ? 'filled' : 'light'}
@@ -1589,6 +1769,8 @@ function RoomDrawer({
                 <OperationRow
                   icon={<CheckCircle2 size={16} />}
                   label="Mark Ready"
+                  loading={loadingAction === roomActionKey(room, 'mark-ready')}
+                  disabled={Boolean(loadingAction)}
                   onClick={() => onAction(room, 'mark-ready')}
                 />
               ) : null}
@@ -1602,6 +1784,8 @@ function RoomDrawer({
                   color="#b45309"
                   icon={<Wrench size={16} />}
                   label="Maintenance"
+                  loading={loadingAction === roomActionKey(room, 'maintenance')}
+                  disabled={Boolean(loadingAction)}
                   onClick={() => onAction(room, 'maintenance')}
                 />
               ) : null}
@@ -1612,6 +1796,8 @@ function RoomDrawer({
                   color="#dc2626"
                   icon={<Ban size={16} />}
                   label="Block Room"
+                  loading={loadingAction === roomActionKey(room, 'out-of-service')}
+                  disabled={Boolean(loadingAction)}
                   onClick={() => onAction(room, 'out-of-service')}
                 />
               ) : null}
@@ -1856,6 +2042,12 @@ export default function RoomsPage() {
     useDisclosure(false);
   const [checkInRoom, setCheckInRoom] = useState<Room | null>(null);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
+  const [
+    maintenanceReportOpened,
+    { open: openMaintenanceReportModal, close: closeMaintenanceReportModal },
+  ] = useDisclosure(false);
+  const [maintenanceReportRoom, setMaintenanceReportRoom] = useState<Room | null>(null);
+  const [isReportingMaintenance, setIsReportingMaintenance] = useState(false);
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
   const isAssignmentFocus = searchParams.get('mode') === 'assign';
   const assignmentReservationId = searchParams.get('reservationId') ?? undefined;
@@ -2264,7 +2456,86 @@ export default function RoomsPage() {
     void backend.checkHealth();
   };
 
+  const openMaintenanceReport = (room: Room) => {
+    if (!room.id || inventory.isFallback) {
+      showToast({
+        color: 'red',
+        title: 'Maintenance unavailable',
+        message: 'Live room inventory is unavailable. Please try again.',
+      });
+      return;
+    }
+
+    setMaintenanceReportRoom(room);
+    openMaintenanceReportModal();
+  };
+
+  const closeMaintenanceReport = () => {
+    if (isReportingMaintenance) return;
+    closeMaintenanceReportModal();
+    setMaintenanceReportRoom(null);
+  };
+
+  const handleReportMaintenance = async (payload: {
+    category: MaintenanceTicketCategory;
+    description?: string;
+    priority: MaintenanceTicketPriority;
+    title: string;
+  }) => {
+    if (!inventory.propertyId || !maintenanceReportRoom?.id || inventory.isFallback) {
+      showToast({
+        color: 'red',
+        title: 'Unable to report maintenance',
+        message: 'Live room inventory is unavailable. Please try again.',
+      });
+      return;
+    }
+
+    setIsReportingMaintenance(true);
+
+    try {
+      await createMaintenanceTicket(inventory.propertyId, {
+        category: payload.category,
+        description: payload.description,
+        priority: payload.priority,
+        roomId: maintenanceReportRoom.id,
+        title: payload.title,
+      });
+
+      showToast({
+        autoClose: 7000,
+        color: 'green',
+        title: 'Maintenance reported',
+        message: `Room ${maintenanceReportRoom.number} has been sent to maintenance.`,
+      });
+
+      closeMaintenanceReportModal();
+      closeDrawer();
+      setMaintenanceReportRoom(null);
+      setSelectedRoom(null);
+
+      await inventory.refreshInventory();
+      setSidebarRefreshKey((current) => current + 1);
+    } catch (error) {
+      showToast({
+        color: 'red',
+        title: 'Unable to report maintenance',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Unable to create the maintenance ticket. Please try again.',
+      });
+    } finally {
+      setIsReportingMaintenance(false);
+    }
+  };
+
   const handleRoomAction = async (room: Room, action: RoomAction) => {
+    if (action === 'maintenance') {
+      openMaintenanceReport(room);
+      return;
+    }
+
     if (!inventory.propertyId || !room.id || inventory.isFallback) {
       showToast({
         color: 'red',
@@ -2285,6 +2556,8 @@ export default function RoomsPage() {
         title: 'Room updated',
       });
       await inventory.refreshInventory();
+      closeDrawer();
+      setSelectedRoom(null);
       setSidebarRefreshKey((current) => current + 1);
     } catch (error) {
       showToast({
@@ -2393,9 +2666,7 @@ export default function RoomsPage() {
                 <CheckCircle2 size={19} />
               </ThemeIcon>
               <Box>
-                <Text className={styles.assignmentFocusTitle}>
-                  Ready rooms for assignment
-                </Text>
+                <Text className={styles.assignmentFocusTitle}>Ready rooms for assignment</Text>
                 <Text className={styles.assignmentFocusDetail}>
                   Filter applied: only rooms that can be assigned now are shown.
                 </Text>
@@ -2598,6 +2869,7 @@ export default function RoomsPage() {
 
       <RoomDrawer
         activityItems={activityItems}
+        loadingAction={loadingAction}
         onAction={handleRoomAction}
         onAssignGuest={openAssignGuest}
         onCheckIn={openCheckIn}
@@ -2607,6 +2879,16 @@ export default function RoomsPage() {
         opened={drawerOpened}
         onClose={closeDrawer}
         onRemoveAssignment={openRemoveAssignment}
+      />
+
+      <ReportMaintenanceModal
+        loading={isReportingMaintenance}
+        onClose={closeMaintenanceReport}
+        onSubmit={(payload) => {
+          void handleReportMaintenance(payload);
+        }}
+        opened={maintenanceReportOpened}
+        room={maintenanceReportRoom}
       />
 
       <AssignGuestModal
@@ -2654,7 +2936,8 @@ export default function RoomsPage() {
               : 'The room has been assigned.'}
           </Text>
           <Text c="#64748b" size="sm">
-            Next step for front desk is to complete guest registration, ID verification, payment review, and check-in.
+            Next step for front desk is to complete guest registration, ID verification, payment
+            review, and check-in.
           </Text>
 
           <Group justify="flex-end">
@@ -2708,5 +2991,3 @@ export default function RoomsPage() {
     </Stack>
   );
 }
-
-

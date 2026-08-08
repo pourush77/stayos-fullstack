@@ -48,12 +48,17 @@ const protectedRoutePermissions: Array<{ path: string; permissions: string[] }> 
 const navigationRoleAllowList: Record<string, string[]> = {
   '/': ['OWNER', 'ADMIN', 'MANAGER', 'FRONT_DESK'],
   '/billing': ['OWNER', 'ADMIN', 'MANAGER', 'ACCOUNTS'],
-  '/rooms': ['OWNER', 'ADMIN', 'MANAGER', 'FRONT_DESK', 'MAINTENANCE'],
+
+  // Maintenance staff should work through the Maintenance workspace,
+  // not through Front Desk room operations.
+  '/rooms': ['OWNER', 'ADMIN', 'MANAGER', 'FRONT_DESK'],
+
   '/settings/employees': ['OWNER', 'ADMIN', 'MANAGER'],
 };
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
+
   return (parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : name.slice(0, 2)).toUpperCase();
 }
 
@@ -69,32 +74,53 @@ function defaultRouteForRole(role: string) {
   switch (role) {
     case 'HOUSEKEEPING':
       return '/housekeeping';
+
     case 'MAINTENANCE':
       return '/maintenance';
+
     case 'ACCOUNTS':
       return '/billing';
+
     default:
       return '/';
   }
 }
 
 function navigationForRole(role: string, permissions: string[] | undefined) {
-  if (role === 'OWNER' || role === 'ADMIN') return primaryNavigation;
+  if (role === 'OWNER' || role === 'ADMIN') {
+    return primaryNavigation;
+  }
+
   return primaryNavigation.filter((item) => {
     const allowedRoles = navigationRoleAllowList[item.href];
-    if (allowedRoles && !allowedRoles.includes(role)) return false;
+
+    if (allowedRoles && !allowedRoles.includes(role)) {
+      return false;
+    }
+
     return hasAnyPermission(permissions, navigationPermissions[item.href] ?? []);
   });
 }
 
 function canAccessPath(pathname: string, role: string, permissions: string[] | undefined) {
-  if (role === 'OWNER' || role === 'ADMIN') return true;
-  const rule = protectedRoutePermissions.find((item) =>
-    pathname === item.path || pathname.startsWith(`${item.path}/`),
+  if (role === 'OWNER' || role === 'ADMIN') {
+    return true;
+  }
+
+  const rule = protectedRoutePermissions.find(
+    (item) => pathname === item.path || pathname.startsWith(`${item.path}/`),
   );
-  if (!rule) return true;
+
+  if (!rule) {
+    return true;
+  }
+
   const allowedRoles = navigationRoleAllowList[rule.path];
-  if (allowedRoles && !allowedRoles.includes(role)) return false;
+
+  if (allowedRoles && !allowedRoles.includes(role)) {
+    return false;
+  }
+
   return hasAnyPermission(permissions, rule.permissions);
 }
 
@@ -133,9 +159,18 @@ function BrandedLoader() {
             }}
           />
         </Box>
-        <Title order={1} style={{ color: '#101828', fontSize: 24, lineHeight: '30px' }}>
+
+        <Title
+          order={1}
+          style={{
+            color: '#101828',
+            fontSize: 24,
+            lineHeight: '30px',
+          }}
+        >
           StayOS
         </Title>
+
         <Text c="#667085" size="sm">
           Checking session...
         </Text>
@@ -146,26 +181,38 @@ function BrandedLoader() {
 
 function UnlockDialog() {
   const auth = useAuth();
+
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | undefined>();
   const [submitting, setSubmitting] = useState(false);
 
   return (
-    <Modal opened={auth.isLocked} onClose={() => undefined} centered withCloseButton={false} title="Session Locked">
+    <Modal
+      opened={auth.isLocked}
+      onClose={() => undefined}
+      centered
+      withCloseButton={false}
+      title="Session Locked"
+    >
       <form
         onSubmit={async (event) => {
           event.preventDefault();
+
           if (!password) {
             setError('Password is required.');
             return;
           }
+
           setSubmitting(true);
           setError(undefined);
+
           try {
             await auth.unlock(password);
             setPassword('');
           } catch (unlockError) {
-            setError(unlockError instanceof Error ? unlockError.message : 'Unable to unlock session.');
+            setError(
+              unlockError instanceof Error ? unlockError.message : 'Unable to unlock session.',
+            );
           } finally {
             setSubmitting(false);
           }
@@ -175,6 +222,7 @@ function UnlockDialog() {
           <Text c="#667085" size="sm">
             Your session has been locked due to inactivity.
           </Text>
+
           <PasswordInput
             autoFocus
             error={error}
@@ -183,6 +231,7 @@ function UnlockDialog() {
             placeholder="Enter your password"
             value={password}
           />
+
           <Button type="submit" loading={submitting}>
             Unlock Session
           </Button>
@@ -196,12 +245,15 @@ export function AppFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const auth = useAuth();
+
   const isPublicRoute =
     pathname === '/login' ||
     pathname.startsWith('/housekeeping/staff/') ||
     pathname.startsWith('/check-in-capture/') ||
     pathname.startsWith('/mobile-capture/');
+
   const role = String(auth.user?.role ?? 'FRONT_DESK').toUpperCase();
+
   const shellUser: ShellUser | undefined = auth.user
     ? {
         email: auth.user.email,
@@ -214,31 +266,61 @@ export function AppFrame({ children }: { children: ReactNode }) {
     : undefined;
 
   useEffect(() => {
-    if (auth.isBootstrapping || isPublicRoute || role !== 'HOUSEKEEPING') return;
-    if (pathname === '/rooms' || pathname.startsWith('/rooms/')) router.replace('/housekeeping');
+    if (auth.isBootstrapping || isPublicRoute || role !== 'HOUSEKEEPING') {
+      return;
+    }
+
+    if (pathname === '/rooms' || pathname.startsWith('/rooms/')) {
+      router.replace('/housekeeping');
+    }
   }, [auth.isBootstrapping, isPublicRoute, pathname, role, router]);
 
   useEffect(() => {
-    if (auth.isBootstrapping || isPublicRoute || !auth.isAuthenticated || !pathname) return;
-    if (canAccessPath(pathname, role, auth.user?.permissions)) return;
+    if (auth.isBootstrapping || isPublicRoute || !auth.isAuthenticated || !pathname) {
+      return;
+    }
+
+    if (canAccessPath(pathname, role, auth.user?.permissions)) {
+      return;
+    }
+
     router.replace(defaultRouteForRole(role));
-  }, [auth.isAuthenticated, auth.isBootstrapping, auth.user?.permissions, isPublicRoute, pathname, role, router]);
+  }, [
+    auth.isAuthenticated,
+    auth.isBootstrapping,
+    auth.user?.permissions,
+    isPublicRoute,
+    pathname,
+    role,
+    router,
+  ]);
 
   useEffect(() => {
-    if (auth.isBootstrapping || isPublicRoute || auth.isAuthenticated) return;
+    if (auth.isBootstrapping || isPublicRoute || auth.isAuthenticated) {
+      return;
+    }
+
     const manuallyLoggedOut =
       window.sessionStorage.getItem('stayos.manualLogout') === 'true' ||
       window.localStorage.getItem('stayos.manualLogout') === 'true';
+
     if (manuallyLoggedOut) {
       router.replace('/login');
       return;
     }
+
     const next = pathname ? `?next=${encodeURIComponent(pathname)}` : '';
+
     router.replace(`/login${next}`);
   }, [auth.isAuthenticated, auth.isBootstrapping, isPublicRoute, pathname, router]);
 
-  if (auth.isBootstrapping && !isPublicRoute) return <BrandedLoader />;
-  if (!isPublicRoute && !auth.isAuthenticated) return <BrandedLoader />;
+  if (auth.isBootstrapping && !isPublicRoute) {
+    return <BrandedLoader />;
+  }
+
+  if (!isPublicRoute && !auth.isAuthenticated) {
+    return <BrandedLoader />;
+  }
 
   return (
     <>
@@ -253,6 +335,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
       >
         {children}
       </StayOSAppShell>
+
       <UnlockDialog />
     </>
   );
