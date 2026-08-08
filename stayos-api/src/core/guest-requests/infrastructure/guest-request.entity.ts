@@ -18,6 +18,7 @@ import { GuestRequestDepartment } from '../domain/guest-request-department.enum'
 import { GuestRequestPriority } from '../domain/guest-request-priority.enum';
 import { GuestRequestStatus } from '../domain/guest-request-status.enum';
 import { GuestRequestNoteEntity } from './guest-request-note.entity';
+import { GuestRequestType } from '../domain/guest-request-type.enum';
 
 @Entity({ name: 'guest_requests' })
 @Index('IDX_guest_requests_property_status', ['propertyId', 'status'])
@@ -61,6 +62,20 @@ export class GuestRequestEntity {
   @ManyToOne(() => EmployeeEntity, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'assigned_employee_id' })
   assignedEmployee!: EmployeeEntity | null;
+
+  @Column({
+    type: 'enum',
+    enum: GuestRequestType,
+    name: 'request_type',
+    nullable: true,
+  })
+  requestType!: GuestRequestType | null;
+
+  @Column({
+    type: 'jsonb',
+    nullable: true,
+  })
+  details!: Record<string, unknown> | null;
 
   @Column({ type: 'varchar', length: 120 })
   title!: string;

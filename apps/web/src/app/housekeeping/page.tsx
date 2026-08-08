@@ -987,6 +987,8 @@ export default function HousekeepingPage() {
   const [isEmployeeLoading, setIsEmployeeLoading] = useState(false);
   const [employeeError, setEmployeeError] = useState<string>();
   const [loadingRoomId, setLoadingRoomId] = useState<string>();
+  const [guestRequestBusy, setGuestRequestBusy] = useState<string>();
+  const guestRequestBusyRef = useRef<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<Record<string, string>>({});
   const [staffAccessOpen, setStaffAccessOpen] = useState(false);
   const [staffAccessBusy, setStaffAccessBusy] = useState<string>();
@@ -1385,7 +1387,12 @@ export default function HousekeepingPage() {
     request: GuestRequestDto,
     action: 'accept' | 'start' | 'complete' | 'cancel',
   ) => {
-    if (!propertyId) return;
+    if (!propertyId || guestRequestBusyRef.current) return;
+
+    const busyKey = `${request.id}:${action}`;
+    guestRequestBusyRef.current = busyKey;
+    setGuestRequestBusy(busyKey);
+
     try {
       await transitionGuestRequest(propertyId, request.id, action);
       await loadDashboard();
@@ -1400,6 +1407,9 @@ export default function HousekeepingPage() {
         title: 'Request update failed',
         message: 'Unable to update this guest request.',
       });
+    } finally {
+      guestRequestBusyRef.current = null;
+      setGuestRequestBusy(undefined);
     }
   };
 
@@ -1732,17 +1742,25 @@ export default function HousekeepingPage() {
                         </Badge>
                       </Group>
                       <Group gap={6}>
-                        {actions.map((item) => (
-                          <Button
-                            key={item.action}
-                            color={item.action === 'cancel' ? 'red' : 'stayosBrand'}
-                            size="xs"
-                            variant={item.action === 'cancel' ? 'light' : 'filled'}
-                            onClick={() => void runGuestRequestAction(request, item.action)}
-                          >
-                            {item.label}
-                          </Button>
-                        ))}
+                        {actions.map((item) => {
+                          const busyKey = `${request.id}:${item.action}`;
+                          const requestIsBusy =
+                            guestRequestBusy?.startsWith(`${request.id}:`) ?? false;
+
+                          return (
+                            <Button
+                              key={item.action}
+                              color={item.action === 'cancel' ? 'red' : 'stayosBrand'}
+                              size="xs"
+                              variant={item.action === 'cancel' ? 'light' : 'filled'}
+                              loading={guestRequestBusy === busyKey}
+                              disabled={requestIsBusy && guestRequestBusy !== busyKey}
+                              onClick={() => void runGuestRequestAction(request, item.action)}
+                            >
+                              {item.label}
+                            </Button>
+                          );
+                        })}
                       </Group>
                     </Stack>
                   </Group>

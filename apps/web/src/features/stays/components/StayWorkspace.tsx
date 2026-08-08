@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Badge,
   Box,
   Button,
   Card,
+  Divider,
   Group,
   Modal,
   Paper,
@@ -22,21 +23,34 @@ import {
   UnstyledButton,
 } from '@mantine/core';
 import {
+  AlarmClock,
   AlertCircle,
+  Car,
   ChevronDown,
   ChevronLeft,
+  ConciergeBell,
   DoorOpen,
+  Droplets,
   FileText,
   IdCard,
   MessageSquare,
+  Plane,
+  Plus,
   ReceiptText,
   RefreshCw,
+  Shirt,
+  Sparkles,
   UserRound,
-  Plus,
   Utensils,
 } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
-import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
+import {
+  BackendUnavailable,
+  GenericError,
+  ServerStarting,
+  showToast,
+  useBackendStatus,
+} from '@stayos/ui';
 import { useAuth } from '../../auth/auth-context';
 import { getAvailableRooms, type OperationsAvailableRoomDto } from '../../../lib/operations-api';
 import { extendReservationStay, moveReservationRoom } from '../../../lib/reservation-api';
@@ -44,7 +58,13 @@ import { useStayWorkspace } from '../hooks/useStayWorkspace';
 import { StayBillingPanel } from './StayBillingPanel';
 import type { Stay } from '../types/stay.types';
 import { formatDisplayDate } from '../utils/stay-formatters';
-import { createGuestRequest, listGuestRequests, transitionGuestRequest, type GuestRequestDto, type GuestRequestSuggestionDto } from '../../requests/api/guest-requests-api';
+import {
+  createGuestRequest,
+  listGuestRequests,
+  transitionGuestRequest,
+  type GuestRequestDto,
+  type GuestRequestSuggestionDto,
+} from '../../requests/api/guest-requests-api';
 import { CreateRequestDrawer } from '../../requests/components/CreateRequestDrawer';
 import { RequestCard } from '../../requests/components/RequestCard';
 
@@ -54,11 +74,182 @@ const cardStyle = {
   boxShadow: '0 8px 24px rgba(15, 23, 42, 0.035)',
 };
 
+type GuestServiceShortcut = GuestRequestSuggestionDto & {
+  icon: ReactNode;
+  helper: string;
+  accent: string;
+  background: string;
+  disabled?: boolean;
+};
+
+const guestServiceShortcuts: GuestServiceShortcut[] = [
+  {
+    type: 'WAKE_UP_CALL',
+    title: 'Wake-up',
+    department: 'RECEPTION',
+    icon: <AlarmClock size={18} />,
+    helper: 'Schedule a call',
+    accent: '#7c3aed',
+    background: '#f5f3ff',
+  },
+  {
+    type: 'TAXI',
+    title: 'Taxi',
+    department: 'CONCIERGE',
+    icon: <Car size={18} />,
+    helper: 'Arrange a ride',
+    accent: '#94a3b8',
+    background: '#f8fafc',
+    disabled: true,
+  },
+  {
+    type: 'AIRPORT_DROP',
+    title: 'Airport',
+    department: 'CONCIERGE',
+    icon: <Plane size={18} />,
+    helper: 'Pickup or drop',
+    accent: '#94a3b8',
+    background: '#f8fafc',
+    disabled: true,
+  },
+  {
+    type: 'LAUNDRY_PICKUP',
+    title: 'Laundry',
+    department: 'LAUNDRY',
+    icon: <Shirt size={18} />,
+    helper: 'Arrange pickup',
+    accent: '#0f766e',
+    background: '#f0fdfa',
+  },
+  {
+    type: 'EXTRA_TOWELS',
+    title: 'Extra Towels',
+    department: 'HOUSEKEEPING',
+    icon: <Sparkles size={18} />,
+    helper: 'Send to room',
+    accent: '#4f46e5',
+    background: '#eef2ff',
+  },
+  {
+    type: 'ROOM_CLEANING',
+    title: 'Room Cleaning',
+    department: 'HOUSEKEEPING',
+    icon: <Sparkles size={18} />,
+    helper: 'Request service',
+    accent: '#16a34a',
+    background: '#f0fdf4',
+  },
+  {
+    type: 'WATER_BOTTLES',
+    title: 'Water',
+    department: 'HOUSEKEEPING',
+    icon: <Droplets size={18} />,
+    helper: 'Send bottles',
+    accent: '#0284c7',
+    background: '#f0f9ff',
+  },
+  {
+    type: 'LUGGAGE_ASSISTANCE',
+    title: 'Luggage',
+    department: 'CONCIERGE',
+    icon: <ConciergeBell size={18} />,
+    helper: 'Call assistance',
+    accent: '#b45309',
+    background: '#fffbeb',
+  },
+];
+
+function GuestServiceTile({
+  service,
+  onClick,
+}: {
+  service: GuestServiceShortcut;
+  onClick: () => void;
+}) {
+  return (
+    <UnstyledButton
+      disabled={service.disabled}
+      onClick={() => {
+        if (!service.disabled) onClick();
+      }}
+      style={{
+        background: service.disabled ? '#f8fafc' : '#ffffff',
+        border: '1px solid #e7eaf0',
+        borderRadius: 16,
+        cursor: service.disabled ? 'not-allowed' : 'pointer',
+        minHeight: 92,
+        opacity: service.disabled ? 0.58 : 1,
+        padding: '14px 14px 13px',
+        position: 'relative',
+        textAlign: 'left',
+        transition:
+          'transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, background 160ms ease',
+        width: '100%',
+      }}
+      onMouseEnter={(event) => {
+        if (service.disabled) return;
+        event.currentTarget.style.transform = 'translateY(-2px)';
+        event.currentTarget.style.boxShadow = '0 12px 28px rgba(15, 23, 42, 0.09)';
+        event.currentTarget.style.borderColor = service.accent;
+        event.currentTarget.style.background = service.background;
+      }}
+      onMouseLeave={(event) => {
+        if (service.disabled) return;
+        event.currentTarget.style.transform = 'translateY(0)';
+        event.currentTarget.style.boxShadow = 'none';
+        event.currentTarget.style.borderColor = '#e7eaf0';
+        event.currentTarget.style.background = '#ffffff';
+      }}
+      onMouseDown={(event) => {
+        if (service.disabled) return;
+        event.currentTarget.style.transform = 'translateY(0) scale(0.985)';
+      }}
+      onMouseUp={(event) => {
+        if (service.disabled) return;
+        event.currentTarget.style.transform = 'translateY(-2px) scale(1)';
+      }}
+    >
+      <Group gap={10} wrap="nowrap" align="flex-start">
+        <ThemeIcon
+          radius={12}
+          size={38}
+          variant="light"
+          style={{
+            background: service.background,
+            color: service.accent,
+            flex: '0 0 auto',
+          }}
+        >
+          {service.icon}
+        </ThemeIcon>
+
+        <Box style={{ minWidth: 0 }}>
+          <Text c="#111827" fw={800} style={{ fontSize: 13.5, lineHeight: '18px' }}>
+            {service.title}
+          </Text>
+          <Text c="#7c8798" mt={3} style={{ fontSize: 11.5, lineHeight: '16px' }}>
+            {service.helper}
+          </Text>
+          {service.disabled ? (
+            <Text c="#94a3b8" mt={4} fw={700} style={{ fontSize: 10.5, lineHeight: '14px' }}>
+              Not available yet
+            </Text>
+          ) : null}
+        </Box>
+      </Group>
+    </UnstyledButton>
+  );
+}
+
 function DetailTile({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <Paper radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
-      <Text c="#64748b" size="xs" fw={700}>{label}</Text>
-      <Text c="#182230" mt={3} size="sm" fw={700}>{value}</Text>
+      <Text c="#64748b" size="xs" fw={700}>
+        {label}
+      </Text>
+      <Text c="#182230" mt={3} size="sm" fw={700}>
+        {value}
+      </Text>
     </Paper>
   );
 }
@@ -79,31 +270,91 @@ function StayHeader({
       <Group justify="space-between" align="flex-start" gap={spacing[4]}>
         <Stack gap={8}>
           <Group gap={12}>
-            <Button component={Link} href="/rooms" variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content">
+            <Button
+              component={Link}
+              href="/rooms"
+              variant="subtle"
+              color="gray"
+              leftSection={<ChevronLeft size={16} />}
+              px={0}
+              w="fit-content"
+            >
               Back to Rooms
             </Button>
-            <Button component={Link} href="/" variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content">
+            <Button
+              component={Link}
+              href="/"
+              variant="subtle"
+              color="gray"
+              leftSection={<ChevronLeft size={16} />}
+              px={0}
+              w="fit-content"
+            >
               Back to Front Desk
             </Button>
           </Group>
           <Group gap={8}>
-            <Badge color="blue" variant="light" radius={radius.full}>{stay.status}</Badge>
-            {stay.isVip ? <Badge color="stayosBrand" variant="light" radius={radius.full}>VIP</Badge> : null}
-            <Badge color={stay.paymentStatus === 'Paid' ? 'green' : 'red'} variant="light" radius={radius.full}>{stay.paymentStatus}</Badge>
+            <Badge color="blue" variant="light" radius={radius.full}>
+              {stay.status}
+            </Badge>
+            {stay.isVip ? (
+              <Badge color="stayosBrand" variant="light" radius={radius.full}>
+                VIP
+              </Badge>
+            ) : null}
+            <Badge
+              color={stay.paymentStatus === 'Paid' ? 'green' : 'red'}
+              variant="light"
+              radius={radius.full}
+            >
+              {stay.paymentStatus}
+            </Badge>
           </Group>
-          <Title order={1} c="#101828" style={{ fontSize: 34, fontWeight: 800 }}>{stay.guestName}</Title>
-          <Text c="#334155" size="sm" fw={700}>Room {stay.roomNumber} - {stay.roomType}</Text>
+          <Title order={1} c="#101828" style={{ fontSize: 34, fontWeight: 800 }}>
+            {stay.guestName}
+          </Title>
+          <Text c="#334155" size="sm" fw={700}>
+            Room {stay.roomNumber} - {stay.roomType}
+          </Text>
           <Group gap={spacing[4]} wrap="wrap">
-            <Text c="#64748b" size="sm">Arrival: {formatDisplayDate(stay.arrivalDate)}</Text>
-            <Text c="#64748b" size="sm">Departure: {formatDisplayDate(stay.departureDate)}</Text>
-            <Text c="#64748b" size="sm">Remaining nights: {stay.remainingNights}</Text>
-            <Text c="#64748b" size="sm">Booking: {stay.bookingId}</Text>
+            <Text c="#64748b" size="sm">
+              Arrival: {formatDisplayDate(stay.arrivalDate)}
+            </Text>
+            <Text c="#64748b" size="sm">
+              Departure: {formatDisplayDate(stay.departureDate)}
+            </Text>
+            <Text c="#64748b" size="sm">
+              Remaining nights: {stay.remainingNights}
+            </Text>
+            <Text c="#64748b" size="sm">
+              Booking: {stay.bookingId}
+            </Text>
           </Group>
         </Stack>
         <Group gap={8}>
-          <Button disabled={!stay.allowedActions.canMoveRoom} variant="light" color="stayosBrand" leftSection={<RefreshCw size={16} />} onClick={onMoveRoom}>Move Room</Button>
-          <Button disabled={!stay.allowedActions.canExtendStay} variant="light" color="stayosBrand" onClick={onExtendStay}>Extend Stay</Button>
-          <Button disabled={!stay.allowedActions.canCheckOut} color="red" leftSection={<DoorOpen size={16} />} onClick={onCheckOut}>
+          <Button
+            disabled={!stay.allowedActions.canMoveRoom}
+            variant="light"
+            color="stayosBrand"
+            leftSection={<RefreshCw size={16} />}
+            onClick={onMoveRoom}
+          >
+            Move Room
+          </Button>
+          <Button
+            disabled={!stay.allowedActions.canExtendStay}
+            variant="light"
+            color="stayosBrand"
+            onClick={onExtendStay}
+          >
+            Extend Stay
+          </Button>
+          <Button
+            disabled={!stay.allowedActions.canCheckOut}
+            color="red"
+            leftSection={<DoorOpen size={16} />}
+            onClick={onCheckOut}
+          >
             {stay.paymentStatus === 'Paid' ? 'Check Out' : 'Settle & Check Out'}
           </Button>
         </Group>
@@ -115,17 +366,43 @@ function StayHeader({
 function AttentionPanel({ stay }: { stay: Stay }) {
   return (
     <Card radius={radius.lg} p={16} style={cardStyle}>
-      <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 800 }}>What Needs Attention</Title>
+      <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 800 }}>
+        What Needs Attention
+      </Title>
       {stay.warnings.length === 0 ? (
-        <Paper mt={spacing[3]} radius={radius.md} p={14} style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-          <Text c="#15803d" fw={700}>Everything looks good.</Text>
+        <Paper
+          mt={spacing[3]}
+          radius={radius.md}
+          p={14}
+          style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}
+        >
+          <Text c="#15803d" fw={700}>
+            Everything looks good.
+          </Text>
         </Paper>
       ) : (
         <SimpleGrid mt={spacing[3]} cols={{ base: 1, md: 3 }} spacing={spacing[3]}>
           {stay.warnings.map((item) => (
-            <Paper key={item.title} radius={radius.md} p={14} style={{ background: item.tone === 'danger' ? '#fef2f2' : item.tone === 'warning' ? '#fffbeb' : '#eff6ff', border: '1px solid #e2e8f0' }}>
-              <Text c="#101828" fw={800} size="sm">{item.title}</Text>
-              <Text c="#64748b" mt={4} size="xs">{item.detail}</Text>
+            <Paper
+              key={item.title}
+              radius={radius.md}
+              p={14}
+              style={{
+                background:
+                  item.tone === 'danger'
+                    ? '#fef2f2'
+                    : item.tone === 'warning'
+                      ? '#fffbeb'
+                      : '#eff6ff',
+                border: '1px solid #e2e8f0',
+              }}
+            >
+              <Text c="#101828" fw={800} size="sm">
+                {item.title}
+              </Text>
+              <Text c="#64748b" mt={4} size="xs">
+                {item.detail}
+              </Text>
             </Paper>
           ))}
         </SimpleGrid>
@@ -158,7 +435,10 @@ function OperationalSections({
   onFolioChanged: () => void;
   onOpenRequest: (suggestion?: GuestRequestSuggestionDto) => void;
   onMoveRoom: () => void;
-  onRequestTransition: (requestId: string, action: 'accept' | 'start' | 'complete' | 'cancel') => void;
+  onRequestTransition: (
+    requestId: string,
+    action: 'accept' | 'start' | 'complete' | 'cancel',
+  ) => Promise<void>;
   completedRequests: GuestRequestDto[];
   requests: GuestRequestDto[];
   stay: Stay;
@@ -172,79 +452,200 @@ function OperationalSections({
 
   return (
     <Stack gap={spacing[3]}>
-      {/* Billing — always visible, this is the busiest tool for the front desk */}
-      <Card radius={radius.lg} p={16} style={cardStyle}>
-        <Group justify="space-between" align="flex-start" gap={spacing[4]}>
-          <Stack gap={6}>
-            <Group gap={10}>
-              <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={34}><MessageSquare size={17} /></ThemeIcon>
-              <Text c="#101828" fw={800}>Guest service</Text>
-            </Group>
-            <Text c="#64748b" size="sm">
-              Requests create tasks for teams. Restaurant, minibar, laundry, and paid extras should be posted as folio charges.
-            </Text>
-          </Stack>
-          <Group gap={8}>
-            <Button color="stayosBrand" leftSection={<Plus size={16} />} onClick={() => onOpenRequest()}>
-              Add Request
-            </Button>
-            <Button
-              variant="light"
-              color="stayosBrand"
-              leftSection={<Utensils size={16} />}
-              onClick={() => document.querySelector<HTMLElement>('[data-testid="folio-add-charge"]')?.click()}
-            >
-              Post Food Charge
-            </Button>
-          </Group>
-        </Group>
-        <Group mt={spacing[3]} gap={8}>
-          {[
-            { title: 'Extra Towels', department: 'HOUSEKEEPING' as const },
-            { title: 'Slippers', department: 'HOUSEKEEPING' as const },
-            { title: 'Room Cleaning', department: 'HOUSEKEEPING' as const },
-            { title: 'Water Bottles', department: 'HOUSEKEEPING' as const },
-          ].map((suggestion) => (
-            <Button key={suggestion.title} size="xs" variant="light" color="gray" onClick={() => onOpenRequest(suggestion)}>
-              {suggestion.title}
-            </Button>
-          ))}
-        </Group>
-        {requests.length > 0 ? (
-          <Stack mt={spacing[3]} gap={spacing[2]}>
-            <Text c="#64748b" size="xs" fw={700} tt="uppercase">Open requests</Text>
-            {requests.map((request) => (
-              <RequestCard key={request.id} request={request} onTransition={onRequestTransition} />
-            ))}
-          </Stack>
-        ) : null}
-        {completedRequests.length > 0 ? (
-          <Stack mt={spacing[3]} gap={spacing[2]}>
-            <Text c="#64748b" size="xs" fw={700} tt="uppercase">Recently completed</Text>
-            {completedRequests.slice(0, 3).map((request) => (
-              <Paper key={request.id} radius={radius.md} p={12} style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-                <Group justify="space-between" gap={spacing[3]}>
-                  <Box>
-                    <Text c="#101828" size="sm" fw={800}>Room {request.roomNumber ?? stay.roomNumber} - {request.title}</Text>
-                    <Text c="#64748b" size="xs">
-                      Completed by {request.assignedEmployeeName ?? 'housekeeping'} for {request.guestDisplayName ?? stay.guestName}
+      {/* Guest Services — contextual, guided actions for the current stay */}
+      <Card
+        radius={radius.lg}
+        p={0}
+        style={{
+          ...cardStyle,
+          overflow: 'hidden',
+          background: 'linear-gradient(180deg, rgba(248,250,255,0.82) 0%, #ffffff 34%)',
+        }}
+      >
+        <Box p={18}>
+          <Group justify="space-between" align="flex-start" gap={spacing[4]} wrap="wrap">
+            <Stack gap={5}>
+              <Group gap={10}>
+                <ThemeIcon
+                  radius={12}
+                  size={38}
+                  variant="light"
+                  style={{
+                    background: '#eef2ff',
+                    color: '#4f46e5',
+                  }}
+                >
+                  <MessageSquare size={18} />
+                </ThemeIcon>
+
+                <Box>
+                  <Group gap={8}>
+                    <Text c="#101828" fw={850} style={{ fontSize: 17 }}>
+                      Guest Services
                     </Text>
-                  </Box>
-                  <Badge color="green" variant="light" radius={radius.full}>Completed</Badge>
-                </Group>
-              </Paper>
+                    {requests.length > 0 ? (
+                      <Badge color="stayosBrand" variant="light" radius={radius.full}>
+                        {requests.length} active
+                      </Badge>
+                    ) : null}
+                  </Group>
+
+                  <Text c="#64748b" mt={2} style={{ fontSize: 12.5 }}>
+                    What can we arrange for {stay.guestName}?
+                  </Text>
+                </Box>
+              </Group>
+
+              <Text c="#94a3b8" style={{ fontSize: 11.5, maxWidth: 620 }}>
+                Choose a service. StayOS already knows the guest, room, booking, and the team that
+                should handle it.
+              </Text>
+            </Stack>
+
+            <Group gap={8}>
+              <Button
+                color="stayosBrand"
+                variant="light"
+                leftSection={<Plus size={16} />}
+                onClick={() => onOpenRequest()}
+              >
+                More Services
+              </Button>
+
+              <Button
+                variant="subtle"
+                color="gray"
+                leftSection={<Utensils size={16} />}
+                onClick={() =>
+                  document.querySelector<HTMLElement>('[data-testid="folio-add-charge"]')?.click()
+                }
+              >
+                Post Food Charge
+              </Button>
+            </Group>
+          </Group>
+
+          <SimpleGrid mt={spacing[4]} cols={{ base: 2, sm: 4, xl: 8 }} spacing={10}>
+            {guestServiceShortcuts.map((service) => (
+              <GuestServiceTile
+                key={service.type}
+                service={service}
+                onClick={() =>
+                  onOpenRequest({
+                    type: service.type,
+                    title: service.title === 'Airport' ? 'Airport Drop' : service.title,
+                    department: service.department,
+                  })
+                }
+              />
             ))}
-          </Stack>
-        ) : null}
+          </SimpleGrid>
+        </Box>
+
+        {requests.length > 0 || completedRequests.length > 0 ? (
+          <>
+            <Divider color="#eef2f7" />
+
+            <Box p={18}>
+              {requests.length > 0 ? (
+                <Stack gap={spacing[2]}>
+                  <Group justify="space-between">
+                    <Text c="#64748b" size="xs" fw={800} tt="uppercase">
+                      Active requests
+                    </Text>
+                    <Text c="#94a3b8" size="xs">
+                      Updates appear here as teams respond
+                    </Text>
+                  </Group>
+
+                  {requests.map((request) => (
+                    <RequestCard
+                      key={request.id}
+                      request={request}
+                      onTransition={onRequestTransition}
+                    />
+                  ))}
+                </Stack>
+              ) : null}
+
+              {completedRequests.length > 0 ? (
+                <Stack mt={requests.length > 0 ? spacing[4] : 0} gap={spacing[2]}>
+                  <Text c="#64748b" size="xs" fw={800} tt="uppercase">
+                    Recently completed
+                  </Text>
+
+                  {completedRequests.slice(0, 3).map((request) => (
+                    <Paper
+                      key={request.id}
+                      radius={radius.md}
+                      p={12}
+                      style={{
+                        background: '#f8fcf9',
+                        border: '1px solid #dcf4e3',
+                      }}
+                    >
+                      <Group justify="space-between" gap={spacing[3]}>
+                        <Box>
+                          <Text c="#101828" size="sm" fw={800}>
+                            Room {request.roomNumber ?? stay.roomNumber} - {request.title}
+                          </Text>
+                          <Text c="#64748b" size="xs">
+                            Completed by {request.assignedEmployeeName ?? 'the assigned team'} for{' '}
+                            {request.guestDisplayName ?? stay.guestName}
+                          </Text>
+                        </Box>
+
+                        <Badge color="green" variant="light" radius={radius.full}>
+                          Completed
+                        </Badge>
+                      </Group>
+                    </Paper>
+                  ))}
+                </Stack>
+              ) : null}
+            </Box>
+          </>
+        ) : (
+          <Box px={18} pb={18}>
+            <Paper
+              radius={radius.md}
+              p={12}
+              style={{
+                background: '#f8fafc',
+                border: '1px dashed #dbe2ea',
+              }}
+            >
+              <Text c="#64748b" style={{ fontSize: 12.5 }}>
+                No active requests. Use a quick service above whenever the guest needs something.
+              </Text>
+            </Paper>
+          </Box>
+        )}
       </Card>
 
-      <Card ref={billingSectionRef} radius={radius.lg} p={0} style={{ ...cardStyle, overflow: 'hidden' }}>
-        <Group justify="space-between" align="center" p={16} style={{ borderBottom: '1px solid #eef2f7' }}>
+      <Card
+        ref={billingSectionRef}
+        radius={radius.lg}
+        p={0}
+        style={{ ...cardStyle, overflow: 'hidden' }}
+      >
+        <Group
+          justify="space-between"
+          align="center"
+          p={16}
+          style={{ borderBottom: '1px solid #eef2f7' }}
+        >
           <Group gap={10}>
-            <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={34}><ReceiptText size={17} /></ThemeIcon>
-            <Text c="#101828" fw={800}>Billing &amp; payments</Text>
+            <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={34}>
+              <ReceiptText size={17} />
+            </ThemeIcon>
+            <Text c="#101828" fw={800}>
+              Billing &amp; payments
+            </Text>
           </Group>
-          <Text c="#94a3b8" size="xs">Add charges, collect payments, download receipts</Text>
+          <Text c="#94a3b8" size="xs">
+            Add charges, collect payments, download receipts
+          </Text>
         </Group>
         <Box p={16}>
           {billingReservationId && billingPropertyId ? (
@@ -257,7 +658,9 @@ function OperationalSections({
               onFolioChanged={onFolioChanged}
             />
           ) : (
-            <Text c="#64748b" size="sm">Billing unavailable for this stay.</Text>
+            <Text c="#64748b" size="sm">
+              Billing unavailable for this stay.
+            </Text>
           )}
         </Box>
       </Card>
@@ -266,8 +669,12 @@ function OperationalSections({
       <Card radius={radius.lg} p={16} style={cardStyle}>
         <Group justify="space-between" align="center" mb={12}>
           <Group gap={10}>
-            <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={30}><UserRound size={16} /></ThemeIcon>
-            <Text c="#101828" fw={800}>Guest &amp; room quick facts</Text>
+            <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={30}>
+              <UserRound size={16} />
+            </ThemeIcon>
+            <Text c="#101828" fw={800}>
+              Guest &amp; room quick facts
+            </Text>
           </Group>
           <Button
             component={Link}
@@ -289,11 +696,30 @@ function OperationalSections({
           <DetailTile label="Room type" value={stay.roomType || '—'} />
           <DetailTile label="Floor" value={stay.floor || '—'} />
           <DetailTile label="Room status" value={stay.roomStatus || '—'} />
-          <DetailTile label="Occupancy" value={`${stay.adults} adult${stay.adults === 1 ? '' : 's'}${stay.children ? `, ${stay.children} child${stay.children === 1 ? '' : 'ren'}` : ''}`} />
+          <DetailTile
+            label="Occupancy"
+            value={`${stay.adults} adult${stay.adults === 1 ? '' : 's'}${stay.children ? `, ${stay.children} child${stay.children === 1 ? '' : 'ren'}` : ''}`}
+          />
         </SimpleGrid>
         <Group mt={spacing[3]} gap={8}>
-          <Button disabled={!stay.allowedActions.canMoveRoom} variant="light" color="stayosBrand" size="xs" onClick={onMoveRoom}>Move Room</Button>
-          <Button component={Link} href={stay.roomId ? `/rooms/${stay.roomId}` : '/rooms'} variant="subtle" color="gray" size="xs">View Room</Button>
+          <Button
+            disabled={!stay.allowedActions.canMoveRoom}
+            variant="light"
+            color="stayosBrand"
+            size="xs"
+            onClick={onMoveRoom}
+          >
+            Move Room
+          </Button>
+          <Button
+            component={Link}
+            href={stay.roomId ? `/rooms/${stay.roomId}` : '/rooms'}
+            variant="subtle"
+            color="gray"
+            size="xs"
+          >
+            View Room
+          </Button>
         </Group>
       </Card>
 
@@ -301,17 +727,23 @@ function OperationalSections({
       {stay.documents.length > 0 ? (
         <Card radius={radius.lg} p={16} style={cardStyle}>
           <Group gap={10} mb={12}>
-            <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={30}><IdCard size={16} /></ThemeIcon>
-            <Text c="#101828" fw={800}>Documents</Text>
+            <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={30}>
+              <IdCard size={16} />
+            </ThemeIcon>
+            <Text c="#101828" fw={800}>
+              Documents
+            </Text>
           </Group>
           <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing={spacing[3]}>
-            {stay.documents.map((document) => <DetailTile key={document.label} label={document.label} value={document.status} />)}
+            {stay.documents.map((document) => (
+              <DetailTile key={document.label} label={document.label} value={document.status} />
+            ))}
           </SimpleGrid>
         </Card>
       ) : null}
 
       {/* More details — collapsed by default. Hides the noisy empty sections. */}
-      {(hasAdditionalGuests || hasPreferences || hasRequests || hasNotes || hasActivity) ? (
+      {hasAdditionalGuests || hasPreferences || hasRequests || hasNotes || hasActivity ? (
         <Card radius={radius.lg} p={0} style={{ ...cardStyle, overflow: 'hidden' }}>
           <UnstyledButton
             onClick={() => setShowMore((v) => !v)}
@@ -320,46 +752,81 @@ function OperationalSections({
           >
             <Group justify="space-between">
               <Group gap={10}>
-                <ThemeIcon color="gray" variant="light" radius={radius.md} size={30}><FileText size={16} /></ThemeIcon>
-                <Text c="#101828" fw={700}>More details</Text>
+                <ThemeIcon color="gray" variant="light" radius={radius.md} size={30}>
+                  <FileText size={16} />
+                </ThemeIcon>
+                <Text c="#101828" fw={700}>
+                  More details
+                </Text>
                 <Text c="#94a3b8" size="xs">
                   {[
-                    hasAdditionalGuests && `${stay.additionalGuests.length} additional guest${stay.additionalGuests.length === 1 ? '' : 's'}`,
-                    hasPreferences && `${stay.preferences.length} preference${stay.preferences.length === 1 ? '' : 's'}`,
-                    hasRequests && `${stay.requests.length} request${stay.requests.length === 1 ? '' : 's'}`,
+                    hasAdditionalGuests &&
+                      `${stay.additionalGuests.length} additional guest${stay.additionalGuests.length === 1 ? '' : 's'}`,
+                    hasPreferences &&
+                      `${stay.preferences.length} preference${stay.preferences.length === 1 ? '' : 's'}`,
+                    hasRequests &&
+                      `${stay.requests.length} request${stay.requests.length === 1 ? '' : 's'}`,
                     hasNotes && 'notes',
                     hasActivity && `${stay.activity.length} activity`,
-                  ].filter(Boolean).join(' · ')}
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                 </Text>
               </Group>
-              <ChevronDown size={16} style={{ transform: showMore ? 'rotate(180deg)' : undefined, transition: 'transform 160ms ease' }} />
+              <ChevronDown
+                size={16}
+                style={{
+                  transform: showMore ? 'rotate(180deg)' : undefined,
+                  transition: 'transform 160ms ease',
+                }}
+              />
             </Group>
           </UnstyledButton>
           {showMore ? (
             <Stack gap={spacing[3]} p={16} pt={0}>
               {hasAdditionalGuests ? (
                 <Box>
-                  <Text c="#64748b" size="xs" fw={700} tt="uppercase" mb={6}>Additional guests</Text>
-                  <Stack gap={4}>{stay.additionalGuests.map((g) => <DetailTile key={g} label="Occupant" value={g} />)}</Stack>
+                  <Text c="#64748b" size="xs" fw={700} tt="uppercase" mb={6}>
+                    Additional guests
+                  </Text>
+                  <Stack gap={4}>
+                    {stay.additionalGuests.map((g) => (
+                      <DetailTile key={g} label="Occupant" value={g} />
+                    ))}
+                  </Stack>
                 </Box>
               ) : null}
               {hasPreferences ? (
                 <Box>
-                  <Text c="#64748b" size="xs" fw={700} tt="uppercase" mb={6}>Preferences</Text>
-                  <Group gap={8}>{stay.preferences.map((item) => <Badge key={item} color="stayosBrand" variant="light" radius={radius.full}>{item}</Badge>)}</Group>
+                  <Text c="#64748b" size="xs" fw={700} tt="uppercase" mb={6}>
+                    Preferences
+                  </Text>
+                  <Group gap={8}>
+                    {stay.preferences.map((item) => (
+                      <Badge key={item} color="stayosBrand" variant="light" radius={radius.full}>
+                        {item}
+                      </Badge>
+                    ))}
+                  </Group>
                 </Box>
               ) : null}
               {hasRequests ? (
                 <Box>
-                  <Text c="#64748b" size="xs" fw={700} tt="uppercase" mb={6}>Requests</Text>
+                  <Text c="#64748b" size="xs" fw={700} tt="uppercase" mb={6}>
+                    Requests
+                  </Text>
                   <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing={spacing[2]}>
-                    {stay.requests.map((request) => <DetailTile key={request} label={request} value="Requested" />)}
+                    {stay.requests.map((request) => (
+                      <DetailTile key={request} label={request} value="Requested" />
+                    ))}
                   </SimpleGrid>
                 </Box>
               ) : null}
               {hasNotes ? (
                 <Box>
-                  <Text c="#64748b" size="xs" fw={700} tt="uppercase" mb={6}>Notes</Text>
+                  <Text c="#64748b" size="xs" fw={700} tt="uppercase" mb={6}>
+                    Notes
+                  </Text>
                   <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[2]}>
                     <DetailTile label="Guest notes" value={stay.guestNotes || '—'} />
                     <DetailTile label="Internal staff notes" value={stay.internalNotes || '—'} />
@@ -368,8 +835,18 @@ function OperationalSections({
               ) : null}
               {hasActivity ? (
                 <Box>
-                  <Text c="#64748b" size="xs" fw={700} tt="uppercase" mb={6}>Timeline</Text>
-                  <Stack gap={4}>{stay.activity.map((item) => <DetailTile key={`${item.timestamp}-${item.title}`} label={`${item.timestamp} · ${item.title}`} value={item.detail} />)}</Stack>
+                  <Text c="#64748b" size="xs" fw={700} tt="uppercase" mb={6}>
+                    Timeline
+                  </Text>
+                  <Stack gap={4}>
+                    {stay.activity.map((item) => (
+                      <DetailTile
+                        key={`${item.timestamp}-${item.title}`}
+                        label={`${item.timestamp} · ${item.title}`}
+                        value={item.detail}
+                      />
+                    ))}
+                  </Stack>
                 </Box>
               ) : null}
             </Stack>
@@ -431,7 +908,10 @@ function MoveRoomModal({
       <Stack gap={spacing[4]}>
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
           <DetailTile label="Current room" value={`Room ${stay.roomNumber} - ${stay.roomType}`} />
-          <DetailTile label="Stay dates" value={`${formatDisplayDate(stay.arrivalDate)} to ${formatDisplayDate(stay.departureDate)}`} />
+          <DetailTile
+            label="Stay dates"
+            value={`${formatDisplayDate(stay.arrivalDate)} to ${formatDisplayDate(stay.departureDate)}`}
+          />
         </SimpleGrid>
         <TextInput
           label="Search rooms"
@@ -447,7 +927,8 @@ function MoveRoomModal({
                 onClick={() => setSelectedRoomId(room.roomId)}
                 style={{
                   background: selectedRoomId === room.roomId ? '#eef2ff' : '#ffffff',
-                  border: selectedRoomId === room.roomId ? '1px solid #4f46e5' : '1px solid #e2e8f0',
+                  border:
+                    selectedRoomId === room.roomId ? '1px solid #4f46e5' : '1px solid #e2e8f0',
                   borderRadius: radius.md,
                   padding: 12,
                   textAlign: 'left',
@@ -455,12 +936,17 @@ function MoveRoomModal({
               >
                 <Group justify="space-between" align="flex-start">
                   <Stack gap={2}>
-                    <Text c="#101828" fw={800}>Room {room.roomNumber}</Text>
+                    <Text c="#101828" fw={800}>
+                      Room {room.roomNumber}
+                    </Text>
                     <Text c="#64748b" size="sm">
-                      {roomTypeLabel(room)} - {room.floor.name || room.floor.code || 'Floor not recorded'}
+                      {roomTypeLabel(room)} -{' '}
+                      {room.floor.name || room.floor.code || 'Floor not recorded'}
                     </Text>
                   </Stack>
-                  <Badge color="green" variant="light" radius={radius.full}>Ready</Badge>
+                  <Badge color="green" variant="light" radius={radius.full}>
+                    Ready
+                  </Badge>
                 </Group>
               </UnstyledButton>
             ))
@@ -472,7 +958,8 @@ function MoveRoomModal({
         </Stack>
         {changesRoomType ? (
           <Alert color="yellow" variant="light" icon={<AlertCircle size={17} />} radius={radius.md}>
-            This move changes the room type from {stay.roomType} to {selectedRoom ? roomTypeLabel(selectedRoom) : 'the selected room type'}.
+            This move changes the room type from {stay.roomType} to{' '}
+            {selectedRoom ? roomTypeLabel(selectedRoom) : 'the selected room type'}.
           </Alert>
         ) : null}
         <Textarea
@@ -484,8 +971,17 @@ function MoveRoomModal({
           value={reason}
         />
         <Group justify="flex-end">
-          <Button variant="subtle" color="gray" onClick={onClose}>Close</Button>
-          <Button color="stayosBrand" disabled={!selectedRoomId} loading={isMoving} onClick={onConfirm}>Move Room</Button>
+          <Button variant="subtle" color="gray" onClick={onClose}>
+            Close
+          </Button>
+          <Button
+            color="stayosBrand"
+            disabled={!selectedRoomId}
+            loading={isMoving}
+            onClick={onConfirm}
+          >
+            Move Room
+          </Button>
         </Group>
       </Stack>
     </Modal>
@@ -500,7 +996,9 @@ export default function StayWorkspace() {
   const permissions = auth.user?.permissions ?? [];
   const canViewBilling = permissions.includes('billing.view') || permissions.includes('*');
   const canManageBilling = permissions.includes('billing.manage') || permissions.includes('*');
-  const enabled = backend.isOnline || (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
+  const enabled =
+    backend.isOnline ||
+    (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
   const stayState = useStayWorkspace({ enabled, stayId: params.stayId });
   const [checkoutOpened, setCheckoutOpened] = useState(false);
   const [extendOpened, setExtendOpened] = useState(false);
@@ -514,7 +1012,9 @@ export default function StayWorkspace() {
   const [moveSearch, setMoveSearch] = useState('');
   const [selectedMoveRoomId, setSelectedMoveRoomId] = useState('');
   const [requestDrawerOpened, setRequestDrawerOpened] = useState(false);
-  const [selectedRequestSuggestion, setSelectedRequestSuggestion] = useState<GuestRequestSuggestionDto | undefined>();
+  const [selectedRequestSuggestion, setSelectedRequestSuggestion] = useState<
+    GuestRequestSuggestionDto | undefined
+  >();
   const [guestRequests, setGuestRequests] = useState<GuestRequestDto[]>([]);
   const [completedGuestRequests, setCompletedGuestRequests] = useState<GuestRequestDto[]>([]);
   const [billingReloadSignal, setBillingReloadSignal] = useState(0);
@@ -525,7 +1025,9 @@ export default function StayWorkspace() {
     try {
       const items = await listGuestRequests(stayState.propertyId, {});
       const reservationRequests = items.filter((item) => item.reservationId === params.stayId);
-      setGuestRequests(reservationRequests.filter((item) => !['COMPLETED', 'CANCELLED'].includes(item.status)));
+      setGuestRequests(
+        reservationRequests.filter((item) => !['COMPLETED', 'CANCELLED'].includes(item.status)),
+      );
       setCompletedGuestRequests(reservationRequests.filter((item) => item.status === 'COMPLETED'));
     } catch {
       setGuestRequests([]);
@@ -544,10 +1046,23 @@ export default function StayWorkspace() {
   const retryBackend = () => void backend.retry();
   const checkBackendStatus = () => void backend.checkHealth();
 
-  if (backend.status === 'SERVER_STARTING') return <ServerStarting onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
-  if (!backend.isOnline && backend.status !== 'CONNECTING') return <BackendUnavailable onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
-  if (stayState.error && !stayState.isLoading && !stayState.stay) return <GenericError onAction={() => void stayState.refreshStay()} onCheckStatus={checkBackendStatus} />;
-  if (!stayState.stay) return <Alert color="blue" variant="light" icon={<DoorOpen size={17} />} radius={radius.lg}>Loading stay workspace...</Alert>;
+  if (backend.status === 'SERVER_STARTING')
+    return <ServerStarting onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
+  if (!backend.isOnline && backend.status !== 'CONNECTING')
+    return <BackendUnavailable onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
+  if (stayState.error && !stayState.isLoading && !stayState.stay)
+    return (
+      <GenericError
+        onAction={() => void stayState.refreshStay()}
+        onCheckStatus={checkBackendStatus}
+      />
+    );
+  if (!stayState.stay)
+    return (
+      <Alert color="blue" variant="light" icon={<DoorOpen size={17} />} radius={radius.lg}>
+        Loading stay workspace...
+      </Alert>
+    );
 
   const stay = stayState.stay;
   const hasOutstandingBalance = stay.paymentStatus !== 'Paid';
@@ -566,10 +1081,17 @@ export default function StayWorkspace() {
       roomId: stay.roomId,
     });
     await loadGuestRequests();
-    showToast({ color: 'green', title: 'Request added', message: 'The team can now pick this up from Guest Requests.' });
+    showToast({
+      color: 'green',
+      title: 'Request added',
+      message: 'The team can now pick this up from Guest Requests.',
+    });
   };
 
-  const changeRequestStatus = async (requestId: string, action: 'accept' | 'start' | 'complete' | 'cancel') => {
+  const changeRequestStatus = async (
+    requestId: string,
+    action: 'accept' | 'start' | 'complete' | 'cancel',
+  ) => {
     if (!stayState.propertyId) return;
     await transitionGuestRequest(stayState.propertyId, requestId, action);
     await loadGuestRequests();
@@ -591,7 +1113,11 @@ export default function StayWorkspace() {
       setMoveRooms(rooms);
     } catch {
       setMoveRooms([]);
-      showToast({ color: 'red', title: 'Rooms unavailable', message: 'Unable to load available rooms.' });
+      showToast({
+        color: 'red',
+        title: 'Rooms unavailable',
+        message: 'Unable to load available rooms.',
+      });
     }
   };
 
@@ -600,12 +1126,25 @@ export default function StayWorkspace() {
 
     setIsMoving(true);
     try {
-      await moveReservationRoom(stayState.propertyId, params.stayId, selectedMoveRoomId, moveReason);
+      await moveReservationRoom(
+        stayState.propertyId,
+        params.stayId,
+        selectedMoveRoomId,
+        moveReason,
+      );
       await stayState.refreshStay();
       setMoveOpened(false);
-      showToast({ color: 'green', title: 'Room moved', message: 'Guest room was updated successfully.' });
+      showToast({
+        color: 'green',
+        title: 'Room moved',
+        message: 'Guest room was updated successfully.',
+      });
     } catch {
-      showToast({ color: 'red', title: 'Move room failed', message: 'Unable to move this guest. Check room availability and try again.' });
+      showToast({
+        color: 'red',
+        title: 'Move room failed',
+        message: 'Unable to move this guest. Check room availability and try again.',
+      });
     } finally {
       setIsMoving(false);
     }
@@ -629,7 +1168,11 @@ export default function StayWorkspace() {
       });
       router.push(`/rooms?${query.toString()}`);
     } catch {
-      showToast({ color: 'red', title: 'Check out failed', message: 'Collect the outstanding folio balance before checkout.' });
+      showToast({
+        color: 'red',
+        title: 'Check out failed',
+        message: 'Collect the outstanding folio balance before checkout.',
+      });
     } finally {
       setIsCheckingOut(false);
     }
@@ -658,10 +1201,18 @@ export default function StayWorkspace() {
       await extendReservationStay(stayState.propertyId, params.stayId, extendDepartureDate);
       await stayState.refreshStay();
       setBillingReloadSignal((value) => value + 1);
-      showToast({ color: 'green', title: 'Stay extended', message: `Departure updated to ${formatDisplayDate(extendDepartureDate)}.` });
+      showToast({
+        color: 'green',
+        title: 'Stay extended',
+        message: `Departure updated to ${formatDisplayDate(extendDepartureDate)}.`,
+      });
       setExtendOpened(false);
     } catch {
-      showToast({ color: 'red', title: 'Extend stay failed', message: 'Unable to extend this stay. Check room availability and try again.' });
+      showToast({
+        color: 'red',
+        title: 'Extend stay failed',
+        message: 'Unable to extend this stay. Check room availability and try again.',
+      });
     } finally {
       setIsExtending(false);
     }
@@ -669,8 +1220,17 @@ export default function StayWorkspace() {
 
   return (
     <Stack gap={spacing[3]}>
-      {stayState.error ? <Alert color="yellow" variant="light" icon={<AlertCircle size={17} />} radius={radius.lg}>{stayState.error}</Alert> : null}
-      <StayHeader stay={stay} onMoveRoom={() => void openMoveRoom()} onExtendStay={openExtendStay} onCheckOut={() => setCheckoutOpened(true)} />
+      {stayState.error ? (
+        <Alert color="yellow" variant="light" icon={<AlertCircle size={17} />} radius={radius.lg}>
+          {stayState.error}
+        </Alert>
+      ) : null}
+      <StayHeader
+        stay={stay}
+        onMoveRoom={() => void openMoveRoom()}
+        onExtendStay={openExtendStay}
+        onCheckOut={() => setCheckoutOpened(true)}
+      />
       <AttentionPanel stay={stay} />
       <OperationalSections
         billingPropertyId={stayState.propertyId ?? ''}
@@ -683,14 +1243,14 @@ export default function StayWorkspace() {
         onFolioChanged={refreshAfterFolioChange}
         onOpenRequest={openRequestDrawer}
         onMoveRoom={() => void openMoveRoom()}
-        onRequestTransition={(requestId, action) => void changeRequestStatus(requestId, action)}
+        onRequestTransition={changeRequestStatus}
         requests={guestRequests}
         stay={stay}
       />
 
       <CreateRequestDrawer
         context={{
-          department: selectedRequestSuggestion?.department ?? 'HOUSEKEEPING',
+          department: selectedRequestSuggestion?.department ?? 'RECEPTION',
           guestId: stay.guestId,
           reservationId: params.stayId,
           roomId: stay.roomId,
@@ -701,7 +1261,12 @@ export default function StayWorkspace() {
         selected={selectedRequestSuggestion}
       />
 
-      <Modal opened={checkoutOpened} onClose={() => setCheckoutOpened(false)} centered title={hasOutstandingBalance ? 'Settle payment first' : 'Check out guest?'}>
+      <Modal
+        opened={checkoutOpened}
+        onClose={() => setCheckoutOpened(false)}
+        centered
+        title={hasOutstandingBalance ? 'Settle payment first' : 'Check out guest?'}
+      >
         <Stack gap={spacing[4]} data-testid="stay-checkout-modal">
           <Text c="#64748b" size="sm">
             {hasOutstandingBalance
@@ -709,17 +1274,28 @@ export default function StayWorkspace() {
               : 'Confirm checkout. The room will be marked for cleaning and the stay will close.'}
           </Text>
           <Group justify="flex-end">
-            <Button variant="subtle" color="gray" onClick={() => setCheckoutOpened(false)}>Cancel</Button>
+            <Button variant="subtle" color="gray" onClick={() => setCheckoutOpened(false)}>
+              Cancel
+            </Button>
             {hasOutstandingBalance ? (
-              <Button color="stayosBrand" onClick={goToBilling}>Go to Billing</Button>
+              <Button color="stayosBrand" onClick={goToBilling}>
+                Go to Billing
+              </Button>
             ) : (
-              <Button color="red" loading={isCheckingOut} onClick={() => void checkOut()}>Check Out</Button>
+              <Button color="red" loading={isCheckingOut} onClick={() => void checkOut()}>
+                Check Out
+              </Button>
             )}
           </Group>
         </Stack>
       </Modal>
 
-      <Modal opened={extendOpened} onClose={() => setExtendOpened(false)} centered title="Extend stay">
+      <Modal
+        opened={extendOpened}
+        onClose={() => setExtendOpened(false)}
+        centered
+        title="Extend stay"
+      >
         <Stack gap={spacing[4]}>
           <TextInput
             label="New departure date"
@@ -729,7 +1305,9 @@ export default function StayWorkspace() {
             value={extendDepartureDate}
           />
           <Group justify="flex-end">
-            <Button variant="subtle" color="gray" onClick={() => setExtendOpened(false)}>Close</Button>
+            <Button variant="subtle" color="gray" onClick={() => setExtendOpened(false)}>
+              Close
+            </Button>
             <Button
               color="stayosBrand"
               disabled={!extendDepartureDate || extendDepartureDate <= stay.departureDate}

@@ -17,7 +17,16 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
-import { CreditCard, Download, Mail, MessageCircle, PlusCircle, ReceiptText, Smartphone, Wallet } from 'lucide-react';
+import {
+  CreditCard,
+  Download,
+  Mail,
+  MessageCircle,
+  PlusCircle,
+  ReceiptText,
+  Smartphone,
+  Wallet,
+} from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
 import { showToast } from '@stayos/ui';
@@ -37,7 +46,10 @@ import type { Folio, FolioChargeType, FolioPaymentMethod } from '../types/billin
 
 declare global {
   interface Window {
-    Razorpay?: new (options: Record<string, unknown>) => { open: () => void; on: (event: string, cb: (payload: unknown) => void) => void };
+    Razorpay?: new (options: Record<string, unknown>) => {
+      open: () => void;
+      on: (event: string, cb: (payload: unknown) => void) => void;
+    };
   }
 }
 
@@ -315,7 +327,11 @@ function PaymentModal({
         order_id: order.orderId,
         theme: { color: '#6d28d9' },
         handler: async (response: unknown) => {
-          const r = response as { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string };
+          const r = response as {
+            razorpay_payment_id: string;
+            razorpay_order_id: string;
+            razorpay_signature: string;
+          };
           try {
             const nextFolio = await verifyRazorpayPayment(propertyId, folioId, {
               razorpay_order_id: r.razorpay_order_id,
@@ -323,10 +339,18 @@ function PaymentModal({
               razorpay_signature: r.razorpay_signature,
               amount: String(amount),
             });
-            showToast({ color: 'green', title: 'Payment captured', message: `Razorpay confirmed ${formatCurrency(String(amount))}.` });
+            showToast({
+              color: 'green',
+              title: 'Payment captured',
+              message: `Razorpay confirmed ${formatCurrency(String(amount))}.`,
+            });
             onRazorpaySuccess(nextFolio);
           } catch (verifyError) {
-            showToast({ color: 'red', title: 'Verification failed', message: verifyError instanceof Error ? verifyError.message : 'Please try again.' });
+            showToast({
+              color: 'red',
+              title: 'Verification failed',
+              message: verifyError instanceof Error ? verifyError.message : 'Please try again.',
+            });
           } finally {
             setIsRazorpaying(false);
           }
@@ -334,7 +358,11 @@ function PaymentModal({
         modal: { ondismiss: () => setIsRazorpaying(false) },
       });
       rzp.on('payment.failed', () => {
-        showToast({ color: 'red', title: 'Payment failed', message: 'Guest can retry or pay by another method.' });
+        showToast({
+          color: 'red',
+          title: 'Payment failed',
+          message: 'Guest can retry or pay by another method.',
+        });
         setIsRazorpaying(false);
       });
       rzp.open();
@@ -435,14 +463,20 @@ function PaymentModal({
               <Button color="gray" variant="light" onClick={onClose}>
                 Cancel
               </Button>
-              <Button color="stayosBrand" data-testid="add-payment-submit" loading={submitting} type="submit">
+              <Button
+                color="stayosBrand"
+                data-testid="add-payment-submit"
+                loading={submitting}
+                type="submit"
+              >
                 Record manual payment
               </Button>
             </Group>
           </Group>
           {!razorpayEnabled ? (
             <Text c="#94a3b8" size="xs" ta="center">
-              Online payments (Razorpay QR / UPI / Cards) show up here once <b>RAZORPAY_KEY_ID</b> and <b>RAZORPAY_KEY_SECRET</b> are set in the API .env.
+              Online payments (Razorpay QR / UPI / Cards) show up here once <b>RAZORPAY_KEY_ID</b>{' '}
+              and <b>RAZORPAY_KEY_SECRET</b> are set in the API .env.
             </Text>
           ) : null}
         </Stack>
@@ -499,7 +533,11 @@ export function FolioPanel({
         message: `${payload.description} added to folio ${next.folioNumber}.`,
       });
     } catch (error) {
-      showToast({ color: 'red', title: 'Unable to add charge', message: friendlyBillingError(error) });
+      showToast({
+        color: 'red',
+        title: 'Unable to add charge',
+        message: friendlyBillingError(error),
+      });
     } finally {
       setSubmitting(false);
     }
@@ -572,7 +610,7 @@ export function FolioPanel({
                 {statusLabel}
               </Badge>
             </Group>
-            <Text c="#64748b" size="sm" mt={4}>
+            <Group c="#64748b" mt={4}>
               {current.guest.displayName}
               {current.guest.isVip ? (
                 <Badge color="grape" ml={8} size="xs" variant="light">
@@ -583,7 +621,7 @@ export function FolioPanel({
               Reservation {current.reservation.reservationCode}
               {' · '}
               {current.reservation.arrivalDate} → {current.reservation.departureDate}
-            </Text>
+            </Group>
           </Box>
           <Group gap={spacing[3]} align="flex-start" wrap="wrap">
             <Box>
@@ -656,7 +694,8 @@ export function FolioPanel({
               showToast({
                 color: 'yellow',
                 title: 'Email not connected',
-                message: 'Email sending will use the final bill once the invoice endpoint is available.',
+                message:
+                  'Email sending will use the final bill once the invoice endpoint is available.',
               });
             }}
           >
@@ -671,7 +710,8 @@ export function FolioPanel({
               showToast({
                 color: 'yellow',
                 title: 'WhatsApp not connected',
-                message: 'WhatsApp resend will use the final bill once messaging integration is available.',
+                message:
+                  'WhatsApp resend will use the final bill once messaging integration is available.',
               });
             }}
           >
@@ -750,9 +790,7 @@ export function FolioPanel({
                     <Table.Td>{formatCurrency(charge.taxAmount)}</Table.Td>
                     <Table.Td>
                       <Text c="#101828" fw={700}>
-                        {formatCurrency(
-                          Number(charge.amount) + Number(charge.taxAmount),
-                        )}
+                        {formatCurrency(Number(charge.amount) + Number(charge.taxAmount))}
                       </Text>
                     </Table.Td>
                     <Table.Td>{formatDateTime(charge.chargedAt)}</Table.Td>

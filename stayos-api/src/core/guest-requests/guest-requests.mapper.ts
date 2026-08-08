@@ -10,18 +10,25 @@ export class GuestRequestsMapper {
       reservationId: entity.reservationId,
       guestId: entity.guestId,
       roomId: entity.roomId,
+
+      requestType: entity.requestType,
+      details: entity.details,
+
       title: entity.title,
       description: entity.description,
       status: entity.status,
       priority: entity.priority,
       department: entity.department,
+
       overdue:
         Boolean(entity.dueAt && entity.dueAt.getTime() < now.getTime()) &&
         ![GuestRequestStatus.COMPLETED, GuestRequestStatus.CANCELLED].includes(entity.status),
+
       guestDisplayName: entity.guest?.displayName ?? null,
       roomNumber: entity.room?.roomNumber ?? null,
       reservationCode: entity.reservation?.reservationCode ?? null,
       assignedEmployeeName: entity.assignedEmployee?.displayName ?? null,
+
       dueAt: entity.dueAt,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,

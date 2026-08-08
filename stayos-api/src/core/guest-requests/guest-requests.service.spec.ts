@@ -1,3 +1,5 @@
+/// <reference types="jest" />
+
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { ActivityEventEntity } from '../activity/infrastructure/activity-event.entity';
@@ -11,6 +13,7 @@ import { RoomEntity } from '../rooms/infrastructure/room.entity';
 import { GuestRequestDepartment } from './domain/guest-request-department.enum';
 import { GuestRequestPriority } from './domain/guest-request-priority.enum';
 import { GuestRequestStatus } from './domain/guest-request-status.enum';
+import { GuestRequestType } from './domain/guest-request-type.enum';
 import { GuestRequestsService } from './guest-requests.service';
 import { GuestRequestEntity } from './infrastructure/guest-request.entity';
 import { GuestRequestNoteEntity } from './infrastructure/guest-request-note.entity';
@@ -39,6 +42,8 @@ const requestEntity = (overrides: Partial<GuestRequestEntity> = {}): GuestReques
   room: { id: roomId, roomNumber: '402' } as RoomEntity,
   assignedEmployeeId: employeeId,
   assignedEmployee: { id: employeeId, displayName: 'Anita' } as EmployeeEntity,
+  requestType: GuestRequestType.EXTRA_TOWELS,
+  details: null,
   title: 'Extra Towels',
   description: null,
   status: GuestRequestStatus.REQUESTED,
@@ -113,44 +118,174 @@ describe('GuestRequestsService', () => {
   });
 
   it('creates a request with server-owned assignment', async () => {
-    await expect(service.create(propertyId, { title: 'Laundry Pickup', reservationId })).resolves.toMatchObject({
+    await expect(
+      service.create(propertyId, { title: 'Laundry Pickup', reservationId }),
+    ).resolves.toMatchObject({
       title: 'Extra Towels',
       guestDisplayName: 'Ananya Rao',
     });
-    expect(requestsRepository.create).toHaveBeenCalledWith(expect.objectContaining({
-      department: GuestRequestDepartment.LAUNDRY,
-      guestId,
-      roomId,
-    }));
+    expect(requestsRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        department: GuestRequestDepartment.LAUNDRY,
+        guestId,
+        roomId,
+      }),
+    );
+  });
+
+  it('routes wake-up calls to reception by request type', async () => {
+    await service.create(propertyId, {
+      title: 'Morning Wake-up',
+      requestType: GuestRequestType.WAKE_UP_CALL,
+      reservationId,
+    });
+
+    expect(requestsRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestType: GuestRequestType.WAKE_UP_CALL,
+        department: GuestRequestDepartment.RECEPTION,
+      }),
+    );
+  });
+
+  it('routes airport drop to concierge by request type', async () => {
+    await service.create(propertyId, {
+      title: 'Airport Transfer',
+      requestType: GuestRequestType.AIRPORT_DROP,
+      reservationId,
+    });
+
+    expect(requestsRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestType: GuestRequestType.AIRPORT_DROP,
+        department: GuestRequestDepartment.CONCIERGE,
+      }),
+    );
+  });
+
+  it('routes extra towels to housekeeping by request type', async () => {
+    await service.create(propertyId, {
+      title: 'Bring Towels',
+      requestType: GuestRequestType.EXTRA_TOWELS,
+      reservationId,
+    });
+
+    expect(requestsRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestType: GuestRequestType.EXTRA_TOWELS,
+        department: GuestRequestDepartment.HOUSEKEEPING,
+      }),
+    );
+  });
+
+  it('routes AC issues to maintenance by request type', async () => {
+    await service.create(propertyId, {
+      title: 'Room is too warm',
+      requestType: GuestRequestType.AC_ISSUE,
+      reservationId,
+    });
+
+    expect(requestsRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestType: GuestRequestType.AC_ISSUE,
+        department: GuestRequestDepartment.MAINTENANCE,
+      }),
+    );
+  });
+
+  it('keeps legacy title-only routing working', async () => {
+    await service.create(propertyId, {
+      title: 'Wake-up Call',
+      reservationId,
+    });
+
+    expect(requestsRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestType: null,
+        department: GuestRequestDepartment.RECEPTION,
+      }),
+    );
+  });
+
+  it('stores service-specific details', async () => {
+    const details = {
+      destination: 'Indore Airport',
+      passengers: 2,
+      flightNumber: '6E 238',
+    };
+
+    await service.create(propertyId, {
+      title: 'Airport Drop',
+      requestType: GuestRequestType.AIRPORT_DROP,
+      reservationId,
+      details,
+    });
+
+    expect(requestsRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestType: GuestRequestType.AIRPORT_DROP,
+        details,
+      }),
+    );
+  });
+
+  it('returns structured guest service suggestions', () => {
+    expect(service.getSuggestions()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: GuestRequestType.WAKE_UP_CALL,
+          title: 'Wake-up Call',
+          department: GuestRequestDepartment.RECEPTION,
+        }),
+        expect.objectContaining({
+          type: GuestRequestType.AIRPORT_DROP,
+          title: 'Airport Drop',
+          department: GuestRequestDepartment.CONCIERGE,
+        }),
+        expect.objectContaining({
+          type: GuestRequestType.AC_ISSUE,
+          department: GuestRequestDepartment.MAINTENANCE,
+        }),
+      ]),
+    );
   });
 
   it('supports public-area requests without reservation', async () => {
     await service.create(propertyId, { title: 'Flowers' });
-    expect(requestsRepository.create).toHaveBeenCalledWith(expect.objectContaining({
-      reservationId: null,
-      guestId: null,
-      roomId: null,
-      department: GuestRequestDepartment.CONCIERGE,
-    }));
+    expect(requestsRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reservationId: null,
+        guestId: null,
+        roomId: null,
+        department: GuestRequestDepartment.CONCIERGE,
+      }),
+    );
   });
 
   it('rejects reservation from another property', async () => {
     reservationsRepository.findOne?.mockResolvedValue(null);
-    await expect(service.create(otherPropertyId, { title: 'Extra Towels', reservationId })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.create(otherPropertyId, { title: 'Extra Towels', reservationId }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('filters list by status and department', async () => {
+  it('filters list by status, department, and request type', async () => {
     await service.findAll(propertyId, {
       status: GuestRequestStatus.REQUESTED,
       department: GuestRequestDepartment.HOUSEKEEPING,
+      requestType: GuestRequestType.EXTRA_TOWELS,
     });
-    expect(requestsRepository.find).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        propertyId,
-        status: GuestRequestStatus.REQUESTED,
-        department: GuestRequestDepartment.HOUSEKEEPING,
+
+    expect(requestsRepository.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          propertyId,
+          status: GuestRequestStatus.REQUESTED,
+          department: GuestRequestDepartment.HOUSEKEEPING,
+          requestType: GuestRequestType.EXTRA_TOWELS,
+        }),
       }),
-    }));
+    );
   });
 
   it('computes summary counts and overdue', async () => {
@@ -172,53 +307,71 @@ describe('GuestRequestsService', () => {
 
   it('marks requested request as accepted', async () => {
     await service.transition(propertyId, requestId, 'accept');
-    expect(requestsRepository.save).toHaveBeenCalledWith(expect.objectContaining({
-      status: GuestRequestStatus.ACCEPTED,
-      acceptedAt: expect.any(Date),
-    }));
+    expect(requestsRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: GuestRequestStatus.ACCEPTED,
+        acceptedAt: expect.any(Date),
+      }),
+    );
   });
 
   it('marks accepted request as in progress', async () => {
-    requestsRepository.findOne?.mockResolvedValue(requestEntity({ status: GuestRequestStatus.ACCEPTED }));
+    requestsRepository.findOne?.mockResolvedValue(
+      requestEntity({ status: GuestRequestStatus.ACCEPTED }),
+    );
     await service.transition(propertyId, requestId, 'start');
-    expect(requestsRepository.save).toHaveBeenCalledWith(expect.objectContaining({
-      status: GuestRequestStatus.IN_PROGRESS,
-      startedAt: expect.any(Date),
-    }));
+    expect(requestsRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: GuestRequestStatus.IN_PROGRESS,
+        startedAt: expect.any(Date),
+      }),
+    );
   });
 
   it('marks in-progress request as completed', async () => {
-    requestsRepository.findOne?.mockResolvedValue(requestEntity({ status: GuestRequestStatus.IN_PROGRESS }));
+    requestsRepository.findOne?.mockResolvedValue(
+      requestEntity({ status: GuestRequestStatus.IN_PROGRESS }),
+    );
     await service.transition(propertyId, requestId, 'complete');
-    expect(requestsRepository.save).toHaveBeenCalledWith(expect.objectContaining({
-      status: GuestRequestStatus.COMPLETED,
-      completedAt: expect.any(Date),
-    }));
+    expect(requestsRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: GuestRequestStatus.COMPLETED,
+        completedAt: expect.any(Date),
+      }),
+    );
   });
 
   it('cancels active request', async () => {
     await service.transition(propertyId, requestId, 'cancel');
-    expect(requestsRepository.save).toHaveBeenCalledWith(expect.objectContaining({
-      status: GuestRequestStatus.CANCELLED,
-      cancelledAt: expect.any(Date),
-    }));
+    expect(requestsRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: GuestRequestStatus.CANCELLED,
+        cancelledAt: expect.any(Date),
+      }),
+    );
   });
 
   it('rejects invalid transition', async () => {
-    await expect(service.transition(propertyId, requestId, 'start')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.transition(propertyId, requestId, 'start')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 
   it('adds notes', async () => {
     await service.addNote(propertyId, requestId, { body: 'Guest called again.' }, employeeId);
-    expect(notesRepository.create).toHaveBeenCalledWith(expect.objectContaining({
-      requestId,
-      actorId: employeeId,
-      body: 'Guest called again.',
-    }));
+    expect(notesRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId,
+        actorId: employeeId,
+        body: 'Guest called again.',
+      }),
+    );
   });
 
   it('returns delayed as computed field', async () => {
-    requestsRepository.findOne?.mockResolvedValue(requestEntity({ dueAt: new Date(Date.now() - 60_000) }));
+    requestsRepository.findOne?.mockResolvedValue(
+      requestEntity({ dueAt: new Date(Date.now() - 60_000) }),
+    );
     await expect(service.findOne(propertyId, requestId)).resolves.toMatchObject({ overdue: true });
   });
 });

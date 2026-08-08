@@ -2,9 +2,34 @@ import { API_BASE_URL } from '../../../lib/api-base';
 
 type ApiResponse<T> = T | { data?: T } | { items?: T } | { results?: T };
 
-export type GuestRequestStatus = 'REQUESTED' | 'ACCEPTED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+export type GuestRequestStatus =
+  'REQUESTED' | 'ACCEPTED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 export type GuestRequestPriority = 'NORMAL' | 'HIGH' | 'VIP';
-export type GuestRequestDepartment = 'HOUSEKEEPING' | 'MAINTENANCE' | 'LAUNDRY' | 'RECEPTION' | 'CONCIERGE' | 'F_AND_B';
+export type GuestRequestDepartment =
+  'HOUSEKEEPING' | 'MAINTENANCE' | 'LAUNDRY' | 'RECEPTION' | 'CONCIERGE' | 'F_AND_B';
+
+export type GuestRequestType =
+  | 'EXTRA_TOWELS'
+  | 'EXTRA_PILLOW'
+  | 'WATER_BOTTLES'
+  | 'LAUNDRY_PICKUP'
+  | 'WAKE_UP_CALL'
+  | 'AIRPORT_PICKUP'
+  | 'AIRPORT_DROP'
+  | 'TAXI'
+  | 'LUGGAGE_ASSISTANCE'
+  | 'BABY_COT'
+  | 'EXTRA_BED'
+  | 'HAIR_DRYER'
+  | 'IRON_BOARD'
+  | 'ROOM_CLEANING'
+  | 'AC_ISSUE'
+  | 'TV_ISSUE'
+  | 'WIFI_ISSUE'
+  | 'SPECIAL_DECORATION'
+  | 'FLOWERS'
+  | 'CAKE'
+  | 'OTHER';
 
 export type GuestRequestDto = {
   id: string;
@@ -12,6 +37,8 @@ export type GuestRequestDto = {
   reservationId?: string | null;
   guestId?: string | null;
   roomId?: string | null;
+  requestType?: GuestRequestType | null;
+  details?: Record<string, unknown> | null;
   title: string;
   description?: string | null;
   status: GuestRequestStatus;
@@ -37,6 +64,7 @@ export type GuestRequestSummaryDto = {
 };
 
 export type GuestRequestSuggestionDto = {
+  type: GuestRequestType;
   title: string;
   department: GuestRequestDepartment;
 };
@@ -74,8 +102,13 @@ function queryString(params: Record<string, string | undefined>) {
   return serialized ? `?${serialized}` : '';
 }
 
-export function listGuestRequests(propertyId: string, params: { status?: string; department?: string; search?: string }) {
-  return request<GuestRequestDto[]>(`/properties/${propertyId}/guest-requests${queryString(params)}`);
+export function listGuestRequests(
+  propertyId: string,
+  params: { status?: string; department?: string; requestType?: string; search?: string },
+) {
+  return request<GuestRequestDto[]>(
+    `/properties/${propertyId}/guest-requests${queryString(params)}`,
+  );
 }
 
 export function getGuestRequestSummary(propertyId: string) {
@@ -83,7 +116,9 @@ export function getGuestRequestSummary(propertyId: string) {
 }
 
 export function getGuestRequestSuggestions(propertyId: string) {
-  return request<GuestRequestSuggestionDto[]>(`/properties/${propertyId}/guest-requests/suggestions`);
+  return request<GuestRequestSuggestionDto[]>(
+    `/properties/${propertyId}/guest-requests/suggestions`,
+  );
 }
 
 export function createGuestRequest(propertyId: string, payload: Record<string, unknown>) {
@@ -93,8 +128,15 @@ export function createGuestRequest(propertyId: string, payload: Record<string, u
   });
 }
 
-export function transitionGuestRequest(propertyId: string, requestId: string, action: 'accept' | 'start' | 'complete' | 'cancel') {
-  return request<GuestRequestDto>(`/properties/${propertyId}/guest-requests/${requestId}/${action}`, {
-    method: 'PATCH',
-  });
+export function transitionGuestRequest(
+  propertyId: string,
+  requestId: string,
+  action: 'accept' | 'start' | 'complete' | 'cancel',
+) {
+  return request<GuestRequestDto>(
+    `/properties/${propertyId}/guest-requests/${requestId}/${action}`,
+    {
+      method: 'PATCH',
+    },
+  );
 }
