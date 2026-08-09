@@ -337,7 +337,7 @@ function StayHeader({
               Departure: {formatDisplayDate(stay.departureDate)}
             </Text>
             <Text c="#64748b" size="sm">
-              Remaining nights: {stay.remainingNights}
+              {stay.nights} {stay.nights === 1 ? 'night' : 'nights'}
             </Text>
             <Text c="#64748b" size="sm">
               Booking: {stay.bookingId}

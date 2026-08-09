@@ -596,6 +596,22 @@ export function FolioPanel({
   const statusColor = isSettled ? 'green' : isVoid ? 'red' : 'yellow';
   const statusLabel = isSettled ? 'Settled' : isVoid ? 'Void' : 'Open';
 
+  const formatStayDate = (value?: string | null) => {
+    if (!value) return '—';
+
+    const [year, month, day] = value.slice(0, 10).split('-').map(Number);
+
+    if (!year || !month || !day) return value;
+
+    return new Intl.DateTimeFormat('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    })
+      .format(new Date(year, month - 1, day))
+      .replace(/ /g, '-');
+  };
+
   return (
     <Stack gap={spacing[3]} data-testid={`folio-panel-${current.id}`}>
       <Paper radius={radius.lg} p={20} style={{ border: '1px solid #e2e8f0' }}>
@@ -620,7 +636,9 @@ export function FolioPanel({
               {' · '}
               Reservation {current.reservation.reservationCode}
               {' · '}
-              {current.reservation.arrivalDate} → {current.reservation.departureDate}
+              {formatStayDate(current.reservation.arrivalDate)}
+              {' → '}
+              {formatStayDate(current.reservation.departureDate)}
             </Group>
           </Box>
           <Group gap={spacing[3]} align="flex-start" wrap="wrap">

@@ -15,6 +15,7 @@ import {
   Popover,
   Select,
   SimpleGrid,
+  Skeleton,
   Stack,
   Text,
   TextInput,
@@ -555,6 +556,99 @@ function AssignRoomModal({
   );
 }
 
+function BookingDetailSkeleton() {
+  return (
+    <Stack gap={spacing[3]} data-testid="booking-detail-skeleton">
+      <Card radius={radius.lg} p={20} style={cardStyle}>
+        <Group justify="space-between" align="flex-start" gap={spacing[4]}>
+          <Stack gap={10} style={{ flex: 1 }}>
+            <Group gap={12}>
+              <Skeleton height={18} width={120} radius="sm" />
+              <Skeleton height={18} width={130} radius="sm" />
+            </Group>
+            <Group gap={8}>
+              <Skeleton height={22} width={84} radius="xl" />
+              <Skeleton height={22} width={96} radius="xl" />
+            </Group>
+            <Skeleton height={38} width="32%" radius="sm" />
+            <Skeleton height={16} width={180} radius="sm" />
+            <Group gap={8} wrap="wrap">
+              <Skeleton height={16} width={120} radius="sm" />
+              <Skeleton height={16} width={170} radius="sm" />
+              <Skeleton height={16} width={72} radius="sm" />
+            </Group>
+          </Stack>
+
+          <Group gap={8}>
+            <Skeleton height={36} width={110} radius="md" />
+            <Skeleton height={36} width={120} radius="md" />
+            <Skeleton height={36} width={116} radius="md" />
+          </Group>
+        </Group>
+      </Card>
+
+      <Card radius={radius.lg} p={18} style={cardStyle}>
+        <Stack gap={10}>
+          <Skeleton height={24} width="34%" radius="sm" />
+          <Skeleton height={15} width="58%" radius="sm" />
+          <Group gap={8}>
+            <Skeleton height={24} width={90} radius="xl" />
+            <Skeleton height={24} width={110} radius="xl" />
+            <Skeleton height={24} width={92} radius="xl" />
+          </Group>
+        </Stack>
+      </Card>
+
+      <SimpleGrid cols={{ base: 1, lg: 12 }} spacing={spacing[3]}>
+        <Stack gap={spacing[3]} style={{ gridColumn: 'span 8' }}>
+          <Card radius={radius.lg} p={16} style={cardStyle}>
+            <Stack gap={14}>
+              <Group gap={10}>
+                <Skeleton circle height={34} />
+                <Skeleton height={22} width={110} radius="sm" />
+              </Group>
+              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <Skeleton key={`guest-${index}`} height={62} radius="md" />
+                ))}
+              </SimpleGrid>
+              <Skeleton height={34} width={150} radius="md" />
+            </Stack>
+          </Card>
+
+          <Card radius={radius.lg} p={16} style={cardStyle}>
+            <Stack gap={14}>
+              <Group gap={10}>
+                <Skeleton circle height={34} />
+                <Skeleton height={22} width={140} radius="sm" />
+              </Group>
+              <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing={spacing[3]}>
+                {Array.from({ length: 9 }).map((_, index) => (
+                  <Skeleton key={`stay-${index}`} height={62} radius="md" />
+                ))}
+              </SimpleGrid>
+            </Stack>
+          </Card>
+        </Stack>
+
+        <Stack gap={spacing[3]} style={{ gridColumn: 'span 4' }}>
+          {Array.from({ length: 3 }).map((_, index) => (
+            <Card key={`side-${index}`} radius={radius.lg} p={16} style={cardStyle}>
+              <Stack gap={12}>
+                <Group gap={10}>
+                  <Skeleton circle height={34} />
+                  <Skeleton height={22} width={index === 0 ? 110 : 90} radius="sm" />
+                </Group>
+                <Skeleton height={index === 0 ? 150 : 78} radius="md" />
+              </Stack>
+            </Card>
+          ))}
+        </Stack>
+      </SimpleGrid>
+    </Stack>
+  );
+}
+
 export default function BookingDetailPage() {
   const params = useParams<{ reservationId: string }>();
   const backend = useBackendStatus();
@@ -616,12 +710,9 @@ export default function BookingDetailPage() {
         onCheckStatus={checkBackendStatus}
       />
     );
-  if (!bookingState.booking)
-    return (
-      <Alert color="blue" variant="light" icon={<CalendarDays size={17} />} radius={radius.lg}>
-        Loading booking...
-      </Alert>
-    );
+  if (!bookingState.booking) {
+    return <BookingDetailSkeleton />;
+  }
 
   const booking = bookingState.booking;
   const canCancel = booking.status === 'PENDING' || booking.status === 'CONFIRMED';
