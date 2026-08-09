@@ -35,7 +35,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
         ? payload.message
         : typeof nestedError?.message === 'string'
           ? nestedError.message
-        : `Reservation API request failed: ${response.status} ${response.statusText}`;
+          : `Reservation API request failed: ${response.status} ${response.statusText}`;
     throw new Error(message);
   }
 
@@ -99,10 +99,10 @@ export function updatePropertyReservation(
 }
 
 export function cancelReservation(propertyId: string, reservationId: string, signal?: AbortSignal) {
-  return request<ReservationDto>(`/properties/${propertyId}/reservations/${reservationId}/cancel`, {
-    method: 'PATCH',
-    signal,
-  });
+  // Backend currently supports cancellation through the standard reservation update endpoint.
+  // Keeping this helper preserves the semantic API used by the booking hooks without
+  // issuing a request to a non-existent /cancel route.
+  return updatePropertyReservation(propertyId, reservationId, { status: 'CANCELLED' }, signal);
 }
 
 export type ReservationWorkflowResponseDto = {
@@ -149,7 +149,11 @@ export function unassignRoomFromReservation(
   );
 }
 
-export function checkInReservation(propertyId: string, reservationId: string, signal?: AbortSignal) {
+export function checkInReservation(
+  propertyId: string,
+  reservationId: string,
+  signal?: AbortSignal,
+) {
   return request<ReservationWorkflowResponseDto>(
     `/properties/${propertyId}/reservations/${reservationId}/check-in`,
     {
@@ -291,7 +295,11 @@ export type CheckInWorkspaceDto = {
   };
 };
 
-export function getCheckInWorkspace(propertyId: string, reservationId: string, signal?: AbortSignal) {
+export function getCheckInWorkspace(
+  propertyId: string,
+  reservationId: string,
+  signal?: AbortSignal,
+) {
   return request<CheckInWorkspaceDto>(
     `/properties/${propertyId}/reservations/${reservationId}/check-in-workspace`,
     { signal },
@@ -313,7 +321,13 @@ export function updateGuestRegistration(
 export function updateIdentityVerification(
   propertyId: string,
   reservationId: string,
-  payload: { idType: string; idNumber: string; verified: boolean; documentFrontUrl?: string; documentBackUrl?: string },
+  payload: {
+    idType: string;
+    idNumber: string;
+    verified: boolean;
+    documentFrontUrl?: string;
+    documentBackUrl?: string;
+  },
   signal?: AbortSignal,
 ) {
   return request<CheckInWorkspaceDto>(
@@ -349,7 +363,11 @@ export async function uploadCheckInDocument(
   );
   if (!response.ok) {
     const body = await response.json().catch(() => undefined);
-    throw new Error((body && typeof body === 'object' && 'message' in body && typeof body.message === 'string') ? body.message : 'Upload failed');
+    throw new Error(
+      body && typeof body === 'object' && 'message' in body && typeof body.message === 'string'
+        ? body.message
+        : 'Upload failed',
+    );
   }
   return response.json();
 }
@@ -366,7 +384,11 @@ export async function deleteCheckInDocument(
   if (!response.ok) throw new Error('Delete failed');
 }
 
-export function getCheckInDocumentPreviewUrl(propertyId: string, reservationId: string, documentId: string) {
+export function getCheckInDocumentPreviewUrl(
+  propertyId: string,
+  reservationId: string,
+  documentId: string,
+) {
   return `${API_BASE_URL}/properties/${propertyId}/reservations/${reservationId}/check-in/documents/${documentId}/preview`;
 }
 
@@ -391,7 +413,11 @@ export function createMobileCaptureSession(propertyId: string, reservationId: st
   );
 }
 
-export function getMobileCaptureSessionStatus(propertyId: string, reservationId: string, signal?: AbortSignal) {
+export function getMobileCaptureSessionStatus(
+  propertyId: string,
+  reservationId: string,
+  signal?: AbortSignal,
+) {
   return request<MobileCaptureSessionDto>(
     `/properties/${propertyId}/reservations/${reservationId}/check-in/mobile-capture/status`,
     { method: 'GET', signal },
@@ -400,7 +426,10 @@ export function getMobileCaptureSessionStatus(propertyId: string, reservationId:
 
 // Public (no-auth) helpers used by the phone capture page ------------------
 
-export async function getPublicCaptureSession(token: string, signal?: AbortSignal): Promise<MobileCaptureSessionDto> {
+export async function getPublicCaptureSession(
+  token: string,
+  signal?: AbortSignal,
+): Promise<MobileCaptureSessionDto> {
   const response = await fetch(`${getBrowserReachableApiBaseUrl()}/check-in-capture/${token}`, {
     method: 'GET',
     cache: 'no-store',
@@ -419,13 +448,19 @@ export async function uploadPublicCaptureDocument(
   const form = new FormData();
   form.append('file', file);
   form.append('type', side);
-  const response = await fetch(`${getBrowserReachableApiBaseUrl()}/check-in-capture/${token}/documents`, {
-    method: 'POST',
-    body: form,
-  });
+  const response = await fetch(
+    `${getBrowserReachableApiBaseUrl()}/check-in-capture/${token}/documents`,
+    {
+      method: 'POST',
+      body: form,
+    },
+  );
   if (!response.ok) {
     const body = await response.json().catch(() => undefined);
-    const msg = body && typeof body === 'object' && 'message' in body && typeof body.message === 'string' ? body.message : 'Upload failed';
+    const msg =
+      body && typeof body === 'object' && 'message' in body && typeof body.message === 'string'
+        ? body.message
+        : 'Upload failed';
     throw new Error(msg);
   }
   const body = await response.json();
