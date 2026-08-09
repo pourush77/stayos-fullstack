@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, Repository } from 'typeorm';
+import { ILike, In, Repository } from 'typeorm';
 import { ActivityEventEntity } from '../activity/infrastructure/activity-event.entity';
 import { EmployeeDepartment } from '../employees/domain/employee-department.enum';
 import { EmployeeStatus } from '../employees/domain/employee-status.enum';
@@ -15,12 +15,14 @@ import { GuestRequestType } from './domain/guest-request-type.enum';
 import {
   AddGuestRequestNoteDto,
   CreateGuestRequestDto,
+  GuestRequestAttentionDto,
   GuestRequestQueryDto,
   GuestRequestResponseDto,
   GuestRequestSummaryDto,
   UpdateGuestRequestDto,
 } from './dto/guest-request.dto';
 import { GuestRequestsMapper } from './guest-requests.mapper';
+import { defaultGuestRequestDueAt, evaluateGuestRequestAttention } from './guest-request-policy';
 import { GuestRequestEntity } from './infrastructure/guest-request.entity';
 import { GuestRequestNoteEntity } from './infrastructure/guest-request-note.entity';
 
@@ -268,6 +270,48 @@ export class GuestRequestsService {
     };
   }
 
+  async getAttention(propertyId: string): Promise<GuestRequestAttentionDto[]> {
+    const requests = await this.requestsRepository.find({
+      where: {
+        propertyId,
+        status: In(activeStatuses),
+      },
+      relations: ['guest', 'room', 'reservation', 'assignedEmployee'],
+      order: { dueAt: 'ASC', createdAt: 'ASC' },
+    });
+
+    const now = new Date();
+
+    return requests.flatMap((request) => {
+      const attention = evaluateGuestRequestAttention(request, now);
+
+      if (!attention) {
+        return [];
+      }
+
+      return [
+        {
+          requestId: request.id,
+          reservationId: request.reservationId,
+          requestType: request.requestType,
+          title: request.title,
+          department: request.department,
+          status: request.status,
+          priority: request.priority,
+          guestDisplayName: request.guest?.displayName ?? null,
+          roomNumber: request.room?.roomNumber ?? null,
+          assignedEmployeeName: request.assignedEmployee?.displayName ?? null,
+          dueAt: request.dueAt,
+          attentionState: attention.state,
+          severity: attention.severity,
+          message: attention.message,
+          minutesUntilDue: attention.minutesUntilDue,
+          minutesOverdue: attention.minutesOverdue,
+        },
+      ];
+    });
+  }
+
   getSuggestions() {
     return guestServiceDefinitions.map((service) => ({
       type: service.type,
@@ -325,7 +369,9 @@ export class GuestRequestsService {
 
         status: GuestRequestStatus.REQUESTED,
 
-        dueAt: dto.dueAt ? new Date(dto.dueAt) : this.defaultDueAt(department),
+        dueAt: dto.dueAt
+          ? new Date(dto.dueAt)
+          : defaultGuestRequestDueAt(dto.requestType, department),
 
         assignedEmployeeId: await this.pickAssignee(propertyId, department),
       }),
@@ -541,17 +587,6 @@ export class GuestRequestsService {
      * still send only a title.
      */
     return legacyAssignmentRules[title.trim().toLowerCase()] ?? GuestRequestDepartment.RECEPTION;
-  }
-
-  private defaultDueAt(department: GuestRequestDepartment): Date {
-    const minutes =
-      department === GuestRequestDepartment.MAINTENANCE
-        ? 30
-        : department === GuestRequestDepartment.CONCIERGE
-          ? 45
-          : 20;
-
-    return new Date(Date.now() + minutes * 60_000);
   }
 
   private async pickAssignee(

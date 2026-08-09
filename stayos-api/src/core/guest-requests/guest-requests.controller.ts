@@ -8,6 +8,7 @@ import { AuthenticatedRequest } from '../auth/types/authenticated-request';
 import {
   AddGuestRequestNoteDto,
   CreateGuestRequestDto,
+  GuestRequestAttentionDto,
   GuestRequestQueryDto,
   GuestRequestResponseDto,
   GuestRequestSummaryDto,
@@ -38,6 +39,14 @@ export class GuestRequestsController {
   @ApiStandardOkResponse(GuestRequestSummaryDto)
   getSummary(@Param('propertyId', ParseUUIDPipe) propertyId: string) {
     return this.guestRequestsService.getSummary(propertyId);
+  }
+
+  @Get('attention')
+  @RequirePermissions(Permissions.GuestRequestsView)
+  @ApiOperation({ summary: 'Get guest requests requiring operational attention' })
+  @ApiStandardListResponse(GuestRequestAttentionDto)
+  getAttention(@Param('propertyId', ParseUUIDPipe) propertyId: string) {
+    return this.guestRequestsService.getAttention(propertyId);
   }
 
   @Get('suggestions')

@@ -11,6 +11,7 @@ import { ReservationStatus } from '../reservations/domain/reservation-status.enu
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 import { RoomEntity } from '../rooms/infrastructure/room.entity';
 import { GuestRequestDepartment } from './domain/guest-request-department.enum';
+import { GuestRequestAttentionState } from './domain/guest-request-attention-state.enum';
 import { GuestRequestPriority } from './domain/guest-request-priority.enum';
 import { GuestRequestStatus } from './domain/guest-request-status.enum';
 import { GuestRequestType } from './domain/guest-request-type.enum';
@@ -302,6 +303,134 @@ describe('GuestRequestsService', () => {
       highPriority: 1,
       vip: 1,
       overdue: 1,
+    });
+  });
+
+  describe('attention and SLA policies', () => {
+    const now = new Date('2026-08-08T12:00:00.000Z');
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.setSystemTime(now);
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('returns wake-up call as upcoming inside the 10 minute reminder window', async () => {
+      requestsRepository.find?.mockResolvedValue([
+        requestEntity({
+          requestType: GuestRequestType.WAKE_UP_CALL,
+          title: 'Wake-up Call',
+          department: GuestRequestDepartment.RECEPTION,
+          createdAt: new Date(now.getTime() - 60_000),
+          dueAt: new Date(now.getTime() + 8 * 60_000),
+        }),
+      ]);
+
+      await expect(service.getAttention(propertyId)).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            requestType: GuestRequestType.WAKE_UP_CALL,
+            attentionState: GuestRequestAttentionState.UPCOMING,
+            minutesUntilDue: 8,
+          }),
+        ]),
+      );
+    });
+
+    it('returns wake-up call as due soon inside the 5 minute window', async () => {
+      requestsRepository.find?.mockResolvedValue([
+        requestEntity({
+          requestType: GuestRequestType.WAKE_UP_CALL,
+          title: 'Wake-up Call',
+          department: GuestRequestDepartment.RECEPTION,
+          createdAt: new Date(now.getTime() - 60_000),
+          dueAt: new Date(now.getTime() + 4 * 60_000),
+        }),
+      ]);
+
+      await expect(service.getAttention(propertyId)).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            attentionState: GuestRequestAttentionState.DUE_SOON,
+            minutesUntilDue: 4,
+          }),
+        ]),
+      );
+    });
+
+    it('returns an unacknowledged towels request after its acknowledgement SLA', async () => {
+      requestsRepository.find?.mockResolvedValue([
+        requestEntity({
+          requestType: GuestRequestType.EXTRA_TOWELS,
+          status: GuestRequestStatus.REQUESTED,
+          createdAt: new Date(now.getTime() - 6 * 60_000),
+          dueAt: new Date(now.getTime() + 9 * 60_000),
+        }),
+      ]);
+
+      await expect(service.getAttention(propertyId)).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            attentionState: GuestRequestAttentionState.UNACKNOWLEDGED,
+          }),
+        ]),
+      );
+    });
+
+    it('returns SLA breached when an SLA request has no due date and exceeded completion time', async () => {
+      requestsRepository.find?.mockResolvedValue([
+        requestEntity({
+          requestType: GuestRequestType.EXTRA_TOWELS,
+          status: GuestRequestStatus.ACCEPTED,
+          createdAt: new Date(now.getTime() - 16 * 60_000),
+          dueAt: null,
+        }),
+      ]);
+
+      await expect(service.getAttention(propertyId)).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            attentionState: GuestRequestAttentionState.SLA_BREACHED,
+          }),
+        ]),
+      );
+    });
+
+    it('escalates an overdue maintenance request after the configured threshold', async () => {
+      requestsRepository.find?.mockResolvedValue([
+        requestEntity({
+          requestType: GuestRequestType.AC_ISSUE,
+          title: 'AC Problem',
+          department: GuestRequestDepartment.MAINTENANCE,
+          status: GuestRequestStatus.ACCEPTED,
+          createdAt: new Date(now.getTime() - 40 * 60_000),
+          dueAt: new Date(now.getTime() - 11 * 60_000),
+        }),
+      ]);
+
+      await expect(service.getAttention(propertyId)).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            attentionState: GuestRequestAttentionState.ESCALATED,
+            minutesOverdue: 11,
+          }),
+        ]),
+      );
+    });
+
+    it('does not return completed requests in the attention list', async () => {
+      requestsRepository.find?.mockResolvedValue([
+        requestEntity({
+          status: GuestRequestStatus.COMPLETED,
+          completedAt: now,
+          dueAt: new Date(now.getTime() - 10 * 60_000),
+        }),
+      ]);
+
+      await expect(service.getAttention(propertyId)).resolves.toEqual([]);
     });
   });
 

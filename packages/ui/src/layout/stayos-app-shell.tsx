@@ -21,6 +21,7 @@ import {
   Group,
   Menu,
   Paper,
+  Popover,
   ScrollArea,
   Stack,
   Text,
@@ -30,11 +31,14 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
+  AlertTriangle,
+  Bell,
   Building2,
   ChevronDown,
   ChevronsLeft,
   ChevronsRight,
   CheckCircle2,
+  Clock3,
   KeyRound,
   LogOut,
   Menu as MenuIcon,
@@ -43,10 +47,11 @@ import {
   PanelLeftOpen,
   Sun,
   UserRound,
+  X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { animations, colors, radius, shadows, spacing, typography, zIndex } from '@stayos/theme';
 import { OperationalTaskCard } from '../components/operational-task-card';
 import { getTasksForPath } from '../operations/task-engine';
@@ -85,6 +90,46 @@ type LiveOperation = {
   detail: string;
   time: string;
   title: string;
+};
+
+type GuestRequestAttentionState =
+  'UPCOMING' | 'DUE_SOON' | 'UNACKNOWLEDGED' | 'OVERDUE' | 'SLA_BREACHED' | 'ESCALATED';
+
+type GuestRequestAttentionSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
+
+type GuestRequestAttentionItem = {
+  requestId: string;
+  reservationId?: string | null;
+  requestType?: string | null;
+  title: string;
+  department: string;
+  status: string;
+  priority: string;
+  guestDisplayName?: string | null;
+  roomNumber?: string | null;
+  assignedEmployeeName?: string | null;
+  dueAt?: string | null;
+  attentionState: GuestRequestAttentionState;
+  severity: GuestRequestAttentionSeverity;
+  message: string;
+  minutesUntilDue: number | null;
+  minutesOverdue: number | null;
+};
+
+type AttentionCenterState = {
+  error?: string;
+  isLoading: boolean;
+  items: GuestRequestAttentionItem[];
+};
+
+type AttentionPopupItem = GuestRequestAttentionItem & {
+  popupKey: string;
+};
+
+type AttentionBacklogPopup = {
+  popupKey: string;
+  count: number;
+  oldest?: GuestRequestAttentionItem;
 };
 
 type NextEvent = {
@@ -815,6 +860,839 @@ function Sidebar({
   );
 }
 
+function attentionHref(item: GuestRequestAttentionItem) {
+  if (item.reservationId) {
+    return `/guest-stay/${item.reservationId}?focus=requests&requestId=${encodeURIComponent(item.requestId)}`;
+  }
+
+  if (item.department === 'HOUSEKEEPING') return '/housekeeping';
+  if (item.department === 'MAINTENANCE') return '/maintenance';
+  return '/';
+}
+
+function attentionLabel(state: GuestRequestAttentionState) {
+  if (state === 'DUE_SOON') return 'Due soon';
+  if (state === 'UNACKNOWLEDGED') return 'Needs attention';
+  if (state === 'SLA_BREACHED') return 'SLA breached';
+  if (state === 'ESCALATED') return 'Critical';
+  if (state === 'OVERDUE') return 'Overdue';
+  return 'Upcoming';
+}
+
+function attentionTone(severity: GuestRequestAttentionSeverity) {
+  if (severity === 'CRITICAL') {
+    return { accent: '#dc2626', background: '#fef2f2', border: '#fecaca', badge: 'red' };
+  }
+
+  if (severity === 'WARNING') {
+    return { accent: '#b45309', background: '#fffbeb', border: '#fde68a', badge: 'yellow' };
+  }
+
+  return { accent: '#2563eb', background: '#eff6ff', border: '#bfdbfe', badge: 'blue' };
+}
+
+function wakeUpScheduleLabel(dueAt?: string | null) {
+  if (!dueAt) return null;
+
+  const date = new Date(dueAt);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  const sameDay = (left: Date, right: Date) =>
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate();
+
+  const time = new Intl.DateTimeFormat('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(date);
+
+  if (sameDay(date, now)) return `Today · ${time}`;
+  if (sameDay(date, tomorrow)) return `Tomorrow · ${time}`;
+
+  const day = new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+  }).format(date);
+
+  return `${day} · ${time}`;
+}
+
+function useAttentionCenter(propertyId?: string) {
+  const [state, setState] = useState<AttentionCenterState>({
+    isLoading: false,
+    items: [],
+  });
+  const inFlightRef = useRef(false);
+
+  const load = useCallback(
+    async (showLoading = false) => {
+      if (!propertyId || inFlightRef.current) return;
+
+      inFlightRef.current = true;
+      if (showLoading) {
+        setState((current) => ({
+          ...current,
+          error: undefined,
+          isLoading: current.items.length === 0,
+        }));
+      }
+
+      try {
+        const items = await apiGet<GuestRequestAttentionItem[]>(
+          `/properties/${propertyId}/guest-requests/attention`,
+        );
+        setState({ isLoading: false, items });
+      } catch (error) {
+        setState((current) => ({
+          ...current,
+          error:
+            error instanceof Error ? error.message : 'Attention items are temporarily unavailable.',
+          isLoading: false,
+        }));
+      } finally {
+        inFlightRef.current = false;
+      }
+    },
+    [propertyId],
+  );
+
+  useEffect(() => {
+    if (!propertyId) {
+      setState({ isLoading: false, items: [] });
+      return undefined;
+    }
+
+    void load(true);
+
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void load();
+    }, 30_000);
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    window.addEventListener('focus', refreshWhenVisible);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+      window.removeEventListener('focus', refreshWhenVisible);
+    };
+  }, [load, propertyId]);
+
+  const removeRequest = useCallback((requestId: string) => {
+    setState((current) => ({
+      ...current,
+      items: current.items.filter((item) => item.requestId !== requestId),
+    }));
+  }, []);
+
+  return {
+    ...state,
+    count: state.items.length,
+    criticalCount: state.items.filter((item) => item.severity === 'CRITICAL').length,
+    refresh: load,
+    removeRequest,
+  };
+}
+
+function AttentionCenter({ propertyId }: { propertyId?: string }) {
+  const attention = useAttentionCenter(propertyId);
+  const [opened, setOpened] = useState(false);
+  const [activePopup, setActivePopup] = useState<AttentionPopupItem | AttentionBacklogPopup | null>(
+    null,
+  );
+  const popupQueueRef = useRef<Array<AttentionPopupItem | AttentionBacklogPopup>>([]);
+  const initializedRef = useRef(false);
+  const lastStateByRequestRef = useRef<Record<string, GuestRequestAttentionState>>({});
+  const popupTimerRef = useRef<number | null>(null);
+
+  const sortedItems = useMemo(
+    () =>
+      [...attention.items].sort((left, right) => {
+        const severityRank = { CRITICAL: 0, WARNING: 1, INFO: 2 } as const;
+        const rank = severityRank[left.severity] - severityRank[right.severity];
+        if (rank !== 0) return rank;
+        return (
+          (left.minutesUntilDue ?? Number.MAX_SAFE_INTEGER) -
+          (right.minutesUntilDue ?? Number.MAX_SAFE_INTEGER)
+        );
+      }),
+    [attention.items],
+  );
+
+  const clearPopupTimer = useCallback(() => {
+    if (popupTimerRef.current) {
+      window.clearTimeout(popupTimerRef.current);
+      popupTimerRef.current = null;
+    }
+  }, []);
+
+  const showNextQueuedPopup = useCallback(() => {
+    clearPopupTimer();
+
+    const next = popupQueueRef.current.shift() ?? null;
+    setActivePopup(next);
+
+    if (next && 'severity' in next && next.severity !== 'CRITICAL') {
+      popupTimerRef.current = window.setTimeout(
+        () => {
+          setActivePopup(null);
+          window.setTimeout(showNextQueuedPopup, 120);
+        },
+        next.severity === 'WARNING' ? 10_000 : 7_000,
+      );
+    }
+
+    if (next && !('severity' in next)) {
+      popupTimerRef.current = window.setTimeout(() => {
+        setActivePopup(null);
+        window.setTimeout(showNextQueuedPopup, 120);
+      }, 8_000);
+    }
+  }, [clearPopupTimer]);
+
+  const dismissActivePopup = useCallback(() => {
+    clearPopupTimer();
+    setActivePopup(null);
+    window.setTimeout(showNextQueuedPopup, 120);
+  }, [clearPopupTimer, showNextQueuedPopup]);
+
+  const enqueuePopup = useCallback(
+    (popup: AttentionPopupItem | AttentionBacklogPopup) => {
+      const key = popup.popupKey;
+      if (activePopup?.popupKey === key) return;
+      if (popupQueueRef.current.some((queued) => queued.popupKey === key)) return;
+
+      popupQueueRef.current.push(popup);
+
+      if (!activePopup) {
+        window.setTimeout(showNextQueuedPopup, 0);
+      }
+    },
+    [activePopup, showNextQueuedPopup],
+  );
+
+  useEffect(() => {
+    initializedRef.current = false;
+    lastStateByRequestRef.current = {};
+    popupQueueRef.current = [];
+    clearPopupTimer();
+    setActivePopup(null);
+  }, [clearPopupTimer, propertyId]);
+
+  useEffect(() => {
+    const handleGuestRequestChanged = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          propertyId?: string;
+          requestId?: string;
+          action?: 'create' | 'accept' | 'start' | 'complete' | 'cancel';
+        }>
+      ).detail;
+
+      if (!detail?.requestId) return;
+      if (detail.propertyId && propertyId && detail.propertyId !== propertyId) return;
+
+      const isResolved = detail.action === 'complete' || detail.action === 'cancel';
+
+      if (isResolved) {
+        // Make the bell, popover and popup react instantly instead of waiting for polling.
+        attention.removeRequest(detail.requestId);
+        delete lastStateByRequestRef.current[detail.requestId];
+
+        popupQueueRef.current = popupQueueRef.current.filter(
+          (queued) =>
+            !('requestId' in queued && queued.requestId === detail.requestId) &&
+            'severity' in queued,
+        );
+
+        setActivePopup((current) => {
+          if (!current) return current;
+          if (!('severity' in current)) return null;
+          return current.requestId === detail.requestId ? null : current;
+        });
+      }
+
+      // Reconcile optimistic UI with the backend immediately for every transition.
+      window.setTimeout(() => {
+        void attention.refresh();
+      }, 60);
+    };
+
+    window.addEventListener('stayos:guest-request-changed', handleGuestRequestChanged);
+
+    return () => {
+      window.removeEventListener('stayos:guest-request-changed', handleGuestRequestChanged);
+    };
+  }, [attention.refresh, attention.removeRequest, propertyId]);
+
+  useEffect(() => {
+    if (attention.isLoading) return;
+
+    const activeIds = new Set(attention.items.map((item) => item.requestId));
+    Object.keys(lastStateByRequestRef.current).forEach((requestId) => {
+      if (!activeIds.has(requestId)) {
+        delete lastStateByRequestRef.current[requestId];
+      }
+    });
+
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+
+      attention.items.forEach((item) => {
+        lastStateByRequestRef.current[item.requestId] = item.attentionState;
+      });
+
+      if (attention.items.length > 1) {
+        enqueuePopup({
+          popupKey: `backlog:${propertyId ?? 'unknown'}`,
+          count: attention.items.length,
+          oldest: sortedItems[0],
+        });
+      } else if (attention.items.length === 1 && attention.items[0].severity === 'CRITICAL') {
+        enqueuePopup({
+          ...attention.items[0],
+          popupKey: `${attention.items[0].requestId}:${attention.items[0].attentionState}`,
+        });
+      }
+
+      return;
+    }
+
+    attention.items.forEach((item) => {
+      const previousState = lastStateByRequestRef.current[item.requestId];
+
+      if (!previousState || previousState !== item.attentionState) {
+        enqueuePopup({
+          ...item,
+          popupKey: `${item.requestId}:${item.attentionState}`,
+        });
+      }
+
+      lastStateByRequestRef.current[item.requestId] = item.attentionState;
+    });
+  }, [attention.isLoading, attention.items, enqueuePopup, propertyId, sortedItems]);
+
+  useEffect(
+    () => () => {
+      clearPopupTimer();
+      popupQueueRef.current = [];
+    },
+    [clearPopupTimer],
+  );
+
+  return (
+    <>
+      <Popover
+        opened={opened}
+        onChange={setOpened}
+        position="bottom-end"
+        width={390}
+        shadow="md"
+        withinPortal
+      >
+        <Popover.Target>
+          <Box pos="relative">
+            <Tooltip label="Attention Center">
+              <ActionIcon
+                visibleFrom="sm"
+                variant={opened || attention.count > 0 ? 'light' : 'subtle'}
+                color={
+                  attention.criticalCount > 0 ? 'red' : attention.count > 0 ? 'yellow' : 'gray'
+                }
+                aria-label={`Attention Center${attention.count > 0 ? `, ${attention.count} items` : ''}`}
+                size={34}
+                onClick={() => setOpened((value) => !value)}
+              >
+                <Bell size={18} />
+              </ActionIcon>
+            </Tooltip>
+
+            {attention.count > 0 ? (
+              <Badge
+                circle
+                color={attention.criticalCount > 0 ? 'red' : 'stayosBrand'}
+                size="xs"
+                style={{
+                  pointerEvents: 'none',
+                  position: 'absolute',
+                  right: -4,
+                  top: -5,
+                  zIndex: 2,
+                }}
+              >
+                {attention.count > 9 ? '9+' : attention.count}
+              </Badge>
+            ) : null}
+          </Box>
+        </Popover.Target>
+
+        <Popover.Dropdown p={0} style={{ borderRadius: 16, overflow: 'hidden' }}>
+          <Group
+            justify="space-between"
+            p={14}
+            style={{ borderBottom: '1px solid #eef1f6', background: '#fbfcff' }}
+          >
+            <Box>
+              <Text c="#101828" fw={800} style={{ fontSize: 15 }}>
+                Attention
+              </Text>
+              <Text c="#667085" mt={2} style={{ fontSize: 11.5 }}>
+                StayOS is watching your time-sensitive guest services.
+              </Text>
+            </Box>
+            {attention.count > 0 ? (
+              <Badge color={attention.criticalCount > 0 ? 'red' : 'stayosBrand'} variant="light">
+                {attention.count} active
+              </Badge>
+            ) : null}
+          </Group>
+
+          <ScrollArea.Autosize mah={440} type="hover" scrollbarSize={5}>
+            <Stack gap={8} p={10}>
+              {attention.isLoading ? (
+                <Paper p={14} radius={12} bg="#f8fafc">
+                  <Text c="#667085" size="sm">
+                    Checking what needs attention...
+                  </Text>
+                </Paper>
+              ) : attention.error && sortedItems.length === 0 ? (
+                <Paper p={14} radius={12} bg="#fff7ed" bd="1px solid #fed7aa">
+                  <Text c="#9a3412" size="sm" fw={700}>
+                    Attention Center unavailable
+                  </Text>
+                  <Text c="#9a3412" mt={3} size="xs">
+                    {attention.error}
+                  </Text>
+                  <Button
+                    mt={10}
+                    size="compact-xs"
+                    variant="light"
+                    color="orange"
+                    onClick={() => void attention.refresh()}
+                  >
+                    Retry
+                  </Button>
+                </Paper>
+              ) : sortedItems.length === 0 ? (
+                <Paper p={18} radius={12} bg="#f0fdf4" bd="1px solid #bbf7d0">
+                  <Group gap={10} wrap="nowrap">
+                    <CheckCircle2 size={18} color="#16a34a" />
+                    <Box>
+                      <Text c="#166534" fw={800} size="sm">
+                        Everything is under control
+                      </Text>
+                      <Text c="#4b7a59" mt={2} size="xs">
+                        No guest-service reminders need attention right now.
+                      </Text>
+                    </Box>
+                  </Group>
+                </Paper>
+              ) : (
+                sortedItems.map((item) => {
+                  const tone = attentionTone(item.severity);
+                  const isTimeSensitive =
+                    item.attentionState === 'DUE_SOON' || item.attentionState === 'OVERDUE';
+
+                  return (
+                    <UnstyledButton
+                      key={item.requestId}
+                      component={Link}
+                      href={attentionHref(item)}
+                      onClick={() => setOpened(false)}
+                      style={{
+                        background: tone.background,
+                        border: `1px solid ${tone.border}`,
+                        borderRadius: 13,
+                        display: 'block',
+                        padding: 12,
+                        textAlign: 'left',
+                        transition: 'transform 150ms ease, box-shadow 150ms ease',
+                        width: '100%',
+                      }}
+                      onMouseEnter={(event) => {
+                        event.currentTarget.style.transform = 'translateY(-1px)';
+                        event.currentTarget.style.boxShadow = '0 8px 18px rgba(15, 23, 42, 0.06)';
+                      }}
+                      onMouseLeave={(event) => {
+                        event.currentTarget.style.transform = 'translateY(0)';
+                        event.currentTarget.style.boxShadow = 'none';
+                      }}
+                    >
+                      <Group justify="space-between" align="flex-start" gap={10} wrap="nowrap">
+                        <Group gap={10} align="flex-start" wrap="nowrap" style={{ minWidth: 0 }}>
+                          <Box
+                            aria-hidden
+                            style={{
+                              alignItems: 'center',
+                              background: '#ffffffaa',
+                              borderRadius: 10,
+                              color: tone.accent,
+                              display: 'flex',
+                              flex: '0 0 32px',
+                              height: 32,
+                              justifyContent: 'center',
+                              width: 32,
+                            }}
+                          >
+                            {isTimeSensitive ? <Clock3 size={16} /> : <AlertTriangle size={16} />}
+                          </Box>
+
+                          <Box style={{ minWidth: 0 }}>
+                            <Group gap={6} wrap="wrap">
+                              <Text c="#101828" fw={800} size="sm">
+                                {item.title}
+                              </Text>
+                              {item.roomNumber ? (
+                                <Text c="#475467" fw={700} size="xs">
+                                  · Room {item.roomNumber}
+                                </Text>
+                              ) : null}
+                            </Group>
+                            <Text c="#667085" mt={3} size="xs" lineClamp={2}>
+                              {item.message}
+                            </Text>
+                            <Text c="#667085" mt={5} size="xs" fw={600}>
+                              {[item.guestDisplayName, item.assignedEmployeeName]
+                                .filter(Boolean)
+                                .join(' · ') || item.department}
+                            </Text>
+                          </Box>
+                        </Group>
+
+                        <Badge
+                          color={tone.badge}
+                          variant="light"
+                          size="xs"
+                          style={{ flex: '0 0 auto' }}
+                        >
+                          {attentionLabel(item.attentionState)}
+                        </Badge>
+                      </Group>
+                    </UnstyledButton>
+                  );
+                })
+              )}
+            </Stack>
+          </ScrollArea.Autosize>
+        </Popover.Dropdown>
+      </Popover>
+
+      {activePopup ? (
+        <Box
+          aria-live="polite"
+          style={{
+            bottom: 22,
+            maxWidth: 'calc(100vw - 32px)',
+            position: 'fixed',
+            right: 22,
+            width: 372,
+            zIndex: 5000,
+          }}
+        >
+          {'severity' in activePopup ? (
+            (() => {
+              const item = activePopup;
+              const tone = attentionTone(item.severity);
+              const isWakeUp = item.requestType === 'WAKE_UP_CALL';
+              const isCritical = item.severity === 'CRITICAL';
+              const scheduleLabel = isWakeUp ? wakeUpScheduleLabel(item.dueAt) : null;
+              const headline = isWakeUp
+                ? `Wake-up call${scheduleLabel ? ` · ${scheduleLabel}` : ''}`
+                : item.attentionState === 'OVERDUE' && item.minutesOverdue !== null
+                  ? `${item.title} overdue`
+                  : item.attentionState === 'UNACKNOWLEDGED'
+                    ? 'Guest is waiting'
+                    : item.attentionState === 'SLA_BREACHED'
+                      ? 'Service is delayed'
+                      : item.attentionState === 'ESCALATED'
+                        ? 'Needs attention now'
+                        : item.title;
+
+              const context = [
+                item.roomNumber ? `Room ${item.roomNumber}` : null,
+                item.guestDisplayName,
+              ]
+                .filter(Boolean)
+                .join(' · ');
+
+              const timing =
+                item.minutesOverdue !== null
+                  ? `${item.minutesOverdue} min overdue`
+                  : item.minutesUntilDue !== null
+                    ? item.minutesUntilDue <= 1
+                      ? 'Due now'
+                      : `Due in ${item.minutesUntilDue} min`
+                    : attentionLabel(item.attentionState);
+
+              return (
+                <Paper
+                  radius={18}
+                  p={0}
+                  shadow="lg"
+                  style={{
+                    animation: 'stayosAttentionEnter 220ms cubic-bezier(0.22, 1, 0.36, 1)',
+                    background: '#ffffff',
+                    border: `1px solid ${isCritical ? tone.border : '#e8ecf3'}`,
+                    boxShadow: isCritical
+                      ? '0 18px 45px rgba(185, 28, 28, 0.18)'
+                      : '0 18px 45px rgba(15, 23, 42, 0.13)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <Box
+                    style={{
+                      background: isCritical ? tone.background : '#ffffff',
+                      borderLeft: `4px solid ${tone.accent}`,
+                      padding: '14px 14px 13px 15px',
+                    }}
+                  >
+                    <Group align="flex-start" justify="space-between" gap={12} wrap="nowrap">
+                      <Group align="flex-start" gap={11} wrap="nowrap" style={{ minWidth: 0 }}>
+                        <Box
+                          aria-hidden
+                          style={{
+                            alignItems: 'center',
+                            background: tone.background,
+                            border: `1px solid ${tone.border}`,
+                            borderRadius: 12,
+                            color: tone.accent,
+                            display: 'flex',
+                            flex: '0 0 38px',
+                            height: 38,
+                            justifyContent: 'center',
+                            width: 38,
+                          }}
+                        >
+                          {isWakeUp ||
+                          ['DUE_SOON', 'OVERDUE', 'UPCOMING'].includes(item.attentionState) ? (
+                            <Clock3 size={18} />
+                          ) : (
+                            <AlertTriangle size={18} />
+                          )}
+                        </Box>
+
+                        <Box style={{ minWidth: 0, flex: 1 }}>
+                          <Group gap={7} wrap="nowrap">
+                            <Text
+                              c="#101828"
+                              lineClamp={1}
+                              style={{
+                                fontSize: 14.5,
+                                fontWeight: 800,
+                                letterSpacing: '-0.01em',
+                                lineHeight: '19px',
+                              }}
+                            >
+                              {headline}
+                            </Text>
+                            {isCritical ? (
+                              <Badge
+                                color="red"
+                                size="xs"
+                                variant="light"
+                                style={{ flex: '0 0 auto' }}
+                              >
+                                Critical
+                              </Badge>
+                            ) : null}
+                          </Group>
+
+                          {context ? (
+                            <Text
+                              c="#344054"
+                              lineClamp={1}
+                              mt={4}
+                              style={{ fontSize: 13, fontWeight: 700, lineHeight: '17px' }}
+                            >
+                              {context}
+                            </Text>
+                          ) : null}
+
+                          <Group gap={7} mt={5} wrap="nowrap">
+                            <Text
+                              c={isCritical ? '#b42318' : '#667085'}
+                              lineClamp={1}
+                              style={{ fontSize: 11.5, fontWeight: 700, lineHeight: '15px' }}
+                            >
+                              {timing}
+                            </Text>
+                            <Text c="#98a2b3" style={{ fontSize: 11 }}>
+                              ·
+                            </Text>
+                            <Text
+                              c="#667085"
+                              lineClamp={1}
+                              style={{ fontSize: 11.5, fontWeight: 500, lineHeight: '15px' }}
+                            >
+                              {item.department.replaceAll('_', ' ')}
+                            </Text>
+                          </Group>
+                        </Box>
+                      </Group>
+
+                      <ActionIcon
+                        aria-label="Dismiss notification"
+                        color="gray"
+                        size={28}
+                        variant="subtle"
+                        onClick={dismissActivePopup}
+                        style={{ flex: '0 0 auto' }}
+                      >
+                        <X size={15} />
+                      </ActionIcon>
+                    </Group>
+
+                    <Group justify="space-between" align="center" mt={11}>
+                      <Text
+                        c="#98a2b3"
+                        style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '0.01em' }}
+                      >
+                        StayOS · Guest Services
+                      </Text>
+
+                      <Button
+                        component={Link}
+                        href={attentionHref(item)}
+                        color={isCritical ? 'red' : 'stayosBrand'}
+                        variant={isCritical ? 'light' : 'subtle'}
+                        size="compact-sm"
+                        fw={700}
+                        onClick={dismissActivePopup}
+                      >
+                        Open
+                      </Button>
+                    </Group>
+                  </Box>
+                </Paper>
+              );
+            })()
+          ) : (
+            <Paper
+              radius={18}
+              p={0}
+              shadow="lg"
+              style={{
+                animation: 'stayosAttentionEnter 220ms cubic-bezier(0.22, 1, 0.36, 1)',
+                background: '#ffffff',
+                border: '1px solid #e8ecf3',
+                boxShadow: '0 18px 45px rgba(15, 23, 42, 0.13)',
+                overflow: 'hidden',
+              }}
+            >
+              <Box style={{ borderLeft: '4px solid #7c3aed', padding: '14px 14px 13px 15px' }}>
+                <Group align="flex-start" justify="space-between" gap={12} wrap="nowrap">
+                  <Group align="flex-start" gap={11} wrap="nowrap" style={{ minWidth: 0 }}>
+                    <Box
+                      aria-hidden
+                      style={{
+                        alignItems: 'center',
+                        background: '#f5f3ff',
+                        border: '1px solid #ddd6fe',
+                        borderRadius: 12,
+                        color: '#7c3aed',
+                        display: 'flex',
+                        flex: '0 0 38px',
+                        height: 38,
+                        justifyContent: 'center',
+                        width: 38,
+                      }}
+                    >
+                      <Bell size={18} />
+                    </Box>
+                    <Box style={{ minWidth: 0, flex: 1 }}>
+                      <Text
+                        c="#101828"
+                        lineClamp={1}
+                        style={{ fontSize: 14.5, fontWeight: 800, lineHeight: '19px' }}
+                      >
+                        {activePopup.count} guest requests need attention
+                      </Text>
+                      <Text
+                        c="#667085"
+                        mt={4}
+                        lineClamp={1}
+                        style={{ fontSize: 12, fontWeight: 600, lineHeight: '16px' }}
+                      >
+                        {activePopup.oldest
+                          ? `${activePopup.oldest.title}${activePopup.oldest.roomNumber ? ` · Room ${activePopup.oldest.roomNumber}` : ''}`
+                          : 'Review your active guest-service reminders'}
+                      </Text>
+                      <Text
+                        c="#98a2b3"
+                        mt={4}
+                        style={{ fontSize: 11.5, fontWeight: 500, lineHeight: '15px' }}
+                      >
+                        Open the Attention Center to review the backlog.
+                      </Text>
+                    </Box>
+                  </Group>
+
+                  <ActionIcon
+                    aria-label="Dismiss notification"
+                    color="gray"
+                    size={28}
+                    variant="subtle"
+                    onClick={dismissActivePopup}
+                  >
+                    <X size={15} />
+                  </ActionIcon>
+                </Group>
+
+                <Group justify="space-between" align="center" mt={11}>
+                  <Text c="#98a2b3" style={{ fontSize: 10.5, fontWeight: 600 }}>
+                    StayOS · Guest Services
+                  </Text>
+                  <Button
+                    color="stayosBrand"
+                    variant="subtle"
+                    size="compact-sm"
+                    fw={700}
+                    onClick={() => {
+                      dismissActivePopup();
+                      setOpened(true);
+                    }}
+                  >
+                    Review attention
+                  </Button>
+                </Group>
+              </Box>
+            </Paper>
+          )}
+        </Box>
+      ) : null}
+
+      <style>{`
+        @keyframes stayosAttentionEnter {
+          from {
+            opacity: 0;
+            transform: translate3d(18px, 8px, 0) scale(0.985);
+          }
+          to {
+            opacity: 1;
+            transform: translate3d(0, 0, 0) scale(1);
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          [aria-live='polite'] {
+            animation: none !important;
+          }
+        }
+      `}</style>
+    </>
+  );
+}
+
 function TopHeader({
   workspaceTitle,
   propertyId,
@@ -886,6 +1764,7 @@ function TopHeader({
               <MessageSquare size={18} />
             </ActionIcon>
           </Tooltip>
+          <AttentionCenter propertyId={propertyId} />
           <Box
             visibleFrom="md"
             style={{ borderLeft: '1px solid #eef1f6', marginInline: 8, paddingLeft: 12 }}

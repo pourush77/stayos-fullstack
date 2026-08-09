@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { type ReactNode, type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -14,6 +14,7 @@ import {
   Modal,
   Paper,
   SimpleGrid,
+  Skeleton,
   Stack,
   Text,
   Textarea,
@@ -73,6 +74,18 @@ const cardStyle = {
   border: '1px solid rgba(226, 232, 240, 0.9)',
   boxShadow: '0 8px 24px rgba(15, 23, 42, 0.035)',
 };
+
+function notifyGuestRequestChanged(detail: {
+  propertyId: string;
+  requestId: string;
+  action: 'create' | 'accept' | 'start' | 'complete' | 'cancel';
+}) {
+  window.dispatchEvent(
+    new CustomEvent('stayos:guest-request-changed', {
+      detail,
+    }),
+  );
+}
 
 type GuestServiceShortcut = GuestRequestSuggestionDto & {
   icon: ReactNode;
@@ -418,6 +431,8 @@ function OperationalSections({
   canManageBilling,
   canViewBilling,
   billingSectionRef,
+  guestServicesRef,
+  focusedRequestId,
   onFolioChanged,
   onOpenRequest,
   onMoveRoom,
@@ -432,6 +447,8 @@ function OperationalSections({
   canManageBilling: boolean;
   canViewBilling: boolean;
   billingSectionRef: RefObject<HTMLDivElement | null>;
+  guestServicesRef: RefObject<HTMLDivElement | null>;
+  focusedRequestId?: string | null;
   onFolioChanged: () => void;
   onOpenRequest: (suggestion?: GuestRequestSuggestionDto) => void;
   onMoveRoom: () => void;
@@ -454,6 +471,7 @@ function OperationalSections({
     <Stack gap={spacing[3]}>
       {/* Guest Services — contextual, guided actions for the current stay */}
       <Card
+        ref={guestServicesRef}
         radius={radius.lg}
         p={0}
         style={{
@@ -558,13 +576,26 @@ function OperationalSections({
                     </Text>
                   </Group>
 
-                  {requests.map((request) => (
-                    <RequestCard
-                      key={request.id}
-                      request={request}
-                      onTransition={onRequestTransition}
-                    />
-                  ))}
+                  {requests.map((request) => {
+                    const isFocused = focusedRequestId === request.id;
+
+                    return (
+                      <Box
+                        key={request.id}
+                        data-guest-request-id={request.id}
+                        style={{
+                          borderRadius: 16,
+                          boxShadow: isFocused ? '0 0 0 4px rgba(124, 58, 237, 0.16)' : 'none',
+                          outline: isFocused
+                            ? '1px solid rgba(124, 58, 237, 0.48)'
+                            : '1px solid transparent',
+                          transition: 'box-shadow 220ms ease, outline-color 220ms ease',
+                        }}
+                      >
+                        <RequestCard request={request} onTransition={onRequestTransition} />
+                      </Box>
+                    );
+                  })}
                 </Stack>
               ) : null}
 
@@ -861,6 +892,150 @@ function roomTypeLabel(room: OperationsAvailableRoomDto) {
   return room.roomType.name || room.roomType.code || 'Room type not recorded';
 }
 
+function StayWorkspaceSkeleton() {
+  return (
+    <Stack gap={spacing[3]} aria-label="Loading stay workspace">
+      <Card radius={radius.lg} p={20} style={cardStyle}>
+        <Group justify="space-between" align="flex-start" gap={spacing[4]} wrap="wrap">
+          <Stack gap={10} style={{ flex: 1, minWidth: 280 }}>
+            <Group gap={8}>
+              <Skeleton height={26} width={92} radius="xl" />
+              <Skeleton height={26} width={64} radius="xl" />
+              <Skeleton height={26} width={76} radius="xl" />
+            </Group>
+            <Skeleton height={36} width="42%" radius="md" />
+            <Skeleton height={18} width="28%" radius="md" />
+            <Group gap={16} wrap="wrap">
+              <Skeleton height={14} width={128} radius="md" />
+              <Skeleton height={14} width={128} radius="md" />
+              <Skeleton height={14} width={110} radius="md" />
+              <Skeleton height={14} width={120} radius="md" />
+            </Group>
+          </Stack>
+
+          <Group gap={8}>
+            <Skeleton height={36} width={108} radius="md" />
+            <Skeleton height={36} width={108} radius="md" />
+            <Skeleton height={36} width={120} radius="md" />
+          </Group>
+        </Group>
+      </Card>
+
+      <Card radius={radius.lg} p={16} style={cardStyle}>
+        <Skeleton height={22} width={170} radius="md" />
+        <SimpleGrid mt={spacing[3]} cols={{ base: 1, md: 3 }} spacing={spacing[3]}>
+          {[0, 1, 2].map((item) => (
+            <Paper
+              key={item}
+              radius={radius.md}
+              p={14}
+              style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}
+            >
+              <Skeleton height={15} width="46%" radius="md" />
+              <Skeleton mt={8} height={12} width="78%" radius="md" />
+            </Paper>
+          ))}
+        </SimpleGrid>
+      </Card>
+
+      <Card
+        radius={radius.lg}
+        p={0}
+        style={{
+          ...cardStyle,
+          overflow: 'hidden',
+          background: 'linear-gradient(180deg, rgba(248,250,255,0.82) 0%, #ffffff 34%)',
+        }}
+      >
+        <Box p={18}>
+          <Group justify="space-between" align="flex-start" gap={spacing[4]} wrap="wrap">
+            <Group gap={10}>
+              <Skeleton height={38} width={38} radius={12} />
+              <Box>
+                <Skeleton height={20} width={150} radius="md" />
+                <Skeleton mt={7} height={12} width={220} radius="md" />
+              </Box>
+            </Group>
+
+            <Group gap={8}>
+              <Skeleton height={34} width={112} radius="md" />
+              <Skeleton height={34} width={124} radius="md" />
+            </Group>
+          </Group>
+
+          <SimpleGrid mt={spacing[4]} cols={{ base: 2, sm: 4, xl: 8 }} spacing={10}>
+            {Array.from({ length: 8 }).map((_, index) => (
+              <Paper
+                key={index}
+                radius={16}
+                p={14}
+                style={{
+                  minHeight: 92,
+                  background: '#ffffff',
+                  border: '1px solid #e7eaf0',
+                }}
+              >
+                <Group gap={10} wrap="nowrap">
+                  <Skeleton height={38} width={38} radius={12} />
+                  <Box style={{ flex: 1 }}>
+                    <Skeleton height={14} width="72%" radius="md" />
+                    <Skeleton mt={7} height={11} width="88%" radius="md" />
+                  </Box>
+                </Group>
+              </Paper>
+            ))}
+          </SimpleGrid>
+        </Box>
+
+        <Divider color="#eef2f7" />
+
+        <Box p={18}>
+          <Group justify="space-between" mb={10}>
+            <Skeleton height={12} width={100} radius="md" />
+            <Skeleton height={12} width={180} radius="md" />
+          </Group>
+
+          <Paper radius={16} p={16} style={{ background: '#ffffff', border: '1px solid #eef2f7' }}>
+            <Group justify="space-between" align="flex-start" gap={12}>
+              <Group gap={12}>
+                <Skeleton height={42} width={42} radius={12} />
+                <Box>
+                  <Skeleton height={17} width={170} radius="md" />
+                  <Skeleton mt={7} height={13} width={220} radius="md" />
+                  <Skeleton mt={7} height={11} width={150} radius="md" />
+                </Box>
+              </Group>
+              <Skeleton height={24} width={78} radius="xl" />
+            </Group>
+
+            <SimpleGrid mt={14} cols={{ base: 1, sm: 3 }} spacing={10}>
+              {[0, 1, 2].map((item) => (
+                <Paper
+                  key={item}
+                  radius={radius.md}
+                  p={12}
+                  style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}
+                >
+                  <Skeleton height={10} width="42%" radius="md" />
+                  <Skeleton mt={7} height={14} width="66%" radius="md" />
+                </Paper>
+              ))}
+            </SimpleGrid>
+          </Paper>
+        </Box>
+      </Card>
+
+      <Card radius={radius.lg} p={16} style={cardStyle}>
+        <Group justify="space-between">
+          <Skeleton height={18} width={170} radius="md" />
+          <Skeleton height={12} width={210} radius="md" />
+        </Group>
+        <Skeleton mt={16} height={120} width="100%" radius={radius.md} />
+      </Card>
+    </Stack>
+  );
+}
+
 function MoveRoomModal({
   isMoving,
   onClose,
@@ -991,6 +1166,7 @@ function MoveRoomModal({
 export default function StayWorkspace() {
   const params = useParams<{ stayId?: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const backend = useBackendStatus();
   const auth = useAuth();
   const permissions = auth.user?.permissions ?? [];
@@ -1019,6 +1195,8 @@ export default function StayWorkspace() {
   const [completedGuestRequests, setCompletedGuestRequests] = useState<GuestRequestDto[]>([]);
   const [billingReloadSignal, setBillingReloadSignal] = useState(0);
   const billingSectionRef = useRef<HTMLDivElement | null>(null);
+  const guestServicesRef = useRef<HTMLDivElement | null>(null);
+  const [focusedRequestId, setFocusedRequestId] = useState<string | null>(null);
 
   const loadGuestRequests = useCallback(async () => {
     if (!stayState.propertyId || !params.stayId) return;
@@ -1039,6 +1217,38 @@ export default function StayWorkspace() {
     if (enabled) void loadGuestRequests();
   }, [enabled, loadGuestRequests]);
 
+  useEffect(() => {
+    if (searchParams.get('focus') !== 'requests') return;
+
+    const requestId = searchParams.get('requestId');
+    const requestExists =
+      Boolean(requestId) &&
+      [...guestRequests, ...completedGuestRequests].some((request) => request.id === requestId);
+
+    const timer = window.setTimeout(() => {
+      if (requestId && requestExists) {
+        const requestElement = document.querySelector<HTMLElement>(
+          `[data-guest-request-id="${CSS.escape(requestId)}"]`,
+        );
+
+        if (requestElement) {
+          setFocusedRequestId(requestId);
+          requestElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+          window.setTimeout(() => {
+            setFocusedRequestId((current) => (current === requestId ? null : current));
+          }, 3200);
+
+          return;
+        }
+      }
+
+      guestServicesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 180);
+
+    return () => window.clearTimeout(timer);
+  }, [completedGuestRequests, guestRequests, searchParams]);
+
   const refreshAfterFolioChange = useCallback(() => {
     void stayState.refreshStay();
   }, [stayState]);
@@ -1057,12 +1267,7 @@ export default function StayWorkspace() {
         onCheckStatus={checkBackendStatus}
       />
     );
-  if (!stayState.stay)
-    return (
-      <Alert color="blue" variant="light" icon={<DoorOpen size={17} />} radius={radius.lg}>
-        Loading stay workspace...
-      </Alert>
-    );
+  if (!stayState.stay) return <StayWorkspaceSkeleton />;
 
   const stay = stayState.stay;
   const hasOutstandingBalance = stay.paymentStatus !== 'Paid';
@@ -1093,7 +1298,15 @@ export default function StayWorkspace() {
     action: 'accept' | 'start' | 'complete' | 'cancel',
   ) => {
     if (!stayState.propertyId) return;
+
     await transitionGuestRequest(stayState.propertyId, requestId, action);
+
+    notifyGuestRequestChanged({
+      propertyId: stayState.propertyId,
+      requestId,
+      action,
+    });
+
     await loadGuestRequests();
   };
 
@@ -1237,6 +1450,8 @@ export default function StayWorkspace() {
         billingReservationId={params.stayId ?? ''}
         billingReloadSignal={billingReloadSignal}
         billingSectionRef={billingSectionRef}
+        guestServicesRef={guestServicesRef}
+        focusedRequestId={focusedRequestId}
         canManageBilling={canManageBilling}
         canViewBilling={canViewBilling}
         completedRequests={completedGuestRequests}

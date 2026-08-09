@@ -69,6 +69,29 @@ export type GuestRequestSuggestionDto = {
   department: GuestRequestDepartment;
 };
 
+export type GuestRequestAttentionState =
+  'UPCOMING' | 'DUE_SOON' | 'UNACKNOWLEDGED' | 'OVERDUE' | 'SLA_BREACHED' | 'ESCALATED';
+
+export type GuestRequestAttentionSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
+
+export type GuestRequestAttentionDto = {
+  requestId: string;
+  requestType?: GuestRequestType | null;
+  title: string;
+  department: GuestRequestDepartment;
+  status: GuestRequestStatus;
+  priority: GuestRequestPriority;
+  guestDisplayName?: string | null;
+  roomNumber?: string | null;
+  assignedEmployeeName?: string | null;
+  dueAt?: string | null;
+  attentionState: GuestRequestAttentionState;
+  severity: GuestRequestAttentionSeverity;
+  message: string;
+  minutesUntilDue: number | null;
+  minutesOverdue: number | null;
+};
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
@@ -119,6 +142,10 @@ export function getGuestRequestSuggestions(propertyId: string) {
   return request<GuestRequestSuggestionDto[]>(
     `/properties/${propertyId}/guest-requests/suggestions`,
   );
+}
+
+export function getGuestRequestAttention(propertyId: string) {
+  return request<GuestRequestAttentionDto[]>(`/properties/${propertyId}/guest-requests/attention`);
 }
 
 export function createGuestRequest(propertyId: string, payload: Record<string, unknown>) {

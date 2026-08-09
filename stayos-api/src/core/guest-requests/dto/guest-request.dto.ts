@@ -1,6 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEnum, IsObject, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { GuestRequestDepartment } from '../domain/guest-request-department.enum';
+import {
+  GuestRequestAttentionSeverity,
+  GuestRequestAttentionState,
+} from '../domain/guest-request-attention-state.enum';
 import { GuestRequestPriority } from '../domain/guest-request-priority.enum';
 import { GuestRequestStatus } from '../domain/guest-request-status.enum';
 import { GuestRequestType } from '../domain/guest-request-type.enum';
@@ -200,4 +204,54 @@ export class GuestRequestSummaryDto {
 
   @ApiProperty()
   overdue!: number;
+}
+
+export class GuestRequestAttentionDto {
+  @ApiProperty()
+  requestId!: string;
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  reservationId!: string | null;
+
+  @ApiPropertyOptional({ enum: GuestRequestType })
+  requestType!: GuestRequestType | null;
+
+  @ApiProperty()
+  title!: string;
+
+  @ApiProperty({ enum: GuestRequestDepartment })
+  department!: GuestRequestDepartment;
+
+  @ApiProperty({ enum: GuestRequestStatus })
+  status!: GuestRequestStatus;
+
+  @ApiProperty({ enum: GuestRequestPriority })
+  priority!: GuestRequestPriority;
+
+  @ApiPropertyOptional()
+  guestDisplayName!: string | null;
+
+  @ApiPropertyOptional()
+  roomNumber!: string | null;
+
+  @ApiPropertyOptional()
+  assignedEmployeeName!: string | null;
+
+  @ApiPropertyOptional()
+  dueAt!: Date | null;
+
+  @ApiProperty({ enum: GuestRequestAttentionState })
+  attentionState!: GuestRequestAttentionState;
+
+  @ApiProperty({ enum: GuestRequestAttentionSeverity })
+  severity!: GuestRequestAttentionSeverity;
+
+  @ApiProperty()
+  message!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  minutesUntilDue!: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  minutesOverdue!: number | null;
 }
