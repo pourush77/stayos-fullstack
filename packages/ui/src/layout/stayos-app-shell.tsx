@@ -923,7 +923,42 @@ function wakeUpScheduleLabel(dueAt?: string | null) {
   return `${day} · ${time}`;
 }
 
-function useAttentionCenter(propertyId?: string) {
+function shouldShowAttentionForRole(item: GuestRequestAttentionItem, roleLabel?: string) {
+  const role = (roleLabel ?? 'Front Desk')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_');
+  const department = item.department.toUpperCase();
+
+  // Managers keep full operational visibility.
+  if (['MANAGER', 'OWNER', 'ADMIN', 'SUPERVISOR'].includes(role)) return true;
+
+  // Front Desk owns reception work, but also sees missed/escalated work from other teams
+  // so they can protect the guest experience without being flooded by normal department work.
+  if (['FRONT_DESK', 'RECEPTION', 'FRONTDESK'].includes(role)) {
+    if (department === 'RECEPTION') return true;
+
+    return (
+      item.severity === 'CRITICAL' ||
+      ['UNACKNOWLEDGED', 'OVERDUE', 'SLA_BREACHED', 'ESCALATED'].includes(item.attentionState)
+    );
+  }
+
+  // Housekeeping staff see their own operational queue. Laundry is treated as a floor-service
+  // responsibility for notification purposes in the current V1 setup.
+  if (role === 'HOUSEKEEPING') {
+    return ['HOUSEKEEPING', 'LAUNDRY'].includes(department);
+  }
+
+  if (role === 'MAINTENANCE') {
+    return department === 'MAINTENANCE';
+  }
+
+  // Other/non-operational roles are only interrupted for genuinely critical guest-impact items.
+  return item.severity === 'CRITICAL';
+}
+
+function useAttentionCenter(propertyId?: string, roleLabel?: string) {
   const [state, setState] = useState<AttentionCenterState>({
     isLoading: false,
     items: [],
@@ -947,7 +982,10 @@ function useAttentionCenter(propertyId?: string) {
         const items = await apiGet<GuestRequestAttentionItem[]>(
           `/properties/${propertyId}/guest-requests/attention`,
         );
-        setState({ isLoading: false, items });
+        setState({
+          isLoading: false,
+          items: items.filter((item) => shouldShowAttentionForRole(item, roleLabel)),
+        });
       } catch (error) {
         setState((current) => ({
           ...current,
@@ -959,7 +997,7 @@ function useAttentionCenter(propertyId?: string) {
         inFlightRef.current = false;
       }
     },
-    [propertyId],
+    [propertyId, roleLabel],
   );
 
   useEffect(() => {
@@ -1004,8 +1042,8 @@ function useAttentionCenter(propertyId?: string) {
   };
 }
 
-function AttentionCenter({ propertyId }: { propertyId?: string }) {
-  const attention = useAttentionCenter(propertyId);
+function AttentionCenter({ propertyId, roleLabel }: { propertyId?: string; roleLabel?: string }) {
+  const attention = useAttentionCenter(propertyId, roleLabel);
   const [opened, setOpened] = useState(false);
   const [activePopup, setActivePopup] = useState<AttentionPopupItem | AttentionBacklogPopup | null>(
     null,
@@ -1696,6 +1734,7 @@ function AttentionCenter({ propertyId }: { propertyId?: string }) {
 function TopHeader({
   workspaceTitle,
   propertyId,
+  userRoleLabel,
   onOpenMobileMenu,
   utilityPanelOpen,
   utilityPanelAvailable,
@@ -1703,6 +1742,7 @@ function TopHeader({
 }: {
   workspaceTitle: string;
   propertyId?: string;
+  userRoleLabel?: string;
   onOpenMobileMenu: () => void;
   utilityPanelOpen: boolean;
   utilityPanelAvailable: boolean;
@@ -1764,7 +1804,7 @@ function TopHeader({
               <MessageSquare size={18} />
             </ActionIcon>
           </Tooltip>
-          <AttentionCenter propertyId={propertyId} />
+          <AttentionCenter propertyId={propertyId} roleLabel={userRoleLabel} />
           <Box
             visibleFrom="md"
             style={{ borderLeft: '1px solid #eef1f6', marginInline: 8, paddingLeft: 12 }}
@@ -2520,6 +2560,7 @@ function ProtectedStayOSAppShell({
             <TopHeader
               workspaceTitle={workspaceTitle}
               propertyId={propertyId ?? user?.propertyId}
+              userRoleLabel={user?.roleLabel}
               onOpenMobileMenu={openMobileMenu}
               utilityPanelOpen={utilityPanelOpen}
               utilityPanelAvailable={utilityPanelAvailable}
