@@ -99,6 +99,16 @@ function formatHeaderStayDates(arrivalDate: string, departureDate: string) {
   return `${format(arrivalDate)} to ${format(departureDate)}`;
 }
 
+function formatStayDate(value: string) {
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
 function formatPhoneForDisplay(value: string) {
   const digits = value.replace(/\D/g, '');
   if (digits.length === 12 && digits.startsWith('91')) {
@@ -396,7 +406,7 @@ function AssignRoomModal({
 }: {
   booking: Booking;
   loading: boolean;
-  mode?: 'assign' | 'move';
+  mode?: 'assign' | 'change' | 'move';
   onAssign: (roomId: string) => Promise<void>;
   onClose: () => void;
   onLoadRooms: () => Promise<AvailableRoomOption[]>;
@@ -451,10 +461,16 @@ function AssignRoomModal({
     }
   };
 
-  const modalTitle = mode === 'move' ? 'Move Room' : 'Assign Room';
-  const primaryLabel = mode === 'move' ? 'Move Room' : 'Assign Room';
+  const modalTitle =
+    mode === 'move' ? 'Move Room' : mode === 'change' ? 'Change Room' : 'Assign Room';
+  const primaryLabel =
+    mode === 'move' ? 'Move Room' : mode === 'change' ? 'Change Room' : 'Assign Room';
   const selectPlaceholder =
-    mode === 'move' ? 'Choose a room to move guest into' : 'Choose a ready room';
+    mode === 'move'
+      ? 'Choose a room to move guest into'
+      : mode === 'change'
+        ? 'Choose another ready room'
+        : 'Choose a ready room';
 
   return (
     <Modal opened={opened} onClose={onClose} title={modalTitle} centered>
@@ -464,14 +480,28 @@ function AssignRoomModal({
           p={12}
           style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}
         >
-          <Text fw={800} size="sm">
-            {booking.roomType}
-          </Text>
-          <Text c="#64748b" size="xs">
-            {booking.arrivalDate} to {booking.departureDate} - {booking.adults} adult
-            {booking.adults === 1 ? '' : 's'}
+          {mode === 'change' ? (
+            <>
+              <Text c="#64748b" size="xs" fw={650}>
+                Current room
+              </Text>
+              <Text fw={800} size="sm">
+                {booking.room} · {booking.roomType}
+              </Text>
+            </>
+          ) : (
+            <Text fw={800} size="sm">
+              {booking.roomType}
+            </Text>
+          )}
+          <Text c="#64748b" size="xs" mt={mode === 'change' ? 6 : 0}>
+            {formatStayDate(booking.arrivalDate)} to {formatStayDate(booking.departureDate)}
+            {' · '}
+            {booking.nights} {booking.nights === 1 ? 'night' : 'nights'}
+            {' · '}
+            {booking.adults} adult{booking.adults === 1 ? '' : 's'}
             {booking.children
-              ? `, ${booking.children} child${booking.children === 1 ? '' : 'ren'}`
+              ? ` · ${booking.children} child${booking.children === 1 ? '' : 'ren'}`
               : ''}
           </Text>
         </Paper>
@@ -501,7 +531,7 @@ function AssignRoomModal({
               label: `${room.label} - ${room.roomType}`,
               value: room.id,
             }))}
-            label="Room"
+            label={mode === 'change' ? 'New room' : 'Room'}
             onChange={setRoomId}
             placeholder={selectPlaceholder}
             value={roomId}
@@ -539,6 +569,7 @@ export default function BookingDetailPage() {
   });
   const [cancelOpened, setCancelOpened] = useState(false);
   const [assignOpened, setAssignOpened] = useState(false);
+  const [changeOpened, setChangeOpened] = useState(false);
   const [checkoutOpened, setCheckoutOpened] = useState(false);
   const [extendOpened, setExtendOpened] = useState(false);
   const [moveOpened, setMoveOpened] = useState(false);
@@ -597,6 +628,7 @@ export default function BookingDetailPage() {
   const canAssignRoom =
     (booking.status === 'PENDING' || booking.status === 'CONFIRMED') &&
     booking.room === 'Unassigned';
+  const canChangeRoom = booking.status === 'CONFIRMED' && booking.room !== 'Unassigned';
   const canEditBooking = booking.status === 'PENDING' || booking.status === 'CONFIRMED';
   const isReadOnlyBooking = booking.status === 'CANCELLED' || booking.status === 'CHECKED_OUT';
   const guestFieldsDisabled =
@@ -633,6 +665,38 @@ export default function BookingDetailPage() {
       showToast({
         color: 'red',
         title: 'Unable to assign room',
+        message: friendlyBookingError(error),
+      });
+    } finally {
+      setIsActing(false);
+    }
+  };
+
+  const changeRoom = async (roomId: string) => {
+    const previousRoom = booking.room;
+    let newRoomLabel = 'the selected room';
+
+    try {
+      const availableRooms = await bookingState.getRooms();
+      const selectedRoom = availableRooms.find((room) => room.id === roomId);
+      if (selectedRoom) newRoomLabel = selectedRoom.label;
+    } catch {
+      // Room reassignment itself can still proceed even if label lookup fails.
+    }
+
+    setIsActing(true);
+    try {
+      await bookingState.assignRoom(roomId);
+      showToast({
+        color: 'green',
+        title: 'Room changed',
+        message: `Room changed successfully from ${previousRoom} to ${newRoomLabel}.`,
+      });
+      setChangeOpened(false);
+    } catch (error) {
+      showToast({
+        color: 'red',
+        title: 'Unable to change room',
         message: friendlyBookingError(error),
       });
     } finally {
@@ -746,24 +810,32 @@ export default function BookingDetailPage() {
                 </Text>
               ) : null}
             </Group>
+
             <Title order={1} c="#101828" style={{ fontSize: 34, fontWeight: 800 }}>
-              {booking.bookingId}
+              {booking.guestName}
             </Title>
-            <Group gap={8}>
-              <Text c="#334155" fw={600} size="sm">
-                {booking.guestName}
-              </Text>
-              <Text c="#94a3b8" size="sm">
-                ·
-              </Text>
-              <Text c="#334155" fw={600} size="sm">
-                {booking.room}
+
+            <Text c="#64748b" size="sm" fw={650}>
+              Booking {booking.bookingId}
+            </Text>
+
+            <Group gap={8} wrap="wrap">
+              <Text c="#334155" fw={700} size="sm">
+                {booking.room === 'Unassigned'
+                  ? 'Room unassigned'
+                  : `${booking.room} · ${booking.roomType}`}
               </Text>
               <Text c="#94a3b8" size="sm">
                 ·
               </Text>
               <Text c="#64748b" size="sm">
                 {formatHeaderStayDates(booking.arrivalDate, booking.departureDate)}
+              </Text>
+              <Text c="#94a3b8" size="sm">
+                ·
+              </Text>
+              <Text c="#334155" fw={650} size="sm">
+                {booking.nights} {booking.nights === 1 ? 'night' : 'nights'}
               </Text>
               {folioSummary && folioSummary.balance > 0.01 ? (
                 <>
@@ -787,13 +859,24 @@ export default function BookingDetailPage() {
                 Open Stay
               </Button>
             ) : booking.status === 'CONFIRMED' && booking.room !== 'Unassigned' ? (
-              <Button
-                component={Link}
-                href={`/reservations/${booking.backendId}/check-in`}
-                color="stayosBrand"
-              >
-                Start Check In
-              </Button>
+              <>
+                <Button
+                  component={Link}
+                  href={`/reservations/${booking.backendId}/check-in`}
+                  color="stayosBrand"
+                >
+                  Start Check In
+                </Button>
+                <Button
+                  variant="light"
+                  color="stayosBrand"
+                  leftSection={<MoveRight size={16} />}
+                  onClick={() => setChangeOpened(true)}
+                  data-testid="change-room-open"
+                >
+                  Change Room
+                </Button>
+              </>
             ) : canAssignRoom ? (
               <Button color="stayosBrand" onClick={() => setAssignOpened(true)}>
                 Assign Room
@@ -929,9 +1012,12 @@ export default function BookingDetailPage() {
 
           <Section title="Stay Details" icon={<CalendarDays size={17} />}>
             <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing={spacing[3]}>
-              <DetailTile label="Arrival date" value={booking.arrivalDate} />
-              <DetailTile label="Departure date" value={booking.departureDate} />
-              <DetailTile label="Nights" value={`${booking.nights}`} />
+              <DetailTile label="Arrival date" value={formatStayDate(booking.arrivalDate)} />
+              <DetailTile label="Departure date" value={formatStayDate(booking.departureDate)} />
+              <DetailTile
+                label="Length of stay"
+                value={`${booking.nights} ${booking.nights === 1 ? 'night' : 'nights'}`}
+              />
               <DetailTile label="Adults" value={`${booking.adults}`} />
               <DetailTile label="Children" value={`${booking.children}`} />
               <DetailTile label="Room type" value={booking.roomType} />
@@ -941,12 +1027,31 @@ export default function BookingDetailPage() {
             </SimpleGrid>
           </Section>
 
-          {booking.status === 'CHECKED_IN' || canAssignRoom ? (
+          {booking.status === 'CHECKED_IN' || canAssignRoom || canChangeRoom ? (
             <Section title="Room Assignment" icon={<BedDouble size={17} />}>
               {booking.status === 'CHECKED_IN' ? (
                 <Alert color="blue" variant="light" radius={radius.md}>
                   Room changes after check-in should happen from Stay.
                 </Alert>
+              ) : canChangeRoom ? (
+                <Group justify="space-between" align="center">
+                  <Box>
+                    <Text c="#64748b" size="xs" fw={650}>
+                      Current room
+                    </Text>
+                    <Text c="#101828" size="sm" fw={750}>
+                      {booking.room} · {booking.roomType}
+                    </Text>
+                  </Box>
+                  <Button
+                    variant="light"
+                    color="stayosBrand"
+                    leftSection={<MoveRight size={16} />}
+                    onClick={() => setChangeOpened(true)}
+                  >
+                    Change Room
+                  </Button>
+                </Group>
               ) : (
                 <Button color="stayosBrand" onClick={() => setAssignOpened(true)}>
                   Assign Room
@@ -1110,6 +1215,17 @@ export default function BookingDetailPage() {
           opened={assignOpened}
           onAssign={assignRoom}
           onClose={() => setAssignOpened(false)}
+          onLoadRooms={bookingState.getRooms}
+        />
+      ) : null}
+      {canChangeRoom ? (
+        <AssignRoomModal
+          booking={booking}
+          loading={isActing}
+          mode="change"
+          opened={changeOpened}
+          onAssign={changeRoom}
+          onClose={() => setChangeOpened(false)}
           onLoadRooms={bookingState.getRooms}
         />
       ) : null}
