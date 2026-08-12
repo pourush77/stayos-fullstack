@@ -53,7 +53,11 @@ import {
   useBackendStatus,
 } from '@stayos/ui';
 import { useAuth } from '../../auth/auth-context';
-import { getAvailableRooms, type OperationsAvailableRoomDto } from '../../../lib/operations-api';
+import {
+  getAvailableRooms,
+  getRoomBoard,
+  type OperationsAvailableRoomDto,
+} from '../../../lib/operations-api';
 import { extendReservationStay, moveReservationRoom } from '../../../lib/reservation-api';
 import { useStayWorkspace } from '../hooks/useStayWorkspace';
 import { StayBillingPanel } from './StayBillingPanel';
@@ -271,11 +275,13 @@ function StayHeader({
   onCheckOut,
   onExtendStay,
   onMoveRoom,
+  relocationRequired,
   stay,
 }: {
   onCheckOut: () => void;
   onExtendStay: () => void;
   onMoveRoom: () => void;
+  relocationRequired: boolean;
   stay: Stay;
 }) {
   return (
@@ -347,12 +353,12 @@ function StayHeader({
         <Group gap={8}>
           <Button
             disabled={!stay.allowedActions.canMoveRoom}
-            variant="light"
+            variant={relocationRequired ? 'filled' : 'light'}
             color="stayosBrand"
             leftSection={<RefreshCw size={16} />}
             onClick={onMoveRoom}
           >
-            Move Room
+            {relocationRequired ? 'Move Guest Now' : 'Move Room'}
           </Button>
           <Button
             disabled={!stay.allowedActions.canExtendStay}
@@ -1042,6 +1048,7 @@ function MoveRoomModal({
   onConfirm,
   opened,
   reason,
+  relocationRequired,
   rooms,
   search,
   selectedRoomId,
@@ -1055,6 +1062,7 @@ function MoveRoomModal({
   onConfirm: () => void;
   opened: boolean;
   reason: string;
+  relocationRequired: boolean;
   rooms: OperationsAvailableRoomDto[];
   search: string;
   selectedRoomId: string;
@@ -1079,7 +1087,13 @@ function MoveRoomModal({
   );
 
   return (
-    <Modal opened={opened} onClose={onClose} centered size="lg" title="Move room">
+    <Modal
+      opened={opened}
+      onClose={onClose}
+      centered
+      size="lg"
+      title={relocationRequired ? 'Relocate guest' : 'Move room'}
+    >
       <Stack gap={spacing[4]}>
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
           <DetailTile label="Current room" value={`Room ${stay.roomNumber} - ${stay.roomType}`} />
@@ -1126,8 +1140,15 @@ function MoveRoomModal({
               </UnstyledButton>
             ))
           ) : (
-            <Alert color="yellow" variant="light" radius={radius.md}>
-              No ready rooms match this stay. Adjust the search or check room availability.
+            <Alert
+              color={relocationRequired ? 'red' : 'yellow'}
+              variant="light"
+              radius={radius.md}
+              title={relocationRequired ? 'No ready replacement room available' : undefined}
+            >
+              {relocationRequired
+                ? 'The current room requires relocation, but there is no ready room available right now. Keep the guest in the current room only if it is safe to do so, and coordinate with Housekeeping or the Front Office Manager for the next available room.'
+                : 'No ready rooms match this stay. Adjust the search or check room availability.'}
             </Alert>
           )}
         </Stack>
@@ -1155,7 +1176,7 @@ function MoveRoomModal({
             loading={isMoving}
             onClick={onConfirm}
           >
-            Move Room
+            {relocationRequired ? 'Move Guest' : 'Move Room'}
           </Button>
         </Group>
       </Stack>
@@ -1187,6 +1208,7 @@ export default function StayWorkspace() {
   const [moveRooms, setMoveRooms] = useState<OperationsAvailableRoomDto[]>([]);
   const [moveSearch, setMoveSearch] = useState('');
   const [selectedMoveRoomId, setSelectedMoveRoomId] = useState('');
+  const [currentRoomUiStatus, setCurrentRoomUiStatus] = useState<string | undefined>(undefined);
   const [requestDrawerOpened, setRequestDrawerOpened] = useState(false);
   const [selectedRequestSuggestion, setSelectedRequestSuggestion] = useState<
     GuestRequestSuggestionDto | undefined
@@ -1256,21 +1278,46 @@ export default function StayWorkspace() {
   const retryBackend = () => void backend.retry();
   const checkBackendStatus = () => void backend.checkHealth();
 
+  const currentStay = stayState.stay;
+
+  useEffect(() => {
+    if (!stayState.propertyId || !currentStay?.roomId) {
+      setCurrentRoomUiStatus(undefined);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    getRoomBoard(stayState.propertyId, controller.signal)
+      .then((roomBoard) => {
+        const currentRoom = roomBoard.find((room) => room.roomId === currentStay.roomId);
+        setCurrentRoomUiStatus(currentRoom?.uiStatus);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setCurrentRoomUiStatus(undefined);
+      });
+
+    return () => controller.abort();
+  }, [currentStay?.roomId, stayState.propertyId]);
+
   if (backend.status === 'SERVER_STARTING')
     return <ServerStarting onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
   if (!backend.isOnline && backend.status !== 'CONNECTING')
     return <BackendUnavailable onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
-  if (stayState.error && !stayState.isLoading && !stayState.stay)
+  if (stayState.error && !stayState.isLoading && !currentStay)
     return (
       <GenericError
         onAction={() => void stayState.refreshStay()}
         onCheckStatus={checkBackendStatus}
       />
     );
-  if (!stayState.stay) return <StayWorkspaceSkeleton />;
+  if (!currentStay) return <StayWorkspaceSkeleton />;
 
-  const stay = stayState.stay;
+  const stay = currentStay;
   const hasOutstandingBalance = stay.paymentStatus !== 'Paid';
+  const relocationRequired = ['MAINTENANCE', 'UNAVAILABLE'].includes(
+    (currentRoomUiStatus ?? '').toUpperCase(),
+  );
 
   const openRequestDrawer = (suggestion?: GuestRequestSuggestionDto) => {
     setSelectedRequestSuggestion(suggestion);
@@ -1438,8 +1485,29 @@ export default function StayWorkspace() {
           {stayState.error}
         </Alert>
       ) : null}
+      {relocationRequired ? (
+        <Alert
+          color="red"
+          variant="light"
+          icon={<AlertCircle size={18} />}
+          radius={radius.lg}
+          title={`Room ${stay.roomNumber} requires relocation`}
+        >
+          <Group justify="space-between" align="center" gap={spacing[3]} wrap="wrap">
+            <Text size="sm">
+              This room is currently {currentRoomUiStatus?.toLowerCase() || 'unavailable'} and
+              should not continue to be used. Move the in-house guest to another ready room.
+            </Text>
+            <Button color="stayosBrand" onClick={() => void openMoveRoom()}>
+              Move Guest Now
+            </Button>
+          </Group>
+        </Alert>
+      ) : null}
+
       <StayHeader
         stay={stay}
+        relocationRequired={relocationRequired}
         onMoveRoom={() => void openMoveRoom()}
         onExtendStay={openExtendStay}
         onCheckOut={() => setCheckoutOpened(true)}
@@ -1541,6 +1609,7 @@ export default function StayWorkspace() {
         onConfirm={() => void moveRoom()}
         opened={moveOpened}
         reason={moveReason}
+        relocationRequired={relocationRequired}
         rooms={moveRooms}
         search={moveSearch}
         selectedRoomId={selectedMoveRoomId}

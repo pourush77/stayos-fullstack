@@ -336,7 +336,7 @@ export class HousekeepingService {
         'This room must be in inspection status.',
       );
 
-      if (!room.completedAt) {
+      if (!room.completedAt || !this.hasCompletedChecklist(room)) {
         throw this.badRequest(
           ApiErrorCode.HOUSEKEEPING_ACTION_NOT_ALLOWED,
           'Cannot inspect before cleaning is complete.',
@@ -733,6 +733,18 @@ export class HousekeepingService {
   }
 
   private toHousekeepingStatus(room: RoomEntity): HousekeepingRoomStatus {
+    if (room.operationalStatus === RoomOperationalStatus.READY) {
+      return HousekeepingRoomStatus.READY;
+    }
+
+    if (room.operationalStatus === RoomOperationalStatus.INSPECTION) {
+      return this.hasCompletedChecklist(room) && room.completedAt
+        ? HousekeepingRoomStatus.INSPECTION
+        : room.startedAt
+          ? HousekeepingRoomStatus.CLEANING
+          : HousekeepingRoomStatus.NEEDS_CLEANING;
+    }
+
     if (room.operationalStatus === RoomOperationalStatus.NEEDS_CLEANING) {
       return room.startedAt
         ? HousekeepingRoomStatus.CLEANING
@@ -757,28 +769,40 @@ export class HousekeepingService {
   }
 
   private toPrimaryAction(room: RoomEntity): HousekeepingPrimaryAction {
-    switch (room.operationalStatus) {
-      case RoomOperationalStatus.NEEDS_CLEANING:
-        if (room.startedAt) {
-          return HousekeepingPrimaryAction.COMPLETE_CLEANING;
-        }
+    const status = this.toHousekeepingStatus(room);
 
+    switch (status) {
+      case HousekeepingRoomStatus.NEEDS_CLEANING:
         return room.assignedEmployeeId
           ? HousekeepingPrimaryAction.START_CLEANING
           : HousekeepingPrimaryAction.ASSIGN_STAFF;
-      case RoomOperationalStatus.INSPECTION:
+      case HousekeepingRoomStatus.CLEANING:
+        return HousekeepingPrimaryAction.COMPLETE_CLEANING;
+      case HousekeepingRoomStatus.INSPECTION:
         return HousekeepingPrimaryAction.MARK_READY;
-      case RoomOperationalStatus.READY:
-      case RoomOperationalStatus.MAINTENANCE:
-      case RoomOperationalStatus.OUT_OF_ORDER:
-      case RoomOperationalStatus.OUT_OF_SERVICE:
-      case RoomOperationalStatus.OCCUPIED:
+      case HousekeepingRoomStatus.READY:
+      case HousekeepingRoomStatus.MAINTENANCE:
+      case HousekeepingRoomStatus.OUT_OF_ORDER:
+      case HousekeepingRoomStatus.OUT_OF_SERVICE:
+      case HousekeepingRoomStatus.OCCUPIED:
         return HousekeepingPrimaryAction.NONE;
     }
   }
 
   private badRequest(code: ApiErrorCode, message: string): BadRequestException {
     return new BadRequestException({ code, message });
+  }
+
+  private hasCompletedChecklist(room: RoomEntity): boolean {
+    const checklist = Array.isArray(room.checklist) ? room.checklist : [];
+
+    if (checklist.length !== requiredHousekeepingChecklistKeys.length) {
+      return false;
+    }
+
+    return requiredHousekeepingChecklistKeys.every((key) =>
+      checklist.some((item) => item.key === key && Boolean(item.completed)),
+    );
   }
 
   private validateChecklist(

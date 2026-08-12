@@ -18,6 +18,7 @@ export type MaintenanceTicketDto = {
   category: MaintenanceTicketCategory;
   priority: MaintenanceTicketPriority;
   status: MaintenanceTicketStatus;
+  makesRoomUnavailable: boolean;
   reportedAt: string;
   resolvedAt: string | null;
   resolutionNote: string | null;
@@ -64,32 +65,57 @@ function queryString(params: Record<string, string | undefined>) {
 }
 
 export function listMaintenanceTickets(propertyId: string, params: { status?: string }) {
-  return request<MaintenanceTicketDto[]>(`/properties/${propertyId}/maintenance${queryString(params)}`);
+  return request<MaintenanceTicketDto[]>(
+    `/properties/${propertyId}/maintenance${queryString(params)}`,
+  );
 }
 
 export function getMaintenanceSummary(propertyId: string) {
   return request<MaintenanceSummaryDto>(`/properties/${propertyId}/maintenance/summary`);
 }
 
-export function createMaintenanceTicket(propertyId: string, payload: Record<string, unknown>) {
+export type CreateMaintenanceTicketPayload = {
+  roomId?: string;
+  title: string;
+  description?: string;
+  category: MaintenanceTicketCategory;
+  priority?: MaintenanceTicketPriority;
+  makeRoomUnavailable?: boolean;
+};
+
+export function createMaintenanceTicket(
+  propertyId: string,
+  payload: CreateMaintenanceTicketPayload,
+) {
   return request<MaintenanceTicketDto>(`/properties/${propertyId}/maintenance`, {
     body: JSON.stringify(payload),
     method: 'POST',
   });
 }
 
-export function assignMaintenanceTicket(propertyId: string, ticketId: string, assignedToUserId: string) {
+export function assignMaintenanceTicket(
+  propertyId: string,
+  ticketId: string,
+  assignedToUserId: string,
+) {
   return request<MaintenanceTicketDto>(`/properties/${propertyId}/maintenance/${ticketId}/assign`, {
     body: JSON.stringify({ assignedToUserId }),
     method: 'PATCH',
   });
 }
 
-export function resolveMaintenanceTicket(propertyId: string, ticketId: string, resolutionNote?: string) {
-  return request<MaintenanceTicketDto>(`/properties/${propertyId}/maintenance/${ticketId}/resolve`, {
-    body: JSON.stringify({ resolutionNote }),
-    method: 'PATCH',
-  });
+export function resolveMaintenanceTicket(
+  propertyId: string,
+  ticketId: string,
+  resolutionNote?: string,
+) {
+  return request<MaintenanceTicketDto>(
+    `/properties/${propertyId}/maintenance/${ticketId}/resolve`,
+    {
+      body: JSON.stringify({ resolutionNote }),
+      method: 'PATCH',
+    },
+  );
 }
 
 export function cancelMaintenanceTicket(propertyId: string, ticketId: string) {

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getPropertyGuests } from '../../../lib/guest-api';
 import { getPropertyRoomTypes } from '../../../lib/inventory-api';
-import { getAvailableRooms } from '../../../lib/operations-api';
+import { getAvailableRooms, getRoomBoard } from '../../../lib/operations-api';
 import {
   assignRoomToReservation,
   cancelReservation,
@@ -17,8 +17,20 @@ import {
   type ReservationPropertyDto,
 } from '../../../lib/reservation-api';
 import { mockBookings } from '../constants/booking.constants';
-import type { AvailableRoomOption, Booking, BookingFormValues, GuestOption, RoomTypeOption } from '../types/booking.types';
-import { formValuesToPayload, mapAvailableRoom, mapBooking, mapGuestOption, mapRoomTypeOption } from '../utils/booking-mappers';
+import type {
+  AvailableRoomOption,
+  Booking,
+  BookingFormValues,
+  GuestOption,
+  RoomTypeOption,
+} from '../types/booking.types';
+import {
+  formValuesToPayload,
+  mapAvailableRoom,
+  mapBooking,
+  mapGuestOption,
+  mapRoomTypeOption,
+} from '../utils/booking-mappers';
 
 type BookingState = {
   activePropertyName?: string;
@@ -32,6 +44,8 @@ type BookingState = {
 };
 
 type BookingDetailsState = Omit<BookingState, 'bookings'> & {
+  assignedRoomUnavailable: boolean;
+  assignedRoomUiStatus?: string;
   booking?: Booking;
 };
 
@@ -52,13 +66,20 @@ function isActiveRecord(record: Record<string, unknown>) {
 async function getCurrentProperty(signal?: AbortSignal) {
   const properties = await getProperties(signal);
   const activeProperty = properties.find(isActiveRecord);
-  const propertyId = activeProperty ? getString(activeProperty as ReservationPropertyDto, ['id', '_id', 'uuid', 'propertyId']) : '';
+  const propertyId = activeProperty
+    ? getString(activeProperty as ReservationPropertyDto, ['id', '_id', 'uuid', 'propertyId'])
+    : '';
 
-  if (!activeProperty || !propertyId) throw new Error('No active property returned from properties API.');
+  if (!activeProperty || !propertyId)
+    throw new Error('No active property returned from properties API.');
 
   return {
     propertyId,
-    propertyName: getString(activeProperty as ReservationPropertyDto, ['name', 'title', 'displayName']),
+    propertyName: getString(activeProperty as ReservationPropertyDto, [
+      'name',
+      'title',
+      'displayName',
+    ]),
   };
 }
 
@@ -76,14 +97,21 @@ async function getLookups(propertyId: string, signal?: AbortSignal) {
 
 export function friendlyBookingError(error: unknown) {
   const message = error instanceof Error ? error.message.toLowerCase() : '';
-  if (message.includes('duplicate') || message.includes('already exists')) return 'A booking with this ID already exists.';
+  if (message.includes('duplicate') || message.includes('already exists'))
+    return 'A booking with this ID already exists.';
   if (message.includes('date')) return 'Departure date must be after arrival date.';
   if (message.includes('capacity')) return 'This room type cannot fit all guests.';
   if (message.includes('guest')) return 'Please select a guest before creating the booking.';
   return 'Bookings are temporarily unavailable.';
 }
 
-export function useBookings({ allowMockFallback, enabled }: { allowMockFallback: boolean; enabled: boolean }): BookingState & {
+export function useBookings({
+  allowMockFallback,
+  enabled,
+}: {
+  allowMockFallback: boolean;
+  enabled: boolean;
+}): BookingState & {
   createBooking: (values: BookingFormValues) => Promise<Booking>;
   refreshBookings: () => Promise<void>;
 } {
@@ -95,49 +123,83 @@ export function useBookings({ allowMockFallback, enabled }: { allowMockFallback:
     roomTypes: [],
   });
 
-  const loadBookings = useCallback(async (signal?: AbortSignal) => {
-    if (!enabled) {
-      setState((current) => ({ ...current, bookings: [], error: undefined, isFallback: false, isLoading: false }));
-      return;
-    }
-
-    setState((current) => ({ ...current, error: undefined, isLoading: current.bookings.length === 0 }));
-
-    try {
-      const { propertyId, propertyName } = await getCurrentProperty(signal);
-      const [reservationDtos, lookups] = await Promise.all([
-        getPropertyReservations(propertyId, signal),
-        getLookups(propertyId, signal),
-      ]);
-
-      setState({
-        activePropertyName: propertyName,
-        bookings: reservationDtos.map(mapBooking),
-        guests: lookups.guests,
-        isFallback: false,
-        isLoading: false,
-        propertyId,
-        roomTypes: lookups.roomTypes,
-      });
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') return;
-      if (allowMockFallback) {
-        setState({
-          bookings: mockBookings,
-          error: error instanceof Error ? error.message : 'Booking API is unavailable.',
-          guests: [],
-          isFallback: true,
+  const loadBookings = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!enabled) {
+        setState((current) => ({
+          ...current,
+          bookings: [],
+          error: undefined,
+          isFallback: false,
           isLoading: false,
-          roomTypes: [
-            { baseRate: 3500, capacity: 3, id: 'deluxe', label: 'Deluxe', maxAdults: 2, maxChildren: 1 },
-            { baseRate: 6500, capacity: 4, id: 'suite', label: 'Suite', maxAdults: 2, maxChildren: 2 },
-          ],
-        });
+        }));
         return;
       }
-      setState({ bookings: [], error: 'Bookings are temporarily unavailable.', guests: [], isFallback: false, isLoading: false, roomTypes: [] });
-    }
-  }, [allowMockFallback, enabled]);
+
+      setState((current) => ({
+        ...current,
+        error: undefined,
+        isLoading: current.bookings.length === 0,
+      }));
+
+      try {
+        const { propertyId, propertyName } = await getCurrentProperty(signal);
+        const [reservationDtos, lookups] = await Promise.all([
+          getPropertyReservations(propertyId, signal),
+          getLookups(propertyId, signal),
+        ]);
+
+        setState({
+          activePropertyName: propertyName,
+          bookings: reservationDtos.map(mapBooking),
+          guests: lookups.guests,
+          isFallback: false,
+          isLoading: false,
+          propertyId,
+          roomTypes: lookups.roomTypes,
+        });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        if (allowMockFallback) {
+          setState({
+            bookings: mockBookings,
+            error: error instanceof Error ? error.message : 'Booking API is unavailable.',
+            guests: [],
+            isFallback: true,
+            isLoading: false,
+            roomTypes: [
+              {
+                baseRate: 3500,
+                capacity: 3,
+                id: 'deluxe',
+                label: 'Deluxe',
+                maxAdults: 2,
+                maxChildren: 1,
+              },
+              {
+                baseRate: 6500,
+                capacity: 4,
+                id: 'suite',
+                label: 'Suite',
+                maxAdults: 2,
+                maxChildren: 2,
+              },
+            ],
+          });
+          return;
+        }
+        setState({
+          bookings: [],
+          error: 'Bookings are temporarily unavailable.',
+          guests: [],
+          isFallback: false,
+          isLoading: false,
+          roomTypes: [],
+        });
+      }
+    },
+    [allowMockFallback, enabled],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -145,34 +207,47 @@ export function useBookings({ allowMockFallback, enabled }: { allowMockFallback:
     return () => controller.abort();
   }, [loadBookings]);
 
-  const createBooking = useCallback(async (values: BookingFormValues) => {
-    const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
-    const booking = mapBooking(await createPropertyReservation(propertyId, formValuesToPayload(values)));
+  const createBooking = useCallback(
+    async (values: BookingFormValues) => {
+      const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
+      const booking = mapBooking(
+        await createPropertyReservation(propertyId, formValuesToPayload(values)),
+      );
 
-    // If receptionist chose Prepay / Partial deposit, immediately record the payment against the folio.
-    if (values.deposit && values.deposit.amount > 0) {
-      try {
-        const { getFolioForReservation, addPayment } = await import('../../billing/api/billing-api');
-        const folio = await getFolioForReservation(propertyId, booking.backendId);
-        await addPayment(propertyId, folio.id, {
-          method: values.deposit.method,
-          amount: String(values.deposit.amount),
-        });
-      } catch (paymentError) {
-        // Booking is created — surface a soft warning but don't fail the whole flow.
-        console.warn('Deposit payment could not be recorded', paymentError);
+      // If receptionist chose Prepay / Partial deposit, immediately record the payment against the folio.
+      if (values.deposit && values.deposit.amount > 0) {
+        try {
+          const { getFolioForReservation, addPayment } =
+            await import('../../billing/api/billing-api');
+          const folio = await getFolioForReservation(propertyId, booking.backendId);
+          await addPayment(propertyId, folio.id, {
+            method: values.deposit.method,
+            amount: String(values.deposit.amount),
+          });
+        } catch (paymentError) {
+          // Booking is created — surface a soft warning but don't fail the whole flow.
+          console.warn('Deposit payment could not be recorded', paymentError);
+        }
       }
-    }
 
-    setState((current) => ({
-      ...current,
-      bookings: [booking, ...current.bookings.filter((item) => item.backendId !== booking.backendId)],
-    }));
-    await loadBookings();
-    return booking;
-  }, [loadBookings, state.propertyId]);
+      setState((current) => ({
+        ...current,
+        bookings: [
+          booking,
+          ...current.bookings.filter((item) => item.backendId !== booking.backendId),
+        ],
+      }));
+      await loadBookings();
+      return booking;
+    },
+    [loadBookings, state.propertyId],
+  );
 
-  return { ...state, createBooking, refreshBookings: useCallback(() => loadBookings(), [loadBookings]) };
+  return {
+    ...state,
+    createBooking,
+    refreshBookings: useCallback(() => loadBookings(), [loadBookings]),
+  };
 }
 
 export function useBookingDetails({
@@ -193,55 +268,114 @@ export function useBookingDetails({
   updateBooking: (values: BookingFormValues) => Promise<Booking>;
 } {
   const [state, setState] = useState<BookingDetailsState>({
+    assignedRoomUnavailable: false,
     guests: [],
     isFallback: false,
     isLoading: true,
     roomTypes: [],
   });
 
-  const loadBooking = useCallback(async (signal?: AbortSignal) => {
-    if (!enabled || !bookingId) {
-      setState((current) => ({ ...current, booking: undefined, error: undefined, isFallback: false, isLoading: false }));
-      return;
-    }
-
-    setState((current) => ({ ...current, error: undefined, isLoading: !current.booking }));
-
-    try {
-      const { propertyId, propertyName } = await getCurrentProperty(signal);
-      const [reservationDto, lookups] = await Promise.all([
-        getPropertyReservation(propertyId, bookingId, signal),
-        getLookups(propertyId, signal),
-      ]);
-
-      setState({
-        activePropertyName: propertyName,
-        booking: mapBooking(reservationDto),
-        guests: lookups.guests,
-        isFallback: false,
-        isLoading: false,
-        propertyId,
-        roomTypes: lookups.roomTypes,
-      });
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') return;
-      if (allowMockFallback) {
-        setState({
-          booking: mockBookings.find((booking) => booking.backendId === bookingId || booking.bookingId === bookingId) ?? mockBookings[0],
-          error: error instanceof Error ? error.message : 'Booking API is unavailable.',
-          guests: [],
-          isFallback: true,
+  const loadBooking = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!enabled || !bookingId) {
+        setState((current) => ({
+          ...current,
+          booking: undefined,
+          error: undefined,
+          isFallback: false,
           isLoading: false,
-          roomTypes: [
-            { baseRate: 3500, capacity: 3, id: 'deluxe', label: 'Deluxe', maxAdults: 2, maxChildren: 1 },
-            { baseRate: 6500, capacity: 4, id: 'suite', label: 'Suite', maxAdults: 2, maxChildren: 2 },
-          ],
-        });
+        }));
         return;
       }
-      setState({ booking: undefined, error: 'Bookings are temporarily unavailable.', guests: [], isFallback: false, isLoading: false, roomTypes: [] });
-    }
-  }, [allowMockFallback, bookingId, enabled]);
+
+      setState((current) => ({ ...current, error: undefined, isLoading: !current.booking }));
+
+      try {
+        const { propertyId, propertyName } = await getCurrentProperty(signal);
+        const [reservationDto, lookups, roomBoard] = await Promise.all([
+          getPropertyReservation(propertyId, bookingId, signal),
+          getLookups(propertyId, signal),
+          getRoomBoard(propertyId, signal),
+        ]);
+
+        const booking = mapBooking(reservationDto);
+        const normalizeRoomNumber = (value: string) =>
+          value
+            .replace(/^room\s+/i, '')
+            .trim()
+            .toLowerCase();
+
+        const assignedRoom =
+          booking.room === 'Unassigned'
+            ? undefined
+            : roomBoard.find(
+                (room) =>
+                  normalizeRoomNumber(room.roomNumber) === normalizeRoomNumber(booking.room),
+              );
+        const assignedRoomUiStatus = assignedRoom?.uiStatus?.toUpperCase();
+        const assignedRoomUnavailable =
+          booking.room !== 'Unassigned' &&
+          Boolean(assignedRoomUiStatus) &&
+          !['READY', 'RESERVED', 'OCCUPIED'].includes(assignedRoomUiStatus as string);
+
+        setState({
+          activePropertyName: propertyName,
+          assignedRoomUnavailable,
+          assignedRoomUiStatus,
+          booking,
+          guests: lookups.guests,
+          isFallback: false,
+          isLoading: false,
+          propertyId,
+          roomTypes: lookups.roomTypes,
+        });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        if (allowMockFallback) {
+          setState({
+            assignedRoomUnavailable: false,
+            booking:
+              mockBookings.find(
+                (booking) => booking.backendId === bookingId || booking.bookingId === bookingId,
+              ) ?? mockBookings[0],
+            error: error instanceof Error ? error.message : 'Booking API is unavailable.',
+            guests: [],
+            isFallback: true,
+            isLoading: false,
+            roomTypes: [
+              {
+                baseRate: 3500,
+                capacity: 3,
+                id: 'deluxe',
+                label: 'Deluxe',
+                maxAdults: 2,
+                maxChildren: 1,
+              },
+              {
+                baseRate: 6500,
+                capacity: 4,
+                id: 'suite',
+                label: 'Suite',
+                maxAdults: 2,
+                maxChildren: 2,
+              },
+            ],
+          });
+          return;
+        }
+        setState({
+          assignedRoomUnavailable: false,
+          booking: undefined,
+          error: 'Bookings are temporarily unavailable.',
+          guests: [],
+          isFallback: false,
+          isLoading: false,
+          roomTypes: [],
+        });
+      }
+    },
+    [allowMockFallback, bookingId, enabled],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -251,13 +385,18 @@ export function useBookingDetails({
 
   const refreshBooking = useCallback(() => loadBooking(), [loadBooking]);
 
-  const updateBooking = useCallback(async (values: BookingFormValues) => {
-    if (!bookingId) throw new Error('Booking missing.');
-    const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
-    const booking = mapBooking(await updatePropertyReservation(propertyId, bookingId, formValuesToPayload(values)));
-    await loadBooking();
-    return booking;
-  }, [bookingId, loadBooking, state.propertyId]);
+  const updateBooking = useCallback(
+    async (values: BookingFormValues) => {
+      if (!bookingId) throw new Error('Booking missing.');
+      const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
+      const booking = mapBooking(
+        await updatePropertyReservation(propertyId, bookingId, formValuesToPayload(values)),
+      );
+      await loadBooking();
+      return booking;
+    },
+    [bookingId, loadBooking, state.propertyId],
+  );
 
   const cancelBooking = useCallback(async () => {
     if (!bookingId) throw new Error('Booking missing.');
@@ -270,12 +409,15 @@ export function useBookingDetails({
     await loadBooking();
   }, [bookingId, loadBooking, state.propertyId]);
 
-  const assignRoom = useCallback(async (roomId: string) => {
-    if (!bookingId) throw new Error('Booking missing.');
-    const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
-    await assignRoomToReservation(propertyId, bookingId, roomId);
-    await loadBooking();
-  }, [bookingId, loadBooking, state.propertyId]);
+  const assignRoom = useCallback(
+    async (roomId: string) => {
+      if (!bookingId) throw new Error('Booking missing.');
+      const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
+      await assignRoomToReservation(propertyId, bookingId, roomId);
+      await loadBooking();
+    },
+    [bookingId, loadBooking, state.propertyId],
+  );
 
   const checkInBooking = useCallback(async () => {
     if (!bookingId) throw new Error('Booking missing.');
@@ -306,5 +448,14 @@ export function useBookingDetails({
     return rooms.map(mapAvailableRoom);
   }, [state.booking, state.propertyId]);
 
-  return { ...state, assignRoom, cancelBooking, checkInBooking, checkOutBooking, getRooms, refreshBooking, updateBooking };
+  return {
+    ...state,
+    assignRoom,
+    cancelBooking,
+    checkInBooking,
+    checkOutBooking,
+    getRooms,
+    refreshBooking,
+    updateBooking,
+  };
 }

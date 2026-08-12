@@ -59,11 +59,18 @@ export class MaintenanceTicketEntity {
   @Column({ type: 'enum', enum: MaintenanceTicketCategory })
   category!: MaintenanceTicketCategory;
 
-  @Column({ type: 'enum', enum: MaintenanceTicketPriority, default: MaintenanceTicketPriority.NORMAL })
+  @Column({
+    type: 'enum',
+    enum: MaintenanceTicketPriority,
+    default: MaintenanceTicketPriority.NORMAL,
+  })
   priority!: MaintenanceTicketPriority;
 
   @Column({ type: 'enum', enum: MaintenanceTicketStatus, default: MaintenanceTicketStatus.OPEN })
   status!: MaintenanceTicketStatus;
+
+  @Column({ type: 'boolean', name: 'makes_room_unavailable', default: false })
+  makesRoomUnavailable!: boolean;
 
   @Column({ type: 'timestamptz', name: 'reported_at' })
   reportedAt!: Date;

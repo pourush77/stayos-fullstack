@@ -95,7 +95,13 @@ const assignableReservation = (overrides: Partial<ReservationEntity> = {}) =>
     guest: { displayName: 'Daniel Lee', firstName: 'Daniel', lastName: 'Lee' } as never,
     room: undefined as never,
     roomId: null,
-    roomType: { code: 'DLX', name: 'Deluxe', maxOccupancy: 3, maxAdults: 2, maxChildren: 1 } as never,
+    roomType: {
+      code: 'DLX',
+      name: 'Deluxe',
+      maxOccupancy: 3,
+      maxAdults: 2,
+      maxChildren: 1,
+    } as never,
     status: ReservationStatus.CONFIRMED,
     ...overrides,
   });
@@ -195,6 +201,51 @@ describe('Operations services', () => {
     const result = await service.getRoomBoard(propertyId);
 
     expect(result[0].groupContext).toBeNull();
+  });
+
+  it('prefers the active checked-in stay over a future confirmed assignment when both point to the same room', async () => {
+    const activeStay = reservation({
+      id: 'stay-id',
+      reservationCode: 'HS260812-00051',
+      status: ReservationStatus.CHECKED_IN,
+      roomId,
+      guest: { displayName: 'Sharad Gupta' } as never,
+    });
+    const futureAssignment = reservation({
+      id: 'future-assignment-id',
+      reservationCode: 'FUT-002',
+      status: ReservationStatus.CONFIRMED,
+      guest: { displayName: 'Future Guest' } as never,
+      roomId,
+    });
+
+    reservationsRepository.find
+      ?.mockResolvedValueOnce([activeStay])
+      .mockResolvedValueOnce([futureAssignment]);
+    reservationsRepository.createQueryBuilder?.mockReturnValue({
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([futureAssignment]),
+    });
+
+    const service = new RoomBoardService(
+      asRepository(roomsRepository),
+      asRepository(reservationsRepository),
+      asRepository(groupAssignmentsRepository),
+      asRepository(groupMasterFoliosRepository),
+      propertiesService,
+    );
+
+    const result = await service.getRoomBoard(propertyId);
+
+    expect(result[0].currentStay).toMatchObject({
+      guestName: 'Sharad Gupta',
+      status: ReservationStatus.CHECKED_IN,
+      reservationCode: 'HS260812-00051',
+    });
+    expect(result[0].currentStay?.reservationCode).not.toBe(futureAssignment.reservationCode);
   });
 
   it('propagates property not found', async () => {

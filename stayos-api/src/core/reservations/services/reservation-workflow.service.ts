@@ -406,11 +406,26 @@ export class ReservationWorkflowService {
         ApiErrorCode.ROOM_OVERLAP,
       );
 
-      oldRoom.operationalStatus = RoomOperationalStatus.NEEDS_CLEANING;
-      oldRoom.operationalStatusReason = 'ROOM_MOVE';
-      oldRoom.operationalStatusNote = dto.reason?.trim()
-        ? `Guest moved rooms. Reason: ${dto.reason.trim()}`
-        : 'Guest moved rooms. Room marked for cleaning.';
+      const oldRoomWasUnderMaintenance =
+        oldRoom.operationalStatus === RoomOperationalStatus.MAINTENANCE;
+
+      if (oldRoomWasUnderMaintenance) {
+        // A relocation must not clear a blocking maintenance state.
+        // The maintenance workflow remains the source of truth for when this room
+        // can move on to inspection/housekeeping and eventually become READY again.
+        oldRoom.operationalStatusReason = 'MAINTENANCE_RELOCATION';
+        oldRoom.operationalStatusNote = dto.reason?.trim()
+          ? `Guest relocated while room remained under maintenance. Reason: ${dto.reason.trim()}`
+          : 'Guest relocated because the room is under maintenance. Room remains unavailable.';
+      } else {
+        // Normal in-house room move: the vacated room needs housekeeping.
+        oldRoom.operationalStatus = RoomOperationalStatus.NEEDS_CLEANING;
+        oldRoom.operationalStatusReason = 'ROOM_MOVE';
+        oldRoom.operationalStatusNote = dto.reason?.trim()
+          ? `Guest moved rooms. Reason: ${dto.reason.trim()}`
+          : 'Guest moved rooms. Room marked for cleaning.';
+      }
+
       targetRoom.operationalStatus = RoomOperationalStatus.OCCUPIED;
       targetRoom.operationalStatusReason = null;
       targetRoom.operationalStatusNote = null;
@@ -680,7 +695,9 @@ export class ReservationWorkflowService {
     });
     if (!folio) return;
 
-    const existingRoomCharge = (folio.charges ?? []).find((charge) => charge.type === FolioChargeType.ROOM);
+    const existingRoomCharge = (folio.charges ?? []).find(
+      (charge) => charge.type === FolioChargeType.ROOM,
+    );
     const nightlyRate = Number(existingRoomCharge?.unitAmount ?? 3500);
     const baseAmount = nightlyRate * extraNights;
     const taxAmount = baseAmount * 0.12;

@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { MaintenanceTicketCategory } from '../domain/maintenance-ticket-category.enum';
 import { MaintenanceTicketPriority } from '../domain/maintenance-ticket-priority.enum';
 import { MaintenanceTicketStatus } from '../domain/maintenance-ticket-status.enum';
@@ -29,6 +29,27 @@ export class CreateMaintenanceTicketDto {
   @IsOptional()
   @IsEnum(MaintenanceTicketPriority)
   priority?: MaintenanceTicketPriority;
+
+  /**
+   * Operational impact of the issue.
+   *
+   * false / omitted:
+   *   Create the maintenance ticket only. The room stays operational.
+   *
+   * true:
+   *   Create the ticket and take the room out of normal use until
+   *   the maintenance workflow is completed.
+   *
+   * The frontend should present this as the simple question:
+   * "Can the room still be used? Yes / No"
+   */
+  @ApiPropertyOptional({
+    description: 'When true, the room becomes unavailable while this maintenance issue is active.',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  makeRoomUnavailable?: boolean;
 }
 
 export class UpdateMaintenanceTicketDto {

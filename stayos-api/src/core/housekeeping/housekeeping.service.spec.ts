@@ -157,7 +157,10 @@ describe('HousekeepingService', () => {
         roomNumber: '205',
         startedAt: new Date('2026-07-05T09:00:00.000Z'),
       }),
-      roomEntity(RoomOperationalStatus.INSPECTION),
+      roomEntity(RoomOperationalStatus.INSPECTION, {
+        checklist: requiredHousekeepingChecklistKeys.map((key) => ({ key, completed: true })),
+        completedAt: new Date('2026-07-05T09:30:00.000Z'),
+      }),
       roomEntity(RoomOperationalStatus.MAINTENANCE),
       roomEntity(RoomOperationalStatus.OUT_OF_SERVICE, {
         id: '7075c8fa-f36e-4f40-a3ef-2e9dbb1f0677',
@@ -227,9 +230,7 @@ describe('HousekeepingService', () => {
       primaryAction: HousekeepingPrimaryAction.COMPLETE_CLEANING,
     });
     const findArgs = roomsRepository.find?.mock.calls[0][0];
-    expect(findArgs.where.operationalStatus['_value']).toContain(
-      RoomOperationalStatus.OCCUPIED,
-    );
+    expect(findArgs.where.operationalStatus['_value']).toContain(RoomOperationalStatus.OCCUPIED);
   });
 
   it('does not count occupied rooms as needs cleaning if they appear in the visible set', async () => {
@@ -363,6 +364,77 @@ describe('HousekeepingService', () => {
     );
   });
 
+  it('starts cleaning from a dirty room and exposes the cleaning state', async () => {
+    transactionRoomRepository.findOne?.mockResolvedValue(
+      roomEntity(RoomOperationalStatus.NEEDS_CLEANING),
+    );
+
+    await expect(service.startCleaning(propertyId, roomId, { actorId })).resolves.toMatchObject({
+      status: HousekeepingRoomStatus.CLEANING,
+    });
+    expect(transactionRoomRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ startedAt: expect.any(Date), completedAt: null }),
+    );
+  });
+
+  it('completes cleaning and sends the room to inspection after completion is persisted', async () => {
+    transactionRoomRepository.findOne?.mockResolvedValue(
+      roomEntity(RoomOperationalStatus.NEEDS_CLEANING, {
+        startedAt: new Date('2026-07-05T09:00:00.000Z'),
+      }),
+    );
+
+    await expect(service.completeCleaning(propertyId, roomId, { actorId })).resolves.toMatchObject({
+      status: HousekeepingRoomStatus.INSPECTION,
+    });
+    expect(transactionRoomRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ operationalStatus: RoomOperationalStatus.INSPECTION }),
+    );
+  });
+
+  it('does not surface inspection until cleaning completion is persisted', async () => {
+    roomsRepository.find?.mockResolvedValue([
+      roomEntity(RoomOperationalStatus.INSPECTION, {
+        completedAt: null,
+        startedAt: new Date('2026-07-05T09:00:00.000Z'),
+      }),
+    ]);
+
+    const dashboard = await service.getDashboard(propertyId);
+
+    expect(dashboard.rooms[0].status).toBe(HousekeepingRoomStatus.CLEANING);
+  });
+
+  it('rejects inspection from dirty and cleaning rooms', async () => {
+    transactionRoomRepository.findOne?.mockResolvedValue(
+      roomEntity(RoomOperationalStatus.NEEDS_CLEANING),
+    );
+
+    await expect(
+      service.inspect(
+        propertyId,
+        roomId,
+        { action: HousekeepingInspectionAction.APPROVE },
+        { actorId },
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    transactionRoomRepository.findOne?.mockResolvedValue(
+      roomEntity(RoomOperationalStatus.NEEDS_CLEANING, {
+        startedAt: new Date('2026-07-05T09:00:00.000Z'),
+      }),
+    );
+
+    await expect(
+      service.inspect(
+        propertyId,
+        roomId,
+        { action: HousekeepingInspectionAction.APPROVE },
+        { actorId },
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('denies staff updates to unassigned rooms', async () => {
     roomsRepository.findOne?.mockResolvedValue(
       roomEntity(RoomOperationalStatus.NEEDS_CLEANING, {
@@ -487,7 +559,9 @@ describe('HousekeepingService', () => {
 
   it('approves inspected room and marks it ready', async () => {
     transactionRoomRepository.findOne?.mockResolvedValue(
-      roomEntity(RoomOperationalStatus.INSPECTION),
+      roomEntity(RoomOperationalStatus.INSPECTION, {
+        checklist: requiredHousekeepingChecklistKeys.map((key) => ({ key, completed: true })),
+      }),
     );
 
     await expect(
@@ -504,7 +578,9 @@ describe('HousekeepingService', () => {
 
   it('rejects inspection and returns room to cleaning', async () => {
     transactionRoomRepository.findOne?.mockResolvedValue(
-      roomEntity(RoomOperationalStatus.INSPECTION),
+      roomEntity(RoomOperationalStatus.INSPECTION, {
+        checklist: requiredHousekeepingChecklistKeys.map((key) => ({ key, completed: true })),
+      }),
     );
 
     await expect(

@@ -73,6 +73,24 @@ describe('OperationsMapper', () => {
     });
   });
 
+  it('keeps checked-in stays authoritative even when the room is marked maintenance', () => {
+    expect(
+      OperationsMapper.toRoomBoardItem(
+        room(RoomOperationalStatus.MAINTENANCE),
+        reservation(),
+        '2026-07-03',
+      ),
+    ).toMatchObject({
+      uiStatus: OperationsRoomUiStatus.MAINTENANCE,
+      currentStay: {
+        guestName: 'Rahul Sharma',
+        status: ReservationStatus.CHECKED_IN,
+      },
+      primaryAction: 'Open Stay',
+      attentionLevel: OperationsAttentionLevel.WARNING,
+    });
+  });
+
   it('maps group context into room board items when a room is occupied by a checked-in group', () => {
     expect(
       OperationsMapper.toRoomBoardItem(

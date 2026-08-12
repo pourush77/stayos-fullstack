@@ -61,6 +61,7 @@ import { getProperties } from '../../lib/inventory-api';
 import {
   assignRoomToReservation,
   checkInReservation,
+  moveReservationRoom,
   unassignRoomFromReservation,
 } from '../../lib/reservation-api';
 import { type Reservation, useReservations } from '../../lib/reservation-hooks';
@@ -98,6 +99,7 @@ import {
   getPropertyName,
   getRoomSubtitle,
   hasAssignedBooking,
+  hasCheckedInStay,
   isActiveRecord,
   isRoomReadyForAssignment,
   mapOperationsRoom,
@@ -778,6 +780,12 @@ function DrawerSection({ children, title }: { children: ReactNode; title: string
 }
 
 function getDrawerContext(room: Room) {
+  const relocationRequiredForStay =
+    hasCheckedInStay(room) &&
+    (room.status === 'maintenance' ||
+      room.status === 'out-of-order' ||
+      room.status === 'out-of-service');
+
   if (room.groupContext) {
     return {
       title: 'Group Occupied',
@@ -785,11 +793,23 @@ function getDrawerContext(room: Room) {
       detail: `Master folio ${room.groupContext.masterFolioNumber} - ${room.groupContext.status}`,
     };
   }
-  if (hasAssignedBooking(room) && isRoomReadyForAssignment(room)) {
+  if (relocationRequiredForStay) {
+    return {
+      title: 'Guest Relocation Required',
+      headline: room.guest ?? 'Guest in house',
+      detail: `${room.reservation} - IN HOUSE`,
+    };
+  }
+  if (hasAssignedBooking(room) && room.status !== 'occupied') {
     return {
       title: 'Assigned Booking',
       headline: room.guest ?? room.reservation,
-      detail: `${room.reservation} - ${room.stayDates}`,
+      detail:
+        room.status === 'maintenance' ||
+        room.status === 'out-of-order' ||
+        room.status === 'out-of-service'
+          ? `${room.reservation} - ${room.stayDates} - assigned room unavailable`
+          : `${room.reservation} - ${room.stayDates}`,
     };
   }
 
@@ -837,10 +857,27 @@ function getDrawerContext(room: Room) {
 }
 
 function getContextBanner(room: Room) {
+  const relocationRequiredForStay =
+    hasCheckedInStay(room) &&
+    (room.status === 'maintenance' ||
+      room.status === 'out-of-order' ||
+      room.status === 'out-of-service');
+
   if (room.groupContext) {
     return `Occupied by ${room.groupContext.groupCode}. Master folio ${room.groupContext.masterFolioNumber}.`;
   }
-  if (hasAssignedBooking(room) && isRoomReadyForAssignment(room)) {
+  if (relocationRequiredForStay) {
+    return `${room.guest ?? 'This guest'} is currently staying in this room, but it is unavailable due to maintenance. Move the guest to another ready room.`;
+  }
+  if (hasAssignedBooking(room) && room.status !== 'occupied') {
+    if (
+      room.status === 'maintenance' ||
+      room.status === 'out-of-order' ||
+      room.status === 'out-of-service'
+    ) {
+      return 'This room is assigned to an upcoming booking but is currently unavailable. Change or remove the room assignment before check-in.';
+    }
+
     return 'This booking has a room assigned. The guest has not checked in yet.';
   }
 
@@ -1191,6 +1228,7 @@ function ReportMaintenanceModal({
     description?: string;
     priority: MaintenanceTicketPriority;
     title: string;
+    makeRoomUnavailable: boolean;
   }) => void;
   opened: boolean;
   room: Room | null;
@@ -1199,6 +1237,7 @@ function ReportMaintenanceModal({
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<MaintenanceTicketCategory>('OTHER');
   const [priority, setPriority] = useState<MaintenanceTicketPriority>('NORMAL');
+  const [roomCanStillBeUsed, setRoomCanStillBeUsed] = useState<'YES' | 'NO'>('YES');
 
   useEffect(() => {
     if (!opened) return;
@@ -1207,6 +1246,7 @@ function ReportMaintenanceModal({
     setDescription('');
     setCategory('OTHER');
     setPriority('NORMAL');
+    setRoomCanStillBeUsed('YES');
   }, [opened, room?.id]);
 
   const trimmedTitle = title.trim();
@@ -1300,10 +1340,78 @@ function ReportMaintenanceModal({
           onChange={(event) => setDescription(event.currentTarget.value)}
         />
 
-        <Alert color="blue" variant="light" radius={radius.lg}>
-          Submitting this issue will create a maintenance ticket and make the room unavailable until
-          the maintenance workflow is completed.
-        </Alert>
+        <Box>
+          <Text c="#101828" style={{ fontSize: 14, fontWeight: 700 }}>
+            Can the room still be used?
+          </Text>
+          <Text c="#64748b" mt={3} style={{ fontSize: 12, lineHeight: '18px' }}>
+            Choose No only when the issue is serious enough that the room should not be used.
+          </Text>
+
+          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]} mt={10}>
+            <UnstyledButton
+              disabled={loading}
+              onClick={() => setRoomCanStillBeUsed('YES')}
+              style={{
+                background: roomCanStillBeUsed === 'YES' ? '#ecfdf5' : '#ffffff',
+                border: roomCanStillBeUsed === 'YES' ? '1px solid #86efac' : '1px solid #e5e7eb',
+                borderRadius: radius.lg,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                padding: 12,
+                textAlign: 'left',
+              }}
+            >
+              <Text c="#166534" style={{ fontSize: 14, fontWeight: 700 }}>
+                Yes, room can still be used
+              </Text>
+              <Text c="#64748b" mt={3} style={{ fontSize: 12, lineHeight: '17px' }}>
+                Create the maintenance ticket only.
+              </Text>
+            </UnstyledButton>
+
+            <UnstyledButton
+              disabled={loading}
+              onClick={() => setRoomCanStillBeUsed('NO')}
+              style={{
+                background: roomCanStillBeUsed === 'NO' ? '#fff7ed' : '#ffffff',
+                border: roomCanStillBeUsed === 'NO' ? '1px solid #fdba74' : '1px solid #e5e7eb',
+                borderRadius: radius.lg,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                padding: 12,
+                textAlign: 'left',
+              }}
+            >
+              <Text c="#c2410c" style={{ fontSize: 14, fontWeight: 700 }}>
+                No, room should not be used
+              </Text>
+              <Text c="#64748b" mt={3} style={{ fontSize: 12, lineHeight: '17px' }}>
+                Create the ticket and make the room unavailable.
+              </Text>
+            </UnstyledButton>
+          </SimpleGrid>
+        </Box>
+
+        {roomCanStillBeUsed === 'NO' &&
+        room &&
+        hasAssignedBooking(room) &&
+        room.status !== 'occupied' ? (
+          <Alert
+            color="yellow"
+            variant="light"
+            radius={radius.lg}
+            title="Upcoming booking assigned"
+          >
+            Room {room.number} will become unavailable. After reporting, change the room or remove
+            the assignment before check-in.
+          </Alert>
+        ) : null}
+
+        {roomCanStillBeUsed === 'NO' && room?.status === 'occupied' ? (
+          <Alert color="yellow" variant="light" radius={radius.lg} title="Guest is in this room">
+            The room will become unavailable. Front Desk should move the guest to another ready
+            room.
+          </Alert>
+        ) : null}
 
         <Group justify="flex-end">
           <Button variant="subtle" color="gray" disabled={loading} onClick={onClose}>
@@ -1321,6 +1429,7 @@ function ReportMaintenanceModal({
                 description: description.trim() || undefined,
                 priority,
                 title: trimmedTitle,
+                makeRoomUnavailable: roomCanStillBeUsed === 'NO',
               });
             }}
             className={styles.primaryButtonText}
@@ -1416,6 +1525,8 @@ function ChangeRoomModal({
 
   const mappedRooms = useMemo(() => availableRooms.map(mapOperationsRoom), [availableRooms]);
   const selectedRoom = mappedRooms.find((item) => item.id === selectedRoomId);
+  const checkedInStay = room ? hasCheckedInStay(room) : false;
+  const modalActionLabel = checkedInStay ? 'Move Guest' : 'Change Room';
 
   return (
     <Modal
@@ -1425,10 +1536,12 @@ function ChangeRoomModal({
       size="min(92vw, 720px)"
       title={
         <Box>
-          <Text className={styles.modalTitle}>Change Room</Text>
+          <Text className={styles.modalTitle}>{modalActionLabel}</Text>
           <Text mt={3} className={styles.modalSubtitle}>
             {room
-              ? `Move ${room.guest ?? 'this guest'} from Room ${room.number} to another available room.`
+              ? checkedInStay
+                ? `Relocate ${room.guest ?? 'this guest'} from Room ${room.number} to another ready room.`
+                : `Move ${room.guest ?? 'this guest'} from Room ${room.number} to another available room.`
               : 'Select an assigned room first.'}
           </Text>
         </Box>
@@ -1503,7 +1616,9 @@ function ChangeRoomModal({
                             mt={7}
                             style={{ fontSize: 12, fontWeight: 600, lineHeight: '17px' }}
                           >
-                            Backend will validate this room type before moving the booking.
+                            {checkedInStay
+                              ? 'Backend will validate this room type before moving the in-house stay.'
+                              : 'Backend will validate this room type before moving the booking.'}
                           </Text>
                         ) : null}
                       </Box>
@@ -1541,7 +1656,7 @@ function ChangeRoomModal({
             }}
             className={styles.primaryButtonText}
           >
-            Confirm Room Change
+            {checkedInStay ? 'Confirm Guest Move' : 'Confirm Room Change'}
           </Button>
         </Group>
       </Stack>
@@ -1589,8 +1704,15 @@ function RoomDrawer({
   const action = actionForPrimary(room);
   const context = getDrawerContext(room);
   const contextBanner = getContextBanner(room);
+  const hasCheckedInStayState = hasCheckedInStay(room);
+  const relocationRequired =
+    hasCheckedInStayState &&
+    (room.status === 'maintenance' ||
+      room.status === 'out-of-order' ||
+      room.status === 'out-of-service');
   const isReady = isRoomReadyForAssignment(room);
   const isAssignedArrival = hasAssignedBooking(room) && isReady;
+  const isPreArrivalAssigned = hasAssignedBooking(room) && room.status !== 'occupied';
   const activityTimeline = activityItems
     .filter((item) => {
       const entityId = item.entity?.id;
@@ -1616,6 +1738,11 @@ function RoomDrawer({
 
     if (isAssignedArrival) {
       onCheckIn(room);
+      return;
+    }
+
+    if (hasCheckedInStayState) {
+      onOpenStay(room);
       return;
     }
 
@@ -1744,8 +1871,24 @@ function RoomDrawer({
                 </>
               ) : null}
 
+              {/* Checked-in stay in an unavailable room still needs stay-level operations. */}
+              {hasCheckedInStayState && room.status !== 'occupied' ? (
+                <>
+                  <OperationRow
+                    icon={<DoorOpen size={16} />}
+                    label={relocationRequired ? 'Move Guest' : 'Move Room'}
+                    onClick={() => onChangeRoom(room)}
+                  />
+                  <OperationRow
+                    icon={<DoorOpen size={16} />}
+                    label="Open Stay"
+                    onClick={() => onOpenStay(room)}
+                  />
+                </>
+              ) : null}
+
               {/* Assigned but not Checked In */}
-              {room.status === 'reserved' ? (
+              {isPreArrivalAssigned ? (
                 <>
                   <OperationRow
                     icon={<DoorOpen size={16} />}
@@ -1775,9 +1918,9 @@ function RoomDrawer({
                 />
               ) : null}
 
-              {/* Maintenance should NOT appear for assigned rooms */}
-              {room.status !== 'reserved' &&
-              room.status !== 'maintenance' &&
+              {/* Maintenance can be reported for available, assigned, or occupied rooms.
+                  The maintenance workflow decides whether the room becomes unavailable. */}
+              {room.status !== 'maintenance' &&
               room.status !== 'out-of-service' &&
               room.status !== 'out-of-order' ? (
                 <OperationRow
@@ -2271,7 +2414,7 @@ export default function RoomsPage() {
   };
 
   const openChangeRoom = (room: Room) => {
-    if (room.status === 'occupied') {
+    if (room.status === 'occupied' && !hasCheckedInStay(room)) {
       showToast({
         color: 'yellow',
         title: 'Room change unavailable',
@@ -2305,8 +2448,20 @@ export default function RoomsPage() {
       return;
     }
 
-    setCheckInRoom(room);
-    openCheckInModal();
+    // Navigate to the canonical check-in route for this reservation.
+    const reservation = reservationForRoom(room);
+    const reservationId = reservation?.backendId ?? room.reservationId ?? room.bookingId;
+
+    if (!reservationId) {
+      showToast({
+        color: 'red',
+        title: 'Stay unavailable',
+        message: 'Unable to open check-in. Reservation details are missing.',
+      });
+      return;
+    }
+
+    router.push(`/reservations/${reservationId}/check-in`);
   };
 
   const openStay = (room: Room) => {
@@ -2431,16 +2586,25 @@ export default function RoomsPage() {
     setIsChangingRoom(true);
 
     try {
-      await assignRoomToReservation(
-        inventory.propertyId,
-        changeRoomSource.reservationId,
-        newRoom.id,
-      );
+      if (hasCheckedInStay(changeRoomSource)) {
+        await moveReservationRoom(
+          inventory.propertyId,
+          changeRoomSource.reservationId,
+          newRoom.id,
+          'Front Desk relocation from Rooms board',
+        );
+      } else {
+        await assignRoomToReservation(
+          inventory.propertyId,
+          changeRoomSource.reservationId,
+          newRoom.id,
+        );
+      }
 
       showToast({
         color: 'green',
         message: `${changeRoomSource.guest ?? 'Guest'} moved from Room ${changeRoomSource.number} to Room ${newRoom.number}.`,
-        title: 'Room changed',
+        title: hasCheckedInStay(changeRoomSource) ? 'Guest moved' : 'Room changed',
       });
 
       closeChangeRoomModal();
@@ -2584,6 +2748,7 @@ export default function RoomsPage() {
     description?: string;
     priority: MaintenanceTicketPriority;
     title: string;
+    makeRoomUnavailable: boolean;
   }) => {
     if (!inventory.propertyId || !maintenanceReportRoom?.id || inventory.isFallback) {
       showToast({
@@ -2603,13 +2768,20 @@ export default function RoomsPage() {
         priority: payload.priority,
         roomId: maintenanceReportRoom.id,
         title: payload.title,
+        makeRoomUnavailable: payload.makeRoomUnavailable,
       });
 
       showToast({
         autoClose: 7000,
         color: 'green',
         title: 'Maintenance reported',
-        message: `Room ${maintenanceReportRoom.number} has been sent to maintenance.`,
+        message: payload.makeRoomUnavailable
+          ? hasAssignedBooking(maintenanceReportRoom) && maintenanceReportRoom.status !== 'occupied'
+            ? `Room ${maintenanceReportRoom.number} is now unavailable. Change or remove the assigned room before check-in.`
+            : maintenanceReportRoom.status === 'occupied'
+              ? `Room ${maintenanceReportRoom.number} is now unavailable. Move the in-house guest to another ready room.`
+              : `Room ${maintenanceReportRoom.number} is now unavailable until maintenance is completed.`
+          : `Maintenance ticket created for Room ${maintenanceReportRoom.number}. The room remains usable.`,
       });
 
       closeMaintenanceReportModal();

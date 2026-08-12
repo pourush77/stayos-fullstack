@@ -94,13 +94,14 @@ export class MaintenanceService {
         category: dto.category,
         priority: dto.priority ?? MaintenanceTicketPriority.NORMAL,
         status: MaintenanceTicketStatus.OPEN,
+        makesRoomUnavailable: dto.makeRoomUnavailable ?? false,
         reportedAt: new Date(),
         resolvedAt: null,
         resolutionNote: null,
       }),
     );
 
-    if (ticket.roomId) {
+    if (ticket.roomId && ticket.makesRoomUnavailable) {
       await this.markRoomUnderMaintenance(
         propertyId,
         ticket.roomId,
@@ -134,6 +135,7 @@ export class MaintenanceService {
 
     if (
       ticket.roomId &&
+      ticket.makesRoomUnavailable &&
       [MaintenanceTicketStatus.OPEN, MaintenanceTicketStatus.IN_PROGRESS].includes(ticket.status)
     ) {
       await this.markRoomUnderMaintenance(
@@ -170,7 +172,7 @@ export class MaintenanceService {
 
     await this.ticketsRepository.save(ticket);
 
-    if (ticket.roomId) {
+    if (ticket.roomId && ticket.makesRoomUnavailable) {
       await this.markRoomUnderMaintenance(
         propertyId,
         ticket.roomId,
@@ -202,7 +204,7 @@ export class MaintenanceService {
 
     await this.ticketsRepository.save(ticket);
 
-    if (ticket.roomId) {
+    if (ticket.roomId && ticket.makesRoomUnavailable) {
       await this.syncRoomAfterTicketClosed(
         propertyId,
         ticket.roomId,
@@ -227,7 +229,7 @@ export class MaintenanceService {
 
     await this.ticketsRepository.save(ticket);
 
-    if (ticket.roomId) {
+    if (ticket.roomId && ticket.makesRoomUnavailable) {
       await this.syncRoomAfterTicketClosed(
         propertyId,
         ticket.roomId,
@@ -281,6 +283,7 @@ export class MaintenanceService {
       where: {
         propertyId,
         roomId,
+        makesRoomUnavailable: true,
         status: In([MaintenanceTicketStatus.OPEN, MaintenanceTicketStatus.IN_PROGRESS]),
       },
       order: {
@@ -289,8 +292,8 @@ export class MaintenanceService {
     });
 
     /*
-     * Another maintenance ticket still exists for the room.
-     * The room must remain unavailable.
+     * Another active blocking maintenance ticket still exists for the room.
+     * The room must remain unavailable until every blocking ticket is closed.
      */
     if (activeTicket) {
       await this.markRoomUnderMaintenance(
@@ -318,17 +321,22 @@ export class MaintenanceService {
     }
 
     /*
-     * Engineering work is complete, but we deliberately do not
-     * make the room immediately sellable.
-     *
-     * Housekeeping / supervisor inspection should clear it before
-     * it returns to READY.
+     * Engineering work is complete, but the room should return to the
+     * housekeeping lifecycle instead of skipping directly to inspection.
+     * Housekeeping will start cleaning, complete it, and then send the
+     * room to inspection.
      */
-    room.operationalStatus = RoomOperationalStatus.INSPECTION;
-    room.operationalStatusReason = 'Maintenance completed - inspection required';
+    room.operationalStatus = RoomOperationalStatus.NEEDS_CLEANING;
+    room.operationalStatusReason = 'Maintenance completed - housekeeping required';
     room.operationalStatusNote = completionNote;
-    room.completedAt = new Date();
+    room.startedAt = null;
+    room.completedAt = null;
     room.inspectedAt = null;
+    room.completedByEmployeeId = null;
+    room.completedByUserId = null;
+    room.completedOnBehalf = false;
+    room.checklist = [];
+    room.reworkReason = null;
 
     await this.roomsRepository.save(room);
   }

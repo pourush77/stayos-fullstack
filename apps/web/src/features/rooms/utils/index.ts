@@ -19,6 +19,7 @@ export {
   assignmentIssue,
   getRoomSubtitle,
   hasAssignedBooking,
+  hasCheckedInStay,
   isRoomReadyForAssignment,
   parseGuestCount,
   parseRoomCapacity,
@@ -33,4 +34,9 @@ export {
   friendlyRoomChangeError,
 } from './room-errors';
 export { mapOperationsRoom } from './room-mappers';
-export { actionForPrimary, primaryAction, roomActionKey, runRoomStatusAction } from './room-actions';
+export {
+  actionForPrimary,
+  primaryAction,
+  roomActionKey,
+  runRoomStatusAction,
+} from './room-actions';

@@ -6,7 +6,18 @@ export function isRoomReadyForAssignment(room: Room) {
   return room.status === 'ready' || room.status === 'vacant' || room.status === 'reserved';
 }
 
+export function hasCheckedInStay(room: Room) {
+  const status = String(room.currentStayStatus ?? '')
+    .toUpperCase()
+    .replace(/[\s-]/g, '_');
+  return status === 'CHECKED_IN' || status === 'IN_HOUSE';
+}
+
 export function hasAssignedBooking(room: Room) {
+  if (hasCheckedInStay(room)) {
+    return false;
+  }
+
   return Boolean(room.bookingId || (room.guest && room.reservation !== 'Available'));
 }
 

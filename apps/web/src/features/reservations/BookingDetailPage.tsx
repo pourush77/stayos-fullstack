@@ -262,16 +262,22 @@ function GuestFieldEditor({
 }
 
 function FrontDeskConsole({
+  assignedRoomUnavailable,
+  assignedRoomUiStatus,
   booking,
   folio,
   isActing,
   onAssignRoom,
+  onChangeRoom,
   onCheckOut,
 }: {
+  assignedRoomUnavailable: boolean;
+  assignedRoomUiStatus?: string;
   booking: Booking;
   folio?: FolioSummary;
   isActing: boolean;
   onAssignRoom: () => void;
+  onChangeRoom: () => void;
   onCheckOut: () => Promise<void>;
 }) {
   if (booking.status === 'CHECKED_OUT' || booking.status === 'CANCELLED') return null;
@@ -279,9 +285,26 @@ function FrontDeskConsole({
   const unassigned = booking.room === 'Unassigned';
   const hasBalance = typeof folio?.balance === 'number' && folio.balance > 0.01;
   const hasAnyPayment = (folio?.paid ?? 0) > 0.01;
-  const state = bookingActionState(booking, folio);
+  const normalState = bookingActionState(booking, folio);
+  const state =
+    booking.status === 'CONFIRMED' && assignedRoomUnavailable
+      ? {
+          title: 'Change room before check-in',
+          description: `${booking.room} is currently unavailable${
+            assignedRoomUiStatus ? ` (${assignedRoomUiStatus.toLowerCase()})` : ''
+          }. Choose another ready room to continue.`,
+          paymentCopy: normalState.paymentCopy,
+        }
+      : normalState;
   const chips = [
-    { color: unassigned ? 'orange' : 'green', label: unassigned ? 'Room pending' : booking.room },
+    {
+      color: unassigned ? 'orange' : assignedRoomUnavailable ? 'red' : 'green',
+      label: unassigned
+        ? 'Room pending'
+        : assignedRoomUnavailable
+          ? `${booking.room} unavailable`
+          : booking.room,
+    },
     {
       color: hasBalance ? 'orange' : 'green',
       label: hasBalance
@@ -353,18 +376,26 @@ function FrontDeskConsole({
                 Check Out
               </Button>
             </>
+          ) : assignedRoomUnavailable ? (
+            <Button
+              data-testid="booking-next-action-cta"
+              color="stayosBrand"
+              h={48}
+              leftSection={<MoveRight size={16} />}
+              onClick={onChangeRoom}
+            >
+              Change Room
+            </Button>
           ) : (
-            <>
-              <Button
-                component={Link}
-                href={`/reservations/${booking.backendId}/check-in`}
-                data-testid="booking-next-action-cta"
-                color="stayosBrand"
-                h={48}
-              >
-                Start Check-In
-              </Button>
-            </>
+            <Button
+              component={Link}
+              href={`/reservations/${booking.backendId}/check-in`}
+              data-testid="booking-next-action-cta"
+              color="stayosBrand"
+              h={48}
+            >
+              Start Check-In
+            </Button>
           )}
         </Group>
       </Group>
@@ -720,6 +751,9 @@ export default function BookingDetailPage() {
     (booking.status === 'PENDING' || booking.status === 'CONFIRMED') &&
     booking.room === 'Unassigned';
   const canChangeRoom = booking.status === 'CONFIRMED' && booking.room !== 'Unassigned';
+  const assignedRoomUnavailable =
+    booking.status === 'CONFIRMED' && bookingState.assignedRoomUnavailable;
+  const assignedRoomUiStatus = bookingState.assignedRoomUiStatus;
   const canEditBooking = booking.status === 'PENDING' || booking.status === 'CONFIRMED';
   const isReadOnlyBooking = booking.status === 'CANCELLED' || booking.status === 'CHECKED_OUT';
   const guestFieldsDisabled =
@@ -951,15 +985,17 @@ export default function BookingDetailPage() {
               </Button>
             ) : booking.status === 'CONFIRMED' && booking.room !== 'Unassigned' ? (
               <>
+                {!assignedRoomUnavailable ? (
+                  <Button
+                    component={Link}
+                    href={`/reservations/${booking.backendId}/check-in`}
+                    color="stayosBrand"
+                  >
+                    Start Check In
+                  </Button>
+                ) : null}
                 <Button
-                  component={Link}
-                  href={`/reservations/${booking.backendId}/check-in`}
-                  color="stayosBrand"
-                >
-                  Start Check In
-                </Button>
-                <Button
-                  variant="light"
+                  variant={assignedRoomUnavailable ? 'filled' : 'light'}
                   color="stayosBrand"
                   leftSection={<MoveRight size={16} />}
                   onClick={() => setChangeOpened(true)}
@@ -1040,11 +1076,27 @@ export default function BookingDetailPage() {
         </Alert>
       ) : null}
 
+      {assignedRoomUnavailable ? (
+        <Alert
+          color="red"
+          variant="light"
+          radius={radius.lg}
+          icon={<AlertCircle size={17} />}
+          title={`${booking.room} is unavailable`}
+        >
+          This room is currently {assignedRoomUiStatus?.toLowerCase() || 'unavailable'}. Change the
+          assigned room before starting check-in.
+        </Alert>
+      ) : null}
+
       <FrontDeskConsole
+        assignedRoomUnavailable={assignedRoomUnavailable}
+        assignedRoomUiStatus={assignedRoomUiStatus}
         booking={booking}
         folio={folioSummary}
         isActing={isActing}
         onAssignRoom={() => setAssignOpened(true)}
+        onChangeRoom={() => setChangeOpened(true)}
         onCheckOut={openCheckoutFlow}
       />
 
@@ -1125,24 +1177,39 @@ export default function BookingDetailPage() {
                   Room changes after check-in should happen from Stay.
                 </Alert>
               ) : canChangeRoom ? (
-                <Group justify="space-between" align="center">
-                  <Box>
-                    <Text c="#64748b" size="xs" fw={650}>
-                      Current room
-                    </Text>
-                    <Text c="#101828" size="sm" fw={750}>
-                      {booking.room} · {booking.roomType}
-                    </Text>
-                  </Box>
-                  <Button
-                    variant="light"
-                    color="stayosBrand"
-                    leftSection={<MoveRight size={16} />}
-                    onClick={() => setChangeOpened(true)}
-                  >
-                    Change Room
-                  </Button>
-                </Group>
+                <Stack gap={spacing[3]}>
+                  {assignedRoomUnavailable ? (
+                    <Alert color="red" variant="light" radius={radius.md}>
+                      {booking.room} is {assignedRoomUiStatus?.toLowerCase() || 'unavailable'} and
+                      cannot be used for check-in.
+                    </Alert>
+                  ) : null}
+                  <Group justify="space-between" align="center">
+                    <Box>
+                      <Text c="#64748b" size="xs" fw={650}>
+                        Current room
+                      </Text>
+                      <Group gap={8}>
+                        <Text c="#101828" size="sm" fw={750}>
+                          {booking.room} · {booking.roomType}
+                        </Text>
+                        {assignedRoomUnavailable ? (
+                          <Badge color="red" variant="light">
+                            {assignedRoomUiStatus || 'Unavailable'}
+                          </Badge>
+                        ) : null}
+                      </Group>
+                    </Box>
+                    <Button
+                      variant={assignedRoomUnavailable ? 'filled' : 'light'}
+                      color="stayosBrand"
+                      leftSection={<MoveRight size={16} />}
+                      onClick={() => setChangeOpened(true)}
+                    >
+                      Change Room
+                    </Button>
+                  </Group>
+                </Stack>
               ) : (
                 <Button color="stayosBrand" onClick={() => setAssignOpened(true)}>
                   Assign Room

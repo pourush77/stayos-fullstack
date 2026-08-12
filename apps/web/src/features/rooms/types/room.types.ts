@@ -28,6 +28,7 @@ export type Room = {
   capacity: string;
   checkInTime?: string;
   connecting: boolean;
+  currentStayStatus?: string;
   departureDate?: string;
   floor: string;
   guest?: string;

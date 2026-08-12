@@ -28,6 +28,7 @@ export function mapOperationsRoom(dto: OperationsRoomBoardItemDto): Room {
     capacity: '2 guests',
     checkInTime: dto.currentStay?.checkedInAt ?? dto.currentStay?.checkInTime,
     connecting: false,
+    currentStayStatus: dto.currentStay?.status,
     departureDate: dto.currentStay?.departureDate,
     floor: floorLabel,
     guest: dto.currentStay?.guestName,
