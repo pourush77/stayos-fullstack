@@ -1700,6 +1700,7 @@ function RoomDrawer({
   onCheckIn,
   onChangeRoom,
   onOpenStay,
+  onOpenMaintenance,
   onRemoveAssignment,
   onClose,
   opened,
@@ -1712,6 +1713,7 @@ function RoomDrawer({
   onCheckIn: (room: Room) => void;
   onChangeRoom: (room: Room) => void;
   onOpenStay: (room: Room) => void;
+  onOpenMaintenance: () => void;
   onRemoveAssignment: (room: Room) => void;
   onClose: () => void;
   opened: boolean;
@@ -1776,6 +1778,11 @@ function RoomDrawer({
 
     if (room.status === 'occupied') {
       onOpenStay(room);
+      return;
+    }
+
+    if (room.status === 'maintenance') {
+      onOpenMaintenance();
       return;
     }
 
@@ -1973,22 +1980,49 @@ function RoomDrawer({
                 />
               ) : null}
 
-              <OperationRow icon={<History size={16} />} label="View History" />
+              {/* Manually blocked rooms can be returned to the normal room-readiness flow. */}
+              {room.status === 'out-of-service' || room.status === 'out-of-order' ? (
+                <OperationRow
+                  color="#16a34a"
+                  icon={<CheckCircle2 size={16} />}
+                  label="Remove Block"
+                  loading={loadingAction === roomActionKey(room, 'mark-ready')}
+                  disabled={Boolean(loadingAction)}
+                  onClick={() => onAction(room, 'mark-ready')}
+                />
+              ) : null}
+
+              {timeline.length > 0 ? (
+                <OperationRow
+                  icon={<History size={16} />}
+                  label="View History"
+                  onClick={() => {
+                    document
+                      .getElementById(`room-history-${room.id ?? room.number}`)
+                      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                />
+              ) : null}
             </Stack>
           </DrawerSection>
 
           {timeline.length > 0 ? (
-            <DrawerSection title="Recent Activity">
-              <Timeline active={timeline.length - 1} bulletSize={18} lineWidth={1}>
-                {timeline.map((item, index) => (
-                  <Timeline.Item key={`${item.time}-${item.label}-${index}`} title={item.time}>
-                    <Text c="#334155" style={{ fontSize: 13, fontWeight: 450, lineHeight: '19px' }}>
-                      {item.label}
-                    </Text>
-                  </Timeline.Item>
-                ))}
-              </Timeline>
-            </DrawerSection>
+            <Box id={`room-history-${room.id ?? room.number}`} style={{ scrollMarginTop: 12 }}>
+              <DrawerSection title="Recent Activity">
+                <Timeline active={timeline.length - 1} bulletSize={18} lineWidth={1}>
+                  {timeline.map((item, index) => (
+                    <Timeline.Item key={`${item.time}-${item.label}-${index}`} title={item.time}>
+                      <Text
+                        c="#334155"
+                        style={{ fontSize: 13, fontWeight: 450, lineHeight: '19px' }}
+                      >
+                        {item.label}
+                      </Text>
+                    </Timeline.Item>
+                  ))}
+                </Timeline>
+              </DrawerSection>
+            </Box>
           ) : null}
         </Stack>
       </ScrollArea.Autosize>
@@ -3189,6 +3223,7 @@ export default function RoomsPage() {
         onCheckIn={openCheckIn}
         onChangeRoom={openChangeRoom}
         onOpenStay={openStay}
+        onOpenMaintenance={() => router.push('/maintenance')}
         room={selectedRoom}
         opened={drawerOpened}
         onClose={closeDrawer}
