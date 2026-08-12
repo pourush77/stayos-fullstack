@@ -1144,10 +1144,14 @@ function MoveRoomModal({
               color={relocationRequired ? 'red' : 'yellow'}
               variant="light"
               radius={radius.md}
-              title={relocationRequired ? 'No ready replacement room available' : undefined}
+              title={
+                relocationRequired
+                  ? 'Relocation required — no replacement room available.'
+                  : undefined
+              }
             >
               {relocationRequired
-                ? 'The current room requires relocation, but there is no ready room available right now. Keep the guest in the current room only if it is safe to do so, and coordinate with Housekeeping or the Front Office Manager for the next available room.'
+                ? 'The guest will remain in the current room until another room becomes available or a manager decides the next action.'
                 : 'No ready rooms match this stay. Adjust the search or check room availability.'}
             </Alert>
           )}

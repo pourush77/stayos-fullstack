@@ -1026,6 +1026,93 @@ async function resolveMaintenanceTicketIfStillOpen(
   }).catch(() => undefined);
 }
 
+async function findMaintenanceTicketByTitle(
+  page: Page,
+  propertyId: string,
+  title: string,
+): Promise<string> {
+  const response = await apiRequest<LooseRecord[]>(page, {
+    path: `/properties/${propertyId}/maintenance`,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Unable to list maintenance tickets: HTTP ${response.status}`);
+  }
+
+  const ticket = response.body.find((item) => String(item.title ?? '') === title);
+  const ticketId = String(ticket?.id ?? ticket?._id ?? ticket?.uuid ?? '');
+
+  if (!ticketId) {
+    throw new Error(`Maintenance ticket "${title}" was created but could not be found.`);
+  }
+
+  return ticketId;
+}
+
+async function reportOccupiedMaintenanceViaUi(
+  page: Page,
+  input: {
+    roomNumber: string;
+    title: string;
+  },
+) {
+  const roomCard = await openRoomsAndGetCard(page, input.roomNumber);
+  await roomCard.click();
+
+  const roomDrawer = page
+    .locator('[role="dialog"]')
+    .filter({ hasText: new RegExp(`Room ${input.roomNumber}`, 'i') })
+    .first();
+
+  await expect(roomDrawer).toBeVisible();
+
+  const reportMaintenanceButton = roomDrawer.getByRole('button', {
+    name: /^Maintenance/i,
+  });
+  await expect(reportMaintenanceButton).toBeVisible();
+  await reportMaintenanceButton.click();
+
+  const maintenanceModal = page
+    .locator('[role="dialog"]')
+    .filter({ hasText: /Guest relocation required\?/i })
+    .last();
+
+  await expect(maintenanceModal).toBeVisible();
+  await expect(maintenanceModal.getByText('Guest relocation required?')).toBeVisible();
+  await expect(maintenanceModal.getByText(/No, guest can stay in this room/i)).toBeVisible();
+  await expect(maintenanceModal.getByText(/Yes, relocation required/i)).toBeVisible();
+
+  const titleInput = maintenanceModal.getByLabel(/Issue/i);
+  await expect(titleInput).toBeVisible();
+  await titleInput.fill(input.title);
+
+  const categoryInput = maintenanceModal.getByLabel(/Category/i);
+  if (await categoryInput.isVisible().catch(() => false)) {
+    await categoryInput.click();
+
+    const otherOption = page.getByRole('option', { name: /^Other$/i });
+    if (await otherOption.isVisible().catch(() => false)) {
+      await otherOption.click();
+    }
+  }
+
+  await maintenanceModal.getByText(/Yes, relocation required/i).click();
+
+  await expect(
+    maintenanceModal.getByText(
+      /After reporting, we will immediately look for a replacement room for the in-house guest/i,
+    ),
+  ).toBeVisible();
+
+  const submitButton = maintenanceModal.getByRole('button', {
+    name: /Report Maintenance|Create Ticket|Report Issue/i,
+  });
+  await expect(submitButton).toBeEnabled();
+  await submitButton.click();
+
+  await expect(maintenanceModal).toBeHidden({ timeout: 20_000 });
+}
+
 test.describe('maintenance room lifecycle regression', () => {
   test.setTimeout(150_000);
 
@@ -1538,6 +1625,123 @@ test.describe('maintenance room lifecycle regression', () => {
           roomId: roomB.roomId,
         }).catch(() => undefined);
       }
+    }
+  });
+
+  test('occupied room blocking maintenance opens relocation flow immediately', async ({ page }) => {
+    await loginAs(page, frontDeskEmail);
+
+    const candidate = await discoverReadyRoomForToday(page);
+    const roomA = candidate.roomA;
+    const guest = await createUniqueGuest(page, candidate.propertyId);
+    const reservation = await createConfirmedReservation(page, {
+      propertyId: candidate.propertyId,
+      guestId: guest.guestId,
+      roomTypeId: roomA.roomTypeId,
+      arrivalDate: candidate.arrivalDate,
+      departureDate: candidate.departureDate,
+    });
+
+    const maintenanceTitle = `E2E UI relocation ${roomA.roomNumber} ${Date.now()}`;
+    let maintenanceTicketId = '';
+
+    try {
+      await test.step('check the guest into Room A and confirm another READY room exists', async () => {
+        await assignReservationRoom(
+          page,
+          candidate.propertyId,
+          reservation.reservationId,
+          roomA.roomId,
+        );
+        await prepareAndCompleteCheckIn(page, candidate.propertyId, reservation.reservationId);
+
+        await waitForRoomBoardStatus(page, {
+          propertyId: candidate.propertyId,
+          roomId: roomA.roomId,
+          expected: 'OCCUPIED',
+        });
+
+        // This test is specifically for the successful immediate-relocation UI branch.
+        // Discover the replacement before reporting maintenance so a lack of inventory
+        // is reported as test setup failure, not as a UI regression.
+        await findCompatibleReadyRelocationRoom(page, {
+          propertyId: candidate.propertyId,
+          arrivalDate: candidate.arrivalDate,
+          departureDate: candidate.departureDate,
+          roomTypeId: roomA.roomTypeId,
+          excludeRoomId: roomA.roomId,
+        });
+      });
+
+      await test.step('report blocking maintenance from the occupied-room UI', async () => {
+        await reportOccupiedMaintenanceViaUi(page, {
+          roomNumber: roomA.roomNumber,
+          title: maintenanceTitle,
+        });
+
+        maintenanceTicketId = await findMaintenanceTicketByTitle(
+          page,
+          candidate.propertyId,
+          maintenanceTitle,
+        );
+      });
+
+      await test.step('verify relocation flow opens without moving or unassigning the guest', async () => {
+        await waitForRoomBoardStatus(page, {
+          propertyId: candidate.propertyId,
+          roomId: roomA.roomId,
+          expected: 'MAINTENANCE',
+        });
+
+        const currentReservation = await readReservation(
+          page,
+          candidate.propertyId,
+          reservation.reservationId,
+        );
+
+        expect(normalizeStatus(String(currentReservation.status ?? ''))).toBe('CHECKED_IN');
+        expect(String(currentReservation.roomId ?? '')).toBe(roomA.roomId);
+
+        const relocationDialog = page
+          .locator('[role="dialog"]')
+          .filter({ hasText: /Move Guest|Change Room/i })
+          .last();
+
+        await expect(relocationDialog).toBeVisible({ timeout: 20_000 });
+
+        await expect(relocationDialog.getByText(/no replacement room available/i)).toHaveCount(0);
+
+        const replacement = await findCompatibleReadyRelocationRoom(page, {
+          propertyId: candidate.propertyId,
+          arrivalDate: candidate.arrivalDate,
+          departureDate: candidate.departureDate,
+          roomTypeId: roomA.roomTypeId,
+          excludeRoomId: roomA.roomId,
+        });
+
+        await expect(relocationDialog).toContainText(replacement.roomNumber);
+
+        // Reporting blocking maintenance must not itself move the stay.
+        const roomABoard = await getRoomBoardItem(page, candidate.propertyId, roomA.roomId);
+        expect(normalizeStatus(roomABoard.uiStatus)).toBe('MAINTENANCE');
+        expect(roomABoard.currentStayReservationId).toBe(reservation.reservationId);
+      });
+    } finally {
+      await resolveMaintenanceTicketIfStillOpen(page, {
+        propertyId: candidate.propertyId,
+        ticketId: maintenanceTicketId,
+        note: 'Automatic cleanup after occupied-room relocation UI E2E test',
+      }).catch(() => undefined);
+
+      await cleanupReservationViaCheckoutIfCheckedIn(page, {
+        propertyId: candidate.propertyId,
+        reservationId: reservation.reservationId,
+      }).catch(() => undefined);
+
+      await restoreRoomAfterCheckoutIfNeeded(page, {
+        propertyId: candidate.propertyId,
+        roomId: roomA.roomId,
+      }).catch(() => undefined);
     }
   });
 });
