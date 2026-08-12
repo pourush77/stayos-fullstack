@@ -19,6 +19,7 @@ import {
   ActivityFeedQueryDto,
   AddGroupRoomingListItemDto,
   AssignGroupRoomDto,
+  ChangeGroupRoomDto,
   AssignableReservationDto,
   AssignableReservationsQueryDto,
   AvailableRoomDto,
@@ -416,6 +417,28 @@ export class OperationsController {
     @Body() dto: AssignGroupRoomDto,
   ): Promise<GroupHoldDto> {
     return this.groupBookingService.assignRoom(propertyId, groupHoldId, dto);
+  }
+
+  @Patch('operations/group-holds/:groupHoldId/room-assignments/:assignmentId')
+  @RequirePermissions(Permissions.OperationsView, Permissions.RoomsView)
+  @ApiOperation({ summary: 'Change an assigned room for a group before check-in' })
+  @ApiParam({ name: 'propertyId', format: 'uuid' })
+  @ApiParam({ name: 'groupHoldId', format: 'uuid' })
+  @ApiParam({ name: 'assignmentId', format: 'uuid' })
+  @ApiStandardOkResponse(GroupHoldDto)
+  @ApiBadRequestResponse({
+    description: 'Room cannot be changed because of group status, room type, or availability.',
+  })
+  @ApiNotFoundResponse({
+    description: 'Group booking, room assignment, or replacement room not found.',
+  })
+  changeGroupRoom(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('groupHoldId', ParseUUIDPipe) groupHoldId: string,
+    @Param('assignmentId', ParseUUIDPipe) assignmentId: string,
+    @Body() dto: ChangeGroupRoomDto,
+  ): Promise<GroupHoldDto> {
+    return this.groupBookingService.changeAssignedRoom(propertyId, groupHoldId, assignmentId, dto);
   }
 
   @Get('operations/needs-attention')

@@ -14,6 +14,7 @@ import { GroupBookingSource } from '../domain/group-booking-source.enum';
 import {
   AddGroupRoomingListItemDto,
   AssignGroupRoomDto,
+  ChangeGroupRoomDto,
   CreateGroupHoldDto,
   CreateWalkInGroupDto,
   GroupCheckInPreviewDto,
@@ -305,6 +306,133 @@ export class GroupBookingService {
         roomTypeId: room.roomTypeId,
       }),
     );
+    return this.getHold(propertyId, id);
+  }
+
+  async changeAssignedRoom(
+    propertyId: string,
+    id: string,
+    assignmentId: string,
+    dto: ChangeGroupRoomDto,
+  ): Promise<GroupHoldDto> {
+    await this.propertiesService.findOne(propertyId);
+
+    const group = await this.findGroup(propertyId, id);
+
+    // Room assignments may only be changed before the group is checked in.
+    this.ensureEditable(group);
+
+    const assignment = await this.roomAssignmentsRepository.findOne({
+      where: {
+        id: assignmentId,
+        groupBookingId: group.id,
+      },
+    });
+
+    if (!assignment) {
+      throw new NotFoundException({
+        code: ApiErrorCode.NOT_FOUND,
+        message: 'Group room assignment not found.',
+      });
+    }
+
+    // Selecting the same room is effectively a no-op.
+    if (assignment.roomId === dto.roomId) {
+      return this.getHold(propertyId, id);
+    }
+
+    const replacementRoom = await this.roomsRepository.findOne({
+      where: {
+        id: dto.roomId,
+        propertyId,
+      },
+      relations: {
+        roomType: true,
+      },
+    });
+
+    if (!replacementRoom) {
+      throw new NotFoundException({
+        code: ApiErrorCode.NOT_FOUND,
+        message: 'Replacement room not found.',
+      });
+    }
+
+    // Keep V1 simple and safe:
+    // changing a group room does not silently change the booked room type.
+    if (replacementRoom.roomTypeId !== assignment.roomTypeId) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: 'Replacement room must be the same room type as the currently assigned room.',
+      });
+    }
+
+    const alreadyAssignedToThisGroup = await this.roomAssignmentsRepository.findOne({
+      where: {
+        groupBookingId: group.id,
+        roomId: replacementRoom.id,
+      },
+    });
+
+    if (alreadyAssignedToThisGroup) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: `Room ${replacementRoom.roomNumber} is already assigned to this group.`,
+      });
+    }
+
+    const reservationConflict = await this.reservationsRepository.findOne({
+      where: {
+        propertyId,
+        roomId: replacementRoom.id,
+        status: In(activeReservationStatuses),
+        ...overlapsDateRange(group.arrivalDate, group.departureDate),
+      },
+    });
+
+    if (reservationConflict) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: `Room ${replacementRoom.roomNumber} has a reservation conflict for the group dates.`,
+      });
+    }
+
+    const groupConflict = await this.roomAssignmentsRepository
+      .createQueryBuilder('otherAssignment')
+      .innerJoin('otherAssignment.groupBooking', 'otherGroup')
+      .where('otherAssignment.roomId = :roomId', {
+        roomId: replacementRoom.id,
+      })
+      .andWhere('otherAssignment.groupBookingId != :groupBookingId', {
+        groupBookingId: group.id,
+      })
+      .andWhere('otherGroup.status IN (:...statuses)', {
+        statuses: [
+          GroupBookingStatus.ON_HOLD,
+          GroupBookingStatus.CONFIRMED,
+          GroupBookingStatus.CHECKED_IN,
+        ],
+      })
+      .andWhere('otherGroup.arrivalDate < :departureDate', {
+        departureDate: group.departureDate,
+      })
+      .andWhere('otherGroup.departureDate > :arrivalDate', {
+        arrivalDate: group.arrivalDate,
+      })
+      .getOne();
+
+    if (groupConflict) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: `Room ${replacementRoom.roomNumber} is already assigned to another active group.`,
+      });
+    }
+
+    assignment.roomId = replacementRoom.id;
+    assignment.roomTypeId = replacementRoom.roomTypeId;
+
+    await this.roomAssignmentsRepository.save(assignment);
+
     return this.getHold(propertyId, id);
   }
 

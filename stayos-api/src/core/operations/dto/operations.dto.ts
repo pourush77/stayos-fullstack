@@ -933,6 +933,12 @@ export class AssignGroupRoomDto {
   roomId!: string;
 }
 
+export class ChangeGroupRoomDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  roomId!: string;
+}
+
 export class GroupCheckInRoomPreviewDto {
   @ApiProperty({ format: 'uuid' })
   roomId!: string;
@@ -1080,7 +1086,6 @@ export class NeedsAttentionItemDto {
   @ApiProperty()
   primaryAction!: string;
 }
-
 
 export class WalkInGroupRoomAssignmentDto {
   @ApiProperty({ format: 'uuid', description: 'The actual room ID to assign and check-in' })

@@ -36,7 +36,9 @@ async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promi
     const errMsg =
       (payload as unknown as { error?: { message?: string } })?.error?.message ||
       (payload as unknown as { message?: string })?.message;
-    throw new Error(errMsg || `Operations API request failed: ${response.status} ${response.statusText}`);
+    throw new Error(
+      errMsg || `Operations API request failed: ${response.status} ${response.statusText}`,
+    );
   }
 
   return unwrapResponse<T>(payload as ApiResponse<T>);
@@ -623,6 +625,20 @@ export function assignGroupRoom(
 ) {
   return post<GroupHoldDto>(
     `/properties/${propertyId}/operations/group-holds/${groupHoldId}/room-assignments`,
+    body,
+    signal,
+  );
+}
+
+export function changeGroupRoom(
+  propertyId: string,
+  groupHoldId: string,
+  assignmentId: string,
+  body: { roomId: string },
+  signal?: AbortSignal,
+) {
+  return patch<GroupHoldDto>(
+    `/properties/${propertyId}/operations/group-holds/${groupHoldId}/room-assignments/${assignmentId}`,
     body,
     signal,
   );

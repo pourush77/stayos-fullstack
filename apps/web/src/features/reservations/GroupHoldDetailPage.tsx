@@ -9,6 +9,7 @@ import {
   Button,
   Card,
   Group,
+  Modal,
   NumberInput,
   Paper,
   Select,
@@ -18,13 +19,14 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
-import { BedDouble, CheckCircle2, Copy, Plus, Users } from 'lucide-react';
+import { ArrowRightLeft, BedDouble, CheckCircle2, Copy, Plus, Users } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
 import { getProperties, getPropertyRooms } from '../../lib/inventory-api';
 import {
   addGroupRoomingListItem,
   assignGroupRoom,
+  changeGroupRoom,
   completeGroupCheckout,
   confirmGroupHold,
   getGroupHold,
@@ -81,6 +83,10 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
   const [children, setChildren] = useState(0);
   const [notes, setNotes] = useState('');
   const [roomId, setRoomId] = useState<string | null>(null);
+  const [changeAssignment, setChangeAssignment] = useState<
+    GroupHoldDto['roomAssignments'][number] | null
+  >(null);
+  const [replacementRoomId, setReplacementRoomId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const hasValidGroupHoldId = Boolean(groupHoldId && groupHoldId !== 'undefined');
@@ -135,6 +141,25 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
     return rooms.filter((room) => allowed.has(room.roomTypeId) && !assigned.has(room.value));
   }, [hold, rooms]);
 
+  const replacementRooms = useMemo(() => {
+    if (!hold || !changeAssignment) return [];
+
+    const assigned = new Set(hold.roomAssignments.map((assignment) => assignment.roomId));
+
+    return rooms.filter(
+      (room) =>
+        room.roomTypeId === changeAssignment.roomTypeId &&
+        room.value !== changeAssignment.roomId &&
+        !assigned.has(room.value),
+    );
+  }, [changeAssignment, hold, rooms]);
+
+  const canEditRoomAssignments = hold?.status === 'ON_HOLD' || hold?.status === 'CONFIRMED';
+
+  const totalHeldRooms = hold?.roomBlocks.reduce((sum, block) => sum + block.rooms, 0) ?? 0;
+
+  const hasUnassignedRooms = hold ? hold.roomAssignments.length < totalHeldRooms : false;
+
   const addGuest = async () => {
     if (!propertyId || !guestName.trim()) return;
     setIsSaving(true);
@@ -181,6 +206,50 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
         color: 'red',
         message: err instanceof Error ? err.message : 'Unable to assign room.',
         title: 'Assignment failed',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const openChangeRoom = (assignment: GroupHoldDto['roomAssignments'][number]) => {
+    setChangeAssignment(assignment);
+    setReplacementRoomId(null);
+  };
+
+  const closeChangeRoom = () => {
+    if (isSaving) return;
+    setChangeAssignment(null);
+    setReplacementRoomId(null);
+  };
+
+  const submitRoomChange = async () => {
+    if (!propertyId || !hold || !changeAssignment || !replacementRoomId) return;
+
+    setIsSaving(true);
+    try {
+      const updated = await changeGroupRoom(propertyId, groupHoldId, changeAssignment.id, {
+        roomId: replacementRoomId,
+      });
+
+      const replacement = rooms.find((room) => room.value === replacementRoomId);
+
+      setHold(updated);
+      setChangeAssignment(null);
+      setReplacementRoomId(null);
+
+      showToast({
+        color: 'green',
+        message: replacement
+          ? `Room ${changeAssignment.roomNumber} changed to ${replacement.label.split(' - ')[0]}.`
+          : `Room ${changeAssignment.roomNumber} was changed successfully.`,
+        title: 'Room changed',
+      });
+    } catch (err) {
+      showToast({
+        color: 'red',
+        message: err instanceof Error ? err.message : 'Unable to change room.',
+        title: 'Room change failed',
       });
     } finally {
       setIsSaving(false);
@@ -404,39 +473,90 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
             </Card>
 
             <Card radius={radius.lg} p={16} style={panelStyle}>
-              <Group justify="space-between" align="flex-end">
-                <Select
-                  label="Assign room"
-                  data={assignableRooms}
-                  value={roomId}
-                  onChange={setRoomId}
-                  searchable
-                  style={{ flex: 1 }}
-                />
-                <Button
-                  leftSection={<BedDouble size={16} />}
-                  onClick={() => void assignRoom()}
-                  loading={isSaving}
-                  disabled={!roomId}
-                >
-                  Assign Room
-                </Button>
+              <Group justify="space-between" align="flex-start">
+                <Box>
+                  <Title order={2} c="#101828" style={{ fontSize: 18 }}>
+                    Room Assignments
+                  </Title>
+                  <Text c="#64748b" size="sm" mt={2}>
+                    Assign rooms before arrival, or change an assigned room before check-in.
+                  </Text>
+                </Box>
+                <Badge color={hold.readiness.fullyAssigned ? 'green' : 'yellow'} variant="light">
+                  {hold.roomAssignments.length} / {totalHeldRooms} assigned
+                </Badge>
               </Group>
-              <SimpleGrid cols={{ base: 1, md: 3 }} mt={spacing[3]}>
-                {hold.roomAssignments.map((assignment) => (
-                  <Paper
-                    key={assignment.id}
-                    radius={radius.md}
-                    p={10}
-                    style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}
+
+              {canEditRoomAssignments && hasUnassignedRooms ? (
+                <Group justify="space-between" align="flex-end" mt={spacing[3]}>
+                  <Select
+                    label="Assign room"
+                    data={assignableRooms}
+                    value={roomId}
+                    onChange={setRoomId}
+                    searchable
+                    placeholder="Choose a room"
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    leftSection={<BedDouble size={16} />}
+                    onClick={() => void assignRoom()}
+                    loading={isSaving}
+                    disabled={!roomId}
                   >
-                    <Text fw={850}>{assignment.roomNumber}</Text>
-                    <Text c="#64748b" size="sm">
-                      {assignment.roomTypeName}
-                    </Text>
-                  </Paper>
-                ))}
-              </SimpleGrid>
+                    Assign Room
+                  </Button>
+                </Group>
+              ) : null}
+
+              {hold.roomAssignments.length ? (
+                <SimpleGrid cols={{ base: 1, md: 2 }} mt={spacing[3]} spacing={spacing[2]}>
+                  {hold.roomAssignments.map((assignment) => (
+                    <Paper
+                      key={assignment.id}
+                      radius={radius.md}
+                      p={12}
+                      style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}
+                    >
+                      <Group justify="space-between" align="center" wrap="nowrap">
+                        <Box>
+                          <Text fw={850}>Room {assignment.roomNumber}</Text>
+                          <Text c="#64748b" size="sm">
+                            {assignment.roomTypeName}
+                          </Text>
+                        </Box>
+                        {canEditRoomAssignments ? (
+                          <Button
+                            size="xs"
+                            variant="light"
+                            leftSection={<ArrowRightLeft size={14} />}
+                            onClick={() => openChangeRoom(assignment)}
+                          >
+                            Change Room
+                          </Button>
+                        ) : (
+                          <Badge color="gray" variant="light">
+                            {hold.status === 'CHECKED_IN'
+                              ? 'In house'
+                              : hold.status.replace('_', ' ')}
+                          </Badge>
+                        )}
+                      </Group>
+                    </Paper>
+                  ))}
+                </SimpleGrid>
+              ) : (
+                <Text c="#64748b" size="sm" mt={spacing[3]}>
+                  No room numbers have been assigned yet.
+                </Text>
+              )}
+
+              {!canEditRoomAssignments && hold.roomAssignments.length ? (
+                <Alert color="blue" variant="light" mt={spacing[3]}>
+                  Rooms can be reassigned while the group is on hold or confirmed. After check-in,
+                  use the in-house room-move workflow instead.
+                </Alert>
+              ) : null}
             </Card>
 
             <Card radius={radius.lg} p={16} style={panelStyle}>
@@ -506,6 +626,67 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
           </>
         ) : null}
       </Stack>
+
+      <Modal
+        centered
+        opened={Boolean(changeAssignment)}
+        onClose={closeChangeRoom}
+        title="Change Room"
+      >
+        <Stack gap={spacing[3]}>
+          {changeAssignment ? (
+            <Paper
+              radius={radius.md}
+              p={12}
+              style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}
+            >
+              <Text c="#64748b" size="xs" fw={700}>
+                CURRENT ROOM
+              </Text>
+              <Text fw={850} mt={2}>
+                Room {changeAssignment.roomNumber}
+              </Text>
+              <Text c="#64748b" size="sm">
+                {changeAssignment.roomTypeName}
+              </Text>
+            </Paper>
+          ) : null}
+
+          <Select
+            label="Replacement room"
+            description="Only rooms of the same room type that are not already assigned to this group are shown."
+            data={replacementRooms}
+            value={replacementRoomId}
+            onChange={setReplacementRoomId}
+            searchable
+            placeholder={
+              replacementRooms.length ? 'Choose another room' : 'No compatible replacement rooms'
+            }
+            disabled={!replacementRooms.length || isSaving}
+          />
+
+          {!replacementRooms.length ? (
+            <Alert color="yellow" variant="light">
+              No compatible replacement room is available in the current room list. Try again after
+              availability changes.
+            </Alert>
+          ) : null}
+
+          <Group justify="flex-end">
+            <Button variant="subtle" color="gray" onClick={closeChangeRoom} disabled={isSaving}>
+              Cancel
+            </Button>
+            <Button
+              leftSection={<ArrowRightLeft size={15} />}
+              onClick={() => void submitRoomChange()}
+              loading={isSaving}
+              disabled={!replacementRoomId}
+            >
+              Change Room
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Box>
   );
 }
