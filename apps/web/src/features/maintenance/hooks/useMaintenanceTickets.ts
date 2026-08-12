@@ -6,6 +6,7 @@ import {
   getMaintenanceSummary,
   listMaintenanceTickets,
   resolveMaintenanceTicket,
+  type CreateMaintenanceTicketPayload,
   type MaintenanceSummaryDto,
   type MaintenanceTicketDto,
   type MaintenanceTicketStatus,
@@ -73,7 +74,7 @@ export function useMaintenanceTickets(propertyId?: string) {
     };
   }, [refresh]);
 
-  const create = async (payload: Record<string, unknown>) => {
+  const create = async (payload: CreateMaintenanceTicketPayload) => {
     if (!propertyId) return;
 
     await createMaintenanceTicket(propertyId, payload);
