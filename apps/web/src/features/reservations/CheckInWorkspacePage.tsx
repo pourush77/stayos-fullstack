@@ -468,7 +468,6 @@ export function CheckInWorkspacePage() {
   const [activeStep, setActiveStep] = useState<CheckInWizardStep>('identity');
   const [savedStep, setSavedStep] = useState<CheckInWizardStep | null>(null);
   const [cameraSkipped, setCameraSkipped] = useState(false);
-  const [showAllGuestDetails, setShowAllGuestDetails] = useState(false);
 
   const flashSavedStep = (step: CheckInWizardStep) => {
     setSavedStep(step);
@@ -477,7 +476,6 @@ export function CheckInWorkspacePage() {
 
   useEffect(() => {
     if (!workspace) return;
-    if (activeStep === 'guest') setShowAllGuestDetails(false);
     const handle = window.setTimeout(() => {
       const activePanel = document.querySelector(`[data-checkin-step="${activeStep}"]`);
       const firstInput = activePanel?.querySelector<
@@ -1288,7 +1286,6 @@ export function CheckInWorkspacePage() {
     'nationality',
   ];
   const missingGuestFields = guestFieldOrder.filter((field) => isMissing(field));
-  const remainingGuestFields = guestFieldOrder.filter((field) => !isMissing(field));
   const renderGuestField = (field: string) => {
     switch (field) {
       case 'fullName':
@@ -1355,11 +1352,14 @@ export function CheckInWorkspacePage() {
             value={state || null}
             onChange={(value) => {
               if (!value) return;
+
               setState(value);
-              setAutoFilled((prev) => ({ ...prev, state: false }));
+              setAutoFilled((prev) => ({
+                ...prev,
+                state: false,
+              }));
             }}
             data={stateOptions}
-            searchable
             allowDeselect={false}
             placeholder="Select state"
             data-testid="checkin-state"
@@ -1782,104 +1782,67 @@ export function CheckInWorkspacePage() {
                 complete={c.guestRegistrationComplete}
               >
                 <Stack gap={spacing[3]}>
-                  {missingGuestFields.length > 0 ? (
-                    <Paper
-                      radius={radius.md}
-                      p={14}
-                      style={{
-                        background: 'linear-gradient(180deg,#fffaf0 0%,#fff7ed 100%)',
-                        border: '1px solid rgba(251,146,60,0.36)',
-                      }}
-                    >
-                      <Group justify="space-between" mb={10} gap={8}>
-                        <Box>
-                          <Text fw={900} c="#9a3412">
-                            Finish these first
-                          </Text>
-                          <Text size="sm" c="#9a3412">
-                            {missingGuestFields.length} field
-                            {missingGuestFields.length === 1 ? '' : 's'} needed before check-in.
-                          </Text>
-                        </Box>
+                  <Paper
+                    radius={radius.md}
+                    p={14}
+                    style={{
+                      background:
+                        missingGuestFields.length > 0
+                          ? 'linear-gradient(180deg,#fffaf0 0%,#fff7ed 100%)'
+                          : '#ffffff',
+                      border:
+                        missingGuestFields.length > 0
+                          ? '1px solid rgba(251,146,60,0.36)'
+                          : '1px solid rgba(226,232,240,0.78)',
+                      boxShadow: '0 8px 22px rgba(15,23,42,0.025)',
+                    }}
+                  >
+                    <Group justify="space-between" mb={10} gap={8}>
+                      <Box>
+                        <Text fw={900} c={missingGuestFields.length > 0 ? '#9a3412' : '#101828'}>
+                          {missingGuestFields.length > 0
+                            ? 'Complete guest registration'
+                            : 'Registration details'}
+                        </Text>
+                        <Text size="sm" c={missingGuestFields.length > 0 ? '#9a3412' : '#64748b'}>
+                          {missingGuestFields.length > 0
+                            ? `${missingGuestFields.length} field${
+                                missingGuestFields.length === 1 ? '' : 's'
+                              } needed before check-in.`
+                            : 'Required registration details are complete. Review or correct details if needed.'}
+                        </Text>
+                      </Box>
+                      {missingGuestFields.length > 0 ? (
                         <Badge color="orange" variant="filled">
                           {missingGuestFields.length} missing
                         </Badge>
-                      </Group>
-                      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
-                        {missingGuestFields.map(renderGuestField)}
-                      </SimpleGrid>
-                    </Paper>
-                  ) : (
-                    <Alert color="green" variant="light" icon={<Check size={17} />}>
-                      Required registration details are complete. Review anything below only if
-                      needed.
-                    </Alert>
-                  )}
-
-                  {showAllGuestDetails || missingGuestFields.length === 0 ? (
-                    <Paper
-                      radius={radius.md}
-                      p={14}
-                      style={{
-                        background: '#ffffff',
-                        border: '1px solid rgba(226,232,240,0.78)',
-                        boxShadow: '0 8px 22px rgba(15,23,42,0.025)',
-                      }}
-                    >
-                      <Group justify="space-between" mb={10} gap={8}>
-                        <Box>
-                          <Text fw={850} c="#101828">
-                            Registration details
-                          </Text>
-                          <Text size="sm" c="#64748b">
-                            Already captured fields stay editable for corrections.
-                          </Text>
-                        </Box>
-                        {missingGuestFields.length > 0 ? (
-                          <Button
-                            variant="subtle"
-                            color="gray"
-                            size="xs"
-                            onClick={() => setShowAllGuestDetails(false)}
-                            data-no-enter-save="true"
-                          >
-                            Missing only
-                          </Button>
-                        ) : null}
-                      </Group>
-                      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
-                        {remainingGuestFields.map(renderGuestField)}
-                        <TextInput
-                          label="Email"
-                          value={email}
-                          onChange={(e) => setEmail(e.currentTarget.value)}
-                        />
-                        <TextInput
-                          label="Date of birth"
-                          type="date"
-                          value={dateOfBirth}
-                          onChange={(e) => {
-                            setDateOfBirth(e.currentTarget.value);
-                            setAutoFilled((prev) => ({ ...prev, dateOfBirth: false }));
-                          }}
-                          rightSection={autoBadge('dateOfBirth')}
-                          data-testid="checkin-dob"
-                        />
-                      </SimpleGrid>
-                    </Paper>
-                  ) : (
-                    <Group justify="flex-end">
-                      <Button
-                        variant="light"
-                        color="stayosBrand"
-                        size="sm"
-                        onClick={() => setShowAllGuestDetails(true)}
-                        data-no-enter-save="true"
-                      >
-                        Show all details
-                      </Button>
+                      ) : (
+                        <Badge color="green" variant="light">
+                          Ready
+                        </Badge>
+                      )}
                     </Group>
-                  )}
+
+                    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+                      {guestFieldOrder.map(renderGuestField)}
+                      <TextInput
+                        label="Email"
+                        value={email}
+                        onChange={(e) => setEmail(e.currentTarget.value)}
+                      />
+                      <TextInput
+                        label="Date of birth"
+                        type="date"
+                        value={dateOfBirth}
+                        onChange={(e) => {
+                          setDateOfBirth(e.currentTarget.value);
+                          setAutoFilled((prev) => ({ ...prev, dateOfBirth: false }));
+                        }}
+                        rightSection={autoBadge('dateOfBirth')}
+                        data-testid="checkin-dob"
+                      />
+                    </SimpleGrid>
+                  </Paper>
                 </Stack>
               </StepCard>
             </Box>
