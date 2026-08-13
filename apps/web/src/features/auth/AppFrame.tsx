@@ -179,7 +179,7 @@ function BrandedLoader() {
   );
 }
 
-function UnlockDialog() {
+function UnlockDialog({ enabled }: { enabled: boolean }) {
   const auth = useAuth();
 
   const [password, setPassword] = useState('');
@@ -188,7 +188,7 @@ function UnlockDialog() {
 
   return (
     <Modal
-      opened={auth.isLocked}
+      opened={enabled && auth.isAuthenticated && auth.isLocked}
       onClose={() => undefined}
       centered
       withCloseButton={false}
@@ -336,7 +336,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
         {children}
       </StayOSAppShell>
 
-      <UnlockDialog />
+      <UnlockDialog enabled={!isPublicRoute} />
     </>
   );
 }

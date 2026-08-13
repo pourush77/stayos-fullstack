@@ -359,6 +359,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           clearTokens();
           setUser(undefined);
           setAccessToken(undefined);
+          setIsLocked(false);
           redirectToLogin();
         }
       }
@@ -648,6 +649,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearTokens();
         setUser(undefined);
         setAccessToken(undefined);
+        setIsLocked(false);
         redirectToLogin();
         return response;
       }
@@ -681,7 +683,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await refreshCurrentUser();
         } catch {
           clearTokens();
+          setAccessToken(undefined);
           setUser(undefined);
+          setIsLocked(false);
           if (!isPublicPath(pathname)) redirectToLogin();
         }
       } finally {
