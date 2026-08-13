@@ -110,6 +110,17 @@ function formatStayDate(value: string) {
   });
 }
 
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function isFutureArrival(arrivalDate: string) {
+  return arrivalDate.slice(0, 10) > localDateKey();
+}
+
 function formatPhoneForDisplay(value: string) {
   const digits = value.replace(/\D/g, '');
   if (digits.length === 12 && digits.startsWith('91')) {
@@ -283,11 +294,17 @@ function FrontDeskConsole({
   if (booking.status === 'CHECKED_OUT' || booking.status === 'CANCELLED') return null;
 
   const unassigned = booking.room === 'Unassigned';
+  const futureArrival = booking.status === 'CONFIRMED' && isFutureArrival(booking.arrivalDate);
   const hasBalance = typeof folio?.balance === 'number' && folio.balance > 0.01;
   const hasAnyPayment = (folio?.paid ?? 0) > 0.01;
   const normalState = bookingActionState(booking, folio);
-  const state =
-    booking.status === 'CONFIRMED' && assignedRoomUnavailable
+  const state = futureArrival
+    ? {
+        title: 'Check-in not available yet',
+        description: `This guest is scheduled to arrive on ${formatStayDate(booking.arrivalDate)}. Check-in can start on the arrival date.`,
+        paymentCopy: normalState.paymentCopy,
+      }
+    : booking.status === 'CONFIRMED' && assignedRoomUnavailable
       ? {
           title: 'Change room before check-in',
           description: `${booking.room} is currently unavailable${
@@ -385,6 +402,10 @@ function FrontDeskConsole({
               onClick={onChangeRoom}
             >
               Change Room
+            </Button>
+          ) : futureArrival ? (
+            <Button data-testid="booking-next-action-cta" color="stayosBrand" h={48} disabled>
+              Check-In Available {formatStayDate(booking.arrivalDate)}
             </Button>
           ) : (
             <Button
@@ -746,6 +767,7 @@ export default function BookingDetailPage() {
   }
 
   const booking = bookingState.booking;
+  const futureArrival = booking.status === 'CONFIRMED' && isFutureArrival(booking.arrivalDate);
   const canCancel = booking.status === 'PENDING' || booking.status === 'CONFIRMED';
   const canAssignRoom =
     (booking.status === 'PENDING' || booking.status === 'CONFIRMED') &&
@@ -985,13 +1007,17 @@ export default function BookingDetailPage() {
               </Button>
             ) : booking.status === 'CONFIRMED' && booking.room !== 'Unassigned' ? (
               <>
-                {!assignedRoomUnavailable ? (
+                {!assignedRoomUnavailable && !futureArrival ? (
                   <Button
                     component={Link}
                     href={`/reservations/${booking.backendId}/check-in`}
                     color="stayosBrand"
                   >
                     Start Check In
+                  </Button>
+                ) : futureArrival ? (
+                  <Button color="stayosBrand" disabled>
+                    Check-In Available {formatStayDate(booking.arrivalDate)}
                   </Button>
                 ) : null}
                 <Button
@@ -1073,6 +1099,19 @@ export default function BookingDetailPage() {
           {booking.status === 'CANCELLED'
             ? 'This booking is cancelled. Room assignment, check-in, editing and stay actions are no longer available.'
             : 'This stay has been checked out and is now read-only.'}
+        </Alert>
+      ) : null}
+
+      {futureArrival ? (
+        <Alert
+          color="blue"
+          variant="light"
+          radius={radius.lg}
+          icon={<CalendarDays size={17} />}
+          title="Check-in not available yet"
+        >
+          This booking is scheduled to arrive on {formatStayDate(booking.arrivalDate)}. Check-in can
+          start on the arrival date.
         </Alert>
       ) : null}
 

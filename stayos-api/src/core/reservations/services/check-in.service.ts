@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { DataSource, EntityManager, Not } from 'typeorm';
 import { ActivityEventEntity } from '../../activity/infrastructure/activity-event.entity';
 import { AuditEventEntity } from '../../audit/infrastructure/audit-event.entity';
@@ -18,6 +23,14 @@ import { UpdateIdentityVerificationDto } from '../dto/update-identity-verificati
 import { GuestIdentityDocumentEntity } from '../infrastructure/guest-identity-document.entity';
 import { ReservationEntity } from '../infrastructure/reservation.entity';
 import { GuestDocumentEntity } from '../check-in-capture/guest-document.entity';
+
+function currentDateKey(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
 
 interface ActorContext {
   actorId?: string | null;
@@ -103,7 +116,10 @@ export class CheckInService {
       }
       if (dto.cFormStatus !== undefined) {
         reservation.cFormStatus = dto.cFormStatus;
-      } else if (reservation.cFormRequired && (reservation.cFormStatus ?? CFormStatus.NOT_REQUIRED) === CFormStatus.NOT_REQUIRED) {
+      } else if (
+        reservation.cFormRequired &&
+        (reservation.cFormStatus ?? CFormStatus.NOT_REQUIRED) === CFormStatus.NOT_REQUIRED
+      ) {
         reservation.cFormStatus = CFormStatus.PENDING;
       }
 
@@ -238,7 +254,9 @@ export class CheckInService {
     }
 
     const [guest, room, identity] = await Promise.all([
-      manager.getRepository(GuestEntity).findOne({ where: { id: reservation.guestId, propertyId } }),
+      manager
+        .getRepository(GuestEntity)
+        .findOne({ where: { id: reservation.guestId, propertyId } }),
       reservation.roomId
         ? manager.getRepository(RoomEntity).findOne({
             where: { id: reservation.roomId, propertyId },
@@ -372,20 +390,31 @@ export class CheckInService {
 
   private getBlockers(parts: WorkspaceParts): string[] {
     const blockers: string[] = [];
-    if (parts.reservation.status === 'CHECKED_IN') blockers.push(ApiErrorCode.CHECKIN_ALREADY_CHECKED_IN);
+    const today = currentDateKey();
+
+    if (parts.reservation.status === 'CHECKED_IN') {
+      blockers.push(ApiErrorCode.CHECKIN_ALREADY_CHECKED_IN);
+    }
+    if (parts.reservation.arrivalDate > today) {
+      blockers.push(ApiErrorCode.CHECKIN_BEFORE_ARRIVAL_DATE);
+    }
     if (!this.isGuestRegistrationComplete(parts.reservation, parts.guest)) {
       blockers.push(ApiErrorCode.CHECKIN_GUEST_REGISTRATION_INCOMPLETE);
     }
     if (!parts.identity?.verified) blockers.push(ApiErrorCode.CHECKIN_IDENTITY_NOT_VERIFIED);
-    if (!(parts.reservation.paymentReviewed ?? false)) blockers.push(ApiErrorCode.CHECKIN_PAYMENT_NOT_REVIEWED);
+    if (!(parts.reservation.paymentReviewed ?? false))
+      blockers.push(ApiErrorCode.CHECKIN_PAYMENT_NOT_REVIEWED);
     if (!parts.room || parts.room.operationalStatus !== RoomOperationalStatus.READY) {
       blockers.push(ApiErrorCode.CHECKIN_ROOM_NOT_READY);
     }
     if (
       parts.room &&
-      [RoomOperationalStatus.OCCUPIED, RoomOperationalStatus.MAINTENANCE, RoomOperationalStatus.OUT_OF_ORDER, RoomOperationalStatus.OUT_OF_SERVICE].includes(
-        parts.room.operationalStatus,
-      )
+      [
+        RoomOperationalStatus.OCCUPIED,
+        RoomOperationalStatus.MAINTENANCE,
+        RoomOperationalStatus.OUT_OF_ORDER,
+        RoomOperationalStatus.OUT_OF_SERVICE,
+      ].includes(parts.room.operationalStatus)
     ) {
       blockers.push(ApiErrorCode.CHECKIN_ROOM_UNAVAILABLE);
     }
@@ -396,7 +425,10 @@ export class CheckInService {
     return this.getMissingRegistrationFields(reservation, guest).length === 0;
   }
 
-  private getMissingRegistrationFields(reservation: ReservationEntity, guest: GuestEntity): string[] {
+  private getMissingRegistrationFields(
+    reservation: ReservationEntity,
+    guest: GuestEntity,
+  ): string[] {
     const missing: string[] = [];
     if (!guest.displayName?.trim()) missing.push('fullName');
     if (!guest.nationality?.trim()) missing.push('nationality');
@@ -433,7 +465,11 @@ export class CheckInService {
     guest.displayName = fullName.trim();
   }
 
-  private assignIfDefined<T extends object, K extends keyof T>(target: T, key: K, value: T[K] | undefined): void {
+  private assignIfDefined<T extends object, K extends keyof T>(
+    target: T,
+    key: K,
+    value: T[K] | undefined,
+  ): void {
     if (value !== undefined) target[key] = value;
   }
 
@@ -446,8 +482,10 @@ export class CheckInService {
   private normalizeIdentityNumber(type: IdentityDocumentType, value: string): string {
     if (type === IdentityDocumentType.AADHAAR) return value.replace(/\D/g, '');
     if (type === IdentityDocumentType.PAN) return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (type === IdentityDocumentType.VOTER_ID) return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (type === IdentityDocumentType.PASSPORT) return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (type === IdentityDocumentType.VOTER_ID)
+      return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (type === IdentityDocumentType.PASSPORT)
+      return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (type === IdentityDocumentType.DRIVING_LICENSE) {
       return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     }
@@ -476,7 +514,10 @@ export class CheckInService {
     }
   }
 
-  private registrationState(reservation: ReservationEntity, guest: GuestEntity): Record<string, unknown> {
+  private registrationState(
+    reservation: ReservationEntity,
+    guest: GuestEntity,
+  ): Record<string, unknown> {
     return {
       guestId: guest.id,
       displayName: guest.displayName,
@@ -541,6 +582,8 @@ export class CheckInService {
       [ApiErrorCode.CHECKIN_ROOM_NOT_READY]: 'Room is not ready for check-in',
       [ApiErrorCode.CHECKIN_ROOM_UNAVAILABLE]: 'Room is unavailable for check-in',
       [ApiErrorCode.CHECKIN_ALREADY_CHECKED_IN]: 'Reservation is already checked in',
+      [ApiErrorCode.CHECKIN_BEFORE_ARRIVAL_DATE]:
+        'Check-in is not available before the reservation arrival date',
     };
     return messages[code] ?? 'Check-in is blocked';
   }
