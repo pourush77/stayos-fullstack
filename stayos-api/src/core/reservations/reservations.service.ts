@@ -225,6 +225,19 @@ export class ReservationsService {
   ): Promise<ReservationEntity> {
     const reservation = await this.findOne(propertyId, id);
 
+    if (updateReservationDto.status === ReservationStatus.CANCELLED) {
+      if (
+        reservation.status !== ReservationStatus.PENDING &&
+        reservation.status !== ReservationStatus.CONFIRMED
+      ) {
+        throw new BadRequestException('Only pending or confirmed reservations can be cancelled');
+      }
+
+      reservation.status = ReservationStatus.CANCELLED;
+
+      return this.reservationsRepository.save(reservation);
+    }
+
     const arrivalDate = updateReservationDto.arrivalDate ?? reservation.arrivalDate;
     const departureDate = updateReservationDto.departureDate ?? reservation.departureDate;
 
