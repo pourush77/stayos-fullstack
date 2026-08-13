@@ -86,6 +86,47 @@ function matchesFilter(booking: Booking, filter: BookingFilter) {
   return true;
 }
 
+function groupMatchesFilter(group: GroupHoldDto, filter: BookingFilter) {
+  const today = dateKey(new Date());
+
+  if (filter === 'arrivals-today') return group.arrivalDate === today;
+  if (filter === 'departures-today')
+    return group.departureDate === today && group.status === 'CHECKED_IN';
+  if (filter === 'confirmed') return group.status === 'CONFIRMED';
+  if (filter === 'checked-in') return group.status === 'CHECKED_IN';
+  if (filter === 'unassigned')
+    return group.roomAssignments.length === 0 && group.status !== 'CANCELLED';
+  if (filter === 'cancelled') return group.status === 'CANCELLED';
+
+  if (filter === 'pending' || filter === 'payment-due' || filter === 'vip') return false;
+
+  return true;
+}
+
+function groupRoomTypeSummary(group: GroupHoldDto) {
+  return group.roomBlocks.length
+    ? group.roomBlocks.map((block) => `${block.rooms} ${block.roomTypeName}`).join(' + ')
+    : 'Room type pending';
+}
+
+function groupRoomSummary(group: GroupHoldDto) {
+  return group.roomAssignments.length
+    ? group.roomAssignments.map((assignment) => assignment.roomNumber).join(', ')
+    : 'Unassigned';
+}
+
+function groupStatusLabel(status: GroupHoldDto['status']) {
+  return status.replace(/_/g, ' ');
+}
+
+function groupStatusColor(status: GroupHoldDto['status']) {
+  if (status === 'CHECKED_IN') return 'green';
+  if (status === 'CONFIRMED') return 'blue';
+  if (status === 'CANCELLED') return 'red';
+  if (status === 'CHECKED_OUT' || status === 'RELEASED') return 'gray';
+  return 'yellow';
+}
+
 function BookingsPageLoading() {
   return (
     <Stack gap={spacing[3]} aria-label="Loading bookings" aria-busy="true">
@@ -285,6 +326,28 @@ export default function BookingsPage() {
       return (!normalized || searchable.includes(normalized)) && matchesFilter(booking, filter);
     });
   }, [bookingState.bookings, filter, query]);
+
+  const visibleGroupBookings = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+
+    return [...groupHolds, ...recentlyDepartedGroups].filter((group) => {
+      const searchable = [
+        group.groupCode,
+        group.groupName,
+        group.leadName,
+        group.leadPhone,
+        groupRoomTypeSummary(group),
+        groupRoomSummary(group),
+        groupStatusLabel(group.status),
+        'group',
+      ]
+        .join(' ')
+        .toLowerCase();
+
+      return (!normalized || searchable.includes(normalized)) && groupMatchesFilter(group, filter);
+    });
+  }, [filter, groupHolds, query, recentlyDepartedGroups]);
+
   const today = dateKey(new Date());
   const visibleInHouseGroups = inHouseGroups.filter((group) => {
     if (filter === 'checked-in' || filter === 'all') return true;
@@ -292,7 +355,6 @@ export default function BookingsPage() {
     return false;
   });
   const showRecentlyDepartedGroups = filter === 'all';
-  const showGroupHolds = filter === 'all';
 
   const retryBackend = () => void backend.retry();
   const checkBackendStatus = () => void backend.checkHealth();
@@ -308,9 +370,8 @@ export default function BookingsPage() {
             : 'Create bookings, assign rooms, start check-in, and track payment status.'}
         </Text>
         <Text c="#334155" mt={spacing[2]} size="sm" fw={600}>
-          {filter === 'all' ? bookingState.bookings.length : bookings.length}{' '}
-          {filter === 'all' ? 'bookings' : 'shown'} -{' '}
-          {bookingState.bookings.filter((booking) => booking.room === 'Unassigned').length}{' '}
+          {bookings.length + visibleGroupBookings.length} {filter === 'all' ? 'bookings' : 'shown'}{' '}
+          - {bookingState.bookings.filter((booking) => booking.room === 'Unassigned').length}{' '}
           unassigned
         </Text>
       </Box>
@@ -558,38 +619,6 @@ export default function BookingsPage() {
           </Stack>
         </Card>
       ) : null}
-      {showGroupHolds && groupHolds.length ? (
-        <Card
-          radius={radius.lg}
-          p={12}
-          style={{ background: '#fff7ed', border: '1px solid #fed7aa' }}
-        >
-          <Group justify="space-between" align="flex-start">
-            <Stack gap={2}>
-              <Text fw={800} c="#9a3412">
-                Group holds
-              </Text>
-              <Text size="sm" c="#9a3412">
-                {groupHolds
-                  .map(
-                    (hold) =>
-                      `${hold.groupCode} ${hold.groupName}: ${hold.roomBlocks.map((block) => `${block.rooms} ${block.roomTypeName}`).join(' + ')}`,
-                  )
-                  .join(' | ')}
-              </Text>
-            </Stack>
-            <Button
-              component={Link}
-              href="/reservations/group-quote"
-              variant="light"
-              color="orange"
-              size="xs"
-            >
-              Open Group Quote
-            </Button>
-          </Group>
-        </Card>
-      ) : null}
       {bookingState.isFallback && bookingState.error ? (
         <Alert color="yellow" variant="light" icon={<AlertCircle size={17} />} radius={radius.lg}>
           Demo fallback is enabled, so Bookings is showing sample data.
@@ -614,12 +643,14 @@ export default function BookingsPage() {
         </Group>
       </Card>
 
-      {bookingState.bookings.length === 0 && !bookingState.isLoading ? (
+      {bookingState.bookings.length === 0 &&
+      visibleGroupBookings.length === 0 &&
+      !bookingState.isLoading ? (
         <EmptyData
           title="No bookings yet"
           detail="The active property has no bookings to show yet."
         />
-      ) : bookings.length > 0 ? (
+      ) : bookings.length > 0 || visibleGroupBookings.length > 0 ? (
         <Card p={0} radius={radius.lg} style={{ ...cardStyle, overflow: 'hidden' }}>
           <Table.ScrollContainer minWidth={1080}>
             <Table verticalSpacing={13} horizontalSpacing={18}>
@@ -731,6 +762,90 @@ export default function BookingsPage() {
                           Edit
                         </Button>
                       </Group>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+                {visibleGroupBookings.map((group) => (
+                  <Table.Tr
+                    key={`group-${group.id}`}
+                    data-testid={`group-booking-row-${group.id}`}
+                    style={{ background: '#fffdf8' }}
+                  >
+                    <Table.Td>
+                      <Stack gap={4}>
+                        <Text
+                          component={Link}
+                          href={`/reservations/group-holds/${group.id}`}
+                          fw={800}
+                          c="#101828"
+                          style={{ textDecoration: 'none' }}
+                        >
+                          {group.groupCode}
+                        </Text>
+                        <Badge color="orange" variant="light" w="fit-content">
+                          GROUP
+                        </Badge>
+                      </Stack>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text fw={700}>{group.groupName}</Text>
+                      <Text c="#64748b" size="xs">
+                        Lead: {group.leadName} · {group.leadPhone}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="sm">
+                        {formatStayDates(group.arrivalDate, group.departureDate)}
+                      </Text>
+                      <Text c="#64748b" size="xs">
+                        {group.adults + group.children} guests
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="sm">{groupRoomTypeSummary(group)}</Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="sm">{groupRoomSummary(group)}</Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Badge color={groupStatusColor(group.status)} variant="light">
+                        {groupStatusLabel(group.status)}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text c="#64748b" size="sm">
+                        {group.status === 'CHECKED_IN' || group.status === 'CHECKED_OUT'
+                          ? 'Master folio'
+                          : '—'}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Badge color="orange" variant="light">
+                        Group
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td>
+                      <Button
+                        component={Link}
+                        data-testid={`group-booking-next-action-${group.id}`}
+                        href={`/reservations/group-holds/${group.id}`}
+                        size="compact-sm"
+                        variant="light"
+                        color="stayosBrand"
+                      >
+                        Open Group
+                      </Button>
+                    </Table.Td>
+                    <Table.Td>
+                      <Button
+                        component={Link}
+                        href={`/reservations/group-holds/${group.id}`}
+                        size="compact-sm"
+                        variant="subtle"
+                        color="gray"
+                      >
+                        View
+                      </Button>
                     </Table.Td>
                   </Table.Tr>
                 ))}
