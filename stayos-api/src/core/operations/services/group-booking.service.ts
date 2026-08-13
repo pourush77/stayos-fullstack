@@ -36,6 +36,14 @@ import { GroupStayEntity } from '../infrastructure/group-stay.entity';
 import { GroupRoomMixService } from './group-room-mix.service';
 import { activeReservationStatuses, overlapsDateRange } from './operations-query.helpers';
 
+function currentDateKey(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
 @Injectable()
 export class GroupBookingService {
   constructor(
@@ -474,8 +482,17 @@ export class GroupBookingService {
     const warnings: string[] = [];
     const totalHeldRooms = group.roomBlocks.reduce((sum, block) => sum + block.rooms, 0);
 
-    if (group.status !== GroupBookingStatus.CONFIRMED)
+    const today = currentDateKey();
+
+    if (group.status !== GroupBookingStatus.CONFIRMED) {
       blockers.push('Group hold must be confirmed before check-in.');
+    }
+
+    if (group.arrivalDate > today) {
+      blockers.push(
+        `Check-in is not available yet. Scheduled arrival date is ${group.arrivalDate}.`,
+      );
+    }
     if (!group.readiness.contactComplete) blockers.push('Lead contact is incomplete.');
     if (!group.roomingList.length) blockers.push('Rooming list is missing.');
     if (!group.roomAssignments.length) blockers.push('No rooms are assigned.');
@@ -584,6 +601,16 @@ export class GroupBookingService {
   ): Promise<GroupCheckInResultDto> {
     await this.propertiesService.findOne(propertyId);
     this.validateDateRange(dto.arrivalDate, dto.departureDate);
+
+    const today = currentDateKey();
+
+    if (dto.arrivalDate !== today) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message:
+          'Walk-in groups can only be checked in for today. Use Group Quote for a future group booking.',
+      });
+    }
 
     if (!dto.roomAssignments.length) {
       throw new BadRequestException({

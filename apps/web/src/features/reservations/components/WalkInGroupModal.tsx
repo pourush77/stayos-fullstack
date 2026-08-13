@@ -167,7 +167,7 @@ export function WalkInGroupModal({
 
   const canSubmit =
     !isSaving &&
-    !!arrivalIso &&
+    arrivalIso === todayIso() &&
     !!departureIso &&
     departureIso > arrivalIso &&
     !!groupName.trim() &&
@@ -181,7 +181,7 @@ export function WalkInGroupModal({
     setIsSaving(true);
     try {
       const body: CreateWalkInGroupDto = {
-        arrivalDate: arrivalIso,
+        arrivalDate: todayIso(),
         departureDate: departureIso,
         groupName: groupName.trim(),
         leadName: leadName.trim(),
@@ -222,7 +222,7 @@ export function WalkInGroupModal({
         <Group gap={10}>
           <UserRound size={20} />
           <Text fw={800} c="#101828" size="lg">
-            Walk-in Group Check-in
+            Check In Walk-in Group
           </Text>
         </Group>
       }
@@ -265,23 +265,79 @@ export function WalkInGroupModal({
       ) : (
         <Stack gap={spacing[3]}>
           <Text c="#64748b" size="sm">
-            Guests are already at the front desk. Pick rooms from live availability, capture the
-            group lead, and check everyone in with a single master folio.
+            Use this only when the group is physically at the front desk and needs to be checked in
+            now. Rooms will become occupied immediately and one master folio will be created.
           </Text>
 
+          <Alert color="blue" variant="light" radius={radius.md}>
+            <Group justify="space-between" align="center" wrap="wrap">
+              <Box>
+                <Text fw={750} c="#1e3a8a" size="sm">
+                  Planning a future group stay?
+                </Text>
+                <Text c="#475569" size="xs" mt={2}>
+                  Use Group Quote instead. Walk-in check-in is only for guests arriving today.
+                </Text>
+              </Box>
+              <Button
+                component={Link}
+                href="/reservations/group-quote"
+                variant="light"
+                color="blue"
+                size="xs"
+              >
+                Open Group Quote
+              </Button>
+            </Group>
+          </Alert>
+
           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[2]}>
-            <DatePickerInput
-              label="Arrival"
-              value={arrivalDate}
-              minDate={new Date(`${todayIso()}T00:00:00`)}
-              onChange={(value) => setArrivalDate(value as Date | null)}
-              required
+            <div
               data-testid="walk-in-arrival"
-            />
+              style={{
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: radius.md,
+                padding: 12,
+                userSelect: 'none',
+                cursor: 'default',
+              }}
+            >
+              <div
+                style={{
+                  color: '#64748b',
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                ARRIVAL
+              </div>
+
+              <div
+                style={{
+                  color: '#101828',
+                  fontWeight: 800,
+                  marginTop: 3,
+                }}
+              >
+                Today
+              </div>
+
+              <div
+                style={{
+                  color: '#64748b',
+                  fontSize: 12,
+                  marginTop: 2,
+                }}
+              >
+                {todayIso()}
+              </div>
+            </div>
+
             <DatePickerInput
               label="Departure"
               value={departureDate}
-              minDate={arrivalDate ?? new Date(`${todayIso()}T00:00:00`)}
+              minDate={new Date(`${tomorrowIso()}T00:00:00`)}
               onChange={(value) => setDepartureDate(value as Date | null)}
               required
               data-testid="walk-in-departure"
@@ -467,8 +523,8 @@ export function WalkInGroupModal({
 
           <Group justify="space-between" mt={spacing[1]}>
             <Text c="#64748b" size="xs">
-              A single master folio will be created for the whole group. Rooms will be marked
-              occupied immediately.
+              This action checks the group in now. A single master folio will be created and the
+              selected rooms will be marked occupied immediately.
             </Text>
             <Group gap={8}>
               <Button variant="subtle" color="gray" onClick={onClose} data-testid="walk-in-cancel">
@@ -481,7 +537,7 @@ export function WalkInGroupModal({
                 disabled={!canSubmit}
                 data-testid="walk-in-submit"
               >
-                Check in group
+                Check In Now
               </Button>
             </Group>
           </Group>
