@@ -19,6 +19,7 @@ import { GuestRequestsModule } from './core/guest-requests/guest-requests.module
 import { ReportsModule } from './core/reports/reports.module';
 import { MaintenanceModule } from './core/maintenance/maintenance.module';
 import { AmenitiesModule } from './core/amenities/amenities.module';
+import { RatesModule } from './core/rates/rates.module';
 import configuration from './core/config/configuration';
 import { validateEnvironment } from './core/config/environment.validation';
 import { GlobalSearchModule } from './core/global-search/global-search.module';
@@ -64,6 +65,7 @@ import { GlobalSearchModule } from './core/global-search/global-search.module';
     ReportsModule,
     MaintenanceModule,
     AmenitiesModule,
+    RatesModule,
     GlobalSearchModule,
   ],
 })
