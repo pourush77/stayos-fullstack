@@ -1,4 +1,14 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiBadRequestResponse,
@@ -477,5 +487,22 @@ export class OperationsController {
     @Query() query: ActivityFeedQueryDto,
   ): Promise<ActivityFeedItemDto[]> {
     return this.activityFeedService.getActivityFeed(propertyId, query);
+  }
+
+  @Delete('operations/group-holds/:groupHoldId')
+  @RequirePermissions(Permissions.OperationsView, Permissions.RoomsView)
+  @ApiOperation({
+    summary: 'Delete an unconfirmed group hold',
+    description:
+      'Permanently deletes an ON_HOLD group that has not entered the confirmed or operational lifecycle.',
+  })
+  @ApiParam({ name: 'propertyId', format: 'uuid' })
+  @ApiParam({ name: 'groupHoldId', format: 'uuid' })
+  @ApiStandardOkResponse(GroupHoldDto)
+  deleteGroupHold(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('groupHoldId', ParseUUIDPipe) groupHoldId: string,
+  ): Promise<GroupHoldDto> {
+    return this.groupBookingService.deleteHold(propertyId, groupHoldId);
   }
 }

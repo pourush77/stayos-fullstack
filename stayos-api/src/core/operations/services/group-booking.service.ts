@@ -444,6 +444,76 @@ export class GroupBookingService {
     return this.getHold(propertyId, id);
   }
 
+  async deleteHold(propertyId: string, id: string): Promise<GroupHoldDto> {
+    await this.propertiesService.findOne(propertyId);
+
+    const group = await this.findGroup(propertyId, id);
+
+    if (group.status !== GroupBookingStatus.ON_HOLD) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message:
+          'Only an unconfirmed group hold can be deleted. Confirmed groups must be cancelled instead.',
+      });
+    }
+
+    const existingStay = await this.groupStaysRepository.findOne({
+      where: {
+        groupBookingId: id,
+        propertyId,
+      },
+    });
+
+    if (existingStay) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: 'This group already has a stay record and cannot be deleted.',
+      });
+    }
+
+    const existingFolio = await this.groupMasterFoliosRepository.findOne({
+      where: {
+        groupBookingId: id,
+        propertyId,
+      },
+    });
+
+    if (existingFolio) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: 'This group already has a folio and cannot be deleted.',
+      });
+    }
+
+    const snapshot = await this.getHold(propertyId, id);
+
+    await this.dataSource.transaction(async (manager) => {
+      const assignmentRepository = manager.getRepository(GroupBookingRoomAssignmentEntity);
+      const roomingListRepository = manager.getRepository(GroupBookingRoomingListEntity);
+      const blockRepository = manager.getRepository(GroupBookingRoomBlockEntity);
+      const groupRepository = manager.getRepository(GroupBookingEntity);
+
+      await assignmentRepository.delete({
+        groupBookingId: id,
+      });
+
+      await roomingListRepository.delete({
+        groupBookingId: id,
+      });
+
+      await blockRepository.delete({
+        groupBookingId: id,
+      });
+
+      await groupRepository.delete({
+        id,
+        propertyId,
+      });
+    });
+
+    return snapshot;
+  }
+
   async releaseHold(propertyId: string, id: string): Promise<GroupHoldDto> {
     return this.transitionHold(propertyId, id, GroupBookingStatus.RELEASED);
   }

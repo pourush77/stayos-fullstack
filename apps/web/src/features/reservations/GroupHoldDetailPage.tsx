@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Alert,
   Badge,
@@ -29,6 +30,7 @@ import {
   changeGroupRoom,
   completeGroupCheckout,
   confirmGroupHold,
+  deleteGroupHold,
   getGroupHold,
   type GroupHoldDto,
 } from '../../lib/operations-api';
@@ -74,6 +76,7 @@ function isAbortError(err: unknown) {
 
 export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
   const backend = useBackendStatus();
+  const router = useRouter();
   const [propertyId, setPropertyId] = useState('');
   const [hold, setHold] = useState<GroupHoldDto | undefined>();
   const [rooms, setRooms] = useState<RoomOption[]>([]);
@@ -89,6 +92,8 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
   const [replacementRoomId, setReplacementRoomId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const [deleteOpened, setDeleteOpened] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const hasValidGroupHoldId = Boolean(groupHoldId && groupHoldId !== 'undefined');
 
   const load = async (id = propertyId, signal?: AbortSignal) => {
@@ -306,6 +311,34 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
     showToast({ color: 'green', message: 'Confirmation text copied.', title: 'Voucher copied' });
   };
 
+  const closeDeleteModal = () => {
+    if (isDeleting) return;
+    setDeleteOpened(false);
+  };
+
+  const deleteGroup = async () => {
+    if (!propertyId || !hold || hold.status !== 'ON_HOLD') return;
+    setIsDeleting(true);
+    try {
+      await deleteGroupHold(propertyId, hold.id);
+      showToast({
+        color: 'green',
+        message: `${hold.groupCode} was permanently deleted.`,
+        title: 'Group deleted',
+      });
+      setDeleteOpened(false);
+      router.push('/reservations');
+    } catch (err) {
+      showToast({
+        color: 'red',
+        message: err instanceof Error ? err.message : 'Unable to delete group.',
+        title: 'Delete failed',
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   if (!backend.isOnline && backend.status === 'SERVER_STARTING')
     return (
       <ServerStarting
@@ -442,6 +475,11 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
                   >
                     Open Folio
                   </Button>
+                  {hold.status === 'ON_HOLD' ? (
+                    <Button variant="light" color="red" onClick={() => setDeleteOpened(true)}>
+                      Delete Group
+                    </Button>
+                  ) : null}
                 </Group>
               </Group>
               <SimpleGrid cols={{ base: 1, md: 5 }} spacing={spacing[2]} mt={spacing[3]}>
@@ -683,6 +721,28 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
               disabled={!replacementRoomId}
             >
               Change Room
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal centered opened={deleteOpened} onClose={closeDeleteModal} title="Delete Group">
+        <Stack gap={spacing[3]}>
+          <div>
+            This will permanently delete {hold?.groupCode ?? 'this group'}. This action cannot be
+            undone.
+          </div>
+          <div>
+            If the group is already confirmed, use Cancel Group instead so the booking history is
+            kept.
+          </div>
+
+          <Group justify="flex-end">
+            <Button variant="subtle" color="gray" onClick={closeDeleteModal} disabled={isDeleting}>
+              Keep Group
+            </Button>
+            <Button color="red" onClick={() => void deleteGroup()} loading={isDeleting}>
+              Delete Group
             </Button>
           </Group>
         </Stack>

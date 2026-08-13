@@ -64,6 +64,29 @@ async function patch<T>(path: string, body: unknown, signal?: AbortSignal): Prom
   return unwrapResponse<T>(payload as ApiResponse<T>);
 }
 
+async function del<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: {
+      Accept: 'application/json',
+    },
+    method: 'DELETE',
+    signal,
+  });
+
+  const payload = (await response.json().catch(() => undefined)) as ApiResponse<T> | undefined;
+
+  if (!response.ok) {
+    const errMsg =
+      (payload as unknown as { error?: { message?: string } })?.error?.message ||
+      (payload as unknown as { message?: string })?.message;
+    throw new Error(
+      errMsg || `Operations API request failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  return unwrapResponse<T>(payload as ApiResponse<T>);
+}
+
 function unwrapResponse<T>(response: ApiResponse<T>): T {
   if (response && typeof response === 'object') {
     if ('data' in response && response.data !== undefined) return response.data;
@@ -600,6 +623,13 @@ export function confirmGroupHold(propertyId: string, groupHoldId: string, signal
   return post<GroupHoldDto>(
     `/properties/${propertyId}/operations/group-holds/${groupHoldId}/confirm`,
     {},
+    signal,
+  );
+}
+
+export function deleteGroupHold(propertyId: string, groupHoldId: string, signal?: AbortSignal) {
+  return del<GroupHoldDto>(
+    `/properties/${propertyId}/operations/group-holds/${groupHoldId}`,
     signal,
   );
 }
