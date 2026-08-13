@@ -2,18 +2,60 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { Alert, Autocomplete, Avatar, Badge, Box, Button, Card, Collapse, Group, NumberInput, Paper, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Title, UnstyledButton } from '@mantine/core';
+import {
+  Alert,
+  Autocomplete,
+  Avatar,
+  Badge,
+  Box,
+  Button,
+  Card,
+  Collapse,
+  Group,
+  NumberInput,
+  Paper,
+  Select,
+  SimpleGrid,
+  Stack,
+  Text,
+  Textarea,
+  TextInput,
+  Title,
+  UnstyledButton,
+} from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
-import { Baby, BedDouble, CalendarDays, Check, ChevronDown, ChevronLeft, Mail, Phone, Users } from 'lucide-react';
+import {
+  Baby,
+  BedDouble,
+  CalendarDays,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  Mail,
+  Phone,
+  Users,
+} from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
-import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
+import {
+  BackendUnavailable,
+  GenericError,
+  ServerStarting,
+  showToast,
+  useBackendStatus,
+} from '@stayos/ui';
 import { createPropertyGuest } from '../../lib/guest-api';
 import { friendlyGuestError } from '../../lib/guest-hooks';
 import { getAvailableRooms } from '../../lib/operations-api';
 import { nationalityOptions } from '../guests/constants/nationalities';
 import { BookingForm } from './components/BookingForm';
 import { friendlyBookingError, useBookingDetails, useBookings } from './hooks/useBookings';
-import type { BookingFormValues, BookingPaymentStatus, BookingSource, GuestOption, RoomTypeOption } from './types/booking.types';
+import type {
+  BookingFormValues,
+  BookingPaymentStatus,
+  BookingSource,
+  GuestOption,
+  RoomTypeOption,
+} from './types/booking.types';
 import { mapGuestOption } from './utils/booking-mappers';
 
 const cardStyle = {
@@ -38,11 +80,17 @@ function dateToValue(value: Date | string | null) {
 
 function formatShortDate(value: string) {
   if (!value) return '';
-  return new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(new Date(`${value}T00:00:00`));
+  return new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(
+    new Date(`${value}T00:00:00`),
+  );
 }
 
 function formatCurrency(value: number) {
-  return new Intl.NumberFormat('en-IN', { currency: 'INR', maximumFractionDigits: 0, style: 'currency' }).format(value);
+  return new Intl.NumberFormat('en-IN', {
+    currency: 'INR',
+    maximumFractionDigits: 0,
+    style: 'currency',
+  }).format(value);
 }
 
 function initialsFor(name: string) {
@@ -111,7 +159,16 @@ function CountryFlag({ country }: { country: string }) {
           background: 'repeating-linear-gradient(180deg, #b22234 0 2px, #ffffff 2px 4px)',
         }}
       >
-        <Box style={{ background: '#3c3b6e', height: 8, left: 0, position: 'absolute', top: 0, width: 9 }} />
+        <Box
+          style={{
+            background: '#3c3b6e',
+            height: 8,
+            left: 0,
+            position: 'absolute',
+            top: 0,
+            width: 9,
+          }}
+        />
       </Box>
     );
   }
@@ -131,15 +188,48 @@ function CountryFlag({ country }: { country: string }) {
 
   if (country === 'AE') {
     return (
-      <Box aria-label="United Arab Emirates flag" style={{ ...baseStyle, background: 'linear-gradient(90deg, #ff0000 0 25%, transparent 25%), linear-gradient(180deg, #00732f 0 33%, #ffffff 33% 66%, #000000 66% 100%)' }} />
+      <Box
+        aria-label="United Arab Emirates flag"
+        style={{
+          ...baseStyle,
+          background:
+            'linear-gradient(90deg, #ff0000 0 25%, transparent 25%), linear-gradient(180deg, #00732f 0 33%, #ffffff 33% 66%, #000000 66% 100%)',
+        }}
+      />
     );
   }
 
   if (country === 'SG') {
     return (
-      <Box aria-label="Singapore flag" style={{ ...baseStyle, background: 'linear-gradient(180deg, #ef3340 0 50%, #ffffff 50% 100%)' }}>
-        <Box style={{ background: '#ffffff', borderRadius: 999, height: 5, left: 4, position: 'absolute', top: 2, width: 5 }} />
-        <Box style={{ background: '#ef3340', borderRadius: 999, height: 5, left: 6, position: 'absolute', top: 2, width: 5 }} />
+      <Box
+        aria-label="Singapore flag"
+        style={{
+          ...baseStyle,
+          background: 'linear-gradient(180deg, #ef3340 0 50%, #ffffff 50% 100%)',
+        }}
+      >
+        <Box
+          style={{
+            background: '#ffffff',
+            borderRadius: 999,
+            height: 5,
+            left: 4,
+            position: 'absolute',
+            top: 2,
+            width: 5,
+          }}
+        />
+        <Box
+          style={{
+            background: '#ef3340',
+            borderRadius: 999,
+            height: 5,
+            left: 6,
+            position: 'absolute',
+            top: 2,
+            width: 5,
+          }}
+        />
       </Box>
     );
   }
@@ -209,11 +299,19 @@ function StepSection({
   return (
     <Card radius={radius.lg} p={20} style={quickCardStyle}>
       <Group align="flex-start" gap={spacing[3]} wrap="nowrap">
-        <Badge circle color={complete ? 'green' : active ? 'stayosBrand' : 'gray'} size="lg">{number}</Badge>
+        <Badge circle color={complete ? 'green' : active ? 'stayosBrand' : 'gray'} size="lg">
+          {number}
+        </Badge>
         <Stack gap={spacing[3]} flex={1}>
           <Box pl={10} style={{ borderLeft: `3px solid ${active ? '#7c3aed' : '#cbd5e1'}` }}>
-            <Title order={2} c="#101828" style={{ fontSize: 22, fontWeight: 800 }}>{title}</Title>
-            {subtitle ? <Text c="#64748b" size="sm">{subtitle}</Text> : null}
+            <Title order={2} c="#101828" style={{ fontSize: 22, fontWeight: 800 }}>
+              {title}
+            </Title>
+            {subtitle ? (
+              <Text c="#64748b" size="sm">
+                {subtitle}
+              </Text>
+            ) : null}
           </Box>
           {children}
         </Stack>
@@ -263,6 +361,12 @@ function QuickBookingForm({
   const [newGuestEmail, setNewGuestEmail] = useState('');
   const [newGuestNationality, setNewGuestNationality] = useState('Indian');
   const [newGuestError, setNewGuestError] = useState('');
+  const [newGuestFieldErrors, setNewGuestFieldErrors] = useState<{
+    email?: string;
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+  }>({});
   const [isCreatingGuest, setIsCreatingGuest] = useState(false);
   const [dateRange, setDateRange] = useState<[Date | null, Date | null]>(() => {
     const parse = (v?: string) => (v ? new Date(`${v}T00:00:00`) : null);
@@ -279,7 +383,9 @@ function QuickBookingForm({
   const [paymentIntent, setPaymentIntent] = useState<'CHECKOUT' | 'FULL' | 'PARTIAL'>('CHECKOUT');
   const [paymentStatus, setPaymentStatus] = useState<BookingPaymentStatus>('PAYMENT_DUE');
   const [paymentAmount, setPaymentAmount] = useState<number>(0);
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'UPI' | 'BANK_TRANSFER' | 'WALLET' | 'OTHER'>('CASH');
+  const [paymentMethod, setPaymentMethod] = useState<
+    'CASH' | 'CARD' | 'UPI' | 'BANK_TRANSFER' | 'WALLET' | 'OTHER'
+  >('CASH');
   const [availabilityCounts, setAvailabilityCounts] = useState<Record<string, number>>({});
   const [errors, setErrors] = useState<{ dates?: string; roomTypeId?: string }>({});
   const arrivalDate = dateToValue(dateRange[0]);
@@ -287,7 +393,8 @@ function QuickBookingForm({
   const nights = calculateNights(arrivalDate, departureDate);
   const allGuests = useMemo(() => [...createdGuests, ...guests], [createdGuests, guests]);
   const guest = allGuests.find((item) => item.id === guestId);
-  const selectedPhoneCountry = phoneCountryOptions.find((item) => item.value === newGuestCountry) ?? phoneCountryOptions[0];
+  const selectedPhoneCountry =
+    phoneCountryOptions.find((item) => item.value === newGuestCountry) ?? phoneCountryOptions[0];
   const selectedRoomType = roomTypes.find((item) => item.id === roomTypeId);
   const roomSubtotal = (selectedRoomType?.baseRate ?? 0) * nights;
   const gstAmount = Math.round(roomSubtotal * GST_RATE);
@@ -298,8 +405,32 @@ function QuickBookingForm({
 
   useEffect(() => {
     if (!guestId || initialGuestWasProvided.current) return;
-    datesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [guestId]);
+
+    // Creating an inline guest closes the guest form at the same time that Step 2
+    // becomes active. Wait until that collapse has finished, then scroll to an
+    // explicit page position. Avoid focusing the date input here because browser
+    // focus/datepicker behaviour can trigger a second scroll and push the page down.
+    const handle = window.setTimeout(
+      () => {
+        const datesSection = datesRef.current;
+        if (!datesSection) return;
+
+        const headerOffset = 24;
+        const targetTop = Math.max(
+          0,
+          window.scrollY + datesSection.getBoundingClientRect().top - headerOffset,
+        );
+
+        window.scrollTo({
+          top: targetTop,
+          behavior: 'smooth',
+        });
+      },
+      newGuestOpen ? 420 : 0,
+    );
+
+    return () => window.clearTimeout(handle);
+  }, [guestId, newGuestOpen]);
 
   useEffect(() => {
     if (!datesComplete) return;
@@ -318,7 +449,11 @@ function QuickBookingForm({
     }
 
     const controller = new AbortController();
-    void getAvailableRooms(propertyId, { adults, arrivalDate, children, departureDate, guestCount: adults + children }, controller.signal)
+    void getAvailableRooms(
+      propertyId,
+      { adults, arrivalDate, children, departureDate, guestCount: adults + children },
+      controller.signal,
+    )
       .then((rooms) => {
         const counts: Record<string, number> = {};
         rooms.forEach((room) => {
@@ -335,18 +470,33 @@ function QuickBookingForm({
     const firstName = newGuestFirstName.trim();
     const lastName = newGuestLastName.trim();
     const phoneDigits = digitsOnly(newGuestPhone);
-    if (!firstName || !lastName || !phoneDigits) {
-      setNewGuestError('First name, last name, and phone are required.');
-      return;
+    const email = newGuestEmail.trim();
+
+    const nextFieldErrors: {
+      email?: string;
+      firstName?: string;
+      lastName?: string;
+      phone?: string;
+    } = {};
+
+    if (!firstName) nextFieldErrors.firstName = 'First name is required.';
+    if (!lastName) nextFieldErrors.lastName = 'Last name is required.';
+
+    if (!phoneDigits) {
+      nextFieldErrors.phone = 'Mobile number is required.';
+    } else if (phoneDigits.length !== selectedPhoneCountry.length) {
+      nextFieldErrors.phone = `${selectedPhoneCountry.label} mobile numbers must be ${selectedPhoneCountry.length} digits.`;
     }
-    if (phoneDigits.length !== selectedPhoneCountry.length) {
-      setNewGuestError(`${selectedPhoneCountry.label} mobile numbers must be ${selectedPhoneCountry.length} digits.`);
-      return;
+
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      nextFieldErrors.email = 'Enter a valid email address.';
     }
-    if (newGuestEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newGuestEmail.trim())) {
-      setNewGuestError('Enter a valid email address.');
-      return;
-    }
+
+    setNewGuestFieldErrors(nextFieldErrors);
+    setNewGuestError('');
+
+    if (Object.keys(nextFieldErrors).length > 0) return;
+
     if (!propertyId) {
       setNewGuestError('Property is still loading. Try again in a moment.');
       return;
@@ -356,14 +506,19 @@ function QuickBookingForm({
     setNewGuestError('');
     try {
       const phone = `${selectedPhoneCountry.code}${phoneDigits}`;
-      const createdGuest = mapGuestOption(await createPropertyGuest(propertyId, {
-        email: newGuestEmail.trim().toLowerCase() || undefined,
-        firstName,
-        lastName,
-        nationality: newGuestNationality.trim() || 'Indian',
-        phone,
-      }));
-      setCreatedGuests((current) => [createdGuest, ...current.filter((item) => item.id !== createdGuest.id)]);
+      const createdGuest = mapGuestOption(
+        await createPropertyGuest(propertyId, {
+          email: email.toLowerCase() || undefined,
+          firstName,
+          lastName,
+          nationality: newGuestNationality.trim() || 'Indian',
+          phone,
+        }),
+      );
+      setCreatedGuests((current) => [
+        createdGuest,
+        ...current.filter((item) => item.id !== createdGuest.id),
+      ]);
       setGuestId(createdGuest.id);
       setNewGuestOpen(false);
       setNewGuestFirstName('');
@@ -371,7 +526,13 @@ function QuickBookingForm({
       setNewGuestEmail('');
       setNewGuestNationality('Indian');
       setNewGuestPhone('');
-      showToast({ color: 'green', title: 'Guest created', message: `${createdGuest.label} added to this booking.` });
+      setNewGuestFieldErrors({});
+      setNewGuestError('');
+      showToast({
+        color: 'green',
+        title: 'Guest created',
+        message: `${createdGuest.label} added to this booking.`,
+      });
     } catch (error) {
       const message = friendlyGuestError(error);
       setNewGuestError(message);
@@ -404,22 +565,45 @@ function QuickBookingForm({
       roomTypeId,
       source,
       specialRequests,
-      deposit: paymentIntent !== 'CHECKOUT' && paymentAmount > 0
-        ? { amount: paymentAmount, method: paymentMethod }
-        : undefined,
+      deposit:
+        paymentIntent !== 'CHECKOUT' && paymentAmount > 0
+          ? { amount: paymentAmount, method: paymentMethod }
+          : undefined,
     });
   };
 
   return (
-    <Box py={spacing[5]} px={{ base: spacing[2], sm: spacing[4] }} style={{ background: 'linear-gradient(180deg, #fafbff 0%, #ffffff 100%)', minHeight: 'calc(100vh - 180px)' }}>
+    <Box
+      py={spacing[5]}
+      px={{ base: spacing[2], sm: spacing[4] }}
+      style={{
+        background: 'linear-gradient(180deg, #fafbff 0%, #ffffff 100%)',
+        minHeight: 'calc(100vh - 180px)',
+      }}
+    >
       <Stack gap={spacing[3]} maw={820} mx="auto">
-        <Button variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content" onClick={onCancel}>Back</Button>
+        <Button
+          variant="subtle"
+          color="gray"
+          leftSection={<ChevronLeft size={16} />}
+          px={0}
+          w="fit-content"
+          onClick={onCancel}
+        >
+          Back
+        </Button>
         <Group justify="space-between" align="center" gap={spacing[2]}>
-          <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 800 }}>New Booking</Title>
+          <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 800 }}>
+            New Booking
+          </Title>
           {guest ? (
             <Badge
               color="stayosBrand"
-              leftSection={<Avatar color="stayosBrand" radius="xl" size={20}>{initialsFor(guest.label)}</Avatar>}
+              leftSection={
+                <Avatar color="stayosBrand" radius="xl" size={20}>
+                  {initialsFor(guest.label)}
+                </Avatar>
+              }
               radius="xl"
               size="lg"
               variant="light"
@@ -429,18 +613,39 @@ function QuickBookingForm({
           ) : null}
         </Group>
 
-        <StepSection active={!guestComplete} complete={guestComplete} number={1} subtitle="Guest for this booking" title="Who?">
+        <StepSection
+          active={!guestComplete}
+          complete={guestComplete}
+          number={1}
+          subtitle="Guest for this booking"
+          title="Who?"
+        >
           {guest ? (
-            <Paper radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+            <Paper
+              radius={radius.md}
+              p={12}
+              style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}
+            >
               <Group justify="space-between" gap={spacing[2]}>
                 <Group gap={10}>
-                  <Avatar color="stayosBrand" radius="xl" size={34}>{initialsFor(guest.label)}</Avatar>
+                  <Avatar color="stayosBrand" radius="xl" size={34}>
+                    {initialsFor(guest.label)}
+                  </Avatar>
                   <Box>
-                    <Text fw={800} size="sm">{guest.label}</Text>
-                    <Text c="#64748b" size="xs">{guest.phone}</Text>
+                    <Text fw={800} size="sm">
+                      {guest.label}
+                    </Text>
+                    <Text c="#64748b" size="xs">
+                      {guest.phone}
+                    </Text>
                   </Box>
                 </Group>
-                <Button variant="subtle" color="gray" size="compact-sm" onClick={() => setGuestId('')}>
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="compact-sm"
+                  onClick={() => setGuestId('')}
+                >
                   Change
                 </Button>
               </Group>
@@ -470,6 +675,7 @@ function QuickBookingForm({
             onClick={() => {
               setNewGuestOpen((current) => !current);
               setNewGuestError('');
+              setNewGuestFieldErrors({});
             }}
           >
             + Add new guest
@@ -479,24 +685,34 @@ function QuickBookingForm({
               <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
                 <TextInput
                   data-testid="booking-new-guest-first-name"
+                  error={newGuestFieldErrors.firstName}
                   label="First name"
-                  onChange={(event) => setNewGuestFirstName(event.currentTarget.value)}
+                  onChange={(event) => {
+                    setNewGuestFirstName(event.currentTarget.value);
+                    setNewGuestFieldErrors((current) => ({ ...current, firstName: undefined }));
+                  }}
                   required
                   value={newGuestFirstName}
                 />
                 <TextInput
                   data-testid="booking-new-guest-last-name"
+                  error={newGuestFieldErrors.lastName}
                   label="Last name"
-                  onChange={(event) => setNewGuestLastName(event.currentTarget.value)}
+                  onChange={(event) => {
+                    setNewGuestLastName(event.currentTarget.value);
+                    setNewGuestFieldErrors((current) => ({ ...current, lastName: undefined }));
+                  }}
                   required
                   value={newGuestLastName}
                 />
                 <TextInput
                   data-testid="booking-new-guest-email"
+                  error={newGuestFieldErrors.email}
                   label="Email"
                   leftSection={<Mail size={16} />}
                   onChange={(event) => {
                     setNewGuestEmail(event.currentTarget.value);
+                    setNewGuestFieldErrors((current) => ({ ...current, email: undefined }));
                     setNewGuestError('');
                   }}
                   type="email"
@@ -511,7 +727,12 @@ function QuickBookingForm({
                 />
               </SimpleGrid>
               <Box>
-                <Text c="#212529" fw={500} size="sm" mb={4}>Mobile number <Text span c="red">*</Text></Text>
+                <Text c="#212529" fw={500} size="sm" mb={4}>
+                  Mobile number{' '}
+                  <Text span c="red">
+                    *
+                  </Text>
+                </Text>
                 <Group gap={spacing[2]} align="flex-start" wrap="nowrap">
                   <Select
                     data={phoneCountryOptions.map((item) => ({
@@ -519,11 +740,15 @@ function QuickBookingForm({
                       value: item.value,
                     }))}
                     renderOption={({ option }) => {
-                      const country = phoneCountryOptions.find((item) => item.value === option.value);
+                      const country = phoneCountryOptions.find(
+                        (item) => item.value === option.value,
+                      );
                       return (
                         <Group gap={8} wrap="nowrap">
                           <CountryFlag country={option.value} />
-                          <Text size="sm">{country ? `${country.label} ${country.code}` : option.label}</Text>
+                          <Text size="sm">
+                            {country ? `${country.label} ${country.code}` : option.label}
+                          </Text>
                         </Group>
                       );
                     }}
@@ -539,12 +764,15 @@ function QuickBookingForm({
                   />
                   <TextInput
                     data-testid="booking-new-guest-phone"
-                    error={newGuestError}
+                    error={newGuestFieldErrors.phone}
                     inputMode="numeric"
                     leftSection={<Phone size={16} />}
                     maxLength={selectedPhoneCountry.length}
                     onChange={(event) => {
-                      setNewGuestPhone(digitsOnly(event.currentTarget.value).slice(0, selectedPhoneCountry.length));
+                      setNewGuestPhone(
+                        digitsOnly(event.currentTarget.value).slice(0, selectedPhoneCountry.length),
+                      );
+                      setNewGuestFieldErrors((current) => ({ ...current, phone: undefined }));
                       setNewGuestError('');
                     }}
                     placeholder={`${selectedPhoneCountry.length} digit mobile number`}
@@ -554,6 +782,11 @@ function QuickBookingForm({
                   />
                 </Group>
               </Box>
+              {newGuestError ? (
+                <Alert color="red" variant="light">
+                  {newGuestError}
+                </Alert>
+              ) : null}
               <Group justify="flex-end">
                 <Button
                   data-testid="booking-new-guest-cancel"
@@ -562,6 +795,7 @@ function QuickBookingForm({
                   onClick={() => {
                     setNewGuestOpen(false);
                     setNewGuestError('');
+                    setNewGuestFieldErrors({});
                   }}
                 >
                   Cancel
@@ -579,39 +813,56 @@ function QuickBookingForm({
           </Collapse>
         </StepSection>
 
-        <Box ref={datesRef}>
-        <StepSection active={guestComplete && !datesComplete} complete={datesComplete} number={2} subtitle="Pick your dates" title="When?">
-          <DatePickerInput
-            clearable
-            error={errors.dates}
-            leftSection={<CalendarDays size={18} />}
-            minDate={today()}
-            onChange={(value) => {
-              setDateRange(value as [Date | null, Date | null]);
-              setErrors((current) => ({ ...current, dates: undefined }));
-            }}
-            placeholder="Select arrival -> departure"
-            size="xl"
-            type="range"
-            value={dateRange}
-            w="100%"
-          />
-          {datesComplete ? (
-            <Group gap={8}>
-              <Badge color="stayosBrand" variant="light">{nights} night{nights === 1 ? '' : 's'}</Badge>
-              <Text c="#64748b" size="sm">{nights} night{nights === 1 ? '' : 's'} · {formatShortDate(arrivalDate)} → {formatShortDate(departureDate)}</Text>
-            </Group>
-          ) : null}
-        </StepSection>
+        <Box ref={datesRef} style={{ scrollMarginTop: 24 }}>
+          <StepSection
+            active={guestComplete && !datesComplete}
+            complete={datesComplete}
+            number={2}
+            subtitle="Pick your dates"
+            title="When?"
+          >
+            <DatePickerInput
+              clearable
+              error={errors.dates}
+              leftSection={<CalendarDays size={18} />}
+              minDate={today()}
+              onChange={(value) => {
+                setDateRange(value as [Date | null, Date | null]);
+                setErrors((current) => ({ ...current, dates: undefined }));
+              }}
+              placeholder="Select arrival -> departure"
+              size="xl"
+              type="range"
+              value={dateRange}
+              w="100%"
+            />
+            {datesComplete ? (
+              <Group gap={8}>
+                <Badge color="stayosBrand" variant="light">
+                  {nights} night{nights === 1 ? '' : 's'}
+                </Badge>
+                <Text c="#64748b" size="sm">
+                  {nights} night{nights === 1 ? '' : 's'} · {formatShortDate(arrivalDate)} →{' '}
+                  {formatShortDate(departureDate)}
+                </Text>
+              </Group>
+            ) : null}
+          </StepSection>
         </Box>
 
         <Box ref={roomsRef}>
-          <StepSection active={datesComplete && !roomComplete} complete={roomComplete} number={3} title="Room?">
+          <StepSection
+            active={datesComplete && !roomComplete}
+            complete={roomComplete}
+            number={3}
+            title="Room?"
+          >
             <Stack gap={8}>
               {roomTypes.map((roomType) => {
                 const selected = roomType.id === roomTypeId;
                 const available = availabilityCounts[roomType.id] ?? 0;
-                const showAvailability = datesComplete && Object.keys(availabilityCounts).length > 0;
+                const showAvailability =
+                  datesComplete && Object.keys(availabilityCounts).length > 0;
                 const unavailableByCapacity = Boolean(capacityMessage(roomType, adults, children));
                 const soldOut = unavailableByCapacity || (showAvailability && available === 0);
                 return (
@@ -650,8 +901,12 @@ function QuickBookingForm({
                           <BedDouble size={18} color={selected ? '#6536b5' : '#475569'} />
                         </Box>
                         <Stack gap={2} style={{ minWidth: 0 }}>
-                          <Text fw={700} c="#101828" size="sm" lineClamp={1}>{roomType.label}</Text>
-                          <Text c="#64748b" size="xs">{formatCurrency(roomType.baseRate)} / night</Text>
+                          <Text fw={700} c="#101828" size="sm" lineClamp={1}>
+                            {roomType.label}
+                          </Text>
+                          <Text c="#64748b" size="xs">
+                            {formatCurrency(roomType.baseRate)} / night
+                          </Text>
                         </Stack>
                       </Group>
                       <Group gap={8} wrap="nowrap" style={{ flexShrink: 0 }}>
@@ -661,7 +916,11 @@ function QuickBookingForm({
                             variant="light"
                             color={soldOut ? 'gray' : available <= 2 ? 'orange' : 'green'}
                           >
-                            {unavailableByCapacity ? `Max ${roomType.maxAdults}A/${roomType.maxChildren}C` : soldOut ? 'Sold out' : `${available} left`}
+                            {unavailableByCapacity
+                              ? `Max ${roomType.maxAdults}A/${roomType.maxChildren}C`
+                              : soldOut
+                                ? 'Sold out'
+                                : `${available} left`}
                           </Badge>
                         ) : null}
                         <Box
@@ -685,57 +944,143 @@ function QuickBookingForm({
                 );
               })}
             </Stack>
-            {errors.roomTypeId ? <Text c="red" size="sm">{errors.roomTypeId}</Text> : null}
+            {errors.roomTypeId ? (
+              <Text c="red" size="sm">
+                {errors.roomTypeId}
+              </Text>
+            ) : null}
             <SimpleGrid cols={{ base: 2 }} spacing={spacing[3]}>
-              <NumberInput leftSection={<Users size={16} />} label="Adults" min={1} onChange={(value) => setAdults(Number(value) || 1)} size="md" value={adults} />
-              <NumberInput leftSection={<Baby size={16} />} label="Children" min={0} onChange={(value) => setChildren(Number(value) || 0)} size="md" value={children} />
+              <NumberInput
+                leftSection={<Users size={16} />}
+                label="Adults"
+                min={1}
+                onChange={(value) => setAdults(Number(value) || 1)}
+                size="md"
+                value={adults}
+              />
+              <NumberInput
+                leftSection={<Baby size={16} />}
+                label="Children"
+                min={0}
+                onChange={(value) => setChildren(Number(value) || 0)}
+                size="md"
+                value={children}
+              />
             </SimpleGrid>
           </StepSection>
         </Box>
 
         <Box ref={reviewRef}>
-          <StepSection active={datesComplete && roomComplete} complete={false} number={4} title="Confirm">
+          <StepSection
+            active={datesComplete && roomComplete}
+            complete={false}
+            number={4}
+            title="Confirm"
+          >
             {datesComplete && roomComplete ? (
-            <Paper radius={radius.md} p={16} style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-              <Stack gap={8}>
-                <Text fw={900} c="#101828">{guest?.label ?? 'Guest'} · {nights || 0} nights · {selectedRoomType?.label ?? 'Room type'}</Text>
-                <Text c="#64748b" size="sm">{formatShortDate(arrivalDate)} → {formatShortDate(departureDate)} · {adults} adult{adults === 1 ? '' : 's'}{children ? ` · ${children} child${children === 1 ? '' : 'ren'}` : ''}</Text>
-                <Stack gap={4}>
-                  <Group justify="space-between">
-                    <Text c="#64748b" size="sm">Room charges</Text>
-                    <Text fw={800}>{formatCurrency(roomSubtotal)}</Text>
-                  </Group>
-                  <Group justify="space-between">
-                    <Text c="#64748b" size="sm">GST 12%</Text>
-                    <Text fw={800}>{formatCurrency(gstAmount)}</Text>
-                  </Group>
-                  <Group justify="space-between" pt={8} style={{ borderTop: '1px solid #e2e8f0' }}>
-                    <Text c="#101828" fw={900} size="sm">Total payable</Text>
-                    <Text fw={900} size="xl">{formatCurrency(total)}</Text>
-                  </Group>
+              <Paper
+                radius={radius.md}
+                p={16}
+                style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}
+              >
+                <Stack gap={8}>
+                  <Text fw={900} c="#101828">
+                    {guest?.label ?? 'Guest'} · {nights || 0} nights ·{' '}
+                    {selectedRoomType?.label ?? 'Room type'}
+                  </Text>
+                  <Text c="#64748b" size="sm">
+                    {formatShortDate(arrivalDate)} → {formatShortDate(departureDate)} · {adults}{' '}
+                    adult{adults === 1 ? '' : 's'}
+                    {children ? ` · ${children} child${children === 1 ? '' : 'ren'}` : ''}
+                  </Text>
+                  <Stack gap={4}>
+                    <Group justify="space-between">
+                      <Text c="#64748b" size="sm">
+                        Room charges
+                      </Text>
+                      <Text fw={800}>{formatCurrency(roomSubtotal)}</Text>
+                    </Group>
+                    <Group justify="space-between">
+                      <Text c="#64748b" size="sm">
+                        GST 12%
+                      </Text>
+                      <Text fw={800}>{formatCurrency(gstAmount)}</Text>
+                    </Group>
+                    <Group
+                      justify="space-between"
+                      pt={8}
+                      style={{ borderTop: '1px solid #e2e8f0' }}
+                    >
+                      <Text c="#101828" fw={900} size="sm">
+                        Total payable
+                      </Text>
+                      <Text fw={900} size="xl">
+                        {formatCurrency(total)}
+                      </Text>
+                    </Group>
+                  </Stack>
                 </Stack>
-              </Stack>
-            </Paper>
+              </Paper>
             ) : (
-              <Paper radius={radius.md} p={16} style={{ background: '#f8fafc', border: '1px dashed #cbd5e1' }}>
-                <Text c="#64748b" size="sm">Pick dates and a room to see the total.</Text>
+              <Paper
+                radius={radius.md}
+                p={16}
+                style={{ background: '#f8fafc', border: '1px dashed #cbd5e1' }}
+              >
+                <Text c="#64748b" size="sm">
+                  Pick dates and a room to see the total.
+                </Text>
               </Paper>
             )}
-            <Button variant="subtle" color="gray" rightSection={<ChevronDown size={16} />} onClick={() => setNotesOpen((current) => !current)}>+ Add notes / special requests</Button>
+            <Button
+              variant="subtle"
+              color="gray"
+              rightSection={<ChevronDown size={16} />}
+              onClick={() => setNotesOpen((current) => !current)}
+            >
+              + Add notes / special requests
+            </Button>
             <Collapse expanded={notesOpen}>
               <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
-                <Textarea label="Notes" minRows={3} onChange={(event) => setNotes(event.currentTarget.value)} value={notes} />
-                <Textarea label="Special requests" minRows={3} onChange={(event) => setSpecialRequests(event.currentTarget.value)} value={specialRequests} />
+                <Textarea
+                  label="Notes"
+                  minRows={3}
+                  onChange={(event) => setNotes(event.currentTarget.value)}
+                  value={notes}
+                />
+                <Textarea
+                  label="Special requests"
+                  minRows={3}
+                  onChange={(event) => setSpecialRequests(event.currentTarget.value)}
+                  value={specialRequests}
+                />
               </SimpleGrid>
             </Collapse>
             {/* Payment intent chooser — visible in Step 4 */}
             <Stack gap={8}>
-              <Text fw={700} c="#101828" size="sm">When will payment be collected?</Text>
+              <Text fw={700} c="#101828" size="sm">
+                When will payment be collected?
+              </Text>
               <SimpleGrid cols={{ base: 1, sm: 3 }} spacing={8}>
                 {[
-                  { key: 'CHECKOUT' as const, label: 'Collect at check-in', hint: `Collect ${formatCurrency(total)} after ID verification`, status: 'PAYMENT_DUE' as BookingPaymentStatus },
-                  { key: 'PARTIAL' as const, label: 'Partial deposit now', hint: 'Advance / holding amount', status: 'PARTIALLY_PAID' as BookingPaymentStatus },
-                  { key: 'FULL' as const, label: 'Collect full now', hint: `Take ${formatCurrency(total)} now and mark paid`, status: 'PAID' as BookingPaymentStatus },
+                  {
+                    key: 'CHECKOUT' as const,
+                    label: 'Collect at check-in',
+                    hint: `Collect ${formatCurrency(total)} after ID verification`,
+                    status: 'PAYMENT_DUE' as BookingPaymentStatus,
+                  },
+                  {
+                    key: 'PARTIAL' as const,
+                    label: 'Partial deposit now',
+                    hint: 'Advance / holding amount',
+                    status: 'PARTIALLY_PAID' as BookingPaymentStatus,
+                  },
+                  {
+                    key: 'FULL' as const,
+                    label: 'Collect full now',
+                    hint: `Take ${formatCurrency(total)} now and mark paid`,
+                    status: 'PAID' as BookingPaymentStatus,
+                  },
                 ].map((opt) => {
                   const selected = paymentIntent === opt.key;
                   return (
@@ -746,7 +1091,8 @@ function QuickBookingForm({
                         setPaymentStatus(opt.status);
                         if (opt.key === 'CHECKOUT') setPaymentAmount(0);
                         else if (opt.key === 'FULL') setPaymentAmount(total);
-                        else if (opt.key === 'PARTIAL' && paymentAmount === 0) setPaymentAmount(Math.round(total * 0.3));
+                        else if (opt.key === 'PARTIAL' && paymentAmount === 0)
+                          setPaymentAmount(Math.round(total * 0.3));
                       }}
                       data-testid={`booking-payment-intent-${opt.key.toLowerCase()}`}
                       style={{
@@ -757,15 +1103,20 @@ function QuickBookingForm({
                         transition: 'background 120ms ease, border-color 120ms ease',
                       }}
                     >
-                      <Text fw={700} c="#101828" size="sm">{opt.label}</Text>
-                      <Text c="#64748b" size="xs">{opt.hint}</Text>
+                      <Text fw={700} c="#101828" size="sm">
+                        {opt.label}
+                      </Text>
+                      <Text c="#64748b" size="xs">
+                        {opt.hint}
+                      </Text>
                     </UnstyledButton>
                   );
                 })}
               </SimpleGrid>
               {paymentIntent === 'CHECKOUT' ? (
                 <Alert color="blue" variant="light" radius={radius.md}>
-                  No payment is recorded during booking. At check-in, collect the total payable amount: <b>{formatCurrency(total)}</b>.
+                  No payment is recorded during booking. At check-in, collect the total payable
+                  amount: <b>{formatCurrency(total)}</b>.
                 </Alert>
               ) : null}
               {paymentIntent !== 'CHECKOUT' ? (
@@ -795,13 +1146,41 @@ function QuickBookingForm({
                 </SimpleGrid>
               ) : null}
             </Stack>
-            <Button variant="subtle" color="gray" size="compact-sm" onClick={() => setAdvancedOpen((current) => !current)}>Change booking source</Button>
+            <Button
+              variant="subtle"
+              color="gray"
+              size="compact-sm"
+              onClick={() => setAdvancedOpen((current) => !current)}
+            >
+              Change booking source
+            </Button>
             <Collapse expanded={advancedOpen}>
-              <Select data={[{ label: 'Direct', value: 'DIRECT' }, { label: 'Walk-in', value: 'WALK_IN' }, { label: 'OTA', value: 'OTA' }, { label: 'Corporate', value: 'CORPORATE' }]} label="Source" onChange={(value) => setSource((value as BookingSource | null) ?? 'DIRECT')} value={source} />
+              <Select
+                data={[
+                  { label: 'Direct', value: 'DIRECT' },
+                  { label: 'Walk-in', value: 'WALK_IN' },
+                  { label: 'OTA', value: 'OTA' },
+                  { label: 'Corporate', value: 'CORPORATE' },
+                ]}
+                label="Source"
+                onChange={(value) => setSource((value as BookingSource | null) ?? 'DIRECT')}
+                value={source}
+              />
             </Collapse>
             <Stack gap={6}>
-              <Button color="stayosBrand" disabled={!guestId || !datesComplete || !roomComplete} fullWidth loading={isSubmitting} onClick={() => void submit()} size="lg">Create Booking →</Button>
-              <Text c="#64748b" size="xs" ta="center">Booking confirmed. You can assign a room next.</Text>
+              <Button
+                color="stayosBrand"
+                disabled={!guestId || !datesComplete || !roomComplete}
+                fullWidth
+                loading={isSubmitting}
+                onClick={() => void submit()}
+                size="lg"
+              >
+                Create Booking →
+              </Button>
+              <Text c="#64748b" size="xs" ta="center">
+                Booking confirmed. You can assign a room next.
+              </Text>
             </Stack>
           </StepSection>
         </Box>
@@ -814,34 +1193,76 @@ export function BookingFormPage({ mode }: { mode: 'create' | 'edit' }) {
   const params = useParams<{ reservationId?: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialGuestId = mode === 'create' ? searchParams.get('guestId') ?? undefined : undefined;
-  const initialArrival = mode === 'create' ? searchParams.get('arrivalDate') ?? undefined : undefined;
-  const initialDeparture = mode === 'create' ? searchParams.get('departureDate') ?? undefined : undefined;
-  const initialRoomTypeId = mode === 'create' ? searchParams.get('roomTypeId') ?? undefined : undefined;
-  const initialAdults = mode === 'create' ? Number(searchParams.get('adults')) || undefined : undefined;
-  const initialChildren = mode === 'create' ? Number(searchParams.get('children')) || undefined : undefined;
+  const initialGuestId = mode === 'create' ? (searchParams.get('guestId') ?? undefined) : undefined;
+  const initialArrival =
+    mode === 'create' ? (searchParams.get('arrivalDate') ?? undefined) : undefined;
+  const initialDeparture =
+    mode === 'create' ? (searchParams.get('departureDate') ?? undefined) : undefined;
+  const initialRoomTypeId =
+    mode === 'create' ? (searchParams.get('roomTypeId') ?? undefined) : undefined;
+  const initialAdults =
+    mode === 'create' ? Number(searchParams.get('adults')) || undefined : undefined;
+  const initialChildren =
+    mode === 'create' ? Number(searchParams.get('children')) || undefined : undefined;
   const backend = useBackendStatus();
   const allowMockFallback = process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
-  const enabled = backend.isOnline || (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
+  const enabled =
+    backend.isOnline ||
+    (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
   const bookings = useBookings({ allowMockFallback, enabled: mode === 'create' && enabled });
-  const details = useBookingDetails({ allowMockFallback, bookingId: params.reservationId, enabled: mode === 'edit' && enabled });
+  const details = useBookingDetails({
+    allowMockFallback,
+    bookingId: params.reservationId,
+    enabled: mode === 'edit' && enabled,
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const retryBackend = () => void backend.retry();
   const checkBackendStatus = () => void backend.checkHealth();
 
-  if (!allowMockFallback && backend.status === 'SERVER_STARTING') return <ServerStarting onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
-  if (!allowMockFallback && !backend.isOnline && backend.status !== 'CONNECTING') return <BackendUnavailable onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
-  if (mode === 'edit' && !allowMockFallback && details.error && !details.isLoading && !details.booking) return <GenericError onAction={() => void details.refreshBooking()} onCheckStatus={checkBackendStatus} />;
-  if (mode === 'edit' && !details.booking) return <Alert color="blue" variant="light" icon={<CalendarDays size={17} />} radius={radius.lg}>Loading booking...</Alert>;
+  if (!allowMockFallback && backend.status === 'SERVER_STARTING')
+    return <ServerStarting onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
+  if (!allowMockFallback && !backend.isOnline && backend.status !== 'CONNECTING')
+    return <BackendUnavailable onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
+  if (
+    mode === 'edit' &&
+    !allowMockFallback &&
+    details.error &&
+    !details.isLoading &&
+    !details.booking
+  )
+    return (
+      <GenericError
+        onAction={() => void details.refreshBooking()}
+        onCheckStatus={checkBackendStatus}
+      />
+    );
+  if (mode === 'edit' && !details.booking)
+    return (
+      <Alert color="blue" variant="light" icon={<CalendarDays size={17} />} radius={radius.lg}>
+        Loading booking...
+      </Alert>
+    );
 
   const submit = async (values: BookingFormValues) => {
     setIsSubmitting(true);
     try {
-      const booking = mode === 'create' ? await bookings.createBooking(values) : await details.updateBooking(values);
-      showToast({ color: 'green', title: mode === 'create' ? 'Booking created' : 'Booking updated', message: mode === 'create' ? 'Booking created successfully.' : 'Booking saved successfully.' });
+      const booking =
+        mode === 'create'
+          ? await bookings.createBooking(values)
+          : await details.updateBooking(values);
+      showToast({
+        color: 'green',
+        title: mode === 'create' ? 'Booking created' : 'Booking updated',
+        message:
+          mode === 'create' ? 'Booking created successfully.' : 'Booking saved successfully.',
+      });
       router.push(`/reservations/${booking.backendId}`);
     } catch (error) {
-      showToast({ color: 'red', title: mode === 'create' ? 'Unable to create booking' : 'Unable to update booking', message: friendlyBookingError(error) });
+      showToast({
+        color: 'red',
+        title: mode === 'create' ? 'Unable to create booking' : 'Unable to update booking',
+        message: friendlyBookingError(error),
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -868,8 +1289,19 @@ export function BookingFormPage({ mode }: { mode: 'create' | 'edit' }) {
 
   return (
     <Stack gap={spacing[3]}>
-      <Button variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content" onClick={() => router.back()}>Back</Button>
-      <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 800 }}>Edit Booking</Title>
+      <Button
+        variant="subtle"
+        color="gray"
+        leftSection={<ChevronLeft size={16} />}
+        px={0}
+        w="fit-content"
+        onClick={() => router.back()}
+      >
+        Back
+      </Button>
+      <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 800 }}>
+        Edit Booking
+      </Title>
       <Card radius={radius.lg} p={20} style={cardStyle}>
         <BookingForm
           booking={details.booking}
