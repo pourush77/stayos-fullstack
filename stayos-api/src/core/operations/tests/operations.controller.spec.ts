@@ -21,6 +21,7 @@ describe('OperationsController', () => {
     cancelHold: jest.fn(),
     createHold: jest.fn(),
     getHold: jest.fn(),
+    getRoomChangeCandidates: jest.fn(),
     listHolds: jest.fn(),
     listInHouseGroups: jest.fn(),
     releaseHold: jest.fn(),
@@ -121,6 +122,22 @@ describe('OperationsController', () => {
       groupCode: 'GRP-00001',
     });
     expect(groupBookingService.createHold).toHaveBeenCalledWith(propertyId, dto);
+  });
+
+  it('delegates group room change candidate requests', async () => {
+    const groupHoldId = '5075c8fa-f36e-4f40-a3ef-2e9dbb1f0671';
+    const assignmentId = '6075c8fa-f36e-4f40-a3ef-2e9dbb1f0672';
+    const response = [{ roomId }];
+    groupBookingService.getRoomChangeCandidates.mockResolvedValue(response);
+
+    await expect(
+      controller.getGroupRoomChangeCandidates(propertyId, groupHoldId, assignmentId),
+    ).resolves.toEqual(response);
+    expect(groupBookingService.getRoomChangeCandidates).toHaveBeenCalledWith(
+      propertyId,
+      groupHoldId,
+      assignmentId,
+    );
   });
 
   it('delegates group hold list requests', async () => {

@@ -15,6 +15,7 @@ import { GroupBookingSource } from '../domain/group-booking-source.enum';
 import {
   AddGroupRoomingListItemDto,
   AssignGroupRoomDto,
+  AvailableRoomDto,
   ChangeGroupRoomDto,
   CreateGroupHoldDto,
   CreateWalkInGroupDto,
@@ -503,6 +504,80 @@ export class GroupBookingService {
     }
 
     return this.getHold(propertyId, id);
+  }
+
+  async getRoomChangeCandidates(
+    propertyId: string,
+    id: string,
+    assignmentId: string,
+  ): Promise<AvailableRoomDto[]> {
+    await this.propertiesService.findOne(propertyId);
+
+    const group = await this.findGroup(propertyId, id);
+    this.ensureEditable(group);
+
+    const assignment = await this.roomAssignmentsRepository.findOne({
+      where: {
+        id: assignmentId,
+        groupBookingId: group.id,
+      },
+    });
+
+    if (!assignment) {
+      throw new NotFoundException({
+        code: ApiErrorCode.NOT_FOUND,
+        message: 'Group room assignment not found.',
+      });
+    }
+
+    const availableRooms = await this.roomAvailabilityService.getAvailableRooms(propertyId, {
+      arrivalDate: group.arrivalDate,
+      departureDate: group.departureDate,
+      roomTypeId: assignment.roomTypeId,
+    });
+
+    const assignedToThisGroup = new Set(
+      (
+        await this.roomAssignmentsRepository.find({
+          where: {
+            groupBookingId: group.id,
+          },
+        })
+      ).map((groupAssignment) => groupAssignment.roomId),
+    );
+
+    const candidates = availableRooms.filter(
+      (room) => room.roomId !== assignment.roomId && !assignedToThisGroup.has(room.roomId),
+    );
+
+    if (!this.isOperationallyActiveGroup(group)) {
+      return candidates;
+    }
+
+    const activeCandidates = [];
+    for (const candidate of candidates) {
+      const room = await this.roomsRepository.findOne({
+        where: {
+          id: candidate.roomId,
+          propertyId,
+        },
+      });
+
+      if (!room) {
+        continue;
+      }
+
+      try {
+        await this.ensureRoomAvailableNowForActiveGroupReassignment(propertyId, group, room);
+        activeCandidates.push(candidate);
+      } catch (err) {
+        if (!(err instanceof BadRequestException)) {
+          throw err;
+        }
+      }
+    }
+
+    return activeCandidates;
   }
 
   async deleteHold(propertyId: string, id: string): Promise<GroupHoldDto> {

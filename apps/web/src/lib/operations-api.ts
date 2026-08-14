@@ -674,6 +674,18 @@ export function changeGroupRoom(
   );
 }
 
+export function getGroupRoomChangeCandidates(
+  propertyId: string,
+  groupHoldId: string,
+  assignmentId: string,
+  signal?: AbortSignal,
+) {
+  return get<OperationsAvailableRoomDto[]>(
+    `/properties/${propertyId}/operations/group-holds/${groupHoldId}/room-assignments/${assignmentId}/change-candidates`,
+    signal,
+  );
+}
+
 export function getGroupCheckInPreview(
   propertyId: string,
   groupHoldId: string,

@@ -165,6 +165,19 @@ async function availableRooms(
   );
 }
 
+async function roomChangeCandidates(
+  page: Page,
+  propertyId: string,
+  groupHoldId: string,
+  assignmentId: string,
+) {
+  return api<AvailableRoomDto[]>(
+    page,
+    'GET',
+    `/properties/${propertyId}/operations/group-holds/${groupHoldId}/room-assignments/${assignmentId}/change-candidates`,
+  );
+}
+
 async function inventoryRooms(page: Page, propertyId: string) {
   return api<InventoryRoomDto[]>(page, 'GET', `/properties/${propertyId}/rooms`);
 }
@@ -447,6 +460,12 @@ test.describe('group room reassignment', () => {
       expect(assigned.roomAssignments).toHaveLength(1);
 
       await markRoomOutOfService(page, propertyId, unavailableRoom.roomId);
+      const candidates = await roomChangeCandidates(
+        page,
+        propertyId,
+        groupHoldId,
+        assigned.roomAssignments[0].id,
+      );
 
       await page.goto(`/reservations/group-holds/${groupHoldId}`);
       await expect(page.getByText(created.groupCode)).toBeVisible({
@@ -471,6 +490,12 @@ test.describe('group room reassignment', () => {
 
       const replacementInput = modal.getByLabel('Replacement room');
       await replacementInput.click();
+      const optionTexts = await page.getByRole('option').allTextContents();
+      expect(optionTexts.sort()).toEqual(
+        candidates
+          .map((room) => `${room.roomNumber} - ${room.roomType.name || 'Room'}`)
+          .sort(),
+      );
       await expect(
         page.getByRole('option').filter({
           hasText: new RegExp(`^${oldRoom.roomNumber}\\s+-`),

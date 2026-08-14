@@ -451,6 +451,24 @@ export class OperationsController {
     return this.groupBookingService.changeAssignedRoom(propertyId, groupHoldId, assignmentId, dto);
   }
 
+  @Get('operations/group-holds/:groupHoldId/room-assignments/:assignmentId/change-candidates')
+  @RequirePermissions(Permissions.OperationsView, Permissions.RoomsView)
+  @ApiOperation({ summary: 'List safe replacement rooms for a group room assignment' })
+  @ApiParam({ name: 'propertyId', format: 'uuid' })
+  @ApiParam({ name: 'groupHoldId', format: 'uuid' })
+  @ApiParam({ name: 'assignmentId', format: 'uuid' })
+  @ApiStandardListResponse(AvailableRoomDto)
+  @ApiNotFoundResponse({
+    description: 'Group booking or room assignment not found.',
+  })
+  getGroupRoomChangeCandidates(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('groupHoldId', ParseUUIDPipe) groupHoldId: string,
+    @Param('assignmentId', ParseUUIDPipe) assignmentId: string,
+  ): Promise<AvailableRoomDto[]> {
+    return this.groupBookingService.getRoomChangeCandidates(propertyId, groupHoldId, assignmentId);
+  }
+
   @Get('operations/needs-attention')
   @RequirePermissions(Permissions.OperationsView, Permissions.RoomsView)
   @ApiOperation({

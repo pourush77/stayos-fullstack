@@ -254,6 +254,19 @@ async function availableRooms(page: Page, propertyId: string, roomTypeId: string
   );
 }
 
+async function roomChangeCandidates(
+  page: Page,
+  propertyId: string,
+  groupHoldId: string,
+  assignmentId: string,
+) {
+  return api<AvailableRoomDto[]>(
+    page,
+    'GET',
+    `/properties/${propertyId}/operations/group-holds/${groupHoldId}/room-assignments/${assignmentId}/change-candidates`,
+  );
+}
+
 async function markRoom(page: Page, propertyId: string, roomId: string, action: string) {
   return api(page, 'PATCH', `/properties/${propertyId}/rooms/${roomId}/${action}`, {
     reason: 'E2E group room availability edge case',
@@ -374,6 +387,16 @@ test.describe('group room availability edge cases', () => {
       // Boundary proof: the reservation starts exactly on the requested departure date.
       expect(boundaryReservation.id).toBeTruthy();
 
+      const candidates = await roomChangeCandidates(
+        page,
+        propertyId,
+        primaryGroup.id,
+        assigned.roomAssignments[0].id,
+      );
+      const candidateRoomIds = new Set(candidates.map((room) => room.roomId));
+      expect(candidateRoomIds.has(boundaryRoom.id)).toBeFalsy();
+      expect(candidateRoomIds.has(readyRoom.id)).toBeTruthy();
+
       await page.goto(`/reservations/group-holds/${primaryGroup.id}`);
       await expect(page.getByText(primaryGroup.groupCode)).toBeVisible({ timeout: 20_000 });
 
@@ -388,8 +411,14 @@ test.describe('group room availability edge cases', () => {
       const modal = page.getByRole('dialog', { name: 'Change Room' });
       await expect(modal).toBeVisible();
       await modal.getByLabel('Replacement room').click();
+      const optionTexts = await page.getByRole('option').allTextContents();
+      expect(optionTexts.sort()).toEqual(
+        candidates
+          .map((room) => `${room.roomNumber} - ${room.roomType.name || 'Room'}`)
+          .sort(),
+      );
 
-      await expect(roomOption(page, boundaryRoom)).toBeVisible();
+      await expect(roomOption(page, boundaryRoom)).toHaveCount(0);
       await expect(roomOption(page, readyRoom)).toBeVisible();
       await expect(roomOption(page, currentRoom)).toHaveCount(0);
       await expect(roomOption(page, occupiedRoom)).toHaveCount(0);
@@ -408,9 +437,9 @@ test.describe('group room availability edge cases', () => {
         groupRoom,
         wrongRoom,
       ];
-      const expectedVisible = controlledRooms.filter((room) => canonicalRoomIds.has(room.id));
+      const expectedVisible = controlledRooms.filter((room) => candidateRoomIds.has(room.id));
       expect(expectedVisible.map((room) => room.id).sort()).toEqual(
-        [boundaryRoom.id, readyRoom.id].sort(),
+        [readyRoom.id].sort(),
       );
 
       const boundaryAttempt = await apiAttempt(

@@ -31,6 +31,7 @@ import {
   completeGroupCheckout,
   confirmGroupHold,
   getAvailableRooms,
+  getGroupRoomChangeCandidates,
   deleteGroupHold,
   getGroupHold,
   type GroupHoldDto,
@@ -90,7 +91,9 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
   const [changeAssignment, setChangeAssignment] = useState<
     GroupHoldDto['roomAssignments'][number] | null
   >(null);
+  const [replacementRooms, setReplacementRooms] = useState<RoomOption[]>([]);
   const [replacementRoomId, setReplacementRoomId] = useState<string | null>(null);
+  const [isLoadingReplacementRooms, setIsLoadingReplacementRooms] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [deleteOpened, setDeleteOpened] = useState(false);
@@ -150,19 +153,6 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
     return rooms.filter((room) => allowed.has(room.roomTypeId) && !assigned.has(room.value));
   }, [hold, rooms]);
 
-  const replacementRooms = useMemo(() => {
-    if (!hold || !changeAssignment) return [];
-
-    const assigned = new Set(hold.roomAssignments.map((assignment) => assignment.roomId));
-
-    return rooms.filter(
-      (room) =>
-        room.roomTypeId === changeAssignment.roomTypeId &&
-        room.value !== changeAssignment.roomId &&
-        !assigned.has(room.value),
-    );
-  }, [changeAssignment, hold, rooms]);
-
   const canEditRoomAssignments = hold?.status === 'ON_HOLD' || hold?.status === 'CONFIRMED';
 
   const totalHeldRooms = hold?.roomBlocks.reduce((sum, block) => sum + block.rooms, 0) ?? 0;
@@ -221,15 +211,39 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
     }
   };
 
-  const openChangeRoom = (assignment: GroupHoldDto['roomAssignments'][number]) => {
+  const openChangeRoom = async (assignment: GroupHoldDto['roomAssignments'][number]) => {
+    if (!propertyId) return;
     setChangeAssignment(assignment);
     setReplacementRoomId(null);
+    setReplacementRooms([]);
+    setIsLoadingReplacementRooms(true);
+
+    try {
+      const candidates = await getGroupRoomChangeCandidates(propertyId, groupHoldId, assignment.id);
+      setReplacementRooms(
+        candidates.map((room) => ({
+          label: `${room.roomNumber} - ${room.roomType.name || 'Room'}`,
+          roomTypeId: room.roomType.id,
+          value: room.roomId,
+        })),
+      );
+    } catch (err) {
+      showToast({
+        color: 'red',
+        message: err instanceof Error ? err.message : 'Unable to load replacement rooms.',
+        title: 'Room candidates unavailable',
+      });
+      setChangeAssignment(null);
+    } finally {
+      setIsLoadingReplacementRooms(false);
+    }
   };
 
   const closeChangeRoom = () => {
-    if (isSaving) return;
+    if (isSaving || isLoadingReplacementRooms) return;
     setChangeAssignment(null);
     setReplacementRoomId(null);
+    setReplacementRooms([]);
   };
 
   const submitRoomChange = async () => {
@@ -241,11 +255,13 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
         roomId: replacementRoomId,
       });
 
-      const replacement = rooms.find((room) => room.value === replacementRoomId);
+      const replacement = replacementRooms.find((room) => room.value === replacementRoomId);
 
       setHold(updated);
       setChangeAssignment(null);
       setReplacementRoomId(null);
+      setReplacementRooms([]);
+      await load(propertyId);
 
       showToast({
         color: 'green',
@@ -572,7 +588,7 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
                             size="xs"
                             variant="light"
                             leftSection={<ArrowRightLeft size={14} />}
-                            onClick={() => openChangeRoom(assignment)}
+                            onClick={() => void openChangeRoom(assignment)}
                           >
                             Change Room
                           </Button>
@@ -696,21 +712,31 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
 
           <Select
             label="Replacement room"
-            description="Only rooms of the same room type that are not already assigned to this group are shown."
+            description="Only rooms that are safe to assign to this group are shown."
             data={replacementRooms}
             value={replacementRoomId}
             onChange={setReplacementRoomId}
             searchable
+            clearable={false}
             placeholder={
-              replacementRooms.length ? 'Choose another room' : 'No compatible replacement rooms'
+              isLoadingReplacementRooms
+                ? 'Loading replacement rooms...'
+                : replacementRooms.length
+                  ? 'Choose another room'
+                  : 'No safe replacement rooms'
             }
-            disabled={!replacementRooms.length || isSaving}
+            disabled={isLoadingReplacementRooms || !replacementRooms.length || isSaving}
           />
 
-          {!replacementRooms.length ? (
+          {isLoadingReplacementRooms ? (
+            <Alert color="blue" variant="light">
+              Loading safe replacement rooms.
+            </Alert>
+          ) : null}
+
+          {!isLoadingReplacementRooms && !replacementRooms.length ? (
             <Alert color="yellow" variant="light">
-              No compatible replacement room is available in the current room list. Try again after
-              availability changes.
+              No safe replacement room is currently available.
             </Alert>
           ) : null}
 
@@ -722,7 +748,7 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
               leftSection={<ArrowRightLeft size={15} />}
               onClick={() => void submitRoomChange()}
               loading={isSaving}
-              disabled={!replacementRoomId}
+              disabled={!replacementRoomId || isLoadingReplacementRooms}
             >
               Change Room
             </Button>
