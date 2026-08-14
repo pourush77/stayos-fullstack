@@ -23,13 +23,14 @@ import {
 import { ArrowRightLeft, BedDouble, CheckCircle2, Copy, Plus, Users } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
-import { getProperties, getPropertyRooms } from '../../lib/inventory-api';
+import { getProperties } from '../../lib/inventory-api';
 import {
   addGroupRoomingListItem,
   assignGroupRoom,
   changeGroupRoom,
   completeGroupCheckout,
   confirmGroupHold,
+  getAvailableRooms,
   deleteGroupHold,
   getGroupHold,
   type GroupHoldDto,
@@ -99,18 +100,21 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
   const load = async (id = propertyId, signal?: AbortSignal) => {
     if (!id || !hasValidGroupHoldId) return;
     setError(undefined);
-    const [nextHold, roomRows] = await Promise.all([
-      getGroupHold(id, groupHoldId, signal),
-      getPropertyRooms(id, signal),
-    ]);
+    const nextHold = await getGroupHold(id, groupHoldId, signal);
+    const roomRows = await getAvailableRooms(
+      id,
+      {
+        arrivalDate: nextHold.arrivalDate,
+        departureDate: nextHold.departureDate,
+      },
+      signal,
+    );
     setHold(nextHold);
     setRooms(
-      (roomRows as Array<Record<string, unknown>>).map((room) => ({
-        label: `${String(room.roomNumber)} - ${String((room.roomType as { name?: string } | undefined)?.name ?? 'Room')}`,
-        roomTypeId: String(
-          (room.roomType as { id?: string } | undefined)?.id ?? room.roomTypeId ?? '',
-        ),
-        value: String(room.id),
+      roomRows.map((room) => ({
+        label: `${room.roomNumber} - ${room.roomType.name || 'Room'}`,
+        roomTypeId: room.roomType.id,
+        value: room.roomId,
       })),
     );
   };

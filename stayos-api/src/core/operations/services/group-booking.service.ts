@@ -34,6 +34,7 @@ import { GroupBookingEntity } from '../infrastructure/group-booking.entity';
 import { GroupMasterFolioEntity } from '../infrastructure/group-master-folio.entity';
 import { GroupStayEntity } from '../infrastructure/group-stay.entity';
 import { GroupRoomMixService } from './group-room-mix.service';
+import { RoomAvailabilityService } from './room-availability.service';
 import { activeReservationStatuses, overlapsDateRange } from './operations-query.helpers';
 
 function currentDateKey(date = new Date()): string {
@@ -68,6 +69,7 @@ export class GroupBookingService {
     private readonly dataSource: DataSource,
     private readonly propertiesService: PropertiesService,
     private readonly groupRoomMixService: GroupRoomMixService,
+    private readonly roomAvailabilityService: RoomAvailabilityService,
   ) {}
 
   async createHold(propertyId: string, dto: CreateGroupHoldDto): Promise<GroupHoldDto> {
@@ -274,6 +276,19 @@ export class GroupBookingService {
       });
     }
 
+    const assignableRooms = await this.roomAvailabilityService.getAvailableRooms(propertyId, {
+      arrivalDate: group.arrivalDate,
+      departureDate: group.departureDate,
+      roomTypeId: room.roomTypeId,
+    });
+    const roomIsAvailable = assignableRooms.some((availableRoom) => availableRoom.roomId === room.id);
+    if (!roomIsAvailable) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: `Room ${room.roomNumber} is not available for the group dates.`,
+      });
+    }
+
     const reservationConflict = await this.reservationsRepository.findOne({
       where: {
         propertyId,
@@ -344,9 +359,11 @@ export class GroupBookingService {
       });
     }
 
-    // Selecting the same room is effectively a no-op.
     if (assignment.roomId === dto.roomId) {
-      return this.getHold(propertyId, id);
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: 'Replacement room must be different from the currently assigned room.',
+      });
     }
 
     const replacementRoom = await this.roomsRepository.findOne({
@@ -372,6 +389,22 @@ export class GroupBookingService {
       throw new BadRequestException({
         code: ApiErrorCode.VALIDATION_ERROR,
         message: 'Replacement room must be the same room type as the currently assigned room.',
+      });
+    }
+
+    const availableRooms = await this.roomAvailabilityService.getAvailableRooms(propertyId, {
+      arrivalDate: group.arrivalDate,
+      departureDate: group.departureDate,
+      roomTypeId: assignment.roomTypeId,
+    });
+    const replacementIsAvailable = availableRooms.some(
+      (availableRoom) => availableRoom.roomId === replacementRoom.id,
+    );
+
+    if (!replacementIsAvailable) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: `Room ${replacementRoom.roomNumber} is not available for the group dates.`,
       });
     }
 

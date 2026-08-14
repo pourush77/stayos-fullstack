@@ -2,8 +2,11 @@ import { expect, test, type Page } from '@playwright/test';
 import { loginAs } from './helpers/auth';
 
 const API_BASE = process.env.E2E_API_BASE_URL ?? 'http://localhost:3002/api/v1';
-const FRONT_DESK_EMAIL =
-  process.env.E2E_FRONT_DESK_EMAIL ?? process.env.E2E_EMAIL ?? 'frontdesk@stayos.local';
+const GROUP_CHANGE_EMAIL =
+  process.env.E2E_MANAGER_EMAIL ??
+  process.env.E2E_FRONT_DESK_EMAIL ??
+  process.env.E2E_EMAIL ??
+  'manager@stayos.local';
 
 type ApiEnvelope<T> = {
   success: boolean;
@@ -24,6 +27,17 @@ type AvailableRoomDto = {
     code?: string;
     name?: string;
   };
+};
+
+type InventoryRoomDto = {
+  id: string;
+  roomNumber: string;
+  roomType?: {
+    id?: string;
+    code?: string;
+    name?: string;
+  };
+  roomTypeId?: string;
 };
 
 type GroupHoldDto = {
@@ -90,6 +104,30 @@ async function api<T>(
   return parsed as T;
 }
 
+async function apiAttempt(
+  page: Page,
+  method: 'GET' | 'POST' | 'PATCH',
+  path: string,
+  body?: unknown,
+) {
+  const token = await accessToken(page);
+
+  const response = await page.request.fetch(`${API_BASE}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    data: body,
+  });
+
+  return {
+    body: await response.text(),
+    ok: response.ok(),
+    status: response.status(),
+  };
+}
+
 function dateValue(offsetDays: number) {
   const date = new Date();
   date.setHours(12, 0, 0, 0);
@@ -115,8 +153,10 @@ async function availableRooms(
   propertyId: string,
   arrivalDate: string,
   departureDate: string,
+  roomTypeId?: string,
 ) {
   const query = new URLSearchParams({ arrivalDate, departureDate });
+  if (roomTypeId) query.set('roomTypeId', roomTypeId);
 
   return api<AvailableRoomDto[]>(
     page,
@@ -125,25 +165,8 @@ async function availableRooms(
   );
 }
 
-function pickSameTypeRoomPair(rooms: AvailableRoomDto[]) {
-  const byType = new Map<string, AvailableRoomDto[]>();
-
-  for (const room of rooms) {
-    const roomTypeId = room.roomType.id;
-    const current = byType.get(roomTypeId) ?? [];
-    current.push(room);
-    byType.set(roomTypeId, current);
-  }
-
-  const pair = [...byType.values()].find((items) => items.length >= 2);
-
-  if (!pair) {
-    throw new Error(
-      'Could not find two compatible available rooms of the same room type. Reset/seed local E2E inventory and rerun.',
-    );
-  }
-
-  return [pair[0], pair[1]] as const;
+async function inventoryRooms(page: Page, propertyId: string) {
+  return api<InventoryRoomDto[]>(page, 'GET', `/properties/${propertyId}/rooms`);
 }
 
 async function createOneRoomGroupHold(
@@ -152,6 +175,7 @@ async function createOneRoomGroupHold(
   arrivalDate: string,
   departureDate: string,
   roomTypeId: string,
+  rooms = 1,
 ) {
   const unique = Date.now();
 
@@ -170,7 +194,7 @@ async function createOneRoomGroupHold(
         adultsPerRoom: 2,
         childrenPerRoom: 0,
         roomTypeId,
-        rooms: 1,
+        rooms,
       },
     ],
     source: 'PHONE',
@@ -191,6 +215,68 @@ async function getHold(page: Page, propertyId: string, groupHoldId: string) {
     page,
     'GET',
     `/properties/${propertyId}/operations/group-holds/${groupHoldId}`,
+  );
+}
+
+async function markRoomOutOfService(page: Page, propertyId: string, roomId: string) {
+  return api(
+    page,
+    'PATCH',
+    `/properties/${propertyId}/rooms/${roomId}/out-of-service`,
+    {
+      note: 'E2E group change unavailable replacement guard',
+      reason: 'E2E unavailable replacement guard',
+    },
+  );
+}
+
+async function markRoomReadyBestEffort(
+  page: Page,
+  propertyId: string | undefined,
+  roomId: string | undefined,
+) {
+  if (!propertyId || !roomId) return;
+
+  try {
+    await api(page, 'PATCH', `/properties/${propertyId}/rooms/${roomId}/mark-ready`);
+  } catch {
+    // Cleanup should never hide the actual test result.
+  }
+}
+
+async function prepareSameTypeAvailableRooms(
+  page: Page,
+  propertyId: string,
+  arrivalDate: string,
+  departureDate: string,
+  count: number,
+) {
+  const rooms = await inventoryRooms(page, propertyId);
+  const byType = new Map<string, InventoryRoomDto[]>();
+
+  for (const room of rooms) {
+    const roomTypeId = room.roomType?.id ?? room.roomTypeId;
+    if (!roomTypeId) continue;
+    const current = byType.get(roomTypeId) ?? [];
+    current.push(room);
+    byType.set(roomTypeId, current);
+  }
+
+  for (const [roomTypeId, candidates] of byType.entries()) {
+    if (candidates.length < count) continue;
+
+    for (const room of candidates.slice(0, count + 2)) {
+      await markRoomReadyBestEffort(page, propertyId, room.id);
+    }
+
+    const available = await availableRooms(page, propertyId, arrivalDate, departureDate, roomTypeId);
+    if (available.length >= count) {
+      return available.slice(0, count);
+    }
+  }
+
+  throw new Error(
+    `Could not prepare ${count} compatible available rooms of the same room type through existing APIs.`,
   );
 }
 
@@ -223,7 +309,7 @@ test.describe('group room reassignment', () => {
     let groupHoldId: string | undefined;
 
     try {
-      await loginAs(page, FRONT_DESK_EMAIL);
+      await loginAs(page, GROUP_CHANGE_EMAIL);
 
       const property = await activeProperty(page);
       propertyId = property.id;
@@ -233,9 +319,13 @@ test.describe('group room reassignment', () => {
       const arrivalDate = dateValue(35);
       const departureDate = dateValue(37);
 
-      const available = await availableRooms(page, propertyId, arrivalDate, departureDate);
-
-      const [oldRoom, replacementRoom] = pickSameTypeRoomPair(available);
+      const [oldRoom, replacementRoom] = await prepareSameTypeAvailableRooms(
+        page,
+        propertyId,
+        arrivalDate,
+        departureDate,
+        2,
+      );
 
       const created = await createOneRoomGroupHold(
         page,
@@ -317,6 +407,99 @@ test.describe('group room reassignment', () => {
       await expect(page.getByText(`Room ${oldRoom.roomNumber}`, { exact: true })).toHaveCount(0);
     } finally {
       await cancelHoldBestEffort(page, propertyId, groupHoldId);
+    }
+  });
+
+  test('change room dropdown and submit use canonical availability rules', async ({ page }) => {
+    test.setTimeout(120_000);
+
+    let propertyId: string | undefined;
+    let groupHoldId: string | undefined;
+    let unavailableRoomId: string | undefined;
+
+    try {
+      await loginAs(page, GROUP_CHANGE_EMAIL);
+
+      const property = await activeProperty(page);
+      propertyId = property.id;
+
+      const arrivalDate = dateValue(42);
+      const departureDate = dateValue(44);
+      const [oldRoom, unavailableRoom] = await prepareSameTypeAvailableRooms(
+        page,
+        propertyId,
+        arrivalDate,
+        departureDate,
+        2,
+      );
+      unavailableRoomId = unavailableRoom.roomId;
+
+      const created = await createOneRoomGroupHold(
+        page,
+        propertyId,
+        arrivalDate,
+        departureDate,
+        oldRoom.roomType.id,
+      );
+      groupHoldId = created.id;
+
+      const assigned = await assignRoom(page, propertyId, groupHoldId, oldRoom.roomId);
+      expect(assigned.roomAssignments).toHaveLength(1);
+
+      await markRoomOutOfService(page, propertyId, unavailableRoom.roomId);
+
+      await page.goto(`/reservations/group-holds/${groupHoldId}`);
+      await expect(page.getByText(created.groupCode)).toBeVisible({
+        timeout: 20_000,
+      });
+
+      const assignedRoomCard = page
+        .locator('div')
+        .filter({
+          has: page.getByText(`Room ${oldRoom.roomNumber}`, { exact: true }),
+        })
+        .filter({
+          has: page.getByRole('button', { name: 'Change Room' }),
+        })
+        .last();
+
+      await expect(assignedRoomCard).toBeVisible({ timeout: 15_000 });
+      await assignedRoomCard.getByRole('button', { name: 'Change Room' }).click();
+
+      const modal = page.getByRole('dialog', { name: 'Change Room' });
+      await expect(modal).toBeVisible();
+
+      const replacementInput = modal.getByLabel('Replacement room');
+      await replacementInput.click();
+      await expect(
+        page.getByRole('option').filter({
+          hasText: new RegExp(`^${oldRoom.roomNumber}\\s+-`),
+        }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole('option').filter({
+          hasText: new RegExp(`^${unavailableRoom.roomNumber}\\s+-`),
+        }),
+      ).toHaveCount(0);
+
+      const staleAttempt = await apiAttempt(
+        page,
+        'PATCH',
+        `/properties/${propertyId}/operations/group-holds/${groupHoldId}/room-assignments/${assigned.roomAssignments[0].id}`,
+        { roomId: unavailableRoom.roomId },
+      );
+      expect(staleAttempt.ok).toBeFalsy();
+      expect(staleAttempt.status).toBeGreaterThanOrEqual(400);
+
+      const afterChange = await getHold(page, propertyId, groupHoldId);
+      expect(afterChange.roomAssignments).toHaveLength(1);
+      expect(afterChange.roomAssignments[0].roomId).toBe(oldRoom.roomId);
+      expect(
+        afterChange.roomAssignments.some((item) => item.roomId === unavailableRoom.roomId),
+      ).toBeFalsy();
+    } finally {
+      await cancelHoldBestEffort(page, propertyId, groupHoldId);
+      await markRoomReadyBestEffort(page, propertyId, unavailableRoomId);
     }
   });
 });

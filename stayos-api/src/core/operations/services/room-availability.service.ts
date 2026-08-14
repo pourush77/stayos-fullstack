@@ -6,7 +6,9 @@ import { PropertiesService } from '../../properties/properties.service';
 import { ReservationEntity } from '../../reservations/infrastructure/reservation.entity';
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
+import { GroupBookingStatus } from '../domain/group-booking-status.enum';
 import { AvailableRoomDto, AvailableRoomsQueryDto } from '../dto/operations.dto';
+import { GroupBookingRoomAssignmentEntity } from '../infrastructure/group-booking-room-assignment.entity';
 import { OperationsMapper } from '../mappers/operations.mapper';
 import {
   activeReservationStatuses,
@@ -21,6 +23,8 @@ export class RoomAvailabilityService {
     private readonly roomsRepository: Repository<RoomEntity>,
     @InjectRepository(ReservationEntity)
     private readonly reservationsRepository: Repository<ReservationEntity>,
+    @InjectRepository(GroupBookingRoomAssignmentEntity)
+    private readonly roomAssignmentsRepository: Repository<GroupBookingRoomAssignmentEntity>,
     private readonly propertiesService: PropertiesService,
   ) {}
 
@@ -54,10 +58,36 @@ export class RoomAvailabilityService {
         .filter((reservation) => reservation.roomId)
         .map((reservation) => reservation.roomId as string),
     );
+    const conflictingGroupAssignments =
+      query.arrivalDate && query.departureDate && rooms.length
+        ? await this.roomAssignmentsRepository
+            .createQueryBuilder('assignment')
+            .innerJoin('assignment.groupBooking', 'groupBooking')
+            .where('assignment.roomId IN (:...roomIds)', { roomIds: rooms.map((room) => room.id) })
+            .andWhere('groupBooking.propertyId = :propertyId', { propertyId })
+            .andWhere('groupBooking.status IN (:...statuses)', {
+              statuses: [
+                GroupBookingStatus.ON_HOLD,
+                GroupBookingStatus.CONFIRMED,
+                GroupBookingStatus.CHECKED_IN,
+              ],
+            })
+            .andWhere('groupBooking.arrivalDate < :departureDate', {
+              departureDate: query.departureDate,
+            })
+            .andWhere('groupBooking.departureDate > :arrivalDate', {
+              arrivalDate: query.arrivalDate,
+            })
+            .getMany()
+        : [];
+    const groupAssignedRoomIds = new Set(
+      conflictingGroupAssignments.map((assignment) => assignment.roomId),
+    );
 
     return rooms
       .filter((room) => room.operationalStatus === RoomOperationalStatus.READY)
       .filter((room) => !conflictedRoomIds.has(room.id))
+      .filter((room) => !groupAssignedRoomIds.has(room.id))
       .filter((room) => !query.roomTypeId || room.roomTypeId === query.roomTypeId)
       .filter((room) => !query.guestCount || (room.roomType?.maxOccupancy ?? 0) >= query.guestCount)
       .filter((room) => !query.adults || (room.roomType?.maxAdults ?? 0) >= query.adults)
