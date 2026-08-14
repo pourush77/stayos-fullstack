@@ -132,4 +132,29 @@ describe('OperationsMapper', () => {
       },
     });
   });
+
+  it('surfaces group and individual reservation conflicts without exposing check-in', () => {
+    expect(
+      OperationsMapper.toRoomBoardItem(
+        room(RoomOperationalStatus.READY),
+        { ...reservation('2026-07-04'), status: ReservationStatus.CONFIRMED },
+        '2026-07-03',
+        {
+          groupBookingId: 'group-booking-id',
+          groupCode: 'GRP-00007',
+          groupName: 'Hillston Visit',
+          masterFolioId: 'folio-id',
+          masterFolioNumber: 'GFO-00001',
+          status: 'OPEN',
+        },
+      ),
+    ).toMatchObject({
+      uiStatus: OperationsRoomUiStatus.UNAVAILABLE,
+      groupContext: {
+        groupCode: 'GRP-00007',
+      },
+      primaryAction: 'View Details',
+      attentionLevel: OperationsAttentionLevel.CRITICAL,
+    });
+  });
 });

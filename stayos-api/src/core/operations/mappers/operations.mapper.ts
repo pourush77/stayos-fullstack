@@ -38,17 +38,17 @@ export class OperationsMapper {
         code: room.roomType?.code ?? '',
         name: room.roomType?.name ?? '',
       },
-        uiStatus: this.toUiStatus(room.operationalStatus, currentStay),
-        operationalStatus:
-          currentStay?.status === ReservationStatus.CHECKED_IN &&
-          room.operationalStatus === RoomOperationalStatus.READY
-            ? RoomOperationalStatus.OCCUPIED
-            : room.operationalStatus,
+      uiStatus: this.toUiStatus(room.operationalStatus, currentStay, groupContext),
+      operationalStatus:
+        currentStay?.status === ReservationStatus.CHECKED_IN &&
+        room.operationalStatus === RoomOperationalStatus.READY
+          ? RoomOperationalStatus.OCCUPIED
+          : room.operationalStatus,
       currentStay: currentStay ? this.toReservationSummary(currentStay) : null,
       checkoutLabel: currentStay ? this.toCheckoutLabel(currentStay.departureDate, today) : null,
       groupContext: groupContext ?? null,
-      primaryAction: this.toPrimaryAction(room, currentStay),
-      attentionLevel: this.toAttentionLevel(room, currentStay, today),
+      primaryAction: this.toPrimaryAction(room, currentStay, groupContext),
+      attentionLevel: this.toAttentionLevel(room, currentStay, today, groupContext),
     };
   }
 
@@ -141,9 +141,21 @@ export class OperationsMapper {
   private static toUiStatus(
     status: RoomOperationalStatus,
     currentStay: ReservationEntity | null = null,
+    groupContext?: GroupContextDto | null,
   ): OperationsRoomUiStatus {
-    if (currentStay?.status === ReservationStatus.CHECKED_IN && status === RoomOperationalStatus.READY) {
+    if (
+      currentStay?.status === ReservationStatus.CHECKED_IN &&
+      status === RoomOperationalStatus.READY
+    ) {
       return OperationsRoomUiStatus.OCCUPIED;
+    }
+
+    if (
+      groupContext &&
+      currentStay &&
+      [ReservationStatus.PENDING, ReservationStatus.CONFIRMED].includes(currentStay.status)
+    ) {
+      return OperationsRoomUiStatus.UNAVAILABLE;
     }
 
     switch (status) {
@@ -184,7 +196,15 @@ export class OperationsMapper {
     })}`;
   }
 
-  private static toPrimaryAction(room: RoomEntity, currentStay: ReservationEntity | null): string {
+  private static toPrimaryAction(
+    room: RoomEntity,
+    currentStay: ReservationEntity | null,
+    groupContext?: GroupContextDto | null,
+  ): string {
+    if (groupContext && currentStay) {
+      return 'View Details';
+    }
+
     if (currentStay?.status === ReservationStatus.CHECKED_IN) {
       return 'Open Stay';
     }
@@ -215,7 +235,12 @@ export class OperationsMapper {
     room: RoomEntity,
     currentStay: ReservationEntity | null,
     today: string,
+    groupContext?: GroupContextDto | null,
   ): OperationsAttentionLevel {
+    if (groupContext && currentStay) {
+      return OperationsAttentionLevel.CRITICAL;
+    }
+
     if (
       [RoomOperationalStatus.OUT_OF_ORDER, RoomOperationalStatus.OUT_OF_SERVICE].includes(
         room.operationalStatus,

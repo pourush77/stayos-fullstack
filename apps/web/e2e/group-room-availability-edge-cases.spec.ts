@@ -33,6 +33,12 @@ type GroupHoldDto = {
   }>;
 };
 
+type ApiAttempt = {
+  body: string;
+  ok: boolean;
+  status: number;
+};
+
 async function accessToken(page: Page) {
   const token = await page.evaluate(
     () =>
@@ -65,6 +71,29 @@ async function api<T>(
     return (parsed as ApiEnvelope<T>).data;
   }
   return parsed as T;
+}
+
+async function apiAttempt(
+  page: Page,
+  method: 'GET' | 'POST' | 'PATCH',
+  path: string,
+  body?: unknown,
+): Promise<ApiAttempt> {
+  const token = await accessToken(page);
+  const response = await page.request.fetch(`${API_BASE}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    data: body,
+  });
+
+  return {
+    body: await response.text(),
+    ok: response.ok(),
+    status: response.status(),
+  };
 }
 
 async function activeProperty(page: Page) {
@@ -384,6 +413,15 @@ test.describe('group room availability edge cases', () => {
         [boundaryRoom.id, readyRoom.id].sort(),
       );
 
+      const boundaryAttempt = await apiAttempt(
+        page,
+        'PATCH',
+        `/properties/${propertyId}/operations/group-holds/${primaryGroup.id}/room-assignments/${assigned.roomAssignments[0].id}`,
+        { roomId: boundaryRoom.id },
+      );
+      expect(boundaryAttempt.ok).toBeFalsy();
+      expect(boundaryAttempt.status).toBeGreaterThanOrEqual(400);
+
       await roomOption(page, readyRoom).click();
       const changeResponse = page.waitForResponse(
         (response) =>
@@ -391,7 +429,9 @@ test.describe('group room availability edge cases', () => {
           response.url().includes(`/operations/group-holds/${primaryGroup.id}/room-assignments/`),
       );
       await modal.getByRole('button', { name: 'Change Room' }).click();
-      expect((await changeResponse).ok()).toBeTruthy();
+      const response = await changeResponse;
+      const responseBody = await response.text();
+      expect(response.ok(), responseBody).toBeTruthy();
 
       const afterChange = await api<GroupHoldDto>(
         page,

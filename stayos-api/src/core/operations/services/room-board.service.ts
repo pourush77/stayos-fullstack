@@ -85,10 +85,12 @@ export class RoomBoardService {
       const assignedReservation = assignedReservationByRoomId.get(room.id);
       const groupAssignment = groupAssignmentByRoomId.get(room.id);
       const isActiveGroupAssignment =
-        !currentStay &&
-        !assignedReservation &&
         !!groupAssignment?.groupBooking &&
-        groupAssignment.groupBooking.status !== GroupBookingStatus.CHECKED_OUT;
+        ![
+          GroupBookingStatus.RELEASED,
+          GroupBookingStatus.CANCELLED,
+          GroupBookingStatus.CHECKED_OUT,
+        ].includes(groupAssignment.groupBooking.status);
       const groupContext = isActiveGroupAssignment
         ? {
             groupBookingId: groupAssignment.groupBooking.id,

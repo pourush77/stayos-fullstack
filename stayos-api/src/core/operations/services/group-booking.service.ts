@@ -1,8 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, In, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { ApiErrorCode } from '../../../common/errors/api-error-code.enum';
 import { PropertiesService } from '../../properties/properties.service';
+import { ReservationStatus } from '../../reservations/domain/reservation-status.enum';
 import { ReservationEntity } from '../../reservations/infrastructure/reservation.entity';
 import { RoomTypeEntity } from '../../room-types/infrastructure/room-type.entity';
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
@@ -407,6 +408,12 @@ export class GroupBookingService {
         message: `Room ${replacementRoom.roomNumber} is not available for the group dates.`,
       });
     }
+
+    await this.ensureRoomAvailableNowForActiveGroupReassignment(
+      propertyId,
+      group,
+      replacementRoom,
+    );
 
     const alreadyAssignedToThisGroup = await this.roomAssignmentsRepository.findOne({
       where: {
@@ -1367,6 +1374,87 @@ export class GroupBookingService {
         message: `Cannot edit a ${group.status.toLowerCase().replace('_', ' ')} group hold.`,
       });
     }
+  }
+
+  private async ensureRoomAvailableNowForActiveGroupReassignment(
+    propertyId: string,
+    group: GroupBookingEntity,
+    room: RoomEntity,
+  ): Promise<void> {
+    if (!this.isOperationallyActiveGroup(group)) {
+      return;
+    }
+
+    if (room.operationalStatus !== RoomOperationalStatus.READY) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: `Room ${room.roomNumber} is not ready for active group reassignment.`,
+      });
+    }
+
+    const today = currentDateKey();
+    const reservationClaim = await this.reservationsRepository.findOne({
+      where: {
+        propertyId,
+        roomId: room.id,
+        status: In([
+          ReservationStatus.CHECKED_IN,
+          ReservationStatus.PENDING,
+          ReservationStatus.CONFIRMED,
+        ]),
+        arrivalDate: LessThanOrEqual(today),
+        departureDate: MoreThanOrEqual(today),
+      },
+    });
+
+    if (reservationClaim) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: `Room ${room.roomNumber} has an active or arriving reservation today.`,
+      });
+    }
+
+    const activeGroupClaim = await this.roomAssignmentsRepository
+      .createQueryBuilder('assignment')
+      .innerJoin('assignment.groupBooking', 'groupBooking')
+      .where('assignment.roomId = :roomId', { roomId: room.id })
+      .andWhere('assignment.groupBookingId != :groupBookingId', { groupBookingId: group.id })
+      .andWhere('groupBooking.status IN (:...activeStatuses)', {
+        activeStatuses: [
+          GroupBookingStatus.ON_HOLD,
+          GroupBookingStatus.CONFIRMED,
+          GroupBookingStatus.CHECKED_IN,
+        ],
+      })
+      .andWhere(
+        '(groupBooking.status = :checkedInStatus OR (groupBooking.arrivalDate <= :today AND groupBooking.departureDate >= :today))',
+        { checkedInStatus: GroupBookingStatus.CHECKED_IN, today },
+      )
+      .getOne();
+
+    if (activeGroupClaim) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: `Room ${room.roomNumber} has an active group claim today.`,
+      });
+    }
+  }
+
+  private isOperationallyActiveGroup(group: GroupBookingEntity): boolean {
+    if (
+      [GroupBookingStatus.RELEASED, GroupBookingStatus.CANCELLED, GroupBookingStatus.CHECKED_OUT].includes(
+        group.status,
+      )
+    ) {
+      return false;
+    }
+
+    if (group.status === GroupBookingStatus.CHECKED_IN) {
+      return true;
+    }
+
+    const today = currentDateKey();
+    return group.arrivalDate <= today && group.departureDate >= today;
   }
 
   private loadRoomingList(groupBookingId: string) {
