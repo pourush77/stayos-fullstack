@@ -408,25 +408,7 @@ export class ReservationWorkflowService {
         ApiErrorCode.ROOM_OVERLAP,
       );
 
-      const oldRoomWasUnderMaintenance =
-        oldRoom.operationalStatus === RoomOperationalStatus.MAINTENANCE;
-
-      if (oldRoomWasUnderMaintenance) {
-        // A relocation must not clear a blocking maintenance state.
-        // The maintenance workflow remains the source of truth for when this room
-        // can move on to inspection/housekeeping and eventually become READY again.
-        oldRoom.operationalStatusReason = 'MAINTENANCE_RELOCATION';
-        oldRoom.operationalStatusNote = dto.reason?.trim()
-          ? `Guest relocated while room remained under maintenance. Reason: ${dto.reason.trim()}`
-          : 'Guest relocated because the room is under maintenance. Room remains unavailable.';
-      } else {
-        // Normal in-house room move: the vacated room needs housekeeping.
-        oldRoom.operationalStatus = RoomOperationalStatus.NEEDS_CLEANING;
-        oldRoom.operationalStatusReason = 'ROOM_MOVE';
-        oldRoom.operationalStatusNote = dto.reason?.trim()
-          ? `Guest moved rooms. Reason: ${dto.reason.trim()}`
-          : 'Guest moved rooms. Room marked for cleaning.';
-      }
+      this.applySourceRoomStateAfterMove(oldRoom, dto.reason);
 
       targetRoom.operationalStatus = RoomOperationalStatus.OCCUPIED;
       targetRoom.operationalStatusReason = null;
@@ -552,6 +534,26 @@ export class ReservationWorkflowService {
     if (room.operationalStatus !== RoomOperationalStatus.READY) {
       throw this.badRequest(ApiErrorCode.ROOM_NOT_READY, 'Room must be ready');
     }
+  }
+
+  private applySourceRoomStateAfterMove(room: RoomEntity, reason?: string): void {
+    if (this.isOperationallyUnavailable(room.operationalStatus)) {
+      return;
+    }
+
+    room.operationalStatus = RoomOperationalStatus.NEEDS_CLEANING;
+    room.operationalStatusReason = 'ROOM_MOVE';
+    room.operationalStatusNote = reason?.trim()
+      ? `Guest moved rooms. Reason: ${reason.trim()}`
+      : 'Guest moved rooms. Room marked for cleaning.';
+  }
+
+  private isOperationallyUnavailable(status: RoomOperationalStatus): boolean {
+    return [
+      RoomOperationalStatus.MAINTENANCE,
+      RoomOperationalStatus.OUT_OF_SERVICE,
+      RoomOperationalStatus.OUT_OF_ORDER,
+    ].includes(status);
   }
 
   private ensureRoomTypeMatches(reservation: ReservationEntity, room: RoomEntity): void {

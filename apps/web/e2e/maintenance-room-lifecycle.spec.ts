@@ -599,6 +599,28 @@ async function waitForRoomBoardStatus(
     .toBe(normalizeStatus(input.expected));
 }
 
+async function waitForRoomOperationalStatus(
+  page: Page,
+  input: {
+    propertyId: string;
+    roomId: string;
+    expected: string;
+  },
+) {
+  await expect
+    .poll(
+      async () => {
+        const room = await getRoomBoardItem(page, input.propertyId, input.roomId);
+        return normalizeStatus(room.operationalStatus);
+      },
+      {
+        timeout: 20_000,
+        intervals: [300, 700, 1_500],
+      },
+    )
+    .toBe(normalizeStatus(input.expected));
+}
+
 async function waitForHousekeepingStatus(
   page: Page,
   input: {
@@ -989,6 +1011,45 @@ async function moveGuestRoom(
   if (!response.ok) {
     throw new Error(
       `Unable to move guest room: HTTP ${response.status}\n${JSON.stringify(response.body)}`,
+    );
+  }
+}
+
+async function markRoomOperationalStatus(
+  page: Page,
+  input: {
+    propertyId: string;
+    roomId: string;
+    status: 'maintenance' | 'out-of-service' | 'out-of-order';
+    reason: string;
+    note: string;
+  },
+) {
+  const response = await apiRequest<LooseRecord>(page, {
+    method: 'PATCH',
+    path: `/properties/${input.propertyId}/rooms/${input.roomId}/${input.status}`,
+    body: {
+      reason: input.reason,
+      note: input.note,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Unable to mark room ${input.status}: HTTP ${response.status}\n${JSON.stringify(response.body)}`,
+    );
+  }
+}
+
+async function returnRoomToService(page: Page, propertyId: string, roomId: string) {
+  const response = await apiRequest<LooseRecord>(page, {
+    method: 'PATCH',
+    path: `/properties/${propertyId}/rooms/${roomId}/return-to-service`,
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Unable to return room to service: HTTP ${response.status}\n${JSON.stringify(response.body)}`,
     );
   }
 }
@@ -1810,6 +1871,161 @@ test.describe('maintenance room lifecycle regression', () => {
       }
     }
   });
+
+  test('normal occupied room relocation sends source room to needs cleaning', async ({ page }) => {
+    await loginAs(page, frontDeskEmail);
+
+    const candidate = await discoverReadyRoomPairForToday(page);
+    const roomA = candidate.roomA;
+    const roomB = candidate.roomB;
+    const guest = await createUniqueGuest(page, candidate.propertyId);
+    const reservation = await createConfirmedReservation(page, {
+      propertyId: candidate.propertyId,
+      guestId: guest.guestId,
+      roomTypeId: roomA.roomTypeId,
+      arrivalDate: candidate.arrivalDate,
+      departureDate: candidate.departureDate,
+    });
+
+    try {
+      await assignReservationRoom(
+        page,
+        candidate.propertyId,
+        reservation.reservationId,
+        roomA.roomId,
+      );
+      await prepareAndCompleteCheckIn(page, candidate.propertyId, reservation.reservationId);
+      await waitForRoomBoardStatus(page, {
+        propertyId: candidate.propertyId,
+        roomId: roomA.roomId,
+        expected: 'OCCUPIED',
+      });
+
+      await moveGuestRoom(page, {
+        propertyId: candidate.propertyId,
+        reservationId: reservation.reservationId,
+        roomId: roomB.roomId,
+        reason: 'E2E normal relocation',
+      });
+
+      const sourceRoom = await getRoomBoardItem(page, candidate.propertyId, roomA.roomId);
+      const targetRoom = await getRoomBoardItem(page, candidate.propertyId, roomB.roomId);
+
+      expect(normalizeStatus(sourceRoom.operationalStatus)).toBe('NEEDS_CLEANING');
+      expect(normalizeStatus(targetRoom.uiStatus)).toBe('OCCUPIED');
+
+      await advanceHousekeepingFromDirtyToReady(page, {
+        propertyId: candidate.propertyId,
+        roomId: roomA.roomId,
+      });
+      await waitForHousekeepingStatus(page, {
+        propertyId: candidate.propertyId,
+        roomId: roomA.roomId,
+        expected: 'ready',
+      });
+    } finally {
+      await cleanupReservationViaCheckoutIfCheckedIn(page, {
+        propertyId: candidate.propertyId,
+        reservationId: reservation.reservationId,
+      }).catch(() => undefined);
+      await restoreRoomAfterCheckoutIfNeeded(page, {
+        propertyId: candidate.propertyId,
+        roomId: roomA.roomId,
+      }).catch(() => undefined);
+      await restoreRoomAfterCheckoutIfNeeded(page, {
+        propertyId: candidate.propertyId,
+        roomId: roomB.roomId,
+      }).catch(() => undefined);
+    }
+  });
+
+  for (const manualStatus of ['maintenance', 'out-of-service', 'out-of-order'] as const) {
+    test(`occupied room relocation preserves manual ${manualStatus} source state`, async ({
+      page,
+    }) => {
+      await loginAs(page, frontDeskEmail);
+
+      const candidate = await discoverReadyRoomPairForToday(page);
+      const roomA = candidate.roomA;
+      const roomB = candidate.roomB;
+      const reason = `E2E ${manualStatus} issue`;
+      const note = `Preserve ${manualStatus} during relocation`;
+      const expectedStatus = normalizeStatus(manualStatus);
+      const guest = await createUniqueGuest(page, candidate.propertyId);
+      const reservation = await createConfirmedReservation(page, {
+        propertyId: candidate.propertyId,
+        guestId: guest.guestId,
+        roomTypeId: roomA.roomTypeId,
+        arrivalDate: candidate.arrivalDate,
+        departureDate: candidate.departureDate,
+      });
+
+      try {
+        await assignReservationRoom(
+          page,
+          candidate.propertyId,
+          reservation.reservationId,
+          roomA.roomId,
+        );
+        await prepareAndCompleteCheckIn(page, candidate.propertyId, reservation.reservationId);
+        await markRoomOperationalStatus(page, {
+          propertyId: candidate.propertyId,
+          roomId: roomA.roomId,
+          status: manualStatus,
+          reason,
+          note,
+        });
+
+        await waitForRoomOperationalStatus(page, {
+          propertyId: candidate.propertyId,
+          roomId: roomA.roomId,
+          expected: expectedStatus,
+        });
+
+        await moveGuestRoom(page, {
+          propertyId: candidate.propertyId,
+          reservationId: reservation.reservationId,
+          roomId: roomB.roomId,
+          reason: `E2E relocation from ${manualStatus}`,
+        });
+
+        const sourceRoom = await getRoomBoardItem(page, candidate.propertyId, roomA.roomId);
+        const targetRoom = await getRoomBoardItem(page, candidate.propertyId, roomB.roomId);
+
+        expect(normalizeStatus(sourceRoom.operationalStatus)).toBe(expectedStatus);
+        expect(normalizeStatus(targetRoom.uiStatus)).toBe('OCCUPIED');
+
+        await returnRoomToService(page, candidate.propertyId, roomA.roomId);
+        await waitForHousekeepingStatus(page, {
+          propertyId: candidate.propertyId,
+          roomId: roomA.roomId,
+          expected: 'dirty',
+        });
+        await advanceHousekeepingFromDirtyToReady(page, {
+          propertyId: candidate.propertyId,
+          roomId: roomA.roomId,
+        });
+        await waitForHousekeepingStatus(page, {
+          propertyId: candidate.propertyId,
+          roomId: roomA.roomId,
+          expected: 'ready',
+        });
+      } finally {
+        await cleanupReservationViaCheckoutIfCheckedIn(page, {
+          propertyId: candidate.propertyId,
+          reservationId: reservation.reservationId,
+        }).catch(() => undefined);
+        await restoreRoomAfterCheckoutIfNeeded(page, {
+          propertyId: candidate.propertyId,
+          roomId: roomA.roomId,
+        }).catch(() => undefined);
+        await restoreRoomAfterCheckoutIfNeeded(page, {
+          propertyId: candidate.propertyId,
+          roomId: roomB.roomId,
+        }).catch(() => undefined);
+      }
+    });
+  }
 
   test('occupied room blocking maintenance opens relocation flow immediately', async ({ page }) => {
     await loginAs(page, frontDeskEmail);

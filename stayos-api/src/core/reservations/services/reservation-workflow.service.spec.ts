@@ -570,6 +570,37 @@ describe('ReservationWorkflowService', () => {
       );
     });
 
+    it.each([
+      RoomOperationalStatus.MAINTENANCE,
+      RoomOperationalStatus.OUT_OF_SERVICE,
+      RoomOperationalStatus.OUT_OF_ORDER,
+    ])('preserves old room %s state when relocating guest', async (status) => {
+      roomsRepository.findOne?.mockImplementation(async ({ where }: { where: { id: string } }) =>
+        where.id === targetRoomId
+          ? roomEntity({ id: targetRoomId, roomNumber: '305' })
+          : roomEntity({
+              id: roomId,
+              operationalStatus: status,
+              operationalStatusReason: 'Existing issue',
+              operationalStatusNote: 'Do not clear this issue',
+            }),
+      );
+
+      await service.moveRoom(propertyId, reservationId, {
+        roomId: targetRoomId,
+        reason: 'Relocation required',
+      });
+
+      expect(roomsRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: roomId,
+          operationalStatus: status,
+          operationalStatusReason: 'Existing issue',
+          operationalStatusNote: 'Do not clear this issue',
+        }),
+      );
+    });
+
     it('creates audit and activity events', async () => {
       await service.moveRoom(propertyId, reservationId, { roomId: targetRoomId });
 
