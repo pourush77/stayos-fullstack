@@ -12,6 +12,7 @@ import { FolioChargeType } from '../../billing/domain/folio-charge-type.enum';
 import { FolioStatus } from '../../billing/domain/folio-status.enum';
 import { FolioChargeEntity } from '../../billing/infrastructure/folio-charge.entity';
 import { FolioEntity } from '../../billing/infrastructure/folio.entity';
+import { TaxService } from '../../rates/tax.service';
 import { AssignRoomDto } from '../dto/assign-room.dto';
 import { ExtendReservationDto } from '../dto/extend-reservation.dto';
 import { MoveRoomDto } from '../dto/move-room.dto';
@@ -38,6 +39,7 @@ export class ReservationWorkflowService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly checkInService: CheckInService,
+    private readonly taxService: TaxService,
   ) {}
 
   async assignRoom(
@@ -700,7 +702,7 @@ export class ReservationWorkflowService {
     );
     const nightlyRate = Number(existingRoomCharge?.unitAmount ?? 3500);
     const baseAmount = nightlyRate * extraNights;
-    const taxAmount = baseAmount * 0.12;
+    const tax = await this.taxService.calculateForProperty(reservation.propertyId, baseAmount);
 
     const charge = chargeRepository.create({
       folioId: folio.id,
@@ -709,7 +711,7 @@ export class ReservationWorkflowService {
       quantity: extraNights,
       unitAmount: nightlyRate.toFixed(2),
       amount: baseAmount.toFixed(2),
-      taxAmount: taxAmount.toFixed(2),
+      taxAmount: tax.taxAmount,
       chargedAt: new Date(),
       createdByUserId: null,
     });

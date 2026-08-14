@@ -17,6 +17,7 @@ export class ReservationsMapper {
       departureDate: entity.departureDate,
       adults: entity.adults,
       children: entity.children,
+      childAges: entity.childAges,
       roomTypeId: entity.roomTypeId,
       roomId: entity.roomId,
       source: entity.source,

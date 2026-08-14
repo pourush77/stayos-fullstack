@@ -111,7 +111,7 @@ describe('RoomTypesService', () => {
     ).resolves.toEqual(roomTypeEntity);
   });
 
-  it('rejects invalid occupancy rules', async () => {
+  it('rejects maxOccupancy below baseOccupancy', async () => {
     await expect(
       service.create(propertyId, {
         code: 'DLX',
@@ -122,6 +122,106 @@ describe('RoomTypesService', () => {
         maxChildren: 1,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects baseOccupancy below one', async () => {
+    await expect(
+      service.create(propertyId, {
+        code: 'DLX',
+        name: 'Deluxe Room',
+        baseOccupancy: 0,
+        maxOccupancy: 3,
+        maxAdults: 2,
+        maxChildren: 1,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects maxAdults above maxOccupancy', async () => {
+    await expect(
+      service.create(propertyId, {
+        code: 'DLX',
+        name: 'Deluxe Room',
+        baseOccupancy: 2,
+        maxOccupancy: 3,
+        maxAdults: 4,
+        maxChildren: 1,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects maxAdults below one', async () => {
+    await expect(
+      service.create(propertyId, {
+        code: 'DLX',
+        name: 'Deluxe Room',
+        baseOccupancy: 1,
+        maxOccupancy: 3,
+        maxAdults: 0,
+        maxChildren: 1,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects maxChildren above maxOccupancy', async () => {
+    await expect(
+      service.create(propertyId, {
+        code: 'DLX',
+        name: 'Deluxe Room',
+        baseOccupancy: 2,
+        maxOccupancy: 3,
+        maxAdults: 2,
+        maxChildren: 4,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('allows zero children', async () => {
+    repository.create?.mockImplementation((input) => ({ ...roomTypeEntity, ...input }));
+    repository.save?.mockImplementation(async (input) => input);
+
+    await expect(
+      service.create(propertyId, {
+        code: 'STD',
+        name: 'Standard Room',
+        baseOccupancy: 1,
+        maxOccupancy: 2,
+        maxAdults: 2,
+        maxChildren: 0,
+      }),
+    ).resolves.toMatchObject({ maxChildren: 0 });
+  });
+
+  it('rejects negative children', async () => {
+    await expect(
+      service.create(propertyId, {
+        code: 'DLX',
+        name: 'Deluxe Room',
+        baseOccupancy: 1,
+        maxOccupancy: 3,
+        maxAdults: 2,
+        maxChildren: -1,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('updates occupancy on an existing room type', async () => {
+    repository.findOne?.mockResolvedValue(roomTypeEntity);
+    repository.merge?.mockImplementation((entity, update) => ({ ...entity, ...update }));
+    repository.save?.mockImplementation(async (input) => input);
+
+    await expect(
+      service.update(propertyId, roomTypeEntity.id, {
+        baseOccupancy: 2,
+        maxOccupancy: 4,
+        maxAdults: 3,
+        maxChildren: 2,
+      }),
+    ).resolves.toMatchObject({ maxOccupancy: 4, maxAdults: 3, maxChildren: 2 });
+    expect(repository.findOne).toHaveBeenCalledWith({
+      where: { id: roomTypeEntity.id, propertyId },
+      relations: ['amenities'],
+    });
   });
 
   it('maps duplicate room type codes to conflicts', async () => {

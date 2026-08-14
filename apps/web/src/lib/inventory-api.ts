@@ -51,6 +51,30 @@ async function patch<T>(path: string, signal?: AbortSignal): Promise<T> {
   return unwrapResponse<T>(payload as ApiResponse<T>);
 }
 
+async function patchJson<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const headers = authHeaders();
+  headers.set('Content-Type', 'application/json');
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    body: JSON.stringify(body),
+    headers,
+    method: 'PATCH',
+    signal,
+  });
+
+  const payload = (await response.json().catch(() => undefined)) as ApiResponse<T> | { message?: unknown; error?: unknown } | undefined;
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string'
+        ? payload.message
+        : `Inventory API request failed: ${response.status} ${response.statusText}`;
+    throw new Error(message);
+  }
+
+  return unwrapResponse<T>(payload as ApiResponse<T>);
+}
+
 async function put<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
   const headers = authHeaders();
   headers.set('Content-Type', 'application/json');
@@ -90,6 +114,13 @@ export type InventoryRoomTypeDto = Record<string, unknown>;
 export type InventoryRoomDto = Record<string, unknown>;
 export type InventoryAmenityDto = Record<string, unknown>;
 
+export type UpdateRoomTypeOccupancyPayload = {
+  baseOccupancy: number;
+  maxOccupancy: number;
+  maxAdults: number;
+  maxChildren: number;
+};
+
 export function getProperties(signal?: AbortSignal) {
   return get<InventoryPropertyDto[]>('/properties', signal);
 }
@@ -112,6 +143,15 @@ export function getPropertyAmenities(propertyId: string, signal?: AbortSignal) {
 
 export function setRoomTypeAmenities(propertyId: string, roomTypeId: string, amenityIds: string[], signal?: AbortSignal) {
   return put<InventoryRoomTypeDto>(`/properties/${propertyId}/room-types/${roomTypeId}/amenities`, { amenityIds }, signal);
+}
+
+export function updateRoomTypeOccupancy(
+  propertyId: string,
+  roomTypeId: string,
+  payload: UpdateRoomTypeOccupancyPayload,
+  signal?: AbortSignal,
+) {
+  return patchJson<InventoryRoomTypeDto>(`/properties/${propertyId}/room-types/${roomTypeId}`, payload, signal);
 }
 
 export function markRoomReady(propertyId: string, roomId: string, signal?: AbortSignal) {

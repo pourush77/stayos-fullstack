@@ -4,6 +4,7 @@ import { ActivityEventEntity } from '../activity/infrastructure/activity-event.e
 import { AuditEventEntity } from '../audit/infrastructure/audit-event.entity';
 import { GuestEntity } from '../guests/infrastructure/guest.entity';
 import { PropertiesModule } from '../properties/properties.module';
+import { RatesModule } from '../rates/rates.module';
 import { RoomTypeEntity } from '../room-types/infrastructure/room-type.entity';
 import { RoomEntity } from '../rooms/infrastructure/room.entity';
 import { CheckInCaptureController } from './check-in-capture/check-in-capture.controller';
@@ -34,6 +35,7 @@ import { StaysController } from './stays.controller';
       ActivityEventEntity,
     ]),
     PropertiesModule,
+    RatesModule,
   ],
   controllers: [
     ReservationsController,

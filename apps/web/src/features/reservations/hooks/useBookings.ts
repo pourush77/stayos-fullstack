@@ -97,6 +97,7 @@ async function getLookups(propertyId: string, signal?: AbortSignal) {
 
 export function friendlyBookingError(error: unknown) {
   const message = error instanceof Error ? error.message.toLowerCase() : '';
+  if (message.includes('child age')) return error instanceof Error ? error.message : 'Enter child ages.';
   if (message.includes('duplicate') || message.includes('already exists'))
     return 'A booking with this ID already exists.';
   if (message.includes('date')) return 'Departure date must be after arrival date.';
@@ -175,6 +176,7 @@ export function useBookings({
                 label: 'Deluxe',
                 maxAdults: 2,
                 maxChildren: 1,
+                maxOccupancy: 3,
               },
               {
                 baseRate: 6500,
@@ -183,6 +185,7 @@ export function useBookings({
                 label: 'Suite',
                 maxAdults: 2,
                 maxChildren: 2,
+                maxOccupancy: 4,
               },
             ],
           });
@@ -350,6 +353,7 @@ export function useBookingDetails({
                 label: 'Deluxe',
                 maxAdults: 2,
                 maxChildren: 1,
+                maxOccupancy: 3,
               },
               {
                 baseRate: 6500,
@@ -358,6 +362,7 @@ export function useBookingDetails({
                 label: 'Suite',
                 maxAdults: 2,
                 maxChildren: 2,
+                maxOccupancy: 4,
               },
             ],
           });

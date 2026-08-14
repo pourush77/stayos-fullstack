@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PropertiesModule } from '../properties/properties.module';
+import { RatesModule } from '../rates/rates.module';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 import { BillingController } from './billing.controller';
 import { BillingService } from './billing.service';
@@ -19,6 +20,7 @@ import { FolioEntity } from './infrastructure/folio.entity';
       ReservationEntity,
     ]),
     PropertiesModule,
+    RatesModule,
   ],
   controllers: [BillingController],
   providers: [BillingService, RazorpayService, ReceiptPdfService],

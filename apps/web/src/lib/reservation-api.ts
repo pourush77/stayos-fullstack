@@ -19,6 +19,32 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ApiResponse<T> | { message?: unknown } | undefined;
 
   if (!response.ok) {
+    const details =
+      payload &&
+      typeof payload === 'object' &&
+      'error' in payload &&
+      payload.error &&
+      typeof payload.error === 'object' &&
+      'details' in payload.error &&
+      Array.isArray(payload.error.details)
+        ? payload.error.details
+        : payload &&
+            typeof payload === 'object' &&
+            'details' in payload &&
+            Array.isArray(payload.details)
+          ? payload.details
+          : undefined;
+    const detailMessage = details
+      ?.map((detail) =>
+        detail &&
+        typeof detail === 'object' &&
+        'message' in detail &&
+        typeof detail.message === 'string'
+          ? detail.message
+          : undefined,
+      )
+      .filter(Boolean)
+      .join(' ');
     const nestedError =
       payload &&
       typeof payload === 'object' &&
@@ -32,9 +58,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       typeof payload === 'object' &&
       'message' in payload &&
       typeof payload.message === 'string'
-        ? payload.message
+        ? detailMessage
+          ? `${payload.message}: ${detailMessage}`
+          : payload.message
         : typeof nestedError?.message === 'string'
-          ? nestedError.message
+          ? detailMessage
+            ? `${nestedError.message}: ${detailMessage}`
+            : nestedError.message
           : `Reservation API request failed: ${response.status} ${response.statusText}`;
     throw new Error(message);
   }

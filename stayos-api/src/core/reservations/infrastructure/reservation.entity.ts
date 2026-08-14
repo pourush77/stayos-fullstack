@@ -60,6 +60,9 @@ export class ReservationEntity {
   @Column({ type: 'integer', default: 0 })
   children!: number;
 
+  @Column({ type: 'jsonb', name: 'child_ages', nullable: true })
+  childAges?: number[] | null;
+
   @Column({ type: 'uuid', name: 'room_type_id' })
   roomTypeId!: string;
 

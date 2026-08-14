@@ -10,6 +10,8 @@ import { FolioChargeEntity } from './infrastructure/folio-charge.entity';
 import { FolioEntity } from './infrastructure/folio.entity';
 import { FolioPaymentEntity } from './infrastructure/folio-payment.entity';
 import { BillingService } from './billing.service';
+import { ChildPricingService } from '../rates/child-pricing.service';
+import { TaxService } from '../rates/tax.service';
 
 type MockRepository<T extends object = object> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -28,6 +30,7 @@ const reservation = (overrides: Partial<ReservationEntity> = {}): ReservationEnt
   departureDate: '2026-08-06',
   adults: 2,
   children: 0,
+  childAges: null,
   roomTypeId: 'room-type-1',
   roomType: undefined as never,
   roomId: 'room-1',
@@ -62,6 +65,7 @@ describe('BillingService', () => {
   let paymentsRepository: MockRepository<FolioPaymentEntity>;
   let reservationsRepository: MockRepository<ReservationEntity>;
   let propertiesService: Pick<PropertiesService, 'findOne'>;
+  let childPricingService: Pick<ChildPricingService, 'resolveChildPricing'>;
   let dataSource: { transaction: jest.Mock };
   let service: BillingService;
 
@@ -81,6 +85,19 @@ describe('BillingService', () => {
     };
     propertiesService = {
       findOne: jest.fn().mockResolvedValue({ id: propertyId }),
+    };
+    childPricingService = {
+      resolveChildPricing: jest.fn().mockResolvedValue({ lines: [], total: 0, limitations: [] }),
+    };
+    const taxService = {
+      calculateForProperty: jest.fn(async (_propertyId: string, taxableAmount: number) => ({
+        taxableSubtotal: taxableAmount.toFixed(2),
+        taxAmount: (taxableAmount * 0.12).toFixed(2),
+        total: (taxableAmount * 1.12).toFixed(2),
+        taxName: 'GST',
+        taxPercentage: '12.00',
+        taxEnabled: true,
+      })),
     };
     dataSource = {
       transaction: jest.fn(async (callback: (manager: { getRepository: (entity: unknown) => unknown }) => Promise<unknown>) => {
@@ -118,6 +135,8 @@ describe('BillingService', () => {
       reservationsRepository as unknown as Repository<ReservationEntity>,
       propertiesService as unknown as PropertiesService,
       dataSource as unknown as DataSource,
+      childPricingService as ChildPricingService,
+      taxService as unknown as TaxService,
     );
   });
 

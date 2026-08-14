@@ -5,6 +5,7 @@ import {
   IsEnum,
   IsInt,
   IsOptional,
+  IsArray,
   IsString,
   IsUUID,
   Length,
@@ -39,6 +40,13 @@ export class CreateReservationDto {
   @IsInt()
   @Min(0)
   children?: number;
+
+  @ApiPropertyOptional({ type: [Number], example: [4, 9] })
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  childAges?: number[];
 
   @ApiProperty({ format: 'uuid' })
   @IsUUID()

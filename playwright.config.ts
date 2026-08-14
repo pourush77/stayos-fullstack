@@ -1,4 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Load E2E-only environment variables from the repository root.
+dotenv.config({
+  path: path.resolve(process.cwd(), '.env.e2e'),
+});
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3000';
 const shouldStartWeb = process.env.PLAYWRIGHT_START_WEB === 'true';
@@ -8,23 +15,31 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   timeout: 60_000,
+
   expect: {
     timeout: 10_000,
   },
+
   retries: process.env.CI ? 1 : 0,
+
   reporter: [['list'], ['html', { open: 'never' }]],
+
   use: {
     baseURL,
     screenshot: 'only-on-failure',
     trace: 'on-first-retry',
     video: 'retain-on-failure',
   },
+
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+      },
     },
   ],
+
   webServer: shouldStartWeb
     ? {
         command: 'npm --workspace @stayos/web run dev:turbo',

@@ -21,6 +21,8 @@ import { RoomTypeStatus } from '../domain/room-type-status.enum';
 @Check('CHK_room_types_max_occupancy', 'max_occupancy >= base_occupancy')
 @Check('CHK_room_types_max_adults', 'max_adults >= 1')
 @Check('CHK_room_types_max_children', 'max_children >= 0')
+@Check('CHK_room_types_max_adults_capacity', 'max_adults <= max_occupancy')
+@Check('CHK_room_types_max_children_capacity', 'max_children <= max_occupancy')
 @Check('CHK_room_types_size_sq_ft', 'size_sq_ft IS NULL OR size_sq_ft > 0')
 export class RoomTypeEntity {
   @PrimaryGeneratedColumn('uuid')

@@ -1,23 +1,15 @@
 'use client';
 
 import Link from 'next/link';
+import { Alert, Box, Card, Group, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core';
 import {
-  Alert,
-  Box,
-  Card,
-  Group,
-  SimpleGrid,
-  Stack,
-  Text,
-  ThemeIcon,
-  Title,
-} from '@mantine/core';
-import {
+  BadgeIndianRupee,
   Building2,
   ChevronRight,
   ContactRound,
   KeyRound,
   ListChecks,
+  ReceiptText,
   Settings2,
   ShieldCheck,
   Users,
@@ -124,6 +116,22 @@ export default function SettingsHomePage() {
       icon: <ListChecks size={22} />,
       href: '/settings/room-types',
       permission: 'rooms.manage',
+    },
+    {
+      key: 'rates',
+      title: 'Rates & Guest Pricing',
+      description: 'Configure room pricing and child age-based pricing rules.',
+      icon: <BadgeIndianRupee size={22} />,
+      href: '/settings/rates',
+      permission: 'settings.view',
+    },
+    {
+      key: 'taxes',
+      title: 'Taxes & Charges',
+      description: 'Configure property-level tax used by booking and folio charges.',
+      icon: <ReceiptText size={22} />,
+      href: '/settings/taxes',
+      permission: 'settings.view',
     },
     {
       key: 'property',

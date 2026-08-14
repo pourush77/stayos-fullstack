@@ -28,6 +28,9 @@ export class ReservationResponseDto {
   @ApiProperty()
   children!: number;
 
+  @ApiPropertyOptional({ type: [Number] })
+  childAges?: number[] | null;
+
   @ApiProperty({ format: 'uuid' })
   roomTypeId!: string;
 

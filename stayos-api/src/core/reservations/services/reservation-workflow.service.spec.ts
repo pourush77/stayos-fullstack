@@ -19,6 +19,7 @@ import { ReservationStatus } from '../domain/reservation-status.enum';
 import { ReservationEntity } from '../infrastructure/reservation.entity';
 import { CheckInService } from './check-in.service';
 import { ReservationWorkflowService } from './reservation-workflow.service';
+import { TaxService } from '../../rates/tax.service';
 
 type MockRepository<T extends object = object> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -197,7 +198,22 @@ describe('ReservationWorkflowService', () => {
       }),
     };
 
-    service = new ReservationWorkflowService(dataSource, checkInService as CheckInService);
+    const taxService = {
+      calculateForProperty: jest.fn(async (_propertyId: string, taxableAmount: number) => ({
+        taxableSubtotal: taxableAmount.toFixed(2),
+        taxAmount: (taxableAmount * 0.12).toFixed(2),
+        total: (taxableAmount * 1.12).toFixed(2),
+        taxName: 'GST',
+        taxPercentage: '12.00',
+        taxEnabled: true,
+      })),
+    };
+
+    service = new ReservationWorkflowService(
+      dataSource,
+      checkInService as CheckInService,
+      taxService as unknown as TaxService,
+    );
   });
 
   describe('assignRoom', () => {

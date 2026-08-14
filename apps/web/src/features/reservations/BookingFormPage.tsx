@@ -46,6 +46,12 @@ import {
 import { createPropertyGuest } from '../../lib/guest-api';
 import { friendlyGuestError } from '../../lib/guest-hooks';
 import { getAvailableRooms } from '../../lib/operations-api';
+import {
+  getGuestPricingPolicy,
+  getPropertyTaxConfig,
+  type GuestPricingPolicyResponse,
+  type PropertyTaxConfigDto,
+} from '../rates/api/rates-api';
 import { nationalityOptions } from '../guests/constants/nationalities';
 import { BookingForm } from './components/BookingForm';
 import { friendlyBookingError, useBookingDetails, useBookings } from './hooks/useBookings';
@@ -57,6 +63,8 @@ import type {
   RoomTypeOption,
 } from './types/booking.types';
 import { mapGuestOption } from './utils/booking-mappers';
+import { calculateBookingPricingPreview } from './utils/child-pricing-preview';
+import { roomCapacityLabel, roomCapacityMessage } from './utils/room-capacity';
 
 const cardStyle = {
   background: '#ffffff',
@@ -69,8 +77,6 @@ const quickCardStyle = {
   border: '1px solid rgba(226, 232, 240, 0.9)',
   boxShadow: '0 8px 32px rgba(15,23,42,0.06)',
 };
-
-const GST_RATE = 0.12;
 
 function dateToValue(value: Date | string | null) {
   if (!value) return '';
@@ -263,17 +269,28 @@ function calculateNights(arrivalDate: string, departureDate: string) {
   return Math.max(0, Math.round((end.getTime() - start.getTime()) / 86_400_000));
 }
 
-function capacityMessage(roomType: RoomTypeOption, adults: number, children: number) {
-  if (adults + children > roomType.capacity) {
-    return `${roomType.label} fits up to ${roomType.capacity} guest${roomType.capacity === 1 ? '' : 's'}.`;
+function resolveChildAgeLabel(
+  age: number | undefined,
+  policyResponse: GuestPricingPolicyResponse | null,
+  nightlyRoomRate: number,
+) {
+  if (age === undefined || !Number.isInteger(age) || age < 0) return '';
+  const policy = policyResponse?.policy;
+  if (!policy?.ageBasedChildPricingEnabled || !policy.isActive) return '';
+  if (age > policy.maximumChildAge) return 'Adult pricing';
+  const band = policyResponse?.childAgeBands.find(
+    (item) => item.isActive && age >= item.minAge && age <= item.maxAge,
+  );
+  if (!band) return 'No matching child age band';
+  if (band.pricingMode === 'FREE') return 'Free';
+  if (band.pricingMode === 'FIXED_PER_NIGHT') {
+    return `${formatCurrency(Number(band.fixedAmount ?? 0))} / night`;
   }
-  if (adults > roomType.maxAdults) {
-    return `${roomType.label} allows up to ${roomType.maxAdults} adult${roomType.maxAdults === 1 ? '' : 's'}.`;
+  if (band.pricingMode === 'PERCENT_OF_ROOM_RATE') {
+    const amount = nightlyRoomRate * (Number(band.percentage ?? 0) / 100);
+    return `${formatCurrency(amount)} / night`;
   }
-  if (children > roomType.maxChildren) {
-    return `${roomType.label} allows up to ${roomType.maxChildren} child${roomType.maxChildren === 1 ? '' : 'ren'}.`;
-  }
-  return undefined;
+  return 'Adult pricing';
 }
 
 function today() {
@@ -375,6 +392,13 @@ function QuickBookingForm({
   const [roomTypeId, setRoomTypeId] = useState(initialRoomTypeId ?? '');
   const [adults, setAdults] = useState(initialAdults ?? 1);
   const [children, setChildren] = useState(initialChildren ?? 0);
+  const [childAges, setChildAges] = useState<number[]>([]);
+  const [guestPricingPolicy, setGuestPricingPolicy] = useState<GuestPricingPolicyResponse | null>(
+    null,
+  );
+  const [guestPricingPolicyLoadFailed, setGuestPricingPolicyLoadFailed] = useState(false);
+  const [taxConfig, setTaxConfig] = useState<PropertyTaxConfigDto | null>(null);
+  const [taxConfigLoadFailed, setTaxConfigLoadFailed] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [notes, setNotes] = useState('');
@@ -387,7 +411,12 @@ function QuickBookingForm({
     'CASH' | 'CARD' | 'UPI' | 'BANK_TRANSFER' | 'WALLET' | 'OTHER'
   >('CASH');
   const [availabilityCounts, setAvailabilityCounts] = useState<Record<string, number>>({});
-  const [errors, setErrors] = useState<{ dates?: string; roomTypeId?: string }>({});
+  const [errors, setErrors] = useState<{
+    childAges?: string;
+    dates?: string;
+    guestId?: string;
+    roomTypeId?: string;
+  }>({});
   const arrivalDate = dateToValue(dateRange[0]);
   const departureDate = dateToValue(dateRange[1]);
   const nights = calculateNights(arrivalDate, departureDate);
@@ -396,12 +425,84 @@ function QuickBookingForm({
   const selectedPhoneCountry =
     phoneCountryOptions.find((item) => item.value === newGuestCountry) ?? phoneCountryOptions[0];
   const selectedRoomType = roomTypes.find((item) => item.id === roomTypeId);
-  const roomSubtotal = (selectedRoomType?.baseRate ?? 0) * nights;
-  const gstAmount = Math.round(roomSubtotal * GST_RATE);
-  const total = roomSubtotal + gstAmount;
+  const selectedRoomCapacityError = selectedRoomType
+    ? roomCapacityMessage(selectedRoomType, adults, children)
+    : undefined;
+  const pricingPreview = useMemo(
+    () =>
+      calculateBookingPricingPreview({
+        childAges,
+        nights,
+        nightlyRoomRate: selectedRoomType?.baseRate ?? 0,
+        policyResponse: guestPricingPolicy,
+        taxEnabled: taxConfig?.isActive ?? true,
+        taxPercentage: Number(taxConfig?.percentage ?? 12),
+      }),
+    [childAges, guestPricingPolicy, nights, selectedRoomType?.baseRate, taxConfig],
+  );
+  const { childSubtotal, roomSubtotal, subtotal, taxAmount, total } = pricingPreview;
+  const taxLabel = taxConfig?.isActive
+    ? `${taxConfig.name || 'Tax'} ${Number(taxConfig.percentage).toLocaleString('en-IN', {
+        maximumFractionDigits: 2,
+      })}%`
+    : '';
   const guestComplete = Boolean(guestId);
   const datesComplete = nights > 0;
   const roomComplete = Boolean(roomTypeId);
+  const childAgesRequired =
+    Boolean(guestPricingPolicy?.policy.ageBasedChildPricingEnabled) && children > 0;
+  const childAgesInvalid =
+    childAgesRequired &&
+    (childAges.length !== children || childAges.some((age) => !Number.isInteger(age) || age < 0));
+
+  useEffect(() => {
+    setChildAges((current) => {
+      if (children <= 0) return [];
+      const next = current.slice(0, children);
+      while (next.length < children) next.push(NaN);
+      return next;
+    });
+  }, [children]);
+
+  useEffect(() => {
+    if (!propertyId) {
+      setGuestPricingPolicy(null);
+      setGuestPricingPolicyLoadFailed(false);
+      setTaxConfig(null);
+      setTaxConfigLoadFailed(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    void getGuestPricingPolicy(propertyId, controller.signal)
+      .then((policy) => {
+        setGuestPricingPolicy(policy);
+        setGuestPricingPolicyLoadFailed(false);
+      })
+      .catch(() => {
+        setGuestPricingPolicy(null);
+        setGuestPricingPolicyLoadFailed(true);
+      });
+    void getPropertyTaxConfig(propertyId, controller.signal)
+      .then((config) => {
+        setTaxConfig(config);
+        setTaxConfigLoadFailed(false);
+      })
+      .catch(() => {
+        setTaxConfig(null);
+        setTaxConfigLoadFailed(true);
+      });
+
+    return () => controller.abort();
+  }, [propertyId]);
+
+  useEffect(() => {
+    if (paymentIntent === 'FULL') {
+      setPaymentAmount(total);
+    } else if (paymentIntent === 'CHECKOUT') {
+      setPaymentAmount(0);
+    }
+  }, [paymentIntent, total]);
 
   useEffect(() => {
     if (!guestId || initialGuestWasProvided.current) return;
@@ -544,20 +645,32 @@ function QuickBookingForm({
 
   const submit = async () => {
     const nextErrors = {
+      childAges: childAgesInvalid ? 'Enter a whole age for every child.' : undefined,
       dates: datesComplete ? undefined : 'Pick arrival and departure dates.',
+      guestId: guestId ? undefined : 'Select a guest before creating the booking.',
       roomTypeId: !roomTypeId
         ? 'Choose a room type.'
         : selectedRoomType
-          ? capacityMessage(selectedRoomType, adults, children)
+          ? selectedRoomCapacityError
           : undefined,
     };
     setErrors(nextErrors);
-    if (nextErrors.dates || nextErrors.roomTypeId || !guestId) return;
+    const firstError =
+      nextErrors.guestId ?? nextErrors.dates ?? nextErrors.roomTypeId ?? nextErrors.childAges;
+    if (firstError) {
+      showToast({
+        color: 'red',
+        title: 'Booking needs attention',
+        message: firstError,
+      });
+      return;
+    }
 
     await onSubmit({
       adults,
       arrivalDate,
       children,
+      childAges: children > 0 ? childAges : undefined,
       departureDate,
       guestId,
       notes,
@@ -863,23 +976,28 @@ function QuickBookingForm({
                 const available = availabilityCounts[roomType.id] ?? 0;
                 const showAvailability =
                   datesComplete && Object.keys(availabilityCounts).length > 0;
-                const unavailableByCapacity = Boolean(capacityMessage(roomType, adults, children));
-                const soldOut = unavailableByCapacity || (showAvailability && available === 0);
+                const capacityError = roomCapacityMessage(roomType, adults, children);
+                const unavailableByCapacity = Boolean(capacityError);
+                const soldOutByAvailability = showAvailability && available === 0;
+                const unavailable = unavailableByCapacity || soldOutByAvailability;
+                const selectionInvalid = selected && unavailableByCapacity;
                 return (
                   <UnstyledButton
                     key={roomType.id}
-                    disabled={soldOut}
+                    disabled={unavailable && !selected}
                     data-testid={`room-type-option-${roomType.id}`}
                     onClick={() => {
                       setRoomTypeId(roomType.id);
                       setErrors((current) => ({ ...current, roomTypeId: undefined }));
                     }}
                     style={{
-                      background: selected ? '#f6f1ff' : '#ffffff',
-                      border: `1px solid ${selected ? '#7d4dd6' : '#e2e8f0'}`,
+                      background: selected ? (selectionInvalid ? '#fff7ed' : '#f6f1ff') : '#ffffff',
+                      border: `1px solid ${
+                        selectionInvalid ? '#f59e0b' : selected ? '#7d4dd6' : '#e2e8f0'
+                      }`,
                       borderRadius: 14,
-                      cursor: soldOut ? 'not-allowed' : 'pointer',
-                      opacity: soldOut ? 0.5 : 1,
+                      cursor: unavailable && !selected ? 'not-allowed' : 'pointer',
+                      opacity: unavailable && !selected ? 0.5 : 1,
                       padding: '12px 14px',
                       transition: 'background 120ms ease, border-color 120ms ease',
                     }}
@@ -910,15 +1028,23 @@ function QuickBookingForm({
                         </Stack>
                       </Group>
                       <Group gap={8} wrap="nowrap" style={{ flexShrink: 0 }}>
-                        {showAvailability ? (
+                        {showAvailability || unavailableByCapacity ? (
                           <Badge
                             size="sm"
                             variant="light"
-                            color={soldOut ? 'gray' : available <= 2 ? 'orange' : 'green'}
+                            color={
+                              unavailableByCapacity
+                                ? 'orange'
+                                : soldOutByAvailability
+                                  ? 'gray'
+                                  : available <= 2
+                                    ? 'orange'
+                                    : 'green'
+                            }
                           >
                             {unavailableByCapacity
-                              ? `Max ${roomType.maxAdults}A/${roomType.maxChildren}C`
-                              : soldOut
+                              ? roomCapacityLabel(roomType)
+                              : soldOutByAvailability
                                 ? 'Sold out'
                                 : `${available} left`}
                           </Badge>
@@ -926,8 +1052,14 @@ function QuickBookingForm({
                         <Box
                           style={{
                             alignItems: 'center',
-                            background: selected ? '#7d4dd6' : 'transparent',
-                            border: `1.5px solid ${selected ? '#7d4dd6' : '#cbd5e1'}`,
+                            background: selected
+                              ? selectionInvalid
+                                ? '#f59e0b'
+                                : '#7d4dd6'
+                              : 'transparent',
+                            border: `1.5px solid ${
+                              selected ? (selectionInvalid ? '#f59e0b' : '#7d4dd6') : '#cbd5e1'
+                            }`,
                             borderRadius: 999,
                             display: 'flex',
                             height: 20,
@@ -949,12 +1081,20 @@ function QuickBookingForm({
                 {errors.roomTypeId}
               </Text>
             ) : null}
+            {selectedRoomCapacityError ? (
+              <small style={{ color: '#b45309', display: 'block' }}>
+                {selectedRoomCapacityError}
+              </small>
+            ) : null}
             <SimpleGrid cols={{ base: 2 }} spacing={spacing[3]}>
               <NumberInput
                 leftSection={<Users size={16} />}
                 label="Adults"
                 min={1}
-                onChange={(value) => setAdults(Number(value) || 1)}
+                onChange={(value) => {
+                  setAdults(Number(value) || 1);
+                  setErrors((current) => ({ ...current, roomTypeId: undefined }));
+                }}
                 size="md"
                 value={adults}
               />
@@ -962,11 +1102,67 @@ function QuickBookingForm({
                 leftSection={<Baby size={16} />}
                 label="Children"
                 min={0}
-                onChange={(value) => setChildren(Number(value) || 0)}
+                onChange={(value) => {
+                  setChildren(Number(value) || 0);
+                  setErrors((current) => ({ ...current, childAges: undefined, roomTypeId: undefined }));
+                }}
                 size="md"
                 value={children}
               />
             </SimpleGrid>
+            {children > 0 ? (
+              <div
+                style={{
+                  display: 'grid',
+                  gap: 10,
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                }}
+              >
+                {Array.from({ length: children }).map((_, index) => {
+                  const age = childAges[index];
+                  const label = resolveChildAgeLabel(
+                    age,
+                    guestPricingPolicy,
+                    selectedRoomType?.baseRate ?? 0,
+                  );
+                  return (
+                    <div key={index}>
+                      <NumberInput
+                        label={`Child ${index + 1} age`}
+                        min={0}
+                        step={1}
+                        allowDecimal={false}
+                        value={Number.isNaN(age) ? undefined : age}
+                        onChange={(value) => {
+                          const numericValue = typeof value === 'number' ? value : Number(value);
+                          setChildAges((current) => {
+                            const next = current.slice(0, children);
+                            next[index] = Number.isFinite(numericValue) ? numericValue : NaN;
+                            return next;
+                          });
+                          setErrors((current) => ({ ...current, childAges: undefined }));
+                        }}
+                      />
+                      {label ? (
+                        <small style={{ color: '#64748b', display: 'block', marginTop: 4 }}>
+                          {label}
+                        </small>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+            {errors.childAges || childAgesInvalid ? (
+              <small style={{ color: '#dc2626', display: 'block' }}>
+                {errors.childAges ?? 'Enter a whole age for every child.'}
+              </small>
+            ) : null}
+            {children > 0 && guestPricingPolicyLoadFailed ? (
+              <small style={{ color: '#b45309', display: 'block' }}>
+                Child pricing policy could not be loaded for this preview.
+              </small>
+            ) : null}
           </StepSection>
         </Box>
 
@@ -1000,12 +1196,30 @@ function QuickBookingForm({
                       </Text>
                       <Text fw={800}>{formatCurrency(roomSubtotal)}</Text>
                     </Group>
-                    <Group justify="space-between">
-                      <Text c="#64748b" size="sm">
-                        GST 12%
-                      </Text>
-                      <Text fw={800}>{formatCurrency(gstAmount)}</Text>
-                    </Group>
+                    {childSubtotal > 0 ? (
+                      <>
+                        <Group justify="space-between">
+                          <span style={{ color: '#64748b', fontSize: 14 }}>Child charges</span>
+                          <span style={{ color: '#101828', fontSize: 14, fontWeight: 800 }}>
+                            {formatCurrency(childSubtotal)}
+                          </span>
+                        </Group>
+                        <Group justify="space-between">
+                          <span style={{ color: '#64748b', fontSize: 14 }}>Subtotal</span>
+                          <span style={{ color: '#101828', fontSize: 14, fontWeight: 800 }}>
+                            {formatCurrency(subtotal)}
+                          </span>
+                        </Group>
+                      </>
+                    ) : null}
+                    {taxConfig?.isActive !== false ? (
+                      <Group justify="space-between">
+                        <span style={{ color: '#64748b', fontSize: 14 }}>{taxLabel || 'Tax'}</span>
+                        <span style={{ color: '#101828', fontSize: 14, fontWeight: 800 }}>
+                          {formatCurrency(taxAmount)}
+                        </span>
+                      </Group>
+                    ) : null}
                     <Group
                       justify="space-between"
                       pt={8}
@@ -1019,6 +1233,11 @@ function QuickBookingForm({
                       </Text>
                     </Group>
                   </Stack>
+                  {taxConfigLoadFailed ? (
+                    <small style={{ color: '#b45309', display: 'block' }}>
+                      Tax configuration could not be loaded for this preview.
+                    </small>
+                  ) : null}
                 </Stack>
               </Paper>
             ) : (
@@ -1168,9 +1387,20 @@ function QuickBookingForm({
               />
             </Collapse>
             <Stack gap={6}>
+              {selectedRoomCapacityError ? (
+                <small style={{ color: '#b45309', display: 'block', textAlign: 'center' }}>
+                  {selectedRoomCapacityError}
+                </small>
+              ) : null}
               <Button
                 color="stayosBrand"
-                disabled={!guestId || !datesComplete || !roomComplete}
+                disabled={
+                  !guestId ||
+                  !datesComplete ||
+                  !roomComplete ||
+                  childAgesInvalid ||
+                  Boolean(selectedRoomCapacityError)
+                }
                 fullWidth
                 loading={isSubmitting}
                 onClick={() => void submit()}

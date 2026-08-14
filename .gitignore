@@ -9,6 +9,7 @@ test-results/
 
 .env
 .env.*
+/.env.e2e
 !.env.example
 !.env.*.example
 

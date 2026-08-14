@@ -24,6 +24,7 @@ import { ReservationStatus } from './domain/reservation-status.enum';
 import { GuestDocumentEntity } from './check-in-capture/guest-document.entity';
 import { ReservationEntity } from './infrastructure/reservation.entity';
 import { RoomOperationalStatus } from '../rooms/domain/room-operational-status.enum';
+import { ChildPricingService } from '../rates/child-pricing.service';
 
 export interface PaginatedReservations {
   data: ReservationEntity[];
@@ -63,6 +64,7 @@ export class ReservationsService {
     @InjectRepository(GuestDocumentEntity)
     private readonly guestDocumentsRepository: Repository<GuestDocumentEntity>,
     private readonly propertiesService: PropertiesService,
+    private readonly childPricingService: ChildPricingService,
   ) {}
 
   async findAll(propertyId: string, query: PaginationQueryDto): Promise<PaginatedReservations> {
@@ -195,6 +197,11 @@ export class ReservationsService {
     );
 
     const references = await this.validateReferences(propertyId, createReservationDto);
+    await this.childPricingService.validateReservationChildAges(
+      propertyId,
+      createReservationDto.children ?? 0,
+      createReservationDto.childAges,
+    );
     await this.validateRoomAssignment({
       propertyId,
       room: references.room,
@@ -240,8 +247,16 @@ export class ReservationsService {
 
     const arrivalDate = updateReservationDto.arrivalDate ?? reservation.arrivalDate;
     const departureDate = updateReservationDto.departureDate ?? reservation.departureDate;
+    const children = updateReservationDto.children ?? reservation.children;
+    const childAges =
+      updateReservationDto.childAges === undefined
+        ? reservation.childAges
+        : updateReservationDto.childAges;
 
     await this.validateDateRange(arrivalDate, departureDate);
+    if ('children' in updateReservationDto || 'childAges' in updateReservationDto) {
+      await this.childPricingService.validateReservationChildAges(propertyId, children, childAges);
+    }
 
     const references = await this.validateReferences(propertyId, {
       guestId: updateReservationDto.guestId ?? reservation.guestId,
@@ -259,7 +274,7 @@ export class ReservationsService {
       arrivalDate,
       departureDate,
       adults: updateReservationDto.adults ?? reservation.adults,
-      children: updateReservationDto.children ?? reservation.children,
+      children,
     });
 
     try {
@@ -448,6 +463,7 @@ export class ReservationsService {
     return {
       ...fields,
       children: dto.children ?? 0,
+      childAges: dto.children && dto.children > 0 ? (dto.childAges ?? null) : null,
       roomId: dto.roomId ?? null,
       notes: dto.notes ?? null,
       specialRequests: dto.specialRequests?.trim() || 'None',
@@ -466,6 +482,12 @@ export class ReservationsService {
       if (field in dto) {
         persistenceFields[field] = dto[field] ?? null;
       }
+    }
+
+    if ('children' in dto || 'childAges' in dto) {
+      const children = dto.children;
+      if (children === 0) persistenceFields.childAges = null;
+      else if ('childAges' in dto) persistenceFields.childAges = dto.childAges ?? null;
     }
 
     return persistenceFields;

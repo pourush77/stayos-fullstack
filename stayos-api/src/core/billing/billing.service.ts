@@ -17,6 +17,9 @@ import { FolioPaymentMethod } from './domain/folio-payment-method.enum';
 import { CreateFolioChargeDto } from './dto/create-folio-charge.dto';
 import { CreateFolioPaymentDto } from './dto/create-folio-payment.dto';
 import { calculateTotals } from './billing.mapper';
+import { ChildPricingService } from '../rates/child-pricing.service';
+import { FolioChargeType } from './domain/folio-charge-type.enum';
+import { TaxService } from '../rates/tax.service';
 
 const BOOKING_MARKED_PAID_REFERENCE = 'BOOKING_MARKED_PAID';
 
@@ -33,6 +36,8 @@ export class BillingService {
     private readonly reservationsRepository: Repository<ReservationEntity>,
     private readonly propertiesService: PropertiesService,
     private readonly dataSource: DataSource,
+    private readonly childPricingService: ChildPricingService,
+    private readonly taxService: TaxService,
   ) {}
 
   async listFolios(propertyId: string, status?: FolioStatus): Promise<FolioEntity[]> {
@@ -91,20 +96,49 @@ export class BillingService {
 
       if (nights > 0) {
         const nightlyRate = 3500;
+        const childPricing = await this.childPricingService.resolveChildPricing(
+          propertyId,
+          reservation.childAges ?? [],
+          nights,
+          nightlyRate,
+        );
+        const roomTax = await this.taxService.calculateForProperty(
+          propertyId,
+          nightlyRate * nights,
+        );
+        const childTax =
+          childPricing.total > 0
+            ? await this.taxService.calculateForProperty(propertyId, childPricing.total)
+            : null;
         const roomCharge = await manager.getRepository(FolioChargeEntity).save(
           manager.getRepository(FolioChargeEntity).create({
             folioId: created.id,
-            type: 'ROOM' as never,
+            type: FolioChargeType.ROOM,
             description: `Room charges - ${nights} night${nights === 1 ? '' : 's'}`,
             quantity: nights,
             unitAmount: nightlyRate.toFixed(2),
             amount: (nightlyRate * nights).toFixed(2),
-            taxAmount: (nightlyRate * nights * 0.12).toFixed(2),
+            taxAmount: roomTax.taxAmount,
             chargedAt: new Date(),
           }),
         );
+        const childCharge =
+          childPricing.total > 0
+            ? await manager.getRepository(FolioChargeEntity).save(
+                manager.getRepository(FolioChargeEntity).create({
+                  folioId: created.id,
+                  type: FolioChargeType.ROOM,
+                  description: `Child guest charges - ${childPricing.lines.length} child${childPricing.lines.length === 1 ? '' : 'ren'}`,
+                  quantity: 1,
+                  unitAmount: childPricing.total.toFixed(2),
+                  amount: childPricing.total.toFixed(2),
+                  taxAmount: childTax?.taxAmount ?? '0.00',
+                  chargedAt: new Date(),
+                }),
+              )
+            : null;
         if (reservation.paymentStatus === ReservationPaymentStatus.PAID) {
-          const totals = calculateTotals([roomCharge], []);
+          const totals = calculateTotals(childCharge ? [roomCharge, childCharge] : [roomCharge], []);
           const amount = parseFloat(totals.balance);
           if (amount > 0.01) {
             await manager.getRepository(FolioPaymentEntity).save(

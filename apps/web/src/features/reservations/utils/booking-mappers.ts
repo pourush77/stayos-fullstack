@@ -89,7 +89,17 @@ export function mapRoomTypeOption(dto: InventoryRoomTypeDto): RoomTypeOption {
     label,
     maxAdults: getNumber(dto, ['maxAdults', 'adultCapacity'], Math.min(2, maxOccupancy)),
     maxChildren: getNumber(dto, ['maxChildren', 'childCapacity'], Math.max(0, maxOccupancy - 2)),
+    maxOccupancy,
   };
+}
+
+function getNumberArray(record: Record<string, unknown> | undefined, keys: string[]) {
+  if (!record) return undefined;
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value) && value.every((item) => typeof item === 'number')) return value;
+  }
+  return undefined;
 }
 
 export function mapAvailableRoom(dto: OperationsAvailableRoomDto): AvailableRoomOption {
@@ -116,6 +126,7 @@ export function mapBooking(dto: ReservationDto): Booking {
     backendId: getString(dto, ['id', '_id', 'uuid']),
     bookingId: getString(dto, ['reservationCode', 'bookingCode', 'code', 'id'], 'Booking'),
     children: getNumber(dto, ['children', 'numChildren', 'childCount'], 0),
+    childAges: getNumberArray(dto, ['childAges', 'child_ages']),
     departureDate,
     email: getString(dto, ['guestEmail', 'email'], getString(guest, ['email'], 'Not recorded')),
     guestId: getString(dto, ['guestId'], getString(guest, ['id', '_id', 'uuid'])) || undefined,
@@ -141,6 +152,7 @@ export function bookingToFormValues(booking?: Booking): BookingFormValues {
     adults: booking?.adults ?? 1,
     arrivalDate: booking?.arrivalDate ?? '',
     children: booking?.children ?? 0,
+    childAges: booking?.childAges,
     departureDate: booking?.departureDate ?? '',
     guestId: booking?.guestId ?? '',
     notes: booking?.notes === 'No notes added.' ? '' : booking?.notes ?? '',
@@ -156,6 +168,7 @@ export function formValuesToPayload(values: BookingFormValues) {
     adults: values.adults,
     arrivalDate: values.arrivalDate,
     children: values.children,
+    childAges: values.children > 0 ? values.childAges : undefined,
     departureDate: values.departureDate,
     guestId: values.guestId,
     notes: values.notes.trim() || undefined,

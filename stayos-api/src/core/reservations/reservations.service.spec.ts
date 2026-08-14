@@ -17,6 +17,7 @@ import { ReservationStatus } from './domain/reservation-status.enum';
 import { GuestDocumentEntity } from './check-in-capture/guest-document.entity';
 import { ReservationEntity } from './infrastructure/reservation.entity';
 import { ReservationsService } from './reservations.service';
+import { ChildPricingService } from '../rates/child-pricing.service';
 
 type MockRepository<T extends object = object> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -97,6 +98,7 @@ const reservationEntity: ReservationEntity = {
   departureDate: '2026-07-17',
   adults: 2,
   children: 0,
+  childAges: null,
   roomTypeId,
   roomType: roomTypeEntity,
   roomId: null,
@@ -119,6 +121,7 @@ describe('ReservationsService', () => {
   let activityRepository: MockRepository<ActivityEventEntity>;
   let guestDocumentsRepository: MockRepository<GuestDocumentEntity>;
   const propertiesService = { findOne: jest.fn() };
+  const childPricingService = { validateReservationChildAges: jest.fn() };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -136,6 +139,7 @@ describe('ReservationsService', () => {
     activityRepository = { find: jest.fn().mockResolvedValue([]) };
     guestDocumentsRepository = { find: jest.fn().mockResolvedValue([]) };
     propertiesService.findOne.mockResolvedValue({ id: propertyId });
+    childPricingService.validateReservationChildAges.mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -147,6 +151,7 @@ describe('ReservationsService', () => {
         { provide: getRepositoryToken(ActivityEventEntity), useValue: activityRepository },
         { provide: getRepositoryToken(GuestDocumentEntity), useValue: guestDocumentsRepository },
         { provide: PropertiesService, useValue: propertiesService },
+        { provide: ChildPricingService, useValue: childPricingService },
       ],
     }).compile();
 
@@ -178,8 +183,51 @@ describe('ReservationsService', () => {
         adults: 2,
         roomTypeId,
         roomId,
+        childAges: null,
       }),
     );
+  });
+
+  it('persists child ages when children are selected', async () => {
+    reservationsRepository.create?.mockImplementation((input) => input);
+    reservationsRepository.save?.mockImplementation(async (input) => input);
+    reservationsRepository.count?.mockResolvedValue(0);
+
+    await service.create(propertyId, {
+      guestId,
+      arrivalDate: '2026-07-15',
+      departureDate: '2026-07-17',
+      adults: 2,
+      children: 1,
+      childAges: [4],
+      roomTypeId,
+    });
+
+    expect(childPricingService.validateReservationChildAges).toHaveBeenCalledWith(propertyId, 1, [
+      4,
+    ]);
+    expect(reservationsRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ children: 1, childAges: [4] }),
+    );
+  });
+
+  it('rejects malformed child ages from backend validation', async () => {
+    childPricingService.validateReservationChildAges.mockRejectedValue(
+      new BadRequestException('Child ages must match the selected child count'),
+    );
+
+    await expect(
+      service.create(propertyId, {
+        guestId,
+        arrivalDate: '2026-07-15',
+        departureDate: '2026-07-17',
+        adults: 2,
+        children: 2,
+        childAges: [4],
+        roomTypeId,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(reservationsRepository.save).not.toHaveBeenCalled();
   });
 
   it('rejects direct room assignment when an active overlapping reservation already has the room', async () => {

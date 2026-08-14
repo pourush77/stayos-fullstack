@@ -12,12 +12,13 @@ import { PropertyEntity } from '../../properties/infrastructure/property.entity'
 import { RatePlanStatus } from '../domain/rate-plan-status.enum';
 
 /**
- * A pricing channel for a property (e.g. BAR) that room types can be priced under.
- * A rate plan does not belong to a single room type: one plan can price many room types.
+ * A pricing channel for a property (for example BAR) that can price
+ * multiple room types.
  */
 @Entity({ name: 'rate_plans' })
-@Index('UQ_rate_plans_property_code', ['propertyId', 'code'], { unique: true })
-// Partial unique index: at most one is_default = true row per property (see migration for the DB-level source of truth).
+@Index('UQ_rate_plans_property_code', ['propertyId', 'code'], {
+  unique: true,
+})
 @Index('UQ_rate_plans_property_default', ['propertyId'], {
   unique: true,
   where: '"is_default" = true',
@@ -29,7 +30,10 @@ export class RatePlanEntity {
   @Column({ type: 'uuid', name: 'property_id' })
   propertyId!: string;
 
-  @ManyToOne(() => PropertyEntity, { nullable: false, onDelete: 'RESTRICT' })
+  @ManyToOne(() => PropertyEntity, {
+    nullable: false,
+    onDelete: 'RESTRICT',
+  })
   @JoinColumn({ name: 'property_id' })
   property!: PropertyEntity;
 
@@ -42,7 +46,11 @@ export class RatePlanEntity {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
-  @Column({ type: 'boolean', name: 'is_default', default: false })
+  @Column({
+    type: 'boolean',
+    name: 'is_default',
+    default: false,
+  })
   isDefault!: boolean;
 
   @Column({
@@ -52,9 +60,15 @@ export class RatePlanEntity {
   })
   status!: RatePlanStatus;
 
-  @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
+  @CreateDateColumn({
+    type: 'timestamptz',
+    name: 'created_at',
+  })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
+  @UpdateDateColumn({
+    type: 'timestamptz',
+    name: 'updated_at',
+  })
   updatedAt!: Date;
 }

@@ -31,6 +31,11 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     Permissions.ReportsView,
     Permissions.UsersView,
     Permissions.SessionsView,
+
+    // Manager can view and configure property-level operational settings,
+    // including rates and guest/child pricing policies.
+    Permissions.SettingsView,
+    Permissions.SettingsManage,
   ],
 
   [UserRole.FRONT_DESK]: [

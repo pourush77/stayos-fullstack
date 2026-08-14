@@ -19,6 +19,7 @@ export type Booking = {
   backendId: string;
   bookingId: string;
   children: number;
+  childAges?: number[];
   departureDate: string;
   email: string;
   guestId?: string;
@@ -42,6 +43,7 @@ export type BookingFormValues = {
   adults: number;
   arrivalDate: string;
   children: number;
+  childAges?: number[];
   departureDate: string;
   guestId: string;
   notes: string;
@@ -71,6 +73,7 @@ export type RoomTypeOption = {
   label: string;
   maxAdults: number;
   maxChildren: number;
+  maxOccupancy: number;
 };
 
 export type AvailableRoomOption = {

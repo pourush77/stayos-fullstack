@@ -139,9 +139,34 @@ export class RoomTypesService {
     return this.findOne(propertyId, id);
   }
 
-  private validateOccupancy(values: { baseOccupancy: number; maxOccupancy: number }): void {
+  private validateOccupancy(values: {
+    baseOccupancy: number;
+    maxOccupancy: number;
+    maxAdults: number;
+    maxChildren: number;
+  }): void {
+    if (values.baseOccupancy < 1) {
+      throw new BadRequestException('baseOccupancy must be at least 1');
+    }
+
     if (values.maxOccupancy < values.baseOccupancy) {
       throw new BadRequestException('maxOccupancy must be greater than or equal to baseOccupancy');
+    }
+
+    if (values.maxAdults < 1) {
+      throw new BadRequestException('maxAdults must be at least 1');
+    }
+
+    if (values.maxChildren < 0) {
+      throw new BadRequestException('maxChildren must be greater than or equal to 0');
+    }
+
+    if (values.maxAdults > values.maxOccupancy) {
+      throw new BadRequestException('maxAdults must be less than or equal to maxOccupancy');
+    }
+
+    if (values.maxChildren > values.maxOccupancy) {
+      throw new BadRequestException('maxChildren must be less than or equal to maxOccupancy');
     }
   }
 
