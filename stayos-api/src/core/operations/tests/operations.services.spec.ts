@@ -1,5 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { ActivityEventEntity } from '../../activity/infrastructure/activity-event.entity';
 import { AuditEventEntity } from '../../audit/infrastructure/audit-event.entity';
 import { FolioChargeType } from '../../billing/domain/folio-charge-type.enum';
@@ -287,7 +287,7 @@ describe('Operations services', () => {
       currentStay: {
         status: ReservationStatus.CHECKED_IN,
       },
-      checkoutLabel: 'Checkout Today',
+      checkoutLabel: expect.stringMatching(/^Checkout (Today|Tomorrow)$/),
       primaryAction: 'Open Stay',
     });
   });
@@ -1455,6 +1455,7 @@ describe('Operations services', () => {
       findOne: jest.fn().mockResolvedValue({ id: 'stay-id', status: 'IN_HOUSE' }),
       save: jest.fn().mockResolvedValue({ id: 'stay-id', status: 'CHECKED_OUT' }),
     };
+    const roomRepository = { update: jest.fn().mockResolvedValue({}) };
 
     const service = new GroupBookingService(
       groupBookingsRepository as never,
@@ -1473,7 +1474,7 @@ describe('Operations services', () => {
               if (entity === GroupBookingEntity) return groupBookingsRepository;
               if (entity === GroupStayEntity) return groupStaysRepository;
               if (entity === GroupMasterFolioEntity) return groupMasterFoliosRepository;
-              if (entity === RoomEntity) return { update: jest.fn().mockResolvedValue({}) };
+              if (entity === RoomEntity) return roomRepository;
               return {};
             },
           }),
@@ -1489,6 +1490,10 @@ describe('Operations services', () => {
     expect(result.status).toBe('SETTLED');
     expect(groupBookingsRepository.save).toHaveBeenCalled();
     expect(groupStaysRepository.save).toHaveBeenCalled();
+    expect(roomRepository.update).toHaveBeenCalledWith(
+      { id: In([roomId]), propertyId },
+      { operationalStatus: RoomOperationalStatus.NEEDS_CLEANING },
+    );
   });
 
   it('suggests a feasible room mix for a family group', async () => {

@@ -1266,7 +1266,7 @@ export class GroupBookingService {
       if (roomIds.length) {
         await roomRepository.update(
           { id: In(roomIds), propertyId },
-          { operationalStatus: RoomOperationalStatus.READY },
+          { operationalStatus: RoomOperationalStatus.NEEDS_CLEANING },
         );
       }
 
