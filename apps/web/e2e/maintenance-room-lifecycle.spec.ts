@@ -47,6 +47,7 @@ type RoomBoardItem = {
   currentStayReservationCode?: string;
   currentStayGuestName?: string;
   currentStayStatus?: string;
+  groupContext?: LooseRecord | null;
 };
 
 type ApiRequestInput = {
@@ -165,59 +166,208 @@ async function discoverReadyRoomForToday(page: Page): Promise<ScenarioRooms> {
   const propertyId = await getActivePropertyId(page);
   const arrivalDate = toDateKey(new Date());
   const departureDate = addDays(arrivalDate, 1);
-
-  const response = await apiRequest<LooseRecord[]>(page, {
-    path:
-      `/properties/${propertyId}/operations/available-rooms` +
-      `?arrivalDate=${arrivalDate}` +
-      `&departureDate=${departureDate}` +
-      `&guestCount=1&adults=1&children=0`,
+  const rooms = await discoverReadyRoomsForDates(page, {
+    propertyId,
+    arrivalDate,
+    departureDate,
   });
 
-  if (!response.ok) {
-    throw new Error(
-      `Unable to discover READY rooms for today: HTTP ${response.status}\n${JSON.stringify(response.body)}`,
-    );
-  }
-
-  for (const room of response.body) {
-    const uiStatus = normalizeStatus(String(room.uiStatus ?? room.operationalStatus ?? ''));
-
-    if (uiStatus && uiStatus !== 'READY') {
-      continue;
-    }
-
-    const currentStay = (room.currentStay ?? {}) as LooseRecord;
-    if (String(currentStay.reservationId ?? '')) {
-      continue;
-    }
-
-    const roomType = (room.roomType ?? {}) as LooseRecord;
-    const roomTypeId = String(roomType.id ?? '');
-    const roomTypeName = String(roomType.name ?? roomType.code ?? 'Room');
-    const roomId = String(room.roomId ?? room.id ?? '');
-    const roomNumber = String(room.roomNumber ?? '');
-
-    if (!roomTypeId || !roomId || !roomNumber) {
-      continue;
-    }
-
+  if (rooms[0]) {
     return {
       propertyId,
       arrivalDate,
       departureDate,
-      roomA: {
-        roomId,
-        roomNumber,
-        roomTypeId,
-        roomTypeName,
-      },
+      roomA: rooms[0],
     };
   }
 
   throw new Error(
     'Could not find a vacant READY room for today. Reset/seed local E2E inventory and rerun.',
   );
+}
+
+async function discoverReadyRoomPairForToday(page: Page): Promise<ScenarioRooms & { roomB: ReadyRoom }> {
+  const pool = await ensureReadyRoomPoolForToday(page, 2);
+  const { propertyId, arrivalDate, departureDate, rooms } = pool;
+  const sameTypePair = rooms
+    .map((roomA) => ({
+      roomA,
+      roomB: rooms.find(
+        (roomB) => roomB.roomId !== roomA.roomId && roomB.roomTypeId === roomA.roomTypeId,
+      ),
+    }))
+    .find((pair): pair is { roomA: ReadyRoom; roomB: ReadyRoom } => Boolean(pair.roomB));
+
+  const pair =
+    sameTypePair ??
+    (rooms[0] && rooms[1] ? { roomA: rooms[0], roomB: rooms[1] } : undefined);
+
+  if (!pair) {
+    throw new Error(
+      'Could not find two vacant non-group READY rooms for maintenance relocation. Reset/seed local E2E inventory and rerun.',
+    );
+  }
+
+  return {
+    propertyId,
+    arrivalDate,
+    departureDate,
+    roomA: pair.roomA,
+    roomB: pair.roomB,
+  };
+}
+
+async function discoverReadyRoomsForDates(
+  page: Page,
+  input: {
+    propertyId: string;
+    arrivalDate: string;
+    departureDate: string;
+  },
+): Promise<ReadyRoom[]> {
+  const response = await apiRequest<LooseRecord[]>(page, {
+    path:
+      `/properties/${input.propertyId}/operations/available-rooms` +
+      `?arrivalDate=${input.arrivalDate}` +
+      `&departureDate=${input.departureDate}` +
+      `&guestCount=1&adults=1&children=0`,
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Unable to discover READY rooms: HTTP ${response.status}\n${JSON.stringify(response.body)}`,
+    );
+  }
+
+  const roomBoard = await getRoomBoard(page, input.propertyId);
+  const boardByRoomId = new Map(roomBoard.map((room) => [room.roomId, room]));
+
+  return response.body
+    .map((room) => {
+      const roomType = (room.roomType ?? {}) as LooseRecord;
+      return {
+        roomId: String(room.roomId ?? room.id ?? ''),
+        roomNumber: String(room.roomNumber ?? ''),
+        roomTypeId: String(roomType.id ?? ''),
+        roomTypeName: String(roomType.name ?? roomType.code ?? 'Room'),
+      };
+    })
+    .filter((room) => room.roomId && room.roomNumber && room.roomTypeId)
+    .filter((room) => {
+      const boardRoom = boardByRoomId.get(room.roomId);
+      return (
+        boardRoom &&
+        normalizeStatus(boardRoom.uiStatus || boardRoom.operationalStatus) === 'READY' &&
+        !boardRoom.currentStayReservationId &&
+        !boardRoom.groupContext
+      );
+    });
+}
+
+async function ensureReadyRoomPoolForToday(
+  page: Page,
+  requiredCount: number,
+): Promise<ScenarioRooms & { rooms: ReadyRoom[] }> {
+  const propertyId = await getActivePropertyId(page);
+  const arrivalDate = toDateKey(new Date());
+  const departureDate = addDays(arrivalDate, 1);
+
+  let rooms = await discoverReadyRoomsForDates(page, {
+    propertyId,
+    arrivalDate,
+    departureDate,
+  });
+
+  if (rooms.length < requiredCount) {
+    await restoreIdleHousekeepingRoomsToReady(page, {
+      propertyId,
+      needed: requiredCount - rooms.length,
+    });
+
+    rooms = await discoverReadyRoomsForDates(page, {
+      propertyId,
+      arrivalDate,
+      departureDate,
+    });
+  }
+
+  if (rooms.length < requiredCount) {
+    throw new Error(
+      `Could not construct ${requiredCount} vacant non-group READY rooms for maintenance lifecycle E2E. Found ${rooms.length}.`,
+    );
+  }
+
+  return {
+    propertyId,
+    arrivalDate,
+    departureDate,
+    roomA: rooms[0],
+    rooms,
+  };
+}
+
+async function restoreIdleHousekeepingRoomsToReady(
+  page: Page,
+  input: {
+    propertyId: string;
+    needed: number;
+  },
+) {
+  if (input.needed <= 0) return;
+
+  await loginAs(page, housekeepingEmail);
+
+  const employeeId = await getHousekeepingEmployeeId(page, input.propertyId);
+  const board = await getRoomBoard(page, input.propertyId);
+  const candidates = board
+    .filter((room) => !room.currentStayReservationId && !room.groupContext)
+    .filter((room) =>
+      ['NEEDS_CLEANING', 'INSPECTION', 'CLEANING'].includes(
+        normalizeStatus(room.operationalStatus || room.uiStatus),
+      ),
+    )
+    .slice(0, input.needed);
+
+  for (const room of candidates) {
+    const status = normalizeStatus(room.operationalStatus || room.uiStatus);
+    if (status === 'NEEDS_CLEANING' || status === 'CLEANING') {
+      const assignResponse = await apiRequest<LooseRecord>(page, {
+        method: 'PATCH',
+        path: `/properties/${input.propertyId}/housekeeping/rooms/${room.roomId}/assign`,
+        body: { employeeId },
+      });
+
+      if (!assignResponse.ok) continue;
+
+      const startResponse = await apiRequest<LooseRecord>(page, {
+        method: 'PATCH',
+        path: `/properties/${input.propertyId}/housekeeping/rooms/${room.roomId}/start`,
+        body: { employeeId },
+      });
+
+      if (!startResponse.ok) continue;
+
+      const completeResponse = await apiRequest<LooseRecord>(page, {
+        method: 'PATCH',
+        path: `/properties/${input.propertyId}/housekeeping/rooms/${room.roomId}/complete`,
+        body: {
+          employeeId,
+          completedOnBehalf: true,
+          checklist: HOUSEKEEPING_CHECKLIST_KEYS.map((key) => ({ key, completed: true })),
+        },
+      });
+
+      if (!completeResponse.ok) continue;
+    }
+
+    await apiRequest<LooseRecord>(page, {
+      method: 'PATCH',
+      path: `/properties/${input.propertyId}/housekeeping/rooms/${room.roomId}/inspect`,
+      body: { action: 'APPROVE' },
+    }).catch(() => undefined);
+  }
+
+  await loginAs(page, frontDeskEmail);
 }
 
 async function createUniqueGuest(page: Page, propertyId: string): Promise<CreatedGuest> {
@@ -360,6 +510,7 @@ async function getRoomBoardItem(
 
   const roomType = (room.roomType ?? {}) as LooseRecord;
   const currentStay = (room.currentStay ?? {}) as LooseRecord;
+  const groupContext = (room.groupContext ?? null) as LooseRecord | null;
 
   return {
     roomId: String(room.roomId ?? room.id ?? ''),
@@ -372,7 +523,38 @@ async function getRoomBoardItem(
     currentStayReservationCode: String(currentStay.reservationCode ?? ''),
     currentStayGuestName: String(currentStay.guestName ?? ''),
     currentStayStatus: String(currentStay.status ?? ''),
+    groupContext,
   };
+}
+
+async function getRoomBoard(page: Page, propertyId: string): Promise<RoomBoardItem[]> {
+  const response = await apiRequest<LooseRecord[]>(page, {
+    path: `/properties/${propertyId}/operations/room-board`,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Unable to read room board: HTTP ${response.status}`);
+  }
+
+  return response.body.map((room) => {
+    const roomType = (room.roomType ?? {}) as LooseRecord;
+    const currentStay = (room.currentStay ?? {}) as LooseRecord;
+    const groupContext = (room.groupContext ?? null) as LooseRecord | null;
+
+    return {
+      roomId: String(room.roomId ?? room.id ?? ''),
+      roomNumber: String(room.roomNumber ?? ''),
+      roomTypeId: String(roomType.id ?? ''),
+      roomTypeName: String(roomType.name ?? roomType.code ?? 'Room'),
+      uiStatus: String(room.uiStatus ?? ''),
+      operationalStatus: String(room.operationalStatus ?? ''),
+      currentStayReservationId: String(currentStay.reservationId ?? ''),
+      currentStayReservationCode: String(currentStay.reservationCode ?? ''),
+      currentStayGuestName: String(currentStay.guestName ?? ''),
+      currentStayStatus: String(currentStay.status ?? ''),
+      groupContext,
+    };
+  });
 }
 
 async function getHousekeepingStatus(page: Page, propertyId: string, roomId: string) {
@@ -763,8 +945,15 @@ async function findCompatibleReadyRelocationRoom(
           roomTypeName: String(roomType.name ?? roomType.code ?? 'Room'),
         };
       })
-      .filter((room) => room.roomId && room.roomNumber && room.roomId !== input.excludeRoomId);
+      .filter((room) => room.roomId && room.roomNumber && room.roomId !== input.excludeRoomId)
+      .filter((room) => {
+        const boardRoom = boardByRoomId.get(room.roomId);
+        return boardRoom && !boardRoom.currentStayReservationId && !boardRoom.groupContext;
+      });
   };
+
+  const board = await getRoomBoard(page, input.propertyId);
+  const boardByRoomId = new Map(board.map((room) => [room.roomId, room]));
 
   const sameTypeTargets = await fetchTargets(true);
   if (sameTypeTargets.length > 0) {
@@ -1119,8 +1308,9 @@ test.describe('maintenance room lifecycle regression', () => {
   test('assigned room maintenance before check-in', async ({ page }) => {
     await loginAs(page, frontDeskEmail);
 
-    const candidate = await discoverReadyRoomForToday(page);
+    const candidate = await discoverReadyRoomPairForToday(page);
     const roomA = candidate.roomA;
+    const preselectedRoomB = candidate.roomB;
 
     const guest = await createUniqueGuest(page, candidate.propertyId);
     const reservation = await createConfirmedReservation(page, {
@@ -1367,8 +1557,9 @@ test.describe('maintenance room lifecycle regression', () => {
   test('blocking maintenance after check-in requires guest relocation', async ({ page }) => {
     await loginAs(page, frontDeskEmail);
 
-    const candidate = await discoverReadyRoomForToday(page);
+    const candidate = await discoverReadyRoomPairForToday(page);
     const roomA = candidate.roomA;
+    const preselectedRoomB = candidate.roomB;
 
     const guest = await createUniqueGuest(page, candidate.propertyId);
     const reservation = await createConfirmedReservation(page, {
@@ -1379,7 +1570,7 @@ test.describe('maintenance room lifecycle regression', () => {
       departureDate: candidate.departureDate,
     });
     let maintenanceTicketId = '';
-    let roomB: ReadyRoom | null = null;
+    let roomB: ReadyRoom | null = preselectedRoomB;
 
     try {
       await test.step('create confirmed reservation, assign READY Room A, and complete check-in', async () => {
@@ -1490,23 +1681,15 @@ test.describe('maintenance room lifecycle regression', () => {
       });
 
       roomB =
-        await test.step('dynamically select another compatible READY Room B and move guest', async () => {
-          const target = await findCompatibleReadyRelocationRoom(page, {
-            propertyId: candidate.propertyId,
-            arrivalDate: candidate.arrivalDate,
-            departureDate: candidate.departureDate,
-            roomTypeId: roomA.roomTypeId,
-            excludeRoomId: roomA.roomId,
-          });
-
+        await test.step('move guest to preselected READY Room B', async () => {
           await moveGuestRoom(page, {
             propertyId: candidate.propertyId,
             reservationId: reservation.reservationId,
-            roomId: target.roomId,
+            roomId: preselectedRoomB.roomId,
             reason: 'E2E relocation after maintenance block',
           });
 
-          return target;
+          return preselectedRoomB;
         });
 
       if (!roomB) {
@@ -1631,8 +1814,9 @@ test.describe('maintenance room lifecycle regression', () => {
   test('occupied room blocking maintenance opens relocation flow immediately', async ({ page }) => {
     await loginAs(page, frontDeskEmail);
 
-    const candidate = await discoverReadyRoomForToday(page);
+    const candidate = await discoverReadyRoomPairForToday(page);
     const roomA = candidate.roomA;
+    const preselectedRoomB = candidate.roomB;
     const guest = await createUniqueGuest(page, candidate.propertyId);
     const reservation = await createConfirmedReservation(page, {
       propertyId: candidate.propertyId,
@@ -1646,7 +1830,7 @@ test.describe('maintenance room lifecycle regression', () => {
     let maintenanceTicketId = '';
 
     try {
-      await test.step('check the guest into Room A and confirm another READY room exists', async () => {
+      await test.step('check the guest into Room A with preselected READY replacement Room B', async () => {
         await assignReservationRoom(
           page,
           candidate.propertyId,
@@ -1661,16 +1845,14 @@ test.describe('maintenance room lifecycle regression', () => {
           expected: 'OCCUPIED',
         });
 
-        // This test is specifically for the successful immediate-relocation UI branch.
-        // Discover the replacement before reporting maintenance so a lack of inventory
-        // is reported as test setup failure, not as a UI regression.
-        await findCompatibleReadyRelocationRoom(page, {
-          propertyId: candidate.propertyId,
-          arrivalDate: candidate.arrivalDate,
-          departureDate: candidate.departureDate,
-          roomTypeId: roomA.roomTypeId,
-          excludeRoomId: roomA.roomId,
-        });
+        const replacementBoard = await getRoomBoardItem(
+          page,
+          candidate.propertyId,
+          preselectedRoomB.roomId,
+        );
+        expect(normalizeStatus(replacementBoard.uiStatus)).toBe('READY');
+        expect(replacementBoard.currentStayReservationId ?? '').toBe('');
+        expect(replacementBoard.groupContext ?? null).toBeNull();
       });
 
       await test.step('report blocking maintenance from the occupied-room UI', async () => {
@@ -1711,15 +1893,7 @@ test.describe('maintenance room lifecycle regression', () => {
 
         await expect(relocationDialog.getByText(/no replacement room available/i)).toHaveCount(0);
 
-        const replacement = await findCompatibleReadyRelocationRoom(page, {
-          propertyId: candidate.propertyId,
-          arrivalDate: candidate.arrivalDate,
-          departureDate: candidate.departureDate,
-          roomTypeId: roomA.roomTypeId,
-          excludeRoomId: roomA.roomId,
-        });
-
-        await expect(relocationDialog).toContainText(replacement.roomNumber);
+        await expect(relocationDialog).toContainText(preselectedRoomB.roomNumber);
 
         // Reporting blocking maintenance must not itself move the stay.
         const roomABoard = await getRoomBoardItem(page, candidate.propertyId, roomA.roomId);
@@ -1741,6 +1915,11 @@ test.describe('maintenance room lifecycle regression', () => {
       await restoreRoomAfterCheckoutIfNeeded(page, {
         propertyId: candidate.propertyId,
         roomId: roomA.roomId,
+      }).catch(() => undefined);
+
+      await restoreRoomAfterCheckoutIfNeeded(page, {
+        propertyId: candidate.propertyId,
+        roomId: preselectedRoomB.roomId,
       }).catch(() => undefined);
     }
   });

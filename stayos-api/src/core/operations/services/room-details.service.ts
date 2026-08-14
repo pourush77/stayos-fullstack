@@ -92,6 +92,8 @@ export class RoomDetailsService {
     const groupAssignment = groupAssignments[0];
     const folio = folios.find((item) => item.groupBookingId === groupAssignment?.groupBookingId);
     const isActiveGroupAssignment =
+      !currentReservation &&
+      !upcomingReservations[0] &&
       !!groupAssignment?.groupBooking &&
       groupAssignment.groupBooking.status !== GroupBookingStatus.CHECKED_OUT;
     const groupContext = isActiveGroupAssignment

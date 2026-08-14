@@ -50,6 +50,9 @@ describe('MaintenanceService', () => {
   let ticketsRepository: MockRepository<MaintenanceTicketEntity>;
   let roomsRepository: MockRepository<RoomEntity>;
   let usersRepository: MockRepository<UserEntity>;
+  const roomsService = {
+    returnToHousekeeping: jest.fn(),
+  };
 
   beforeEach(() => {
     ticketsRepository = {
@@ -63,11 +66,18 @@ describe('MaintenanceService', () => {
       save: jest.fn().mockImplementation(async (entity) => entity),
     };
     usersRepository = { findOne: jest.fn().mockResolvedValue({ id: userId, propertyId }) };
+    roomsService.returnToHousekeeping.mockClear();
+    roomsService.returnToHousekeeping.mockResolvedValue({
+      id: roomId,
+      propertyId,
+      operationalStatus: RoomOperationalStatus.NEEDS_CLEANING,
+    });
 
     service = new MaintenanceService(
       asRepository(ticketsRepository),
       asRepository(roomsRepository),
       asRepository(usersRepository),
+      roomsService as never,
     );
   });
 
@@ -184,13 +194,36 @@ describe('MaintenanceService', () => {
 
     await service.resolve(propertyId, ticketId, { resolutionNote: 'Replaced fixture.' });
 
+    expect(roomsService.returnToHousekeeping).toHaveBeenCalledWith(
+      propertyId,
+      roomId,
+      'Replaced fixture.',
+    );
+  });
+
+  it('keeps a room in maintenance while another blocking ticket remains active', async () => {
+    ticketsRepository.findOne
+      ?.mockResolvedValueOnce(
+        ticketEntity({ status: MaintenanceTicketStatus.IN_PROGRESS, makesRoomUnavailable: true }),
+      )
+      .mockResolvedValueOnce(
+        ticketEntity({
+          id: 'active-ticket',
+          status: MaintenanceTicketStatus.OPEN,
+          makesRoomUnavailable: true,
+          title: 'AC still down',
+          description: 'Waiting on part',
+        }),
+      );
+
+    await service.resolve(propertyId, ticketId, { resolutionNote: 'Replaced fixture.' });
+
+    expect(roomsService.returnToHousekeeping).not.toHaveBeenCalled();
     expect(roomsRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({
-        operationalStatus: RoomOperationalStatus.NEEDS_CLEANING,
-        startedAt: null,
-        completedAt: null,
-        inspectedAt: null,
-        checklist: [],
+        operationalStatus: RoomOperationalStatus.MAINTENANCE,
+        operationalStatusReason: 'AC still down',
+        operationalStatusNote: 'Waiting on part',
       }),
     );
   });

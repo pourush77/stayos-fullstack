@@ -158,6 +158,13 @@ export function markRoomReady(propertyId: string, roomId: string, signal?: Abort
   return patch<InventoryRoomDto>(`/properties/${propertyId}/rooms/${roomId}/mark-ready`, signal);
 }
 
+export function returnRoomToService(propertyId: string, roomId: string, signal?: AbortSignal) {
+  return patch<InventoryRoomDto>(
+    `/properties/${propertyId}/rooms/${roomId}/return-to-service`,
+    signal,
+  );
+}
+
 export function markRoomCleaning(propertyId: string, roomId: string, signal?: AbortSignal) {
   return patch<InventoryRoomDto>(`/properties/${propertyId}/rooms/${roomId}/mark-cleaning`, signal);
 }

@@ -71,6 +71,15 @@ export type HousekeepingRoom = {
   inspectedByUserId?: string;
   checklist: HousekeepingChecklistItem[];
   reworkReason?: string;
+  operationalStatusReason?: string;
+  operationalStatusNote?: string;
+  unavailableForSale?: boolean;
+  maintenanceTicket?: {
+    id: string;
+    title: string;
+    status: string;
+    makesRoomUnavailable: boolean;
+  } | null;
 };
 
 export type HousekeepingInspectAction = 'APPROVE' | 'REJECT';

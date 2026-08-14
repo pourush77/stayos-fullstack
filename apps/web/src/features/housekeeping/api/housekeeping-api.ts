@@ -191,6 +191,10 @@ export function mapEmployee(dto: LooseRecord): HousekeepingEmployee {
 
 function mapHousekeepingRoomFromDashboard(dto: LooseRecord): HousekeepingRoom {
   const floor = getString(dto, ['floor', 'floorName', 'floorLabel'], 'Floor');
+  const ticket =
+    dto.maintenanceTicket && typeof dto.maintenanceTicket === 'object'
+      ? (dto.maintenanceTicket as LooseRecord)
+      : undefined;
 
   return {
     assignedEmployeeId:
@@ -225,6 +229,22 @@ function mapHousekeepingRoomFromDashboard(dto: LooseRecord): HousekeepingRoom {
     inspectedByUserId: getString(dto, ['inspectedByUserId', 'inspected_by_user_id']) || undefined,
     number: getString(dto, ['roomNumber', 'number']),
     reworkReason: getString(dto, ['reworkReason', 'rework_reason']) || undefined,
+    operationalStatusReason:
+      getString(dto, ['operationalStatusReason', 'operational_status_reason']) || undefined,
+    operationalStatusNote:
+      getString(dto, ['operationalStatusNote', 'operational_status_note']) || undefined,
+    unavailableForSale: getBoolean(dto, ['unavailableForSale', 'unavailable_for_sale']),
+    maintenanceTicket: ticket
+      ? {
+          id: getString(ticket, ['id']),
+          title: getString(ticket, ['title']),
+          status: getString(ticket, ['status']),
+          makesRoomUnavailable: getBoolean(ticket, [
+            'makesRoomUnavailable',
+            'makes_room_unavailable',
+          ]),
+        }
+      : null,
     roomType: getString(dto, ['roomType', 'roomTypeName'], 'Room'),
     startedAt: getString(dto, ['startedAt', 'started_at']) || undefined,
     status: normalizeStatus(getString(dto, ['status', 'uiStatus', 'operationalStatus'])),

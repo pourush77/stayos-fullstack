@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
+import { In, QueryFailedError, Repository } from 'typeorm';
 import {
   createPaginationMeta,
   PaginationMeta,
@@ -13,6 +13,8 @@ import {
   paginateQuery,
 } from '../../common/dto/pagination.dto';
 import { FloorEntity } from '../floors/infrastructure/floor.entity';
+import { MaintenanceTicketStatus } from '../maintenance/domain/maintenance-ticket-status.enum';
+import { MaintenanceTicketEntity } from '../maintenance/infrastructure/maintenance-ticket.entity';
 import { PropertiesService } from '../properties/properties.service';
 import { RoomTypeEntity } from '../room-types/infrastructure/room-type.entity';
 import { CreateRoomDto } from './dto/create-room.dto';
@@ -43,6 +45,8 @@ export class RoomsService {
     private readonly floorsRepository: Repository<FloorEntity>,
     @InjectRepository(RoomTypeEntity)
     private readonly roomTypesRepository: Repository<RoomTypeEntity>,
+    @InjectRepository(MaintenanceTicketEntity)
+    private readonly maintenanceTicketsRepository: Repository<MaintenanceTicketEntity>,
     private readonly propertiesService: PropertiesService,
   ) {}
 
@@ -137,7 +141,20 @@ export class RoomsService {
   }
 
   async markReady(propertyId: string, id: string): Promise<RoomEntity> {
+    await this.ensureNoActiveBlockingMaintenance(propertyId, id);
     return this.updateOperationalStatus(propertyId, id, RoomOperationalStatus.READY);
+  }
+
+  async returnToHousekeeping(
+    propertyId: string,
+    id: string,
+    note = 'Room returned to housekeeping before service.',
+  ): Promise<RoomEntity> {
+    await this.ensureNoActiveBlockingMaintenance(propertyId, id);
+    const room = await this.findOne(propertyId, id);
+    const updatedRoom = this.applyReturnToHousekeeping(room, note);
+
+    return this.roomsRepository.save(updatedRoom);
   }
 
   async markCleaning(propertyId: string, id: string): Promise<RoomEntity> {
@@ -200,6 +217,22 @@ export class RoomsService {
     );
   }
 
+  applyReturnToHousekeeping(room: RoomEntity, note: string): RoomEntity {
+    return this.roomsRepository.merge(room, {
+      operationalStatus: RoomOperationalStatus.NEEDS_CLEANING,
+      operationalStatusReason: 'Maintenance completed - housekeeping required',
+      operationalStatusNote: note,
+      startedAt: null,
+      completedAt: null,
+      inspectedAt: null,
+      completedByEmployeeId: null,
+      completedByUserId: null,
+      completedOnBehalf: false,
+      checklist: [],
+      reworkReason: null,
+    });
+  }
+
   private async validateInventoryReferences(
     propertyId: string,
     floorId: string,
@@ -247,6 +280,27 @@ export class RoomsService {
     });
 
     return this.roomsRepository.save(updatedRoom);
+  }
+
+  private async ensureNoActiveBlockingMaintenance(
+    propertyId: string,
+    roomId: string,
+  ): Promise<void> {
+    const activeTicket = await this.maintenanceTicketsRepository.findOne({
+      where: {
+        propertyId,
+        roomId,
+        makesRoomUnavailable: true,
+        status: In([MaintenanceTicketStatus.OPEN, MaintenanceTicketStatus.IN_PROGRESS]),
+      },
+    });
+
+    if (activeTicket) {
+      throw new BadRequestException({
+        code: 'ACTIVE_BLOCKING_MAINTENANCE',
+        message: 'Resolve active blocking maintenance before marking this room ready.',
+      });
+    }
   }
 
   private handlePersistenceError(error: unknown): never {

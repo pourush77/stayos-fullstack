@@ -15,6 +15,7 @@ export class MaintenanceMapper {
       category: entity.category,
       priority: entity.priority,
       status: entity.status,
+      makesRoomUnavailable: entity.makesRoomUnavailable,
       reportedAt: entity.reportedAt,
       resolvedAt: entity.resolvedAt,
       resolutionNote: entity.resolutionNote,

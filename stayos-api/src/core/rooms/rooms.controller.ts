@@ -117,6 +117,25 @@ export class RoomsController {
     return RoomsMapper.toResponse(room);
   }
 
+  @Patch(':id/return-to-service')
+  @RequirePermissions(Permissions.RoomsStatusManage, Permissions.RoomsManage)
+  @ApiOperation({ summary: 'Return unavailable room to housekeeping' })
+  @ApiStandardOkResponse(RoomResponseDto)
+  @ApiBadRequestResponse({ description: 'Invalid property id or room id' })
+  @ApiNotFoundResponse({ description: 'Property or room not found' })
+  async returnToService(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<RoomResponseDto> {
+    const room = await this.roomsService.returnToHousekeeping(
+      propertyId,
+      id,
+      'Manual block removed. Housekeeping required before service.',
+    );
+
+    return RoomsMapper.toResponse(room);
+  }
+
   @Patch(':id/mark-cleaning')
   @RequirePermissions(Permissions.RoomsStatusManage, Permissions.RoomsManage)
   @ApiOperation({ summary: 'Mark room as needing cleaning' })

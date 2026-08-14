@@ -1985,10 +1985,10 @@ function RoomDrawer({
                 <OperationRow
                   color="#16a34a"
                   icon={<CheckCircle2 size={16} />}
-                  label="Remove Block"
-                  loading={loadingAction === roomActionKey(room, 'mark-ready')}
+                  label="Return to Service"
+                  loading={loadingAction === roomActionKey(room, 'return-to-service')}
                   disabled={Boolean(loadingAction)}
-                  onClick={() => onAction(room, 'mark-ready')}
+                  onClick={() => onAction(room, 'return-to-service')}
                 />
               ) : null}
 

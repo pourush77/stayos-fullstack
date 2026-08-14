@@ -11,6 +11,8 @@ import { RoomOperationalStatus } from './domain/room-operational-status.enum';
 import { RoomStatus } from './domain/room-status.enum';
 import { RoomEntity } from './infrastructure/room.entity';
 import { RoomsService } from './rooms.service';
+import { MaintenanceTicketEntity } from '../maintenance/infrastructure/maintenance-ticket.entity';
+import { MaintenanceTicketStatus } from '../maintenance/domain/maintenance-ticket-status.enum';
 
 type MockRepository<T extends object = object> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -51,6 +53,7 @@ describe('RoomsService', () => {
   let roomsRepository: MockRepository<RoomEntity>;
   let floorsRepository: MockRepository<FloorEntity>;
   let roomTypesRepository: MockRepository<RoomTypeEntity>;
+  let maintenanceTicketsRepository: MockRepository<MaintenanceTicketEntity>;
   const propertiesService = { findOne: jest.fn() };
 
   beforeEach(async () => {
@@ -65,6 +68,9 @@ describe('RoomsService', () => {
     roomTypesRepository = {
       findOne: jest.fn().mockResolvedValue(roomTypeEntity),
     };
+    maintenanceTicketsRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+    };
     propertiesService.findOne.mockResolvedValue({ id: propertyId });
 
     const module: TestingModule = await Test.createTestingModule({
@@ -75,6 +81,10 @@ describe('RoomsService', () => {
         {
           provide: getRepositoryToken(RoomTypeEntity),
           useValue: roomTypesRepository,
+        },
+        {
+          provide: getRepositoryToken(MaintenanceTicketEntity),
+          useValue: maintenanceTicketsRepository,
         },
         { provide: PropertiesService, useValue: propertiesService },
       ],
@@ -180,6 +190,44 @@ describe('RoomsService', () => {
     expect(roomsRepository.findOne).toHaveBeenCalledWith({
       relations: ['roomType', 'roomType.amenities'],
       where: { id: roomEntity.id, propertyId },
+    });
+  });
+
+  it('rejects mark-ready when an active blocking maintenance ticket exists', async () => {
+    maintenanceTicketsRepository.findOne?.mockResolvedValue({
+      id: 'ticket-1',
+      status: MaintenanceTicketStatus.OPEN,
+      makesRoomUnavailable: true,
+    });
+
+    await expect(service.markReady(propertyId, roomEntity.id)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('returns an unavailable room to housekeeping needs-cleaning', async () => {
+    roomsRepository.findOne?.mockResolvedValue({
+      ...roomEntity,
+      operationalStatus: RoomOperationalStatus.OUT_OF_SERVICE,
+      startedAt: new Date('2026-07-30T10:00:00.000Z'),
+      completedAt: new Date('2026-07-30T10:30:00.000Z'),
+      inspectedAt: new Date('2026-07-30T10:45:00.000Z'),
+      completedByEmployeeId: 'employee-1',
+      completedByUserId: 'user-1',
+      completedOnBehalf: true,
+      checklist: [{ key: 'BED', completed: true }],
+      reworkReason: 'old',
+    });
+    roomsRepository.merge?.mockImplementation((room, update) => ({ ...room, ...update }));
+    roomsRepository.save?.mockImplementation(async (room) => room);
+
+    await expect(service.returnToHousekeeping(propertyId, roomEntity.id)).resolves.toMatchObject({
+      operationalStatus: RoomOperationalStatus.NEEDS_CLEANING,
+      operationalStatusReason: 'Maintenance completed - housekeeping required',
+      startedAt: null,
+      completedAt: null,
+      inspectedAt: null,
+      checklist: [],
     });
   });
 

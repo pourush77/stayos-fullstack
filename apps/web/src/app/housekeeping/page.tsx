@@ -639,6 +639,7 @@ function RoomCard({
   onComplete,
   onInspect,
   onStart,
+  onView,
   room,
 }: {
   feedback?: string;
@@ -648,6 +649,7 @@ function RoomCard({
   onComplete: (room: HousekeepingRoom) => void;
   onInspect: (room: HousekeepingRoom) => void;
   onStart: (room: HousekeepingRoom) => void;
+  onView: (room: HousekeepingRoom) => void;
   room: HousekeepingRoom;
 }) {
   const action = primaryAction(room);
@@ -803,7 +805,12 @@ function RoomCard({
           </Button>
         ) : null}
         {['ready', 'maintenance', 'out-of-order', 'out-of-service'].includes(room.status) ? (
-          <Button data-testid={`housekeeping-view-${room.id}`} variant="subtle" color="gray">
+          <Button
+            data-testid={`housekeeping-view-${room.id}`}
+            variant="subtle"
+            color="gray"
+            onClick={() => onView(room)}
+          >
             {action}
           </Button>
         ) : null}
@@ -996,6 +1003,7 @@ export default function HousekeepingPage() {
   const [assignRoom, setAssignRoom] = useState<HousekeepingRoom | null>(null);
   const [completeRoom, setCompleteRoom] = useState<HousekeepingRoom | null>(null);
   const [inspectRoom, setInspectRoom] = useState<HousekeepingRoom | null>(null);
+  const [viewRoom, setViewRoom] = useState<HousekeepingRoom | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [checklist, setChecklist] = useState<HousekeepingChecklistItem[]>(createChecklist());
   const [rejectReason, setRejectReason] = useState<string>();
@@ -2151,6 +2159,7 @@ export default function HousekeepingPage() {
                                       `Room ${nextRoom.number} is in progress.`,
                                     )
                                   }
+                                  onView={setViewRoom}
                                   room={room}
                                 />
                               </Box>
@@ -2184,6 +2193,87 @@ export default function HousekeepingPage() {
           })}
         </Stack>
       </Card>
+
+      <Modal
+        opened={Boolean(viewRoom)}
+        onClose={() => setViewRoom(null)}
+        title={viewRoom ? `Room ${viewRoom.number}` : 'Room'}
+        centered
+      >
+        {viewRoom ? (
+          <Stack gap={spacing[4]} data-testid="housekeeping-room-context-modal">
+            <Group justify="space-between" align="flex-start">
+              <Box>
+                <Text c="#101828" style={{ fontSize: 18, fontWeight: 800 }}>
+                  {viewRoom.roomType}
+                </Text>
+                <Text c="#64748b" style={{ fontSize: 13, fontWeight: 650 }}>
+                  {viewRoom.floor}
+                </Text>
+              </Box>
+              <StatusBadge status={viewRoom.status} />
+            </Group>
+
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+              <Paper p={spacing[3]} radius={radius.md} style={cardStyle}>
+                <Text c="#64748b" style={{ fontSize: 11, fontWeight: 800 }}>
+                  Sale Availability
+                </Text>
+                <Text c="#101828" mt={spacing[1]} style={{ fontSize: 14, fontWeight: 800 }}>
+                  {viewRoom.unavailableForSale ? 'Unavailable for sale' : 'Not blocked for sale'}
+                </Text>
+              </Paper>
+              <Paper p={spacing[3]} radius={radius.md} style={cardStyle}>
+                <Text c="#64748b" style={{ fontSize: 11, fontWeight: 800 }}>
+                  Current Reason
+                </Text>
+                <Text c="#101828" mt={spacing[1]} style={{ fontSize: 14, fontWeight: 800 }}>
+                  {viewRoom.operationalStatusReason || statusLabel(viewRoom.status)}
+                </Text>
+              </Paper>
+            </SimpleGrid>
+
+            {viewRoom.operationalStatusNote ? (
+              <Alert color="gray" variant="light">
+                {viewRoom.operationalStatusNote}
+              </Alert>
+            ) : null}
+
+            {viewRoom.maintenanceTicket ? (
+              <Paper p={spacing[4]} radius={radius.md} style={cardStyle}>
+                <Stack gap={spacing[2]}>
+                  <Group justify="space-between" gap={spacing[3]}>
+                    <Text c="#101828" style={{ fontSize: 14, fontWeight: 800 }}>
+                      {viewRoom.maintenanceTicket.title}
+                    </Text>
+                    <Badge color="red" variant="light">
+                      {viewRoom.maintenanceTicket.status.replace(/_/g, ' ')}
+                    </Badge>
+                  </Group>
+                  <Text c="#475569" style={{ fontSize: 13, fontWeight: 650 }}>
+                    Resolve this ticket in Maintenance. Once all blocking tickets are closed, this
+                    room moves to Needs Cleaning.
+                  </Text>
+                  <Button
+                    component={Link}
+                    href="/maintenance"
+                    color="stayosBrand"
+                    leftSection={<Wrench size={16} />}
+                    onClick={() => setViewRoom(null)}
+                  >
+                    Open Maintenance
+                  </Button>
+                </Stack>
+              </Paper>
+            ) : (
+              <Alert color="yellow" variant="light">
+                No active maintenance ticket is linked to this room. Return it to service from Rooms
+                when the manual block is cleared; it will go to Needs Cleaning before Ready.
+              </Alert>
+            )}
+          </Stack>
+        ) : null}
+      </Modal>
 
       <Modal
         opened={Boolean(assignRoom)}

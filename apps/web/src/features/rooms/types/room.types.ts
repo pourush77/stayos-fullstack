@@ -18,7 +18,8 @@ export type RoomAction =
   | 'inspection'
   | 'maintenance'
   | 'out-of-order'
-  | 'out-of-service';
+  | 'out-of-service'
+  | 'return-to-service';
 
 export type Room = {
   accessible: boolean;

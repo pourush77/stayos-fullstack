@@ -117,6 +117,8 @@ export class MaintenanceTicketResponseDto {
   @ApiProperty({ enum: MaintenanceTicketStatus })
   status!: MaintenanceTicketStatus;
   @ApiProperty()
+  makesRoomUnavailable!: boolean;
+  @ApiProperty()
   reportedAt!: Date;
   @ApiPropertyOptional()
   resolvedAt!: Date | null;

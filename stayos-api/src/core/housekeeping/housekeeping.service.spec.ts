@@ -8,6 +8,8 @@ import { ApiErrorCode } from '../../common/errors/api-error-code.enum';
 import { EmployeeDepartment } from '../employees/domain/employee-department.enum';
 import { EmployeeStatus } from '../employees/domain/employee-status.enum';
 import { EmployeeEntity } from '../employees/infrastructure/employee.entity';
+import { MaintenanceTicketEntity } from '../maintenance/infrastructure/maintenance-ticket.entity';
+import { MaintenanceService } from '../maintenance/maintenance.service';
 import { PropertiesService } from '../properties/properties.service';
 import { RoomOperationalStatus } from '../rooms/domain/room-operational-status.enum';
 import { RoomStatus } from '../rooms/domain/room-status.enum';
@@ -89,12 +91,17 @@ describe('HousekeepingService', () => {
   let activityRepository: MockRepository<ActivityEventEntity>;
   let auditRepository: MockRepository<AuditEventEntity>;
   let employeesRepository: MockRepository<EmployeeEntity>;
+  let maintenanceTicketsRepository: MockRepository<MaintenanceTicketEntity>;
   let transactionEmployeeRepository: MockRepository<EmployeeEntity>;
+  const maintenanceService = {
+    create: jest.fn(),
+  };
 
   beforeEach(async () => {
     roomsRepository = {
       find: jest.fn(),
       findOne: jest.fn(),
+      findOneOrFail: jest.fn(),
     };
     transactionRoomRepository = {
       findOne: jest.fn(),
@@ -114,6 +121,10 @@ describe('HousekeepingService', () => {
     transactionEmployeeRepository = {
       findOne: jest.fn().mockResolvedValue(employeeEntity),
     };
+    maintenanceTicketsRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    };
+    maintenanceService.create.mockResolvedValue({});
 
     const dataSource = {
       transaction: jest.fn(async (callback) =>
@@ -136,6 +147,11 @@ describe('HousekeepingService', () => {
         { provide: DataSource, useValue: dataSource },
         { provide: getRepositoryToken(RoomEntity), useValue: roomsRepository },
         { provide: getRepositoryToken(EmployeeEntity), useValue: employeesRepository },
+        {
+          provide: getRepositoryToken(MaintenanceTicketEntity),
+          useValue: maintenanceTicketsRepository,
+        },
+        { provide: MaintenanceService, useValue: maintenanceService },
         {
           provide: PropertiesService,
           useValue: { findOne: jest.fn().mockResolvedValue({ id: propertyId }) },
@@ -626,10 +642,11 @@ describe('HousekeepingService', () => {
     );
   });
 
-  it('report maintenance moves cleaning room to maintenance', async () => {
+  it('report maintenance creates a blocking maintenance ticket', async () => {
     transactionRoomRepository.findOne?.mockResolvedValue(
       roomEntity(RoomOperationalStatus.NEEDS_CLEANING),
     );
+    roomsRepository.findOneOrFail?.mockResolvedValue(roomEntity(RoomOperationalStatus.MAINTENANCE));
 
     await expect(
       service.reportMaintenance(
@@ -645,14 +662,14 @@ describe('HousekeepingService', () => {
       status: HousekeepingRoomStatus.MAINTENANCE,
     });
 
-    expect(auditRepository.create).toHaveBeenCalledWith(
+    expect(maintenanceService.create).toHaveBeenCalledWith(
+      propertyId,
       expect.objectContaining({
-        action: 'HOUSEKEEPING_MAINTENANCE_REPORTED',
-        metadata: expect.objectContaining({
-          issue: 'AC not cooling',
-          priority: HousekeepingMaintenancePriority.MEDIUM,
-        }),
+        roomId,
+        title: 'AC not cooling',
+        makeRoomUnavailable: true,
       }),
+      actorId,
     );
   });
 });

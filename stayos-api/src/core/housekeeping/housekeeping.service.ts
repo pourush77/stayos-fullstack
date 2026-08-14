@@ -7,6 +7,11 @@ import { AuditEventEntity } from '../audit/infrastructure/audit-event.entity';
 import { EmployeeDepartment } from '../employees/domain/employee-department.enum';
 import { EmployeeStatus } from '../employees/domain/employee-status.enum';
 import { EmployeeEntity } from '../employees/infrastructure/employee.entity';
+import { MaintenanceTicketCategory } from '../maintenance/domain/maintenance-ticket-category.enum';
+import { MaintenanceTicketPriority } from '../maintenance/domain/maintenance-ticket-priority.enum';
+import { MaintenanceTicketStatus } from '../maintenance/domain/maintenance-ticket-status.enum';
+import { MaintenanceTicketEntity } from '../maintenance/infrastructure/maintenance-ticket.entity';
+import { MaintenanceService } from '../maintenance/maintenance.service';
 import { PropertiesService } from '../properties/properties.service';
 import { RoomOperationalStatus } from '../rooms/domain/room-operational-status.enum';
 import { RoomEntity } from '../rooms/infrastructure/room.entity';
@@ -23,7 +28,10 @@ import {
   HousekeepingInspectionAction,
   InspectHousekeepingRoomDto,
 } from './dto/inspect-housekeeping-room.dto';
-import { ReportMaintenanceDto } from './dto/report-maintenance.dto';
+import {
+  HousekeepingMaintenancePriority,
+  ReportMaintenanceDto,
+} from './dto/report-maintenance.dto';
 import { StaffCompleteCleaningDto } from './dto/staff-complete-cleaning.dto';
 import {
   HousekeepingStaffAccessResponseDto,
@@ -52,7 +60,10 @@ export class HousekeepingService {
     private readonly roomsRepository: Repository<RoomEntity>,
     @InjectRepository(EmployeeEntity)
     private readonly employeesRepository: Repository<EmployeeEntity>,
+    @InjectRepository(MaintenanceTicketEntity)
+    private readonly maintenanceTicketsRepository: Repository<MaintenanceTicketEntity>,
     private readonly propertiesService: PropertiesService,
+    private readonly maintenanceService: MaintenanceService,
   ) {}
 
   async getDashboard(propertyId: string): Promise<HousekeepingDashboardDto> {
@@ -73,7 +84,8 @@ export class HousekeepingService {
       order: { roomNumber: 'ASC' },
     });
 
-    const roomResponses = rooms.map((room) => this.toRoomResponse(room));
+    const ticketByRoomId = await this.findActiveMaintenanceTickets(propertyId, rooms);
+    const roomResponses = rooms.map((room) => this.toRoomResponse(room, ticketByRoomId.get(room.id)));
 
     return {
       summary: this.toDashboardSummary(roomResponses),
@@ -436,7 +448,7 @@ export class HousekeepingService {
     reportMaintenanceDto: ReportMaintenanceDto,
     actorContext: ActorContext = {},
   ): Promise<HousekeepingRoomResponseDto> {
-    return this.withRoomTransition(propertyId, roomId, actorContext, async (room, repositories) => {
+    return this.withRoomTransition(propertyId, roomId, actorContext, async (room) => {
       if (room.operationalStatus === RoomOperationalStatus.OCCUPIED) {
         throw this.badRequest(
           ApiErrorCode.ROOM_OCCUPIED,
@@ -455,30 +467,30 @@ export class HousekeepingService {
         'Maintenance can only be reported from cleaning, inspection, or ready rooms.',
       );
 
-      const previousStatus = room.operationalStatus;
-      room.operationalStatus = RoomOperationalStatus.MAINTENANCE;
-      room.operationalStatusReason = reportMaintenanceDto.issue;
-      room.operationalStatusNote = reportMaintenanceDto.notes ?? null;
-      const updatedRoom = await repositories.roomRepository.save(room);
+      if (!actorContext.actorId) {
+        throw this.badRequest(
+          ApiErrorCode.HOUSEKEEPING_ACTION_NOT_ALLOWED,
+          'A signed-in user is required to report maintenance.',
+        );
+      }
 
-      await this.createEvents(repositories, {
+      await this.maintenanceService.create(
         propertyId,
-        room: updatedRoom,
-        actorId: actorContext.actorId ?? null,
-        action: 'HOUSEKEEPING_MAINTENANCE_REPORTED',
-        activityType: 'HOUSEKEEPING_MAINTENANCE_REPORTED',
-        activityTitle: 'Maintenance reported from housekeeping',
-        activityDescription: `Maintenance reported for Room ${updatedRoom.roomNumber}: ${reportMaintenanceDto.issue}.`,
-        previousStatus,
-        newStatus: updatedRoom.operationalStatus,
-        metadata: {
-          issue: reportMaintenanceDto.issue,
-          priority: reportMaintenanceDto.priority,
-          notes: reportMaintenanceDto.notes ?? null,
+        {
+          roomId,
+          title: reportMaintenanceDto.issue,
+          description: reportMaintenanceDto.notes,
+          category: MaintenanceTicketCategory.OTHER,
+          priority: this.toMaintenancePriority(reportMaintenanceDto.priority),
+          makeRoomUnavailable: true,
         },
-      });
+        actorContext.actorId,
+      );
 
-      return updatedRoom;
+      return this.roomsRepository.findOneOrFail({
+        where: { id: roomId, propertyId },
+        relations: { floor: true, roomType: true, assignedEmployee: true },
+      });
     });
   }
 
@@ -680,13 +692,31 @@ export class HousekeepingService {
     }
   }
 
-  private toRoomResponse(room: RoomEntity): HousekeepingRoomResponseDto {
+  private toRoomResponse(
+    room: RoomEntity,
+    maintenanceTicket?: MaintenanceTicketEntity,
+  ): HousekeepingRoomResponseDto {
     return {
       roomId: room.id,
       roomNumber: room.roomNumber,
       roomType: room.roomType?.name ?? '',
       floor: room.floor?.name ?? '',
       status: this.toHousekeepingStatus(room),
+      operationalStatusReason: room.operationalStatusReason ?? null,
+      operationalStatusNote: room.operationalStatusNote ?? null,
+      unavailableForSale: [
+        RoomOperationalStatus.MAINTENANCE,
+        RoomOperationalStatus.OUT_OF_ORDER,
+        RoomOperationalStatus.OUT_OF_SERVICE,
+      ].includes(room.operationalStatus),
+      maintenanceTicket: maintenanceTicket
+        ? {
+            id: maintenanceTicket.id,
+            title: maintenanceTicket.title,
+            status: maintenanceTicket.status,
+            makesRoomUnavailable: maintenanceTicket.makesRoomUnavailable,
+          }
+        : null,
       priority: this.toPriority(room.operationalStatus),
       assignedEmployeeId: room.assignedEmployeeId ?? null,
       assignedStaff: room.assignedEmployee?.displayName ?? null,
@@ -722,6 +752,44 @@ export class HousekeepingService {
       completedAt: room.completedAt ?? null,
       reworkReason: room.reworkReason ?? null,
     };
+  }
+
+  private async findActiveMaintenanceTickets(
+    propertyId: string,
+    rooms: RoomEntity[],
+  ): Promise<Map<string, MaintenanceTicketEntity>> {
+    const roomIds = rooms.map((room) => room.id);
+    if (roomIds.length === 0) return new Map();
+
+    const tickets = await this.maintenanceTicketsRepository.find({
+      where: {
+        propertyId,
+        roomId: In(roomIds),
+        status: In([MaintenanceTicketStatus.OPEN, MaintenanceTicketStatus.IN_PROGRESS]),
+      },
+      order: { reportedAt: 'DESC' },
+    });
+
+    const ticketByRoomId = new Map<string, MaintenanceTicketEntity>();
+    tickets.forEach((ticket) => {
+      if (ticket.roomId && !ticketByRoomId.has(ticket.roomId)) {
+        ticketByRoomId.set(ticket.roomId, ticket);
+      }
+    });
+
+    return ticketByRoomId;
+  }
+
+  private toMaintenancePriority(priority: HousekeepingMaintenancePriority): MaintenanceTicketPriority {
+    if (priority === HousekeepingMaintenancePriority.HIGH || priority === HousekeepingMaintenancePriority.CRITICAL) {
+      return MaintenanceTicketPriority.HIGH;
+    }
+
+    if (priority === HousekeepingMaintenancePriority.LOW) {
+      return MaintenanceTicketPriority.LOW;
+    }
+
+    return MaintenanceTicketPriority.NORMAL;
   }
 
   private toChecklist(checklist: Record<string, unknown>[]): HousekeepingChecklistItem[] {

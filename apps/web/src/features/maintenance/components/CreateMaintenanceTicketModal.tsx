@@ -1,4 +1,4 @@
-import { Button, Modal, Select, Stack, Textarea, TextInput } from '@mantine/core';
+import { Button, Checkbox, Modal, Select, Stack, Textarea, TextInput } from '@mantine/core';
 import { CheckCircle2 } from 'lucide-react';
 import { useState } from 'react';
 import { spacing } from '@stayos/theme';
@@ -22,6 +22,7 @@ export function CreateMaintenanceTicketModal({
   const [roomId, setRoomId] = useState('');
   const [category, setCategory] = useState<MaintenanceTicketCategory>('OTHER');
   const [priority, setPriority] = useState<MaintenanceTicketPriority>('NORMAL');
+  const [makeRoomUnavailable, setMakeRoomUnavailable] = useState(false);
 
   const reset = () => {
     setTitle('');
@@ -29,6 +30,7 @@ export function CreateMaintenanceTicketModal({
     setRoomId('');
     setCategory('OTHER');
     setPriority('NORMAL');
+    setMakeRoomUnavailable(false);
   };
 
   return (
@@ -51,6 +53,13 @@ export function CreateMaintenanceTicketModal({
           description="Optional for public-area work"
           value={roomId}
           onChange={(event) => setRoomId(event.currentTarget.value)}
+        />
+        <Checkbox
+          label="Make room unavailable until resolved"
+          description="When enabled, resolving the ticket sends the room to housekeeping before it can be sold again."
+          checked={makeRoomUnavailable}
+          disabled={!roomId.trim()}
+          onChange={(event) => setMakeRoomUnavailable(event.currentTarget.checked)}
         />
         <Select
           label="Category"
@@ -75,6 +84,7 @@ export function CreateMaintenanceTicketModal({
               roomId: roomId.trim() || undefined,
               category,
               priority,
+              makeRoomUnavailable: Boolean(roomId.trim()) && makeRoomUnavailable,
             }).then(() => {
               reset();
               onClose();

@@ -203,6 +203,44 @@ describe('Operations services', () => {
     expect(result[0].groupContext).toBeNull();
   });
 
+  it('drops stale group context when an individual stay occupies the room', async () => {
+    const activeStay = reservation({
+      status: ReservationStatus.CHECKED_IN,
+      roomId,
+      guest: { displayName: 'E2E Individual Guest' } as never,
+    });
+
+    reservationsRepository.find?.mockResolvedValueOnce([activeStay]);
+    groupAssignmentsRepository.find = jest.fn().mockResolvedValue([
+      {
+        roomId,
+        room: { propertyId },
+        groupBooking: {
+          id: 'group-booking-id',
+          groupCode: 'GRP-00001',
+          groupName: 'Old Group',
+          status: 'CHECKED_IN',
+        },
+      },
+    ]);
+
+    const service = new RoomBoardService(
+      asRepository(roomsRepository),
+      asRepository(reservationsRepository),
+      asRepository(groupAssignmentsRepository),
+      asRepository(groupMasterFoliosRepository),
+      propertiesService,
+    );
+
+    const result = await service.getRoomBoard(propertyId);
+
+    expect(result[0].groupContext).toBeNull();
+    expect(result[0].currentStay).toMatchObject({
+      guestName: 'E2E Individual Guest',
+      status: ReservationStatus.CHECKED_IN,
+    });
+  });
+
   it('prefers the active checked-in stay over a future confirmed assignment when both point to the same room', async () => {
     const activeStay = reservation({
       id: 'stay-id',

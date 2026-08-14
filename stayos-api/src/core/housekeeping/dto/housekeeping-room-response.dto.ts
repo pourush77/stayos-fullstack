@@ -42,6 +42,23 @@ export class HousekeepingRoomResponseDto {
   @ApiProperty({ enum: HousekeepingRoomStatus })
   status!: HousekeepingRoomStatus;
 
+  @ApiPropertyOptional({ nullable: true })
+  operationalStatusReason!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  operationalStatusNote!: string | null;
+
+  @ApiProperty()
+  unavailableForSale!: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  maintenanceTicket!: {
+    id: string;
+    title: string;
+    status: string;
+    makesRoomUnavailable: boolean;
+  } | null;
+
   @ApiProperty({ enum: HousekeepingRoomPriority })
   priority!: HousekeepingRoomPriority;
 

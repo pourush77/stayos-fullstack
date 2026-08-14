@@ -5,6 +5,7 @@ import {
   markRoomOutOfOrder,
   markRoomOutOfService,
   markRoomReady,
+  returnRoomToService,
 } from '../../../lib/inventory-api';
 import type { Room, RoomAction } from '../types';
 
@@ -32,6 +33,7 @@ export function runRoomStatusAction(action: RoomAction, propertyId: string, room
   if (action === 'inspection') return markRoomInspection(propertyId, roomId);
   if (action === 'maintenance') return markRoomMaintenance(propertyId, roomId);
   if (action === 'out-of-order') return markRoomOutOfOrder(propertyId, roomId);
+  if (action === 'return-to-service') return returnRoomToService(propertyId, roomId);
   return markRoomOutOfService(propertyId, roomId);
 }
 

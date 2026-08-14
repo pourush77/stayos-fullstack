@@ -4,6 +4,7 @@ import { In, IsNull, Repository } from 'typeorm';
 import { UserEntity } from '../auth/infrastructure/user.entity';
 import { RoomOperationalStatus } from '../rooms/domain/room-operational-status.enum';
 import { RoomEntity } from '../rooms/infrastructure/room.entity';
+import { RoomsService } from '../rooms/rooms.service';
 import { MaintenanceTicketPriority } from './domain/maintenance-ticket-priority.enum';
 import { MaintenanceTicketStatus } from './domain/maintenance-ticket-status.enum';
 import {
@@ -29,6 +30,7 @@ export class MaintenanceService {
 
     @InjectRepository(UserEntity)
     private readonly usersRepository: Repository<UserEntity>,
+    private readonly roomsService: RoomsService,
   ) {}
 
   async findAll(
@@ -306,39 +308,7 @@ export class MaintenanceService {
       return;
     }
 
-    const room = await this.roomsRepository.findOne({
-      where: {
-        id: roomId,
-        propertyId,
-      },
-    });
-
-    if (!room) {
-      throw new NotFoundException({
-        code: 'ROOM_NOT_FOUND',
-        message: 'Room was not found',
-      });
-    }
-
-    /*
-     * Engineering work is complete, but the room should return to the
-     * housekeeping lifecycle instead of skipping directly to inspection.
-     * Housekeeping will start cleaning, complete it, and then send the
-     * room to inspection.
-     */
-    room.operationalStatus = RoomOperationalStatus.NEEDS_CLEANING;
-    room.operationalStatusReason = 'Maintenance completed - housekeeping required';
-    room.operationalStatusNote = completionNote;
-    room.startedAt = null;
-    room.completedAt = null;
-    room.inspectedAt = null;
-    room.completedByEmployeeId = null;
-    room.completedByUserId = null;
-    room.completedOnBehalf = false;
-    room.checklist = [];
-    room.reworkReason = null;
-
-    await this.roomsRepository.save(room);
+    await this.roomsService.returnToHousekeeping(propertyId, roomId, completionNote);
   }
 
   private async findTicket(
