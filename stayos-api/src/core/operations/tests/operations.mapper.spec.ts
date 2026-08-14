@@ -157,4 +157,25 @@ describe('OperationsMapper', () => {
       attentionLevel: OperationsAttentionLevel.CRITICAL,
     });
   });
+
+  it('treats an active group claim on a ready room as occupied attention state', () => {
+    expect(
+      OperationsMapper.toRoomBoardItem(room(RoomOperationalStatus.READY), null, '2026-07-03', {
+        groupBookingId: 'group-booking-id',
+        groupCode: 'GRP-00007',
+        groupName: 'Hillston Visit',
+        masterFolioId: 'folio-id',
+        masterFolioNumber: 'GFO-00001',
+        status: 'OPEN',
+      }),
+    ).toMatchObject({
+      uiStatus: OperationsRoomUiStatus.OCCUPIED,
+      operationalStatus: RoomOperationalStatus.OCCUPIED,
+      groupContext: {
+        groupCode: 'GRP-00007',
+      },
+      primaryAction: 'View Details',
+      attentionLevel: OperationsAttentionLevel.WARNING,
+    });
+  });
 });

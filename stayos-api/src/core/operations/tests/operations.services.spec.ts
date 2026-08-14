@@ -351,6 +351,8 @@ describe('Operations services', () => {
           groupCode: 'GRP-00003',
           groupName: 'Active Group',
           status: GroupBookingStatus.CONFIRMED,
+          arrivalDate: dateKey(-1),
+          departureDate: dateKey(1),
         },
       },
     ]);
@@ -374,6 +376,51 @@ describe('Operations services', () => {
       },
       primaryAction: 'View Details',
       attentionLevel: 'CRITICAL',
+    });
+  });
+
+  it('does not expose assign guest when an active group claims a ready room', async () => {
+    reservationsRepository.find?.mockResolvedValue([]);
+    reservationsRepository.createQueryBuilder?.mockReturnValue({
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    });
+    groupAssignmentsRepository.find = jest.fn().mockResolvedValue([
+      {
+        roomId,
+        room: { propertyId },
+        groupBooking: {
+          id: 'group-booking-id',
+          groupCode: 'GRP-00003',
+          groupName: 'Active Group',
+          status: GroupBookingStatus.CONFIRMED,
+          arrivalDate: dateKey(-1),
+          departureDate: dateKey(1),
+        },
+      },
+    ]);
+    const service = new RoomBoardService(
+      asRepository(roomsRepository),
+      asRepository(reservationsRepository),
+      asRepository(groupAssignmentsRepository),
+      asRepository(groupMasterFoliosRepository),
+      propertiesService,
+    );
+
+    const result = await service.getRoomBoard(propertyId);
+
+    expect(result[0]).toMatchObject({
+      uiStatus: 'OCCUPIED',
+      operationalStatus: RoomOperationalStatus.OCCUPIED,
+      groupContext: {
+        groupCode: 'GRP-00003',
+      },
+      currentStay: null,
+      primaryAction: 'View Details',
+      attentionLevel: 'WARNING',
     });
   });
 
@@ -910,6 +957,12 @@ describe('Operations services', () => {
 
   it('accepts active group room change to a truly ready vacant room', async () => {
     const replacementRoomId = '8075c8fa-f36e-4f40-a3ef-2e9dbb1f0676';
+    const sourceRoom = room({
+      id: roomId,
+      roomNumber: '204',
+      operationalStatus: RoomOperationalStatus.OCCUPIED,
+    });
+    const replacementRoom = room({ id: replacementRoomId, roomNumber: '205' });
     const group = {
       id: 'group-booking-id',
       arrivalDate: dateKey(-1),
@@ -934,11 +987,15 @@ describe('Operations services', () => {
       }),
       save: jest.fn().mockImplementation(async (value) => value),
     };
+    const roomsRepository = {
+      findOne: jest.fn().mockResolvedValueOnce(replacementRoom).mockResolvedValueOnce(sourceRoom),
+      save: jest.fn().mockImplementation(async (value) => value),
+    };
     const service = new GroupBookingService(
       { findOne: jest.fn().mockResolvedValue(group) } as never,
       {} as never,
       {} as never,
-      { findOne: jest.fn().mockResolvedValue(room({ id: replacementRoomId, roomNumber: '205' })) } as never,
+      roomsRepository as never,
       { findOne: jest.fn().mockResolvedValue(null) } as never,
       {} as never,
       roomAssignmentsRepository as never,
@@ -960,6 +1017,22 @@ describe('Operations services', () => {
     });
     expect(roomAssignmentsRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({ roomId: replacementRoomId }),
+    );
+    expect(roomsRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: roomId,
+        operationalStatus: RoomOperationalStatus.READY,
+        operationalStatusReason: null,
+        operationalStatusNote: null,
+      }),
+    );
+    expect(roomsRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: replacementRoomId,
+        operationalStatus: RoomOperationalStatus.OCCUPIED,
+        operationalStatusReason: null,
+        operationalStatusNote: null,
+      }),
     );
   });
 
@@ -989,11 +1062,15 @@ describe('Operations services', () => {
       }),
       save: jest.fn().mockImplementation(async (value) => value),
     };
+    const roomsRepository = {
+      findOne: jest.fn().mockResolvedValue(room({ id: replacementRoomId, roomNumber: '205' })),
+      save: jest.fn(),
+    };
     const service = new GroupBookingService(
       { findOne: jest.fn().mockResolvedValue(group) } as never,
       {} as never,
       {} as never,
-      { findOne: jest.fn().mockResolvedValue(room({ id: replacementRoomId, roomNumber: '205' })) } as never,
+      roomsRepository as never,
       { findOne: jest.fn().mockResolvedValue(null) } as never,
       {} as never,
       roomAssignmentsRepository as never,
@@ -1013,6 +1090,7 @@ describe('Operations services', () => {
     ).resolves.toMatchObject({
       roomAssignments: [{ roomId: replacementRoomId }],
     });
+    expect(roomsRepository.save).not.toHaveBeenCalled();
   });
 
   it('returns a structured master folio detail for a checked-in group', async () => {

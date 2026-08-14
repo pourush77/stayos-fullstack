@@ -84,23 +84,21 @@ export class RoomBoardService {
       const currentStay = currentStayByRoomId.get(room.id);
       const assignedReservation = assignedReservationByRoomId.get(room.id);
       const groupAssignment = groupAssignmentByRoomId.get(room.id);
-      const isActiveGroupAssignment =
-        !!groupAssignment?.groupBooking &&
-        ![
-          GroupBookingStatus.RELEASED,
-          GroupBookingStatus.CANCELLED,
-          GroupBookingStatus.CHECKED_OUT,
-        ].includes(groupAssignment.groupBooking.status);
-      const groupContext = isActiveGroupAssignment
+      const isActiveGroupAssignment = this.isOperationallyActiveGroupAssignment(
+        groupAssignment,
+        today,
+      );
+      const activeGroupAssignment = isActiveGroupAssignment ? groupAssignment : null;
+      const groupContext = activeGroupAssignment
         ? {
-            groupBookingId: groupAssignment.groupBooking.id,
-            groupCode: groupAssignment.groupBooking.groupCode,
-            groupName: groupAssignment.groupBooking.groupName,
-            masterFolioId: folioByGroupBookingId.get(groupAssignment.groupBooking.id)?.id ?? '',
+            groupBookingId: activeGroupAssignment.groupBooking.id,
+            groupCode: activeGroupAssignment.groupBooking.groupCode,
+            groupName: activeGroupAssignment.groupBooking.groupName,
+            masterFolioId: folioByGroupBookingId.get(activeGroupAssignment.groupBooking.id)?.id ?? '',
             masterFolioNumber:
-              folioByGroupBookingId.get(groupAssignment.groupBooking.id)?.folioNumber ??
+              folioByGroupBookingId.get(activeGroupAssignment.groupBooking.id)?.folioNumber ??
               'Master folio pending',
-            status: folioByGroupBookingId.get(groupAssignment.groupBooking.id)?.status ?? 'OPEN',
+            status: folioByGroupBookingId.get(activeGroupAssignment.groupBooking.id)?.status ?? 'OPEN',
           }
         : null;
 
@@ -111,5 +109,28 @@ export class RoomBoardService {
         groupContext,
       );
     });
+  }
+
+  private isOperationallyActiveGroupAssignment(
+    assignment: GroupBookingRoomAssignmentEntity | undefined,
+    today: string,
+  ): boolean {
+    const group = assignment?.groupBooking;
+    if (!group) {
+      return false;
+    }
+
+    if (
+      [GroupBookingStatus.RELEASED, GroupBookingStatus.CANCELLED, GroupBookingStatus.CHECKED_OUT].includes(
+        group.status,
+      )
+    ) {
+      return false;
+    }
+
+    return (
+      group.status === GroupBookingStatus.CHECKED_IN ||
+      (group.arrivalDate <= today && group.departureDate >= today)
+    );
   }
 }

@@ -476,10 +476,31 @@ export class GroupBookingService {
       });
     }
 
+    const activeGroupReassignment = this.isOperationallyActiveGroup(group);
+    const previousRoom = activeGroupReassignment
+      ? await this.roomsRepository.findOne({
+          where: {
+            id: assignment.roomId,
+            propertyId,
+          },
+        })
+      : null;
+
+    if (activeGroupReassignment) {
+      this.releaseSourceRoomAfterActiveGroupReassignment(previousRoom);
+      this.occupyTargetRoomForActiveGroupReassignment(replacementRoom);
+    }
+
     assignment.roomId = replacementRoom.id;
     assignment.roomTypeId = replacementRoom.roomTypeId;
 
     await this.roomAssignmentsRepository.save(assignment);
+    if (activeGroupReassignment) {
+      await Promise.all([
+        previousRoom ? this.roomsRepository.save(previousRoom) : Promise.resolve(null),
+        this.roomsRepository.save(replacementRoom),
+      ]);
+    }
 
     return this.getHold(propertyId, id);
   }
@@ -1455,6 +1476,24 @@ export class GroupBookingService {
 
     const today = currentDateKey();
     return group.arrivalDate <= today && group.departureDate >= today;
+  }
+
+  private releaseSourceRoomAfterActiveGroupReassignment(room: RoomEntity | null): void {
+    if (!room) {
+      return;
+    }
+
+    if (room.operationalStatus === RoomOperationalStatus.OCCUPIED) {
+      room.operationalStatus = RoomOperationalStatus.READY;
+      room.operationalStatusReason = null;
+      room.operationalStatusNote = null;
+    }
+  }
+
+  private occupyTargetRoomForActiveGroupReassignment(room: RoomEntity): void {
+    room.operationalStatus = RoomOperationalStatus.OCCUPIED;
+    room.operationalStatusReason = null;
+    room.operationalStatusNote = null;
   }
 
   private loadRoomingList(groupBookingId: string) {

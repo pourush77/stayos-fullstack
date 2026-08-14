@@ -39,11 +39,7 @@ export class OperationsMapper {
         name: room.roomType?.name ?? '',
       },
       uiStatus: this.toUiStatus(room.operationalStatus, currentStay, groupContext),
-      operationalStatus:
-        currentStay?.status === ReservationStatus.CHECKED_IN &&
-        room.operationalStatus === RoomOperationalStatus.READY
-          ? RoomOperationalStatus.OCCUPIED
-          : room.operationalStatus,
+      operationalStatus: this.toOperationalStatus(room.operationalStatus, currentStay, groupContext),
       currentStay: currentStay ? this.toReservationSummary(currentStay) : null,
       checkoutLabel: currentStay ? this.toCheckoutLabel(currentStay.departureDate, today) : null,
       groupContext: groupContext ?? null,
@@ -158,6 +154,10 @@ export class OperationsMapper {
       return OperationsRoomUiStatus.UNAVAILABLE;
     }
 
+    if (groupContext && status === RoomOperationalStatus.READY) {
+      return OperationsRoomUiStatus.OCCUPIED;
+    }
+
     switch (status) {
       case RoomOperationalStatus.READY:
         return OperationsRoomUiStatus.READY;
@@ -205,6 +205,10 @@ export class OperationsMapper {
       return 'View Details';
     }
 
+    if (groupContext) {
+      return 'View Details';
+    }
+
     if (currentStay?.status === ReservationStatus.CHECKED_IN) {
       return 'Open Stay';
     }
@@ -241,6 +245,10 @@ export class OperationsMapper {
       return OperationsAttentionLevel.CRITICAL;
     }
 
+    if (groupContext && room.operationalStatus === RoomOperationalStatus.READY) {
+      return OperationsAttentionLevel.WARNING;
+    }
+
     if (
       [RoomOperationalStatus.OUT_OF_ORDER, RoomOperationalStatus.OUT_OF_SERVICE].includes(
         room.operationalStatus,
@@ -259,5 +267,24 @@ export class OperationsMapper {
     }
 
     return OperationsAttentionLevel.NORMAL;
+  }
+
+  private static toOperationalStatus(
+    status: RoomOperationalStatus,
+    currentStay: ReservationEntity | null,
+    groupContext?: GroupContextDto | null,
+  ): RoomOperationalStatus {
+    if (
+      currentStay?.status === ReservationStatus.CHECKED_IN &&
+      status === RoomOperationalStatus.READY
+    ) {
+      return RoomOperationalStatus.OCCUPIED;
+    }
+
+    if (groupContext && status === RoomOperationalStatus.READY) {
+      return RoomOperationalStatus.OCCUPIED;
+    }
+
+    return status;
   }
 }
