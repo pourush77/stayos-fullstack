@@ -13,6 +13,8 @@ import { RoomEntity } from './infrastructure/room.entity';
 import { RoomsService } from './rooms.service';
 import { MaintenanceTicketEntity } from '../maintenance/infrastructure/maintenance-ticket.entity';
 import { MaintenanceTicketStatus } from '../maintenance/domain/maintenance-ticket-status.enum';
+import { ReservationStatus } from '../reservations/domain/reservation-status.enum';
+import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 
 type MockRepository<T extends object = object> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -54,6 +56,7 @@ describe('RoomsService', () => {
   let floorsRepository: MockRepository<FloorEntity>;
   let roomTypesRepository: MockRepository<RoomTypeEntity>;
   let maintenanceTicketsRepository: MockRepository<MaintenanceTicketEntity>;
+  let reservationsRepository: MockRepository<ReservationEntity>;
   const propertiesService = { findOne: jest.fn() };
 
   beforeEach(async () => {
@@ -71,6 +74,9 @@ describe('RoomsService', () => {
     maintenanceTicketsRepository = {
       findOne: jest.fn().mockResolvedValue(null),
     };
+    reservationsRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+    };
     propertiesService.findOne.mockResolvedValue({ id: propertyId });
 
     const module: TestingModule = await Test.createTestingModule({
@@ -85,6 +91,10 @@ describe('RoomsService', () => {
         {
           provide: getRepositoryToken(MaintenanceTicketEntity),
           useValue: maintenanceTicketsRepository,
+        },
+        {
+          provide: getRepositoryToken(ReservationEntity),
+          useValue: reservationsRepository,
         },
         { provide: PropertiesService, useValue: propertiesService },
       ],
@@ -203,6 +213,19 @@ describe('RoomsService', () => {
     await expect(service.markReady(propertyId, roomEntity.id)).rejects.toBeInstanceOf(
       BadRequestException,
     );
+  });
+
+  it('rejects mark-ready when a checked-in stay is still assigned to the room', async () => {
+    reservationsRepository.findOne?.mockResolvedValue({
+      id: 'reservation-id',
+      status: ReservationStatus.CHECKED_IN,
+      roomId: roomEntity.id,
+    });
+
+    await expect(service.markReady(propertyId, roomEntity.id)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(roomsRepository.save).not.toHaveBeenCalled();
   });
 
   it('returns an unavailable room to housekeeping needs-cleaning', async () => {

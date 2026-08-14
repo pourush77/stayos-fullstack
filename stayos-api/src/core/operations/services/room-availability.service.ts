@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { ApiErrorCode } from '../../../common/errors/api-error-code.enum';
 import { PropertiesService } from '../../properties/properties.service';
+import { ReservationStatus } from '../../reservations/domain/reservation-status.enum';
 import { ReservationEntity } from '../../reservations/infrastructure/reservation.entity';
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
@@ -58,6 +59,20 @@ export class RoomAvailabilityService {
         .filter((reservation) => reservation.roomId)
         .map((reservation) => reservation.roomId as string),
     );
+    const checkedInReservations = rooms.length
+      ? await this.reservationsRepository.find({
+          where: {
+            propertyId,
+            roomId: In(rooms.map((room) => room.id)),
+            status: ReservationStatus.CHECKED_IN,
+          },
+        })
+      : [];
+    const checkedInRoomIds = new Set(
+      checkedInReservations
+        .filter((reservation) => reservation.roomId)
+        .map((reservation) => reservation.roomId as string),
+    );
     const conflictingGroupAssignments =
       query.arrivalDate && query.departureDate && rooms.length
         ? await this.roomAssignmentsRepository
@@ -87,6 +102,7 @@ export class RoomAvailabilityService {
     return rooms
       .filter((room) => room.operationalStatus === RoomOperationalStatus.READY)
       .filter((room) => !conflictedRoomIds.has(room.id))
+      .filter((room) => !checkedInRoomIds.has(room.id))
       .filter((room) => !groupAssignedRoomIds.has(room.id))
       .filter((room) => !query.roomTypeId || room.roomTypeId === query.roomTypeId)
       .filter((room) => !query.guestCount || (room.roomType?.maxOccupancy ?? 0) >= query.guestCount)

@@ -15,6 +15,8 @@ import {
 import { FloorEntity } from '../floors/infrastructure/floor.entity';
 import { MaintenanceTicketStatus } from '../maintenance/domain/maintenance-ticket-status.enum';
 import { MaintenanceTicketEntity } from '../maintenance/infrastructure/maintenance-ticket.entity';
+import { ReservationStatus } from '../reservations/domain/reservation-status.enum';
+import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 import { PropertiesService } from '../properties/properties.service';
 import { RoomTypeEntity } from '../room-types/infrastructure/room-type.entity';
 import { CreateRoomDto } from './dto/create-room.dto';
@@ -47,6 +49,8 @@ export class RoomsService {
     private readonly roomTypesRepository: Repository<RoomTypeEntity>,
     @InjectRepository(MaintenanceTicketEntity)
     private readonly maintenanceTicketsRepository: Repository<MaintenanceTicketEntity>,
+    @InjectRepository(ReservationEntity)
+    private readonly reservationsRepository: Repository<ReservationEntity>,
     private readonly propertiesService: PropertiesService,
   ) {}
 
@@ -142,6 +146,7 @@ export class RoomsService {
 
   async markReady(propertyId: string, id: string): Promise<RoomEntity> {
     await this.ensureNoActiveBlockingMaintenance(propertyId, id);
+    await this.ensureNoCheckedInStay(propertyId, id);
     return this.updateOperationalStatus(propertyId, id, RoomOperationalStatus.READY);
   }
 
@@ -299,6 +304,23 @@ export class RoomsService {
       throw new BadRequestException({
         code: 'ACTIVE_BLOCKING_MAINTENANCE',
         message: 'Resolve active blocking maintenance before marking this room ready.',
+      });
+    }
+  }
+
+  private async ensureNoCheckedInStay(propertyId: string, roomId: string): Promise<void> {
+    const checkedInStay = await this.reservationsRepository.findOne({
+      where: {
+        propertyId,
+        roomId,
+        status: ReservationStatus.CHECKED_IN,
+      },
+    });
+
+    if (checkedInStay) {
+      throw new BadRequestException({
+        code: 'ROOM_HAS_CHECKED_IN_STAY',
+        message: 'Check out or move the checked-in guest before marking this room ready.',
       });
     }
   }

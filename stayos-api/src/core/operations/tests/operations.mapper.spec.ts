@@ -73,6 +73,25 @@ describe('OperationsMapper', () => {
     });
   });
 
+  it('shows a checked-in stay as occupied even when the stored room status is accidentally ready', () => {
+    expect(
+      OperationsMapper.toRoomBoardItem(
+        room(RoomOperationalStatus.READY),
+        reservation('2026-07-03'),
+        '2026-07-03',
+      ),
+    ).toMatchObject({
+      uiStatus: OperationsRoomUiStatus.OCCUPIED,
+      operationalStatus: RoomOperationalStatus.OCCUPIED,
+      currentStay: {
+        status: ReservationStatus.CHECKED_IN,
+      },
+      checkoutLabel: 'Checkout Today',
+      primaryAction: 'Open Stay',
+      attentionLevel: OperationsAttentionLevel.WARNING,
+    });
+  });
+
   it('keeps checked-in stays authoritative even when the room is marked maintenance', () => {
     expect(
       OperationsMapper.toRoomBoardItem(

@@ -251,6 +251,102 @@ describe('Operations services', () => {
     });
   });
 
+  it('shows checked-in due-out rooms as occupied even when stored room status is ready', async () => {
+    reservationsRepository.find?.mockResolvedValue([
+      reservation({
+        departureDate: dateKey(),
+        status: ReservationStatus.CHECKED_IN,
+      }),
+    ]);
+    reservationsRepository.createQueryBuilder?.mockReturnValue({
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    });
+    const service = new RoomBoardService(
+      asRepository(roomsRepository),
+      asRepository(reservationsRepository),
+      asRepository(groupAssignmentsRepository),
+      asRepository(groupMasterFoliosRepository),
+      propertiesService,
+    );
+
+    const result = await service.getRoomBoard(propertyId);
+
+    expect(result[0]).toMatchObject({
+      uiStatus: 'OCCUPIED',
+      operationalStatus: RoomOperationalStatus.OCCUPIED,
+      currentStay: {
+        status: ReservationStatus.CHECKED_IN,
+      },
+      checkoutLabel: 'Checkout Today',
+      primaryAction: 'Open Stay',
+    });
+  });
+
+  it('keeps confirmed arrivals reserved without making the room occupied', async () => {
+    reservationsRepository.find?.mockResolvedValue([]);
+    reservationsRepository.createQueryBuilder?.mockReturnValue({
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([
+        reservation({
+          arrivalDate: dateKey(),
+          departureDate: dateKey(1),
+          status: ReservationStatus.CONFIRMED,
+        }),
+      ]),
+    });
+    const service = new RoomBoardService(
+      asRepository(roomsRepository),
+      asRepository(reservationsRepository),
+      asRepository(groupAssignmentsRepository),
+      asRepository(groupMasterFoliosRepository),
+      propertiesService,
+    );
+
+    const result = await service.getRoomBoard(propertyId);
+
+    expect(result[0]).toMatchObject({
+      uiStatus: 'READY',
+      operationalStatus: RoomOperationalStatus.READY,
+      currentStay: {
+        status: ReservationStatus.CONFIRMED,
+      },
+      primaryAction: 'Check In',
+    });
+  });
+
+  it('does not keep checked-out reservations occupied on the room board', async () => {
+    reservationsRepository.find?.mockResolvedValue([]);
+    reservationsRepository.createQueryBuilder?.mockReturnValue({
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    });
+    const service = new RoomBoardService(
+      asRepository(roomsRepository),
+      asRepository(reservationsRepository),
+      asRepository(groupAssignmentsRepository),
+      asRepository(groupMasterFoliosRepository),
+      propertiesService,
+    );
+
+    const result = await service.getRoomBoard(propertyId);
+
+    expect(result[0]).toMatchObject({
+      uiStatus: 'READY',
+      currentStay: null,
+      primaryAction: 'Assign Guest',
+    });
+  });
+
   it('prefers the active checked-in stay over a future confirmed assignment when both point to the same room', async () => {
     const activeStay = reservation({
       id: 'stay-id',
@@ -387,6 +483,81 @@ describe('Operations services', () => {
         roomTypeId,
       }),
     ).resolves.toMatchObject([{ roomId: secondRoomId, roomNumber: '205' }]);
+  });
+
+  it('keeps a room available when an assigned reservation starts on the requested departure date', async () => {
+    reservationsRepository.find?.mockResolvedValue([]);
+    const service = new RoomAvailabilityService(
+      asRepository(roomsRepository),
+      asRepository(reservationsRepository),
+      asRepository(groupAssignmentsRepository),
+      propertiesService,
+    );
+
+    await expect(
+      service.getAvailableRooms(propertyId, {
+        arrivalDate: '2026-08-12',
+        departureDate: '2026-08-14',
+        roomTypeId,
+      }),
+    ).resolves.toMatchObject([{ roomId, roomNumber: '204' }]);
+    expect(reservationsRepository.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          arrivalDate: expect.objectContaining({ _value: '2026-08-14' }),
+          departureDate: expect.objectContaining({ _value: '2026-08-12' }),
+        }),
+      }),
+    );
+  });
+
+  it('excludes a room when an assigned reservation starts before the requested departure date', async () => {
+    reservationsRepository.find?.mockResolvedValue([
+      reservation({
+        arrivalDate: '2026-08-13',
+        departureDate: '2026-08-15',
+      }),
+    ]);
+    const service = new RoomAvailabilityService(
+      asRepository(roomsRepository),
+      asRepository(reservationsRepository),
+      asRepository(groupAssignmentsRepository),
+      propertiesService,
+    );
+
+    await expect(
+      service.getAvailableRooms(propertyId, {
+        arrivalDate: '2026-08-12',
+        departureDate: '2026-08-14',
+        roomTypeId,
+      }),
+    ).resolves.toEqual([]);
+  });
+
+  it('excludes checked-in rooms from availability even when stored room status is ready', async () => {
+    reservationsRepository.find
+      ?.mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        reservation({
+          status: ReservationStatus.CHECKED_IN,
+          arrivalDate: '2026-08-13',
+          departureDate: '2026-08-14',
+        }),
+      ]);
+    const service = new RoomAvailabilityService(
+      asRepository(roomsRepository),
+      asRepository(reservationsRepository),
+      asRepository(groupAssignmentsRepository),
+      propertiesService,
+    );
+
+    await expect(
+      service.getAvailableRooms(propertyId, {
+        arrivalDate: '2026-08-14',
+        departureDate: '2026-08-15',
+        roomTypeId,
+      }),
+    ).resolves.toEqual([]);
   });
 
   it('excludes non-ready rooms from room availability', async () => {

@@ -38,8 +38,12 @@ export class OperationsMapper {
         code: room.roomType?.code ?? '',
         name: room.roomType?.name ?? '',
       },
-      uiStatus: this.toUiStatus(room.operationalStatus),
-      operationalStatus: room.operationalStatus,
+        uiStatus: this.toUiStatus(room.operationalStatus, currentStay),
+        operationalStatus:
+          currentStay?.status === ReservationStatus.CHECKED_IN &&
+          room.operationalStatus === RoomOperationalStatus.READY
+            ? RoomOperationalStatus.OCCUPIED
+            : room.operationalStatus,
       currentStay: currentStay ? this.toReservationSummary(currentStay) : null,
       checkoutLabel: currentStay ? this.toCheckoutLabel(currentStay.departureDate, today) : null,
       groupContext: groupContext ?? null,
@@ -134,7 +138,14 @@ export class OperationsMapper {
     return input;
   }
 
-  private static toUiStatus(status: RoomOperationalStatus): OperationsRoomUiStatus {
+  private static toUiStatus(
+    status: RoomOperationalStatus,
+    currentStay: ReservationEntity | null = null,
+  ): OperationsRoomUiStatus {
+    if (currentStay?.status === ReservationStatus.CHECKED_IN && status === RoomOperationalStatus.READY) {
+      return OperationsRoomUiStatus.OCCUPIED;
+    }
+
     switch (status) {
       case RoomOperationalStatus.READY:
         return OperationsRoomUiStatus.READY;
