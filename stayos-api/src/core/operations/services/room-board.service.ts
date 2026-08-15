@@ -84,21 +84,19 @@ export class RoomBoardService {
       const currentStay = currentStayByRoomId.get(room.id);
       const assignedReservation = assignedReservationByRoomId.get(room.id);
       const groupAssignment = groupAssignmentByRoomId.get(room.id);
-      const isActiveGroupAssignment = this.isOperationallyActiveGroupAssignment(
-        groupAssignment,
-        today,
-      );
-      const activeGroupAssignment = isActiveGroupAssignment ? groupAssignment : null;
-      const groupContext = activeGroupAssignment
+      const visibleGroupAssignment = this.isVisibleGroupAssignment(groupAssignment, today)
+        ? groupAssignment
+        : null;
+      const groupContext = visibleGroupAssignment
         ? {
-            groupBookingId: activeGroupAssignment.groupBooking.id,
-            groupCode: activeGroupAssignment.groupBooking.groupCode,
-            groupName: activeGroupAssignment.groupBooking.groupName,
-            masterFolioId: folioByGroupBookingId.get(activeGroupAssignment.groupBooking.id)?.id ?? '',
+            groupBookingId: visibleGroupAssignment.groupBooking.id,
+            groupCode: visibleGroupAssignment.groupBooking.groupCode,
+            groupName: visibleGroupAssignment.groupBooking.groupName,
+            masterFolioId: folioByGroupBookingId.get(visibleGroupAssignment.groupBooking.id)?.id ?? '',
             masterFolioNumber:
-              folioByGroupBookingId.get(activeGroupAssignment.groupBooking.id)?.folioNumber ??
+              folioByGroupBookingId.get(visibleGroupAssignment.groupBooking.id)?.folioNumber ??
               'Master folio pending',
-            status: folioByGroupBookingId.get(activeGroupAssignment.groupBooking.id)?.status ?? 'OPEN',
+            status: visibleGroupAssignment.groupBooking.status,
           }
         : null;
 
@@ -111,7 +109,7 @@ export class RoomBoardService {
     });
   }
 
-  private isOperationallyActiveGroupAssignment(
+  private isVisibleGroupAssignment(
     assignment: GroupBookingRoomAssignmentEntity | undefined,
     today: string,
   ): boolean {

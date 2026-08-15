@@ -327,7 +327,101 @@ describe('Operations services', () => {
     });
   });
 
-  it('does not expose normal check-in when an active group also claims the arrival room', async () => {
+  it('keeps an on-hold group room allocation visible without making it occupied', async () => {
+    reservationsRepository.find?.mockResolvedValue([]);
+    reservationsRepository.createQueryBuilder?.mockReturnValue({
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    });
+    groupAssignmentsRepository.find = jest.fn().mockResolvedValue([
+      {
+        roomId,
+        room: { propertyId },
+        groupBooking: {
+          id: 'group-booking-id',
+          groupCode: 'GRP-00005',
+          groupName: 'Fresh Repro Group',
+          status: GroupBookingStatus.ON_HOLD,
+          arrivalDate: dateKey(),
+          departureDate: dateKey(1),
+        },
+      },
+    ]);
+    const service = new RoomBoardService(
+      asRepository(roomsRepository),
+      asRepository(reservationsRepository),
+      asRepository(groupAssignmentsRepository),
+      asRepository(groupMasterFoliosRepository),
+      propertiesService,
+    );
+
+    const result = await service.getRoomBoard(propertyId);
+
+    expect(result[0]).toMatchObject({
+      uiStatus: 'READY',
+      operationalStatus: RoomOperationalStatus.READY,
+      groupContext: {
+        groupCode: 'GRP-00005',
+        status: GroupBookingStatus.ON_HOLD,
+      },
+      currentStay: null,
+      primaryAction: 'View Details',
+      attentionLevel: 'NORMAL',
+    });
+    expect(result[0].primaryAction).not.toBe('Open Stay');
+  });
+
+  it('keeps a confirmed pre-check-in group room allocation visible without making it occupied', async () => {
+    reservationsRepository.find?.mockResolvedValue([]);
+    reservationsRepository.createQueryBuilder?.mockReturnValue({
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    });
+    groupAssignmentsRepository.find = jest.fn().mockResolvedValue([
+      {
+        roomId,
+        room: { propertyId },
+        groupBooking: {
+          id: 'group-booking-id',
+          groupCode: 'GRP-00006',
+          groupName: 'Confirmed Arrival Group',
+          status: GroupBookingStatus.CONFIRMED,
+          arrivalDate: dateKey(),
+          departureDate: dateKey(1),
+        },
+      },
+    ]);
+    const service = new RoomBoardService(
+      asRepository(roomsRepository),
+      asRepository(reservationsRepository),
+      asRepository(groupAssignmentsRepository),
+      asRepository(groupMasterFoliosRepository),
+      propertiesService,
+    );
+
+    const result = await service.getRoomBoard(propertyId);
+
+    expect(result[0]).toMatchObject({
+      uiStatus: 'READY',
+      operationalStatus: RoomOperationalStatus.READY,
+      groupContext: {
+        groupCode: 'GRP-00006',
+        status: GroupBookingStatus.CONFIRMED,
+      },
+      currentStay: null,
+      primaryAction: 'View Details',
+      attentionLevel: 'NORMAL',
+    });
+    expect(result[0].primaryAction).not.toBe('Open Stay');
+  });
+
+  it('does not expose normal check-in when a checked-in group also claims the arrival room', async () => {
     reservationsRepository.find?.mockResolvedValue([]);
     reservationsRepository.createQueryBuilder?.mockReturnValue({
       leftJoinAndSelect: jest.fn().mockReturnThis(),
@@ -350,7 +444,7 @@ describe('Operations services', () => {
           id: 'group-booking-id',
           groupCode: 'GRP-00003',
           groupName: 'Active Group',
-          status: GroupBookingStatus.CONFIRMED,
+          status: GroupBookingStatus.CHECKED_IN,
           arrivalDate: dateKey(-1),
           departureDate: dateKey(1),
         },
@@ -379,7 +473,10 @@ describe('Operations services', () => {
     });
   });
 
-  it('does not expose assign guest when an active group claims a ready room', async () => {
+  it('keeps checked-in group rooms occupied on the room board', async () => {
+    roomsRepository.find = jest
+      .fn()
+      .mockResolvedValue([room({ operationalStatus: RoomOperationalStatus.OCCUPIED })]);
     reservationsRepository.find?.mockResolvedValue([]);
     reservationsRepository.createQueryBuilder?.mockReturnValue({
       leftJoinAndSelect: jest.fn().mockReturnThis(),
@@ -396,7 +493,7 @@ describe('Operations services', () => {
           id: 'group-booking-id',
           groupCode: 'GRP-00003',
           groupName: 'Active Group',
-          status: GroupBookingStatus.CONFIRMED,
+          status: GroupBookingStatus.CHECKED_IN,
           arrivalDate: dateKey(-1),
           departureDate: dateKey(1),
         },
@@ -420,7 +517,7 @@ describe('Operations services', () => {
       },
       currentStay: null,
       primaryAction: 'View Details',
-      attentionLevel: 'WARNING',
+      attentionLevel: 'NORMAL',
     });
   });
 
@@ -852,7 +949,7 @@ describe('Operations services', () => {
       arrivalDate: dateKey(-2),
       departureDate: dateKey(),
       propertyId,
-      status: GroupBookingStatus.CONFIRMED,
+      status: GroupBookingStatus.CHECKED_IN,
     };
     const roomAssignmentsRepository = {
       findOne: jest.fn().mockResolvedValue({
@@ -908,7 +1005,7 @@ describe('Operations services', () => {
       arrivalDate: dateKey(-1),
       departureDate: dateKey(1),
       propertyId,
-      status: GroupBookingStatus.CONFIRMED,
+      status: GroupBookingStatus.CHECKED_IN,
     };
     const roomAssignmentsRepository = {
       findOne: jest.fn().mockResolvedValue({
@@ -967,7 +1064,7 @@ describe('Operations services', () => {
       arrivalDate: dateKey(-1),
       departureDate: dateKey(1),
       propertyId,
-      status: GroupBookingStatus.CONFIRMED,
+      status: GroupBookingStatus.CHECKED_IN,
     };
     const assignment = {
       id: 'assignment-id',
@@ -1061,7 +1158,7 @@ describe('Operations services', () => {
       arrivalDate: dateKey(-1),
       departureDate: dateKey(1),
       propertyId,
-      status: GroupBookingStatus.CONFIRMED,
+      status: GroupBookingStatus.CHECKED_IN,
     };
     const assignment = {
       id: 'assignment-id',
@@ -1184,6 +1281,81 @@ describe('Operations services', () => {
       roomAssignments: [{ roomId: replacementRoomId }],
     });
     expect(roomsRepository.save).not.toHaveBeenCalled();
+  });
+
+  it('marks assigned rooms occupied during actual group check-in', async () => {
+    const group = {
+      id: 'group-booking-id',
+      arrivalDate: dateKey(),
+      departureDate: dateKey(1),
+      estimatedTotal: '2400',
+      propertyId,
+      status: GroupBookingStatus.CONFIRMED,
+    };
+    const groupBookingsRepository = {
+      findOne: jest.fn().mockResolvedValue(group),
+      findOneByOrFail: jest.fn().mockResolvedValue(group),
+      save: jest.fn().mockImplementation(async (value) => value),
+    };
+    const groupStaysRepository = {
+      create: jest.fn().mockImplementation((value) => value),
+      findOne: jest.fn().mockResolvedValue(null),
+      save: jest.fn().mockResolvedValue({ id: 'group-stay-id' }),
+    };
+    const groupMasterFoliosRepository = {
+      count: jest.fn().mockResolvedValue(0),
+      create: jest.fn().mockImplementation((value) => value),
+      save: jest.fn().mockResolvedValue({ id: 'folio-id', folioNumber: 'GFO-00001' }),
+    };
+    const roomRepository = { update: jest.fn().mockResolvedValue({}) };
+    const dataSource = {
+      transaction: jest.fn().mockImplementation(async (callback) =>
+        callback({
+          getRepository: (entity: unknown) => {
+            if (entity === GroupBookingEntity) return groupBookingsRepository;
+            if (entity === GroupStayEntity) return groupStaysRepository;
+            if (entity === GroupMasterFolioEntity) return groupMasterFoliosRepository;
+            if (entity === RoomEntity) return roomRepository;
+            return {};
+          },
+        }),
+      ),
+    };
+    const service = new GroupBookingService(
+      groupBookingsRepository as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      groupStaysRepository as never,
+      groupMasterFoliosRepository as never,
+      dataSource as never,
+      propertiesService as never,
+      {} as never,
+      {} as never,
+    );
+    jest.spyOn(service, 'getCheckInPreview').mockResolvedValue({
+      canCheckIn: true,
+      blockers: [],
+      group,
+      rooms: [{ roomId, roomNumber: '204' }],
+      warnings: [],
+    } as never);
+    jest.spyOn(service, 'getHold').mockResolvedValue({ id: group.id } as never);
+
+    await expect(service.checkInGroup(propertyId, group.id)).resolves.toMatchObject({
+      masterFolioNumber: 'GFO-00001',
+      occupiedRooms: ['204'],
+    });
+    expect(groupBookingsRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ status: GroupBookingStatus.CHECKED_IN }),
+    );
+    expect(roomRepository.update).toHaveBeenCalledWith(
+      { id: In([roomId]), propertyId },
+      { operationalStatus: RoomOperationalStatus.OCCUPIED },
+    );
   });
 
   it('keeps future group room change candidates date-range based', async () => {

@@ -344,8 +344,7 @@ export class GroupBookingService {
 
     const group = await this.findGroup(propertyId, id);
 
-    // Room assignments may only be changed before the group is checked in.
-    this.ensureEditable(group);
+    this.ensureRoomAssignmentChangeAllowed(group);
 
     const assignment = await this.roomAssignmentsRepository.findOne({
       where: {
@@ -514,7 +513,7 @@ export class GroupBookingService {
     await this.propertiesService.findOne(propertyId);
 
     const group = await this.findGroup(propertyId, id);
-    this.ensureEditable(group);
+    this.ensureRoomAssignmentChangeAllowed(group);
 
     const assignment = await this.roomAssignmentsRepository.findOne({
       where: {
@@ -1472,6 +1471,19 @@ export class GroupBookingService {
     }
   }
 
+  private ensureRoomAssignmentChangeAllowed(group: GroupBookingEntity) {
+    if (
+      ![GroupBookingStatus.ON_HOLD, GroupBookingStatus.CONFIRMED, GroupBookingStatus.CHECKED_IN].includes(
+        group.status,
+      )
+    ) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: `Cannot change rooms for a ${group.status.toLowerCase().replace('_', ' ')} group.`,
+      });
+    }
+  }
+
   private async ensureRoomAvailableNowForActiveGroupReassignment(
     propertyId: string,
     group: GroupBookingEntity,
@@ -1545,12 +1557,7 @@ export class GroupBookingService {
       return false;
     }
 
-    if (group.status === GroupBookingStatus.CHECKED_IN) {
-      return true;
-    }
-
-    const today = currentDateKey();
-    return group.arrivalDate <= today && group.departureDate >= today;
+    return group.status === GroupBookingStatus.CHECKED_IN;
   }
 
   private releaseSourceRoomAfterActiveGroupReassignment(room: RoomEntity | null): void {

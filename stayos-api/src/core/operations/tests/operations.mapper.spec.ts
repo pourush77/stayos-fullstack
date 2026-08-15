@@ -158,24 +158,46 @@ describe('OperationsMapper', () => {
     });
   });
 
-  it('treats an active group claim on a ready room as occupied attention state', () => {
+  it('keeps a pre-check-in group allocation on a ready room out of occupied state', () => {
     expect(
       OperationsMapper.toRoomBoardItem(room(RoomOperationalStatus.READY), null, '2026-07-03', {
         groupBookingId: 'group-booking-id',
         groupCode: 'GRP-00007',
         groupName: 'Hillston Visit',
         masterFolioId: 'folio-id',
+        masterFolioNumber: 'Master folio pending',
+        status: 'CONFIRMED',
+      }),
+    ).toMatchObject({
+      uiStatus: OperationsRoomUiStatus.READY,
+      operationalStatus: RoomOperationalStatus.READY,
+      groupContext: {
+        groupCode: 'GRP-00007',
+        status: 'CONFIRMED',
+      },
+      primaryAction: 'View Details',
+      attentionLevel: OperationsAttentionLevel.NORMAL,
+    });
+  });
+
+  it('keeps checked-in group rooms occupied when the room lifecycle is occupied', () => {
+    expect(
+      OperationsMapper.toRoomBoardItem(room(RoomOperationalStatus.OCCUPIED), null, '2026-07-03', {
+        groupBookingId: 'group-booking-id',
+        groupCode: 'GRP-00007',
+        groupName: 'Hillston Visit',
+        masterFolioId: 'folio-id',
         masterFolioNumber: 'GFO-00001',
-        status: 'OPEN',
+        status: 'CHECKED_IN',
       }),
     ).toMatchObject({
       uiStatus: OperationsRoomUiStatus.OCCUPIED,
       operationalStatus: RoomOperationalStatus.OCCUPIED,
       groupContext: {
         groupCode: 'GRP-00007',
+        status: 'CHECKED_IN',
       },
       primaryAction: 'View Details',
-      attentionLevel: OperationsAttentionLevel.WARNING,
     });
   });
 });

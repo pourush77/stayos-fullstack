@@ -154,10 +154,6 @@ export class OperationsMapper {
       return OperationsRoomUiStatus.UNAVAILABLE;
     }
 
-    if (groupContext && status === RoomOperationalStatus.READY) {
-      return OperationsRoomUiStatus.OCCUPIED;
-    }
-
     switch (status) {
       case RoomOperationalStatus.READY:
         return OperationsRoomUiStatus.READY;
@@ -245,10 +241,6 @@ export class OperationsMapper {
       return OperationsAttentionLevel.CRITICAL;
     }
 
-    if (groupContext && room.operationalStatus === RoomOperationalStatus.READY) {
-      return OperationsAttentionLevel.WARNING;
-    }
-
     if (
       [RoomOperationalStatus.OUT_OF_ORDER, RoomOperationalStatus.OUT_OF_SERVICE].includes(
         room.operationalStatus,
@@ -278,10 +270,6 @@ export class OperationsMapper {
       currentStay?.status === ReservationStatus.CHECKED_IN &&
       status === RoomOperationalStatus.READY
     ) {
-      return RoomOperationalStatus.OCCUPIED;
-    }
-
-    if (groupContext && status === RoomOperationalStatus.READY) {
       return RoomOperationalStatus.OCCUPIED;
     }
 
