@@ -1476,10 +1476,13 @@ describe('Operations services', () => {
     ).resolves.toMatchObject({
       folioNumber: 'GFO-00001',
       checkoutSummary: {
-        balanceDue: 2100,
+        balanceDue: 2400,
         occupiedRoomCount: 1,
         checkoutEligible: true,
         checkoutBlockers: [],
+        paymentStatus: 'UNPAID',
+        totalCharges: 2400,
+        totalPaid: 0,
       },
     });
     expect(groupMasterFoliosRepository.findOne).toHaveBeenCalled();
@@ -1539,13 +1542,20 @@ describe('Operations services', () => {
     expect(groupMasterFoliosRepository.save).toHaveBeenCalled();
   });
 
-  it('records a payment against a group master folio', async () => {
+  it('records a persisted payment against a group master folio and re-reads authoritative detail', async () => {
+    const persistedPayment = {
+      id: 'persisted-payment-id',
+      amount: '500.00',
+      method: FolioPaymentMethod.CARD,
+      receivedAt: new Date('2026-07-03T12:00:00.000Z'),
+      reference: 'TXN-001',
+    };
     const groupBookingsRepository = {
       findOne: jest.fn().mockResolvedValue({
         id: 'group-booking-id',
         arrivalDate: '2026-07-01',
         departureDate: '2026-07-03',
-        depositRequired: '300',
+        depositRequired: '0',
         estimatedTotal: '2400',
         groupCode: 'GRP-00001',
         groupName: 'Hillston Family',
@@ -1559,10 +1569,13 @@ describe('Operations services', () => {
         currency: 'INR',
         status: 'OPEN',
         estimatedTotal: '2400',
-        charges: [],
-        payments: [],
       }),
-      save: jest.fn().mockImplementation(async (folio) => folio),
+      update: jest.fn().mockResolvedValue({}),
+    };
+    const folioPaymentsRepository = {
+      create: jest.fn().mockImplementation((value) => value),
+      save: jest.fn().mockResolvedValue(persistedPayment),
+      find: jest.fn().mockResolvedValue([persistedPayment]),
     };
 
     const service = new GroupBookingService(
@@ -1579,6 +1592,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       {} as never,
+      folioPaymentsRepository as never,
     );
 
     const result = await service.postGroupMasterFolioPayment(propertyId, 'group-booking-id', {
@@ -1588,8 +1602,99 @@ describe('Operations services', () => {
     });
 
     expect(result.payments).toHaveLength(1);
-    expect(result.payments[0]).toMatchObject({ amount: 500, method: FolioPaymentMethod.CARD });
-    expect(groupMasterFoliosRepository.save).toHaveBeenCalled();
+    expect(result.payments[0]).toMatchObject({
+      amount: 500,
+      id: 'persisted-payment-id',
+      method: FolioPaymentMethod.CARD,
+      reference: 'TXN-001',
+      receivedAt: '2026-07-03T12:00:00.000Z',
+    });
+    expect(result.checkoutSummary).toMatchObject({
+      balanceDue: 1900,
+      paymentStatus: 'PARTIALLY_PAID',
+      totalCharges: 2400,
+      totalPaid: 500,
+    });
+    expect(folioPaymentsRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: '500.00',
+        folioId: null,
+        groupMasterFolioId: 'folio-id',
+        reference: 'TXN-001',
+      }),
+    );
+  });
+
+  it('aggregates multiple persisted group folio payments and enables checkout after full settlement', async () => {
+    const groupBookingsRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'group-booking-id',
+        arrivalDate: '2026-07-01',
+        departureDate: '2026-07-03',
+        depositRequired: '1400',
+        estimatedTotal: '7000',
+        groupCode: 'GRP-00005',
+        groupName: 'Staging Group',
+        status: 'CHECKED_IN',
+      }),
+    };
+    const groupMasterFoliosRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'folio-id',
+        folioNumber: 'GFO-00002',
+        currency: 'INR',
+        status: 'OPEN',
+        estimatedTotal: '7000',
+      }),
+    };
+    const folioPaymentsRepository = {
+      find: jest.fn().mockResolvedValue([
+        {
+          id: 'deposit-payment-id',
+          amount: '1400.00',
+          method: FolioPaymentMethod.CASH,
+          receivedAt: new Date('2026-08-15T05:50:00.000Z'),
+          reference: 'Deposit',
+        },
+        {
+          id: 'final-payment-id',
+          amount: '5600.00',
+          method: FolioPaymentMethod.CASH,
+          receivedAt: new Date('2026-08-15T06:41:21.683Z'),
+          reference: 'UAT-GRP-00005-FINAL',
+        },
+      ]),
+    };
+    const service = new GroupBookingService(
+      groupBookingsRepository as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { find: jest.fn().mockResolvedValue([{ roomId, room: { roomNumber: '204' } }]) } as never,
+      { findOne: jest.fn().mockResolvedValue({}) } as never,
+      groupMasterFoliosRepository as never,
+      {} as never,
+      propertiesService as never,
+      {} as never,
+      {} as never,
+      folioPaymentsRepository as never,
+    );
+
+    await expect(service.getGroupMasterFolioDetail(propertyId, 'group-booking-id')).resolves.toMatchObject({
+      checkoutSummary: {
+        balanceDue: 0,
+        checkoutEligible: true,
+        paymentStatus: 'PAID',
+        totalCharges: 7000,
+        totalPaid: 7000,
+      },
+      payments: [
+        expect.objectContaining({ amount: 1400, reference: 'Deposit' }),
+        expect.objectContaining({ amount: 5600, reference: 'UAT-GRP-00005-FINAL' }),
+      ],
+    });
   });
 
   it('finalizes checkout for a settled group folio', async () => {
@@ -1616,9 +1721,19 @@ describe('Operations services', () => {
         status: 'OPEN',
         estimatedTotal: '2400',
         charges: [],
-        payments: [{ amount: 2400, method: 'CARD', receivedAt: '2026-07-03T00:00:00.000Z' }],
       }),
       save: jest.fn().mockImplementation(async (folio) => folio),
+    };
+    const folioPaymentsRepository = {
+      find: jest.fn().mockResolvedValue([
+        {
+          amount: '2400.00',
+          id: 'payment-id',
+          method: 'CARD',
+          receivedAt: new Date('2026-07-03T00:00:00.000Z'),
+          reference: null,
+        },
+      ]),
     };
     const roomAssignmentsRepository = {
       find: jest.fn().mockResolvedValue([{ roomId: roomId, room: { roomNumber: '204' } }]),
@@ -1655,6 +1770,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       {} as never,
+      folioPaymentsRepository as never,
     );
 
     const result = await service.completeGroupCheckout(propertyId, 'group-booking-id');
@@ -1665,6 +1781,57 @@ describe('Operations services', () => {
     expect(roomRepository.update).toHaveBeenCalledWith(
       { id: In([roomId]), propertyId },
       { operationalStatus: RoomOperationalStatus.NEEDS_CLEANING },
+    );
+  });
+
+  it('rejects group checkout when persisted payments do not settle the balance', async () => {
+    const group = {
+      id: 'group-booking-id',
+      arrivalDate: '2026-07-01',
+      departureDate: '2026-07-03',
+      depositRequired: '1400',
+      estimatedTotal: '7000',
+      groupCode: 'GRP-00005',
+      groupName: 'Staging Group',
+      status: 'CHECKED_IN',
+    };
+    const service = new GroupBookingService(
+      { findOne: jest.fn().mockResolvedValue(group) } as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { find: jest.fn().mockResolvedValue([{ roomId, room: { roomNumber: '204' } }]) } as never,
+      { findOne: jest.fn().mockResolvedValue({}) } as never,
+      {
+        findOne: jest.fn().mockResolvedValue({
+          id: 'folio-id',
+          folioNumber: 'GFO-00002',
+          currency: 'INR',
+          status: 'OPEN',
+          estimatedTotal: '7000',
+        }),
+      } as never,
+      { transaction: jest.fn() } as never,
+      propertiesService as never,
+      {} as never,
+      {} as never,
+      {
+        find: jest.fn().mockResolvedValue([
+          {
+            amount: '5600.00',
+            id: 'payment-id',
+            method: 'CASH',
+            receivedAt: new Date('2026-08-15T06:41:21.683Z'),
+            reference: null,
+          },
+        ]),
+      } as never,
+    );
+
+    await expect(service.completeGroupCheckout(propertyId, 'group-booking-id')).rejects.toBeInstanceOf(
+      BadRequestException,
     );
   });
 

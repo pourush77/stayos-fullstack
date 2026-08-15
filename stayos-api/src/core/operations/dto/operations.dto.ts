@@ -171,13 +171,25 @@ export class GroupMasterFolioPaymentDto {
   @ApiProperty()
   amount!: number;
 
+  @ApiProperty({ required: false, nullable: true })
+  reference!: string | null;
+
   @ApiProperty()
   receivedAt!: string;
 }
 
 export class GroupMasterFolioCheckoutSummaryDto {
   @ApiProperty()
+  totalCharges!: number;
+
+  @ApiProperty()
+  totalPaid!: number;
+
+  @ApiProperty()
   balanceDue!: number;
+
+  @ApiProperty({ enum: ['UNPAID', 'PARTIALLY_PAID', 'PAID'] })
+  paymentStatus!: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
 
   @ApiProperty()
   occupiedRoomCount!: number;
@@ -221,6 +233,11 @@ export class PostGroupMasterFolioPaymentDto {
   @IsOptional()
   @IsString()
   reference?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  receivedAt?: string;
 }
 
 export class GroupMasterFolioDetailDto {

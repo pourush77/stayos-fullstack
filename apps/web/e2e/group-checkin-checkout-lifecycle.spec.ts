@@ -19,6 +19,15 @@ type GroupHoldDto = {
   status: string;
   roomAssignments: Array<{ id: string; roomId: string; roomNumber: string; roomTypeId: string }>;
 };
+type GroupMasterFolioDto = {
+  checkoutSummary: {
+    balanceDue: number;
+    paymentStatus: string;
+    totalCharges: number;
+    totalPaid: number;
+  };
+  payments: Array<{ amount: number; method: string; reference?: string | null }>;
+};
 type RoomBoardItem = {
   roomId: string;
   roomNumber: string;
@@ -111,15 +120,15 @@ async function createGroup(page: Page, propertyId: string, deluxeTypeId: string,
     arrivalDate: dateKey(0),
     children: 0,
     departureDate: dateKey(1),
-    depositRequired: 0,
-    estimatedTotal: 0,
+    depositRequired: 1400,
+    estimatedTotal: 7000,
     groupName: `E2E Lifecycle Group ${suffix}`,
     leadName: 'E2E Group Lead',
     leadPhone: `9${suffix.slice(-9).padStart(9, '0')}`,
     notes: 'E2E group check-in checkout lifecycle',
     roomBlocks: [
-      { adultsPerRoom: 2, childrenPerRoom: 0, roomTypeId: deluxeTypeId, rooms: 2 },
-      { adultsPerRoom: 2, childrenPerRoom: 0, roomTypeId: suiteTypeId, rooms: 1 },
+      { adultsPerRoom: 2, childrenPerRoom: 0, estimatedTotal: 5600, roomTypeId: deluxeTypeId, rooms: 2 },
+      { adultsPerRoom: 2, childrenPerRoom: 0, estimatedTotal: 1400, roomTypeId: suiteTypeId, rooms: 1 },
     ],
     source: 'PHONE',
   });
@@ -143,6 +152,16 @@ async function availableRooms(page: Page, propertyId: string, roomTypeId?: strin
   const query = new URLSearchParams({ arrivalDate: dateKey(0), departureDate: dateKey(1) });
   if (roomTypeId) query.set('roomTypeId', roomTypeId);
   return api<AvailableRoomDto[]>(page, 'GET', `/properties/${propertyId}/operations/available-rooms?${query.toString()}`);
+}
+
+async function masterFolio(page: Page, propertyId: string, groupId: string) {
+  return api<GroupMasterFolioDto>(page, 'GET', `/properties/${propertyId}/operations/group-bookings/${groupId}/master-folio`);
+}
+
+async function recordGroupPayment(page: Page, amount: number, reference: string) {
+  await page.getByRole('textbox', { name: 'Amount' }).nth(1).fill(String(amount));
+  await page.getByRole('textbox', { name: 'Reference' }).fill(reference);
+  await page.getByRole('button', { name: 'Record payment' }).click();
 }
 
 async function getHousekeepingEmployeeId(page: Page, propertyId: string) {
@@ -170,7 +189,7 @@ async function cleanRoomToReady(page: Page, propertyId: string, roomId: string) 
 
 test.describe('fresh group check-in checkout lifecycle', () => {
   test('clean group moves through check-in, checkout, housekeeping, and availability', async ({ page }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(360_000);
     await loginAs(page, MANAGER_EMAIL);
 
     const propertyId = await activeProperty(page);
@@ -231,7 +250,7 @@ test.describe('fresh group check-in checkout lifecycle', () => {
 
     await page.goto(`/reservations/group-holds/${hold.id}`);
     await expect(page.getByRole('button', { name: 'Change Room' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Complete Checkout' })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Complete Checkout' })).toBeDisabled();
 
     const moveAssignment = hold.roomAssignments.find((assignment) => assignment.roomTypeId === deluxe.id);
     if (moveAssignment) {
@@ -259,7 +278,41 @@ test.describe('fresh group check-in checkout lifecycle', () => {
       }
     }
 
-    await api(page, 'POST', `/properties/${propertyId}/operations/group-bookings/${hold.id}/master-folio/checkout`, {});
+    await page.goto(`/reservations/group-holds/${hold.id}/master-folio`);
+    await expect(page.getByText(hold.groupCode)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('group-total-charges')).toContainText('7,000');
+    await expect(page.getByTestId('group-total-paid')).toContainText('0');
+    await expect(page.getByTestId('group-balance-due')).toContainText('7,000');
+    await expect(page.getByTestId('group-payment-status')).toContainText('UNPAID');
+    await expect(page.getByRole('button', { name: 'Complete checkout' })).toBeDisabled();
+
+    await recordGroupPayment(page, 5600, `UAT-${hold.groupCode}-PARTIAL`);
+    await expect.poll(async () => (await masterFolio(page, propertyId, hold.id)).checkoutSummary.totalPaid, { timeout: 20_000 }).toBe(5600);
+    await page.reload();
+    await expect(page.getByTestId('group-total-paid')).toContainText('5,600');
+    await expect(page.getByTestId('group-balance-due')).toContainText('1,400');
+    await expect(page.getByTestId('group-payment-status')).toContainText('PARTIALLY PAID');
+    await expect(page.getByTestId('group-payment-history')).toContainText(`UAT-${hold.groupCode}-PARTIAL`);
+
+    await recordGroupPayment(page, 1400, `UAT-${hold.groupCode}-FINAL`);
+    await expect.poll(async () => (await masterFolio(page, propertyId, hold.id)).checkoutSummary.balanceDue, { timeout: 20_000 }).toBe(0);
+    await page.reload();
+    await expect(page.getByTestId('group-total-paid')).toContainText('7,000');
+    await expect(page.getByTestId('group-balance-due')).toContainText('0');
+    await expect(page.getByTestId('group-payment-status')).toContainText('PAID');
+    await expect(page.getByTestId('group-payment-history')).toContainText(`UAT-${hold.groupCode}-PARTIAL`);
+    await expect(page.getByTestId('group-payment-history')).toContainText(`UAT-${hold.groupCode}-FINAL`);
+    const settledFolio = await masterFolio(page, propertyId, hold.id);
+    expect(settledFolio.payments).toHaveLength(2);
+    expect(settledFolio.checkoutSummary).toMatchObject({
+      balanceDue: 0,
+      paymentStatus: 'PAID',
+      totalCharges: 7000,
+      totalPaid: 7000,
+    });
+    await expect(page.getByRole('button', { name: 'Complete checkout' })).toBeEnabled();
+    await page.getByRole('button', { name: 'Complete checkout' }).click();
+    await expect.poll(async () => (await api<GroupHoldDto>(page, 'GET', `/properties/${propertyId}/operations/group-holds/${hold.id}`)).status, { timeout: 20_000 }).toBe('CHECKED_OUT');
     hold = await api<GroupHoldDto>(page, 'GET', `/properties/${propertyId}/operations/group-holds/${hold.id}`);
     expect(hold.status).toBe('CHECKED_OUT');
 

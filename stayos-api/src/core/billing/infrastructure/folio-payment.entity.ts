@@ -9,23 +9,35 @@ import {
 } from 'typeorm';
 import { FolioEntity } from './folio.entity';
 import { FolioPaymentMethod } from '../domain/folio-payment-method.enum';
+import { GroupMasterFolioEntity } from '../../operations/infrastructure/group-master-folio.entity';
 
 @Entity({ name: 'folio_payments' })
 @Index('IDX_folio_payments_folio_id', ['folioId'])
+@Index('IDX_folio_payments_group_master_folio_id', ['groupMasterFolioId'])
 @Index('IDX_folio_payments_received_at', ['receivedAt'])
 export class FolioPaymentEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid', name: 'folio_id' })
-  folioId!: string;
+  @Column({ type: 'uuid', name: 'folio_id', nullable: true })
+  folioId!: string | null;
 
   @ManyToOne(() => FolioEntity, (folio) => folio.payments, {
-    nullable: false,
+    nullable: true,
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'folio_id' })
-  folio!: FolioEntity;
+  folio!: FolioEntity | null;
+
+  @Column({ type: 'uuid', name: 'group_master_folio_id', nullable: true })
+  groupMasterFolioId!: string | null;
+
+  @ManyToOne(() => GroupMasterFolioEntity, (folio) => folio.payments, {
+    nullable: true,
+    onDelete: 'CASCADE',
+  })
+  @JoinColumn({ name: 'group_master_folio_id' })
+  groupMasterFolio!: GroupMasterFolioEntity | null;
 
   @Column({ type: 'enum', enum: FolioPaymentMethod })
   method!: FolioPaymentMethod;

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ActivityEventEntity } from '../activity/infrastructure/activity-event.entity';
 import { AuditEventEntity } from '../audit/infrastructure/audit-event.entity';
+import { FolioPaymentEntity } from '../billing/infrastructure/folio-payment.entity';
 import { PropertiesModule } from '../properties/properties.module';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 import { RoomTypeEntity } from '../room-types/infrastructure/room-type.entity';
@@ -34,6 +35,7 @@ import { RoomDetailsService } from './services/room-details.service';
       GroupBookingRoomAssignmentEntity,
       GroupStayEntity,
       GroupMasterFolioEntity,
+      FolioPaymentEntity,
       ActivityEventEntity,
       AuditEventEntity,
     ]),

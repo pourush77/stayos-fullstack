@@ -19,7 +19,7 @@ export class FolioChargeResponseDto {
 
 export class FolioPaymentResponseDto {
   @ApiProperty() id!: string;
-  @ApiProperty() folioId!: string;
+  @ApiProperty({ nullable: true }) folioId!: string | null;
   @ApiProperty({ enum: FolioPaymentMethod }) method!: FolioPaymentMethod;
   @ApiProperty() amount!: string;
   @ApiProperty({ nullable: true }) reference!: string | null;

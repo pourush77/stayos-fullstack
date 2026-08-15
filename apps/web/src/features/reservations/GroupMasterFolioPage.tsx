@@ -8,11 +8,13 @@ import {
   Box,
   Button,
   Card,
+  Divider,
   Group,
   NumberInput,
   Select,
   SimpleGrid,
   Stack,
+  Table,
   Text,
   TextInput,
   Title,
@@ -45,6 +47,22 @@ function formatDate(value: string) {
   }).format(new Date(`${value}T00:00:00`));
 }
 
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    month: 'short',
+  }).format(new Date(value));
+}
+
+function isAbortError(err: unknown) {
+  return (
+    (err instanceof DOMException && err.name === 'AbortError') ||
+    (err instanceof Error && /aborted|abort/i.test(err.message))
+  );
+}
+
 export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: string }) {
   const backend = useBackendStatus();
   const [propertyId, setPropertyId] = useState('');
@@ -74,16 +92,21 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
           const next = await getGroupMasterFolio(id, groupBookingId, controller.signal);
           setFolio(next);
         } catch (err) {
+          if (controller.signal.aborted || isAbortError(err)) return;
           setError(err instanceof Error ? err.message : 'Unable to load group master folio.');
         }
       })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Unable to load property.'));
+      .catch((err) => {
+        if (controller.signal.aborted || isAbortError(err)) return;
+        setError(err instanceof Error ? err.message : 'Unable to load property.');
+      });
     return () => controller.abort();
   }, [groupBookingId]);
 
   const refreshFolio = async (id: string) => {
     const next = await getGroupMasterFolio(id, groupBookingId);
     setFolio(next);
+    return next;
   };
 
   const handleChargeSubmit = async () => {
@@ -91,12 +114,12 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
     setSubmitting(true);
     setError(undefined);
     try {
-      const next = await postGroupMasterFolioCharge(propertyId, groupBookingId, {
+      await postGroupMasterFolioCharge(propertyId, groupBookingId, {
         amount: Number(chargeAmount),
         label: chargeLabel,
         type: chargeType,
       });
-      setFolio(next);
+      await refreshFolio(propertyId);
       setChargeLabel('');
       setChargeAmount(0);
       setChargeType('MISC');
@@ -112,17 +135,21 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
     setSubmitting(true);
     setError(undefined);
     try {
-      const next = await postGroupMasterFolioPayment(propertyId, groupBookingId, {
+      await postGroupMasterFolioPayment(propertyId, groupBookingId, {
         amount: Number(paymentAmount),
         method: paymentMethod,
         reference: paymentReference || undefined,
       });
-      setFolio(next);
+      await refreshFolio(propertyId);
       setPaymentAmount(0);
       setPaymentMethod('CASH');
       setPaymentReference('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to record the payment.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Payment may have posted, but the latest folio could not be loaded. Please retry refresh.',
+      );
     } finally {
       setSubmitting(false);
     }
@@ -216,6 +243,7 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
           <>
             <SimpleGrid cols={{ base: 1, md: 3 }} spacing={spacing[3]}>
               <Card
+                data-testid="group-payment-summary"
                 radius={radius.lg}
                 p={16}
                 style={{ background: '#ffffff', border: '1px solid rgba(226,232,240,0.95)' }}
@@ -272,17 +300,58 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
               >
                 <Group gap={8}>
                   <Wallet size={18} color="#059669" />
-                  <Text fw={700}>Payments</Text>
+                  <Text fw={700}>Payment summary</Text>
                 </Group>
                 <Stack gap={8} mt={10}>
+                  <Group justify="space-between">
+                    <Text c="#64748b" size="sm">
+                      Total charges
+                    </Text>
+                    <Text fw={700} size="sm">
+                      <span data-testid="group-total-charges">
+                        {formatCurrency(folio.checkoutSummary.totalCharges)}
+                      </span>
+                    </Text>
+                  </Group>
+                  <Group justify="space-between">
+                    <Text c="#64748b" size="sm">
+                      Total paid
+                    </Text>
+                    <Text fw={700} size="sm">
+                      <span data-testid="group-total-paid">
+                        {formatCurrency(folio.checkoutSummary.totalPaid)}
+                      </span>
+                    </Text>
+                  </Group>
                   <Group justify="space-between">
                     <Text c="#64748b" size="sm">
                       Balance due
                     </Text>
                     <Text fw={700} size="sm">
-                      {formatCurrency(folio.checkoutSummary.balanceDue)}
+                      <span data-testid="group-balance-due">
+                        {formatCurrency(folio.checkoutSummary.balanceDue)}
+                      </span>
                     </Text>
                   </Group>
+                  <Group justify="space-between">
+                    <Text c="#64748b" size="sm">
+                      Payment status
+                    </Text>
+                    <Badge
+                      data-testid="group-payment-status"
+                      color={
+                        folio.checkoutSummary.paymentStatus === 'PAID'
+                          ? 'green'
+                          : folio.checkoutSummary.paymentStatus === 'PARTIALLY_PAID'
+                            ? 'yellow'
+                            : 'gray'
+                      }
+                      variant="light"
+                    >
+                      {folio.checkoutSummary.paymentStatus.replace('_', ' ')}
+                    </Badge>
+                  </Group>
+                  <Divider />
                   <Group justify="space-between">
                     <Text c="#64748b" size="sm">
                       Occupied rooms
@@ -310,6 +379,44 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
               style={{ background: '#ffffff', border: '1px solid rgba(226,232,240,0.95)' }}
             >
               <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 800 }}>
+                Payment history
+              </Title>
+              {folio.payments.length ? (
+                <Table data-testid="group-payment-history" mt={12} verticalSpacing="sm" highlightOnHover>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Date & time</Table.Th>
+                      <Table.Th>Method</Table.Th>
+                      <Table.Th>Reference</Table.Th>
+                      <Table.Th style={{ textAlign: 'right' }}>Amount</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {folio.payments.map((payment) => (
+                      <Table.Tr key={payment.id}>
+                        <Table.Td>{formatDateTime(payment.receivedAt)}</Table.Td>
+                        <Table.Td>{payment.method}</Table.Td>
+                        <Table.Td>{payment.reference || '-'}</Table.Td>
+                        <Table.Td style={{ textAlign: 'right', fontWeight: 700 }}>
+                          {formatCurrency(payment.amount)}
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              ) : (
+                <Text c="#64748b" mt={12} size="sm">
+                  No payments recorded yet.
+                </Text>
+              )}
+            </Card>
+
+            <Card
+              radius={radius.lg}
+              p={16}
+              style={{ background: '#ffffff', border: '1px solid rgba(226,232,240,0.95)' }}
+            >
+              <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 800 }}>
                 Post to folio
               </Title>
               <SimpleGrid cols={{ base: 1, md: 2 }} spacing={spacing[3]} mt={12}>
@@ -322,6 +429,7 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
                     placeholder="Mini bar"
                   />
                   <NumberInput
+                    data-testid="group-payment-amount"
                     label="Amount"
                     value={chargeAmount}
                     onChange={(value) => setChargeAmount(typeof value === 'number' ? value : '')}
@@ -357,18 +465,25 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
                     prefix="₹"
                   />
                   <Select
+                    data-testid="group-payment-method"
                     label="Method"
                     data={['CASH', 'CARD', 'UPI', 'BANK_TRANSFER', 'WALLET', 'OTHER']}
                     value={paymentMethod}
                     onChange={(value) => setPaymentMethod(value ?? 'CASH')}
                   />
                   <TextInput
+                    data-testid="group-payment-reference"
                     label="Reference"
                     value={paymentReference}
                     onChange={(event) => setPaymentReference(event.currentTarget.value)}
                     placeholder="TXN-001"
                   />
-                  <Button onClick={handlePaymentSubmit} loading={submitting} variant="light">
+                  <Button
+                    data-testid="group-record-payment"
+                    onClick={handlePaymentSubmit}
+                    loading={submitting}
+                    variant="light"
+                  >
                     Record payment
                   </Button>
                 </Stack>

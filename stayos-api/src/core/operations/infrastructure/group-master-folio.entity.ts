@@ -1,4 +1,5 @@
-import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { FolioPaymentEntity } from '../../billing/infrastructure/folio-payment.entity';
 import { GroupBookingEntity } from './group-booking.entity';
 import { GroupStayEntity } from './group-stay.entity';
 
@@ -36,6 +37,9 @@ export class GroupMasterFolioEntity {
 
   @Column({ type: 'numeric', precision: 12, scale: 2, name: 'estimated_total', default: 0 })
   estimatedTotal!: string;
+
+  @OneToMany(() => FolioPaymentEntity, (payment) => payment.groupMasterFolio, { cascade: false })
+  payments!: FolioPaymentEntity[];
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt!: Date;

@@ -34,6 +34,8 @@ import {
   getGroupRoomChangeCandidates,
   deleteGroupHold,
   getGroupHold,
+  getGroupMasterFolio,
+  type GroupMasterFolioDetailDto,
   type GroupHoldDto,
 } from '../../lib/operations-api';
 
@@ -81,6 +83,7 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
   const router = useRouter();
   const [propertyId, setPropertyId] = useState('');
   const [hold, setHold] = useState<GroupHoldDto | undefined>();
+  const [masterFolio, setMasterFolio] = useState<GroupMasterFolioDetailDto | undefined>();
   const [rooms, setRooms] = useState<RoomOption[]>([]);
   const [guestName, setGuestName] = useState('');
   const [phone, setPhone] = useState('');
@@ -113,6 +116,15 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
       signal,
     );
     setHold(nextHold);
+    if (nextHold.status === 'CHECKED_IN' || nextHold.status === 'CHECKED_OUT') {
+      try {
+        setMasterFolio(await getGroupMasterFolio(id, groupHoldId, signal));
+      } catch {
+        setMasterFolio(undefined);
+      }
+    } else {
+      setMasterFolio(undefined);
+    }
     setRooms(
       roomRows.map((room) => ({
         label: `${room.roomNumber} - ${room.roomType.name || 'Room'}`,
@@ -158,6 +170,10 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
   const totalHeldRooms = hold?.roomBlocks.reduce((sum, block) => sum + block.rooms, 0) ?? 0;
 
   const hasUnassignedRooms = hold ? hold.roomAssignments.length < totalHeldRooms : false;
+  const checkoutAllowed =
+    hold?.status === 'CHECKED_IN' &&
+    Boolean(masterFolio?.checkoutSummary.checkoutEligible) &&
+    Number(masterFolio?.checkoutSummary.balanceDue ?? 0) <= 0.01;
 
   const addGuest = async () => {
     if (!propertyId || !guestName.trim()) return;
@@ -308,6 +324,7 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
     setIsSaving(true);
     try {
       await completeGroupCheckout(propertyId, hold.id);
+      await load(propertyId);
       setHold((current) => (current ? { ...current, status: 'CHECKED_OUT' } : current));
       showToast({
         color: 'green',
@@ -483,7 +500,7 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
                     loading={isSaving}
                     variant="light"
                     color="red"
-                    disabled={hold.status !== 'CHECKED_IN'}
+                    disabled={!checkoutAllowed}
                   >
                     {hold.status === 'CHECKED_OUT' ? 'Checked Out' : 'Complete Checkout'}
                   </Button>

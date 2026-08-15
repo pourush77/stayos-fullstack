@@ -404,11 +404,15 @@ export type GroupMasterFolioPaymentDto = {
   id: string;
   method: string;
   amount: number;
+  reference?: string | null;
   receivedAt: string;
 };
 
 export type GroupMasterFolioCheckoutSummaryDto = {
+  totalCharges: number;
+  totalPaid: number;
   balanceDue: number;
+  paymentStatus: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
   occupiedRoomCount: number;
   checkoutEligible: boolean;
   checkoutBlockers: string[];
@@ -452,7 +456,7 @@ export function postGroupMasterFolioCharge(
 export function postGroupMasterFolioPayment(
   propertyId: string,
   groupBookingId: string,
-  body: { amount: number; method: string; reference?: string },
+  body: { amount: number; method: string; reference?: string; receivedAt?: string },
   signal?: AbortSignal,
 ) {
   return post<GroupMasterFolioDetailDto>(

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { ApiErrorCode } from '../../../common/errors/api-error-code.enum';
+import { FolioPaymentEntity } from '../../billing/infrastructure/folio-payment.entity';
 import { PropertiesService } from '../../properties/properties.service';
 import { ReservationStatus } from '../../reservations/domain/reservation-status.enum';
 import { ReservationEntity } from '../../reservations/infrastructure/reservation.entity';
@@ -72,6 +73,8 @@ export class GroupBookingService {
     private readonly propertiesService: PropertiesService,
     private readonly groupRoomMixService: GroupRoomMixService,
     private readonly roomAvailabilityService: RoomAvailabilityService,
+    @InjectRepository(FolioPaymentEntity)
+    private readonly folioPaymentsRepository?: Repository<FolioPaymentEntity>,
   ) {}
 
   async createHold(propertyId: string, dto: CreateGroupHoldDto): Promise<GroupHoldDto> {
@@ -1160,37 +1163,42 @@ export class GroupBookingService {
       });
     }
 
-    const payment = {
-      amount: Number(dto.amount || 0),
-      id: `payment-${Date.now()}`,
-      method: dto.method || FolioPaymentMethod.CASH,
-      receivedAt: new Date().toISOString(),
-      reference: dto.reference,
-    };
-    const payments = [
-      ...((folio as GroupMasterFolioEntity & { payments?: (typeof payment)[] }).payments ?? []),
-      payment,
-    ];
-    const charges =
-      (
-        folio as GroupMasterFolioEntity & {
-          charges?: Array<{
-            id: string;
-            label: string;
-            type: string;
-            amount: number;
-            quantity: number;
-            currency: string;
-          }>;
-        }
-      ).charges ?? [];
-    const savedFolio = await this.groupMasterFoliosRepository.save({
-      ...folio,
-      charges,
-      payments,
-    } as GroupMasterFolioEntity);
+    const amount = Number(dto.amount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: 'Payment amount must be positive.',
+      });
+    }
 
-    return this.buildGroupMasterFolioDetail(group, savedFolio, groupBookingId);
+    const receivedAt = dto.receivedAt ? new Date(dto.receivedAt) : new Date();
+    if (Number.isNaN(receivedAt.getTime())) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: 'Payment receivedAt must be a valid date/time.',
+      });
+    }
+    if (!this.folioPaymentsRepository) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: 'Group folio payment ledger is not available.',
+      });
+    }
+
+    await this.folioPaymentsRepository.save(
+      this.folioPaymentsRepository.create({
+        amount: amount.toFixed(2),
+        folioId: null,
+        groupMasterFolioId: folio.id,
+        method: (dto.method || FolioPaymentMethod.CASH) as FolioPaymentMethod,
+        receivedAt,
+        receivedByUserId: null,
+        reference: dto.reference?.trim() || null,
+      }),
+    );
+    await this.groupMasterFoliosRepository.update({ id: folio.id, propertyId }, { updatedAt: new Date() });
+
+    return this.getGroupMasterFolioDetail(propertyId, groupBookingId);
   }
 
   async completeGroupCheckout(
@@ -1332,12 +1340,16 @@ export class GroupBookingService {
     folio: GroupMasterFolioEntity,
     groupBookingId: string,
   ): Promise<GroupMasterFolioDetailDto> {
-    const [blocks, assignments] = await Promise.all([
+    const [blocks, assignments, payments] = await Promise.all([
       this.roomBlocksRepository.find({ where: { groupBookingId }, relations: { roomType: true } }),
       this.roomAssignmentsRepository.find({
         where: { groupBookingId },
         relations: { room: { roomType: true } },
       }),
+      this.folioPaymentsRepository?.find({
+        where: { groupMasterFolioId: folio.id },
+        order: { receivedAt: 'ASC', createdAt: 'ASC' },
+      }) ?? Promise.resolve([]),
     ]);
 
     const baseCharges = blocks.map((block) => ({
@@ -1361,26 +1373,21 @@ export class GroupBookingService {
           }>;
         }
       ).charges ?? [];
-    const existingPayments =
-      (
-        folio as GroupMasterFolioEntity & {
-          payments?: Array<{ id: string; method: string; amount: number; receivedAt: string }>;
-        }
-      ).payments ?? [];
     const charges = [...baseCharges, ...existingCharges];
     const estimatedTotal = Number(folio.estimatedTotal || group.estimatedTotal || 0);
-    const depositRequired = Number(group.depositRequired || 0);
-    const paidAmount = existingPayments.reduce(
+    const totalCharges =
+      estimatedTotal + existingCharges.reduce((sum, charge) => sum + Number(charge.amount || 0), 0);
+    const paidAmount = payments.reduce(
       (sum, payment) => sum + Number(payment.amount || 0),
       0,
     );
-    const balanceDue = Math.max(
-      estimatedTotal +
-        existingCharges.reduce((sum, charge) => sum + Number(charge.amount || 0), 0) -
-        depositRequired -
-        paidAmount,
-      0,
-    );
+    const balanceDue = Math.max(totalCharges - paidAmount, 0);
+    const paymentStatus =
+      balanceDue <= 0.01 && paidAmount > 0
+        ? 'PAID'
+        : paidAmount > 0
+          ? 'PARTIALLY_PAID'
+          : 'UNPAID';
     const checkoutBlockers: string[] = [];
     if (!assignments.length) checkoutBlockers.push('No rooms assigned for checkout.');
     if (
@@ -1398,22 +1405,24 @@ export class GroupBookingService {
         checkoutBlockers,
         checkoutEligible: checkoutBlockers.length === 0,
         occupiedRoomCount: assignments.length,
+        paymentStatus,
+        totalCharges,
+        totalPaid: paidAmount,
       },
       currency: folio.currency,
       departureDate: group.departureDate,
-      estimatedTotal:
-        estimatedTotal +
-        existingCharges.reduce((sum, charge) => sum + Number(charge.amount || 0), 0),
+      estimatedTotal: totalCharges,
       folioNumber: folio.folioNumber,
       groupBookingId: group.id,
       groupCode: group.groupCode,
       groupName: group.groupName,
       id: folio.id,
-      payments: existingPayments.map((payment) => ({
+      payments: payments.map((payment) => ({
         amount: Number(payment.amount || 0),
         id: payment.id,
         method: payment.method,
-        receivedAt: payment.receivedAt,
+        receivedAt: payment.receivedAt.toISOString(),
+        reference: payment.reference,
       })),
       rooms: assignments.map((assignment) => ({
         roomId: assignment.roomId,
