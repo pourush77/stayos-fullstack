@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
+import { QueryFailedError, Repository, DataSource } from 'typeorm';
 import { ActivityEventEntity } from '../activity/infrastructure/activity-event.entity';
 import { GuestStatus } from '../guests/domain/guest-status.enum';
 import { GuestEntity } from '../guests/infrastructure/guest.entity';
@@ -18,6 +18,7 @@ import { GuestDocumentEntity } from './check-in-capture/guest-document.entity';
 import { ReservationEntity } from './infrastructure/reservation.entity';
 import { ReservationsService } from './reservations.service';
 import { ChildPricingService } from '../rates/child-pricing.service';
+import { AvailabilityService } from '../inventory/availability.service';
 
 type MockRepository<T extends object = object> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -122,6 +123,8 @@ describe('ReservationsService', () => {
   let guestDocumentsRepository: MockRepository<GuestDocumentEntity>;
   const propertiesService = { findOne: jest.fn() };
   const childPricingService = { validateReservationChildAges: jest.fn() };
+  const availabilityService = { reserve: jest.fn(), restore: jest.fn(), read: jest.fn() };
+  let dataSource: { transaction: jest.Mock };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -140,6 +143,14 @@ describe('ReservationsService', () => {
     guestDocumentsRepository = { find: jest.fn().mockResolvedValue([]) };
     propertiesService.findOne.mockResolvedValue({ id: propertyId });
     childPricingService.validateReservationChildAges.mockResolvedValue(undefined);
+    availabilityService.reserve.mockResolvedValue([]);
+
+    // Fake transaction: runs the callback with a manager whose getRepository
+    // returns the mocked reservations repository (mirrors real behaviour).
+    const fakeManager = { getRepository: jest.fn().mockReturnValue(reservationsRepository) };
+    dataSource = {
+      transaction: jest.fn(async (cb: (m: unknown) => unknown) => cb(fakeManager)),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -152,6 +163,8 @@ describe('ReservationsService', () => {
         { provide: getRepositoryToken(GuestDocumentEntity), useValue: guestDocumentsRepository },
         { provide: PropertiesService, useValue: propertiesService },
         { provide: ChildPricingService, useValue: childPricingService },
+        { provide: DataSource, useValue: dataSource },
+        { provide: AvailabilityService, useValue: availabilityService },
       ],
     }).compile();
 
@@ -186,6 +199,67 @@ describe('ReservationsService', () => {
         childAges: null,
       }),
     );
+  });
+
+  it('reserves exactly one inventory unit per stay night when creating a consuming reservation', async () => {
+    reservationsRepository.create?.mockImplementation((input) => input);
+    reservationsRepository.save?.mockImplementation(async (input) => input);
+
+    await service.create(propertyId, {
+      guestId,
+      arrivalDate: '2026-07-15',
+      departureDate: '2026-07-17',
+      adults: 2,
+      roomTypeId,
+      status: ReservationStatus.PENDING,
+    });
+
+    expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+    expect(availabilityService.reserve).toHaveBeenCalledTimes(1);
+    expect(availabilityService.reserve).toHaveBeenCalledWith(
+      { propertyId, roomTypeId, nights: ['2026-07-15', '2026-07-16'], units: 1 },
+      expect.anything(),
+    );
+  });
+
+  it('does NOT reserve inventory when creating directly into a non-consuming status', async () => {
+    reservationsRepository.create?.mockImplementation((input) => input);
+    reservationsRepository.save?.mockImplementation(async (input) => input);
+
+    await service.create(propertyId, {
+      guestId,
+      arrivalDate: '2026-07-15',
+      departureDate: '2026-07-17',
+      adults: 2,
+      roomTypeId,
+      status: ReservationStatus.CANCELLED,
+    });
+
+    expect(availabilityService.reserve).not.toHaveBeenCalled();
+  });
+
+  it('rolls back the reservation when inventory is insufficient (transactional)', async () => {
+    reservationsRepository.create?.mockImplementation((input) => input);
+    reservationsRepository.save?.mockImplementation(async (input) => input);
+    availabilityService.reserve.mockRejectedValueOnce(
+      new ConflictException({ code: 'INVENTORY_UNAVAILABLE', message: 'no room' }),
+    );
+
+    await expect(
+      service.create(propertyId, {
+        guestId,
+        arrivalDate: '2026-07-15',
+        departureDate: '2026-07-17',
+        adults: 2,
+        roomTypeId,
+        status: ReservationStatus.CONFIRMED,
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    // reserve was attempted inside the same transaction that saved the reservation;
+    // the rejection propagates out of dataSource.transaction, rolling everything back.
+    expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+    expect(availabilityService.reserve).toHaveBeenCalledTimes(1);
   });
 
   it('persists child ages when children are selected', async () => {

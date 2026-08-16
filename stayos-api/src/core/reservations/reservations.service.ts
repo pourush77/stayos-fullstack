@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, LessThan, MoreThan, Not, QueryFailedError, Repository } from 'typeorm';
+import { In, LessThan, MoreThan, Not, QueryFailedError, Repository, DataSource } from 'typeorm';
 import {
   createPaginationMeta,
   PaginationMeta,
@@ -25,6 +25,12 @@ import { GuestDocumentEntity } from './check-in-capture/guest-document.entity';
 import { ReservationEntity } from './infrastructure/reservation.entity';
 import { RoomOperationalStatus } from '../rooms/domain/room-operational-status.enum';
 import { ChildPricingService } from '../rates/child-pricing.service';
+import { AvailabilityService } from '../inventory/availability.service';
+import { expandStayNights } from '../inventory/domain/inventory-nights';
+import {
+  InventoryDelta,
+  inventoryDeltaForTransition,
+} from './domain/reservation-inventory-transition';
 
 export interface PaginatedReservations {
   data: ReservationEntity[];
@@ -65,6 +71,8 @@ export class ReservationsService {
     private readonly guestDocumentsRepository: Repository<GuestDocumentEntity>,
     private readonly propertiesService: PropertiesService,
     private readonly childPricingService: ChildPricingService,
+    private readonly dataSource: DataSource,
+    private readonly availabilityService: AvailabilityService,
   ) {}
 
   async findAll(propertyId: string, query: PaginationQueryDto): Promise<PaginatedReservations> {
@@ -212,14 +220,39 @@ export class ReservationsService {
       children: createReservationDto.children ?? 0,
     });
 
-    try {
-      const reservation = this.reservationsRepository.create({
-        ...this.toCreatePersistenceFields(createReservationDto),
-        propertyId,
-        reservationCode: await this.generateReservationCode(propertyId),
-      });
+    const reservationCode = await this.generateReservationCode(propertyId);
+    const status = createReservationDto.status ?? ReservationStatus.CONFIRMED;
 
-      return await this.reservationsRepository.save(reservation);
+    try {
+      return await this.dataSource.transaction(async (manager) => {
+        const reservationRepository = manager.getRepository(ReservationEntity);
+        const reservation = reservationRepository.create({
+          ...this.toCreatePersistenceFields(createReservationDto),
+          propertyId,
+          reservationCode,
+          status,
+        });
+
+        const saved = await reservationRepository.save(reservation);
+
+        // Inventory is driven by the entitlement transition (none -> status),
+        // NOT by the create action itself. Only entering a consuming status
+        // reserves inventory, and it happens in THIS transaction so an
+        // out-of-stock night rolls back the reservation write entirely.
+        if (inventoryDeltaForTransition(null, saved.status) === InventoryDelta.RESERVE) {
+          await this.availabilityService.reserve(
+            {
+              propertyId,
+              roomTypeId: saved.roomTypeId,
+              nights: expandStayNights(saved.arrivalDate, saved.departureDate),
+              units: 1,
+            },
+            manager,
+          );
+        }
+
+        return saved;
+      });
     } catch (error) {
       this.handlePersistenceError(error);
     }
