@@ -25,6 +25,10 @@ import { RoomsMapper } from '../../rooms/rooms.mapper';
 import { CheckInService } from './check-in.service';
 import { PolicyResolverService } from '../../policies/policy-resolver.service';
 import { assertReservationTransition } from '../domain/reservation-transitions';
+import {
+  ReservationInventoryEntitlement,
+  getReservationInventoryEntitlement,
+} from '../domain/reservation-inventory';
 
 const activeAssignmentStatuses = [
   ReservationStatus.PENDING,
@@ -127,11 +131,16 @@ export class ReservationWorkflowService {
       assertReservationTransition(reservation.status, target);
       const previousState = this.reservationAuditState(reservation);
 
+      // Capture the entitlement being released BEFORE the status flips terminal.
+      const releasedEntitlement = getReservationInventoryEntitlement(reservation);
+
       reservation.status = target;
-      // Inventory hook: release the room-night hold by clearing the assignment
-      // (rooms only become OCCUPIED at check-in, which these states cannot reach).
-      reservation.roomId = null;
+      // NOTE: physical roomId is intentionally NOT cleared here — assignment is
+      // separate from inventory. Inventory entitlement is released via the hook
+      // below (driven by the terminal status), not by clearing roomId.
       const updated = await reservationRepository.save(reservation);
+
+      await this.releaseInventoryEntitlement(manager, updated, releasedEntitlement);
 
       await this.createLifecycleEvents(manager, {
         propertyId,
@@ -150,6 +159,37 @@ export class ReservationWorkflowService {
 
       return updated;
     });
+  }
+
+  /**
+   * Inventory-release hook (domain seam for the Phase 1C inventory engine).
+   * Today it records an auditable RESERVATION_INVENTORY_RELEASED event carrying
+   * the room-type + date entitlement; Phase 1C will additionally decrement the
+   * room-type/date availability ledger here. Release is driven by the terminal
+   * status transition, NOT by clearing the physical roomId.
+   */
+  private async releaseInventoryEntitlement(
+    manager: EntityManager,
+    reservation: ReservationEntity,
+    entitlement: ReservationInventoryEntitlement,
+  ): Promise<void> {
+    const auditRepository = manager.getRepository(AuditEventEntity);
+    await auditRepository.save(
+      auditRepository.create({
+        propertyId: reservation.propertyId,
+        entityType: 'ReservationInventory',
+        entityId: reservation.id,
+        action: 'RESERVATION_INVENTORY_RELEASED',
+        previousState: { ...entitlement, consuming: true },
+        nextState: { ...entitlement, consuming: false },
+        metadata: {
+          reservationCode: reservation.reservationCode,
+          roomTypeId: entitlement.roomTypeId,
+          arrivalDate: entitlement.arrivalDate,
+          departureDate: entitlement.departureDate,
+        },
+      }),
+    );
   }
 
   private async applyPolicyTaxSnapshot(reservation: ReservationEntity): Promise<void> {

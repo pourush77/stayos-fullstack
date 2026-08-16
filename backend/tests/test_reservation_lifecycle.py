@@ -208,7 +208,9 @@ class TestCancel:
         assert res.status_code == 200, res.text[:400]
         assert res.json()["data"]["status"] == "CANCELLED"
 
-    def test_cancel_releases_room_assignment(self, admin_client, catalog):
+    def test_cancel_keeps_room_assignment(self, admin_client, catalog):
+        """BEHAVIOR CHANGE (pre-1C): cancel no longer nulls roomId; inventory release
+        is decoupled from physical assignment."""
         room = catalog["readyRooms"][0]
         start = date(2027, 6, 1) + timedelta(days=random.randint(0, 300))
         reservation = _create_reservation(
@@ -222,7 +224,8 @@ class TestCancel:
         res = admin_client.patch(_url(reservation["id"], "cancel"), json={"reason": "TEST_release"}, timeout=30)
         assert res.status_code == 200
         assert res.json()["data"]["status"] == "CANCELLED"
-        assert res.json()["data"]["roomId"] is None, "cancel should release the room hold"
+        assert res.json()["data"]["roomId"] == room["id"], "cancel must NOT clear roomId anymore"
+        assert _psql(f"select coalesce(room_id::text,'') from reservations where id='{reservation['id']}';") == room["id"]
 
     def test_cancel_terminal_returns_400(self, admin_client, catalog):
         reservation = _create_reservation(admin_client, catalog)
@@ -517,13 +520,20 @@ class TestGenericPatchStatusBypass:
         assert after["adults"] == 2
 
     def test_generic_patch_room_assignment_still_works(self, admin_client, catalog):
-        room = catalog["readyRooms"][3]
-        start = date(2028, 3, 1) + timedelta(days=random.randint(0, 300))
-        reservation = _create_reservation(
-            admin_client, catalog, status="CONFIRMED", room_type_id=room["roomTypeId"],
-            arrival=start.isoformat(), departure=(start + timedelta(days=2)).isoformat(),
-        )
-        res = self._patch(admin_client, reservation["id"], {"roomId": room["id"]})
+        # retry across rooms/windows: earlier test runs leave active assigned reservations
+        res = None
+        for room in catalog["readyRooms"]:
+            start = date(2028, 3, 1) + timedelta(days=random.randint(0, 1000))
+            reservation = _create_reservation(
+                admin_client, catalog, status="CONFIRMED", room_type_id=room["roomTypeId"],
+                arrival=start.isoformat(), departure=(start + timedelta(days=2)).isoformat(),
+            )
+            attempt = self._patch(admin_client, reservation["id"], {"roomId": room["id"]})
+            if attempt.status_code == 200:
+                res = attempt
+                break
+            admin_client.patch(_url(reservation["id"], "cancel"), json={"reason": "TEST_cleanup"}, timeout=30)
+        assert res is not None, "no READY room free for any tried window"
         assert res.status_code == 200, f"roomId PATCH failed: {res.status_code} {res.text[:300]}"
         assert res.json()["data"]["roomId"] == room["id"]
         assert self._get(admin_client, reservation["id"])["roomId"] == room["id"]
@@ -633,7 +643,191 @@ class TestGenericPatchRelationUpdates:
         self._patch(admin_client, rid, {"notes": original_notes})
 
 
+# ------------------------------------------- ITER-10: Reservation -> Inventory boundary
+# Modules under test:
+#   src/core/reservations/domain/reservation-inventory.ts
+#   src/core/reservations/services/reservation-workflow.service.ts (terminate/releaseInventoryEntitlement)
+HSDEMO_0003 = "84729525-cc94-4fa9-8ca3-f8c5a2ed310a"   # CONFIRMED, room e63ec77a-95a0-40df-bae9-7bc3a4ea2283
+HSDEMO_0004 = "30f7157b-f1c4-4f52-9fc0-a99876536485"   # CONFIRMED, unassigned
+RELEASE_ACTION = "RESERVATION_INVENTORY_RELEASED"
+
+
+def _release_events(reservation_id):
+    """Audit rows for the inventory-release hook (no audit API exists -> psql)."""
+    raw = _psql(
+        "select count(*) from audit_events where entity_id='%s' and action='%s' and entity_type='ReservationInventory';"
+        % (reservation_id, RELEASE_ACTION)
+    )
+    return int(raw or 0)
+
+
+def _release_event_payload(reservation_id):
+    raw = _psql(
+        "select coalesce(previous_state::text,'') || '|||' || coalesce(next_state::text,'') || '|||' || "
+        "coalesce(metadata::text,'') from audit_events where entity_id='%s' and action='%s' "
+        "order by created_at desc limit 1;" % (reservation_id, RELEASE_ACTION)
+    )
+    prev, _, rest = raw.partition("|||")
+    nxt, _, meta = rest.partition("|||")
+    return json.loads(prev), json.loads(nxt), json.loads(meta)
+
+
+class TestInventoryBoundary:
+    def _get(self, client, rid):
+        res = client.get(f"{BASE_URL}/properties/{PROPERTY_ID}/reservations/{rid}", timeout=30)
+        assert res.status_code == 200, res.text[:300]
+        return res.json()["data"]
+
+    def test_cancel_hsdemo_0003_keeps_room_assignment(self, admin_client):
+        before = self._get(admin_client, HSDEMO_0003)
+        room_before = before["roomId"]
+        assert room_before, "HSDEMO-0003 expected to have a room assigned"
+        if before["status"] == "CONFIRMED":
+            res = admin_client.patch(_url(HSDEMO_0003, "cancel"), json={"reason": "TEST_iter10_inventory"}, timeout=30)
+            assert res.status_code == 200, res.text[:400]
+            assert res.json()["data"]["status"] == "CANCELLED"
+            assert res.json()["data"]["roomId"] == room_before, "cancel nulled roomId (behavior change violated)"
+        after = self._get(admin_client, HSDEMO_0003)
+        assert after["status"] == "CANCELLED"
+        assert after["roomId"] == room_before, "roomId changed after cancel"
+        assert _psql(f"select coalesce(room_id::text,'') from reservations where id='{HSDEMO_0003}';") == room_before
+
+    def test_cancel_hsdemo_0003_emitted_release_event(self, admin_client):
+        assert _release_events(HSDEMO_0003) >= 1, "no RESERVATION_INVENTORY_RELEASED audit event after cancel"
+        prev, nxt, meta = _release_event_payload(HSDEMO_0003)
+        assert prev["consuming"] is True and nxt["consuming"] is False
+        assert prev["roomTypeId"] == nxt["roomTypeId"]
+        assert "roomId" not in prev and "roomId" not in nxt, "entitlement payload must be roomId-independent"
+        assert meta.get("reservationCode") == "HSDEMO-0003"
+        assert meta.get("arrivalDate") and meta.get("departureDate")
+
+    def test_no_show_hsdemo_0004_returns_200_and_releases(self, admin_client):
+        before = self._get(admin_client, HSDEMO_0004)
+        assert before["roomId"] is None, "HSDEMO-0004 expected unassigned"
+        if before["status"] == "CONFIRMED":
+            res = admin_client.patch(_url(HSDEMO_0004, "no-show"), json={"reason": "TEST_iter10_noshow"}, timeout=30)
+            assert res.status_code == 200, res.text[:400]
+            assert res.json()["data"]["status"] == "NO_SHOW"
+        after = self._get(admin_client, HSDEMO_0004)
+        assert after["status"] == "NO_SHOW"
+        assert _release_events(HSDEMO_0004) >= 1, "no inventory-release event after no-show"
+        prev, nxt, meta = _release_event_payload(HSDEMO_0004)
+        assert prev["consuming"] is True and nxt["consuming"] is False
+        assert meta.get("reservationCode") == "HSDEMO-0004"
+
+    def _confirmed_with_room(self, admin_client, catalog, year):
+        """CONFIRMED reservation with a READY room assigned via generic PATCH."""
+        for room in catalog["readyRooms"]:
+            start = date(year, 5, 1) + timedelta(days=random.randint(0, 1000))
+            reservation = _create_reservation(
+                admin_client, catalog, status="CONFIRMED", room_type_id=room["roomTypeId"],
+                arrival=start.isoformat(), departure=(start + timedelta(days=2)).isoformat(),
+            )
+            res = admin_client.patch(
+                f"{BASE_URL}/properties/{PROPERTY_ID}/reservations/{reservation['id']}",
+                json={"roomId": room["id"]}, timeout=30,
+            )
+            if res.status_code == 200:
+                return reservation, room
+            admin_client.patch(_url(reservation["id"], "cancel"), json={"reason": "TEST_cleanup"}, timeout=30)
+        pytest.fail("no READY room free for any tried window")
+
+    def test_terminal_reservation_no_longer_consumes_but_keeps_room(self, admin_client, catalog):
+        """Fresh reservation: assign room, cancel -> roomId kept, exactly one release event."""
+        reservation, room = self._confirmed_with_room(admin_client, catalog, 2030)
+        rid = reservation["id"]
+        assert _release_events(rid) == 0, "assignment emitted an inventory-release event"
+        res = admin_client.patch(_url(rid, "cancel"), json={"reason": "TEST_iter10"}, timeout=30)
+        assert res.status_code == 200, res.text[:300]
+        assert res.json()["data"]["roomId"] == room["id"]
+        assert _release_events(rid) == 1, f"expected exactly 1 release event, got {_release_events(rid)}"
+
+    def test_no_show_fresh_reservation_emits_single_release_event(self, admin_client, catalog):
+        reservation = _create_reservation(admin_client, catalog, status="CONFIRMED")
+        rid = reservation["id"]
+        res = admin_client.patch(_url(rid, "no-show"), json={}, timeout=30)
+        assert res.status_code == 200
+        assert _release_events(rid) == 1
+        prev, nxt, _ = _release_event_payload(rid)
+        assert prev["roomTypeId"] == reservation["roomTypeId"]
+        assert prev["arrivalDate"] == reservation["arrivalDate"][:10]
+        assert nxt["consuming"] is False
+
+    def test_assign_and_unassign_do_not_release_inventory(self, admin_client, catalog):
+        """Assignment must never touch entitlement: no release event, status unchanged."""
+        reservation, room = self._confirmed_with_room(admin_client, catalog, 2031)
+        rid = reservation["id"]
+        url = f"{BASE_URL}/properties/{PROPERTY_ID}/reservations/{rid}"
+        assert _release_events(rid) == 0, "generic PATCH assign emitted a release event"
+        assert self._get(admin_client, rid)["status"] == "CONFIRMED"
+
+        unassign = admin_client.patch(url, json={"roomId": None}, timeout=30)
+        assert unassign.status_code == 200, unassign.text[:300]
+        assert unassign.json()["data"]["roomId"] is None
+        assert unassign.json()["data"]["status"] == "CONFIRMED", "unassign changed status"
+        assert _release_events(rid) == 0, "generic PATCH unassign emitted a release event"
+
+        # workflow assign/unassign endpoints too
+        wf_assign = admin_client.patch(_url(rid, "assign-room"), json={"roomId": room["id"]}, timeout=30)
+        assert wf_assign.status_code == 200, wf_assign.text[:300]
+        wf_unassign = admin_client.patch(_url(rid, "unassign-room"), timeout=30)
+        assert wf_unassign.status_code == 200, wf_unassign.text[:300]
+        assert _release_events(rid) == 0, "assign-room/unassign-room emitted a release event"
+        assert self._get(admin_client, rid)["status"] == "CONFIRMED"
+
+    def test_confirmed_unassigned_reservation_is_inventory_consuming(self, admin_client, catalog):
+        """A CONFIRMED reservation with roomId null is active/consuming (no release event)."""
+        reservation = _create_reservation(admin_client, catalog, status="CONFIRMED")
+        rid = reservation["id"]
+        got = self._get(admin_client, rid)
+        assert got["roomId"] is None and got["status"] == "CONFIRMED"
+        assert _release_events(rid) == 0, "active reservation has a release event"
+
+    def test_pending_hold_consumes_until_cancelled(self, admin_client, catalog):
+        reservation = _create_reservation(admin_client, catalog, status="PENDING")
+        rid = reservation["id"]
+        assert _release_events(rid) == 0
+        assert admin_client.patch(_url(rid, "cancel"), json={}, timeout=30).status_code == 200
+        assert _release_events(rid) == 1
+        prev, nxt, _ = _release_event_payload(rid)
+        assert prev["consuming"] is True and nxt["consuming"] is False
+
+    def test_terminal_cancel_again_returns_400_and_no_duplicate_event(self, admin_client, catalog):
+        reservation = _create_reservation(admin_client, catalog, status="CONFIRMED")
+        rid = reservation["id"]
+        assert admin_client.patch(_url(rid, "cancel"), json={}, timeout=30).status_code == 200
+        res = admin_client.patch(_url(rid, "cancel"), json={}, timeout=30)
+        assert res.status_code == 400
+        assert _error_code(res) == INVALID_TRANSITION
+        assert _release_events(rid) == 1, "duplicate release event on rejected transition"
+
+    def test_readonly_cannot_trigger_release(self, readonly_client, admin_client, catalog):
+        reservation = _create_reservation(admin_client, catalog, status="CONFIRMED")
+        rid = reservation["id"]
+        res = readonly_client.patch(_url(rid, "cancel"), json={}, timeout=30)
+        assert res.status_code == 403, res.text[:300]
+        assert _release_events(rid) == 0, "release event written despite 403"
+        assert self._get(admin_client, rid)["status"] == "CONFIRMED"
+
+    def test_check_out_does_not_emit_inventory_release(self, admin_client):
+        """Documented behavior: only cancel/no-show run the release hook (CHECKED_OUT is
+        consumed, not released). Recorded for visibility."""
+        count = _release_events(CHECKED_OUT_RESERVATION)
+        print(f"CHECKED_OUT reservation release events: {count}")
+        assert count == 0
+
+
 @pytest.fixture(scope="session", autouse=True)
 def report_created(admin_client):
     yield
-    print(f"\nTEST_ created reservations (terminal/left in place): {len(created_ids)}")
+    # Release inventory held by TEST_ reservations so repeat runs are not starved
+    # (only 4 READY rooms exist in the demo property).
+    released = 0
+    for rid in created_ids:
+        got = admin_client.get(f"{BASE_URL}/properties/{PROPERTY_ID}/reservations/{rid}", timeout=30)
+        if got.status_code != 200:
+            continue
+        if got.json()["data"]["status"] in ("PENDING", "CONFIRMED"):
+            if admin_client.patch(_url(rid, "cancel"), json={"reason": "TEST_cleanup"}, timeout=30).status_code == 200:
+                released += 1
+    print(f"\nTEST_ created reservations: {len(created_ids)}, released at teardown: {released}")

@@ -1,0 +1,61 @@
+{
+  "summary": "Backend-only verification of the Reservation->Inventory boundary hardening (pre-Phase-1C) against http://localhost:3001/api/v1 + psql audit_events. Updated /app/backend/tests/test_reservation_lifecycle.py from 42 to 53 pytest cases: rewrote the old test_cancel_releases_room_assignment expectation (now test_cancel_keeps_room_assignment) and added a new TestInventoryBoundary class (11 cases) covering the behavior change, the inventory-release hook and assignment-independence. Result: 53/53 passed on two consecutive full runs. Verified: (1) PATCH .../HSDEMO-0003(id 84729525-cc94-4fa9-8ca3-f8c5a2ed310a)/cancel -> 200, status CANCELLED, roomId UNCHANGED (e63ec77a-95a0-40df-bae9-7bc3a4ea2283) in both response body and DB; (2) PATCH .../HSDEMO-0004 (30f7157b...)/no-show -> 200, NO_SHOW; (3) audit_events row action='RESERVATION_INVENTORY_RELEASED', entity_type='ReservationInventory' exists for BOTH demo reservations with previous_state.consuming=true -> next_state.consuming=false and metadata carrying reservationCode/roomTypeId/arrival/departure, and the entitlement payload contains NO roomId (roomId-independent); (4) room assign/unassign via generic PATCH {roomId} / {roomId:null} AND via assign-room/unassign-room emits ZERO release events and leaves status CONFIRMED; (5) exactly one release event per terminal transition, none on rejected (400 terminal) or RBAC-403 attempts; (6) a CONFIRMED reservation with roomId null stays active/consuming (no release event); (7) regressions intact: terminal confirm/cancel/no-show 400 INVALID_RESERVATION_STATE_TRANSITION, generic-PATCH status whitelist 400 (7 cases), readonly 403, unauth 401, assign->unassign->reassign->check-in->extend->check-out happy path, policy/tax snapshot freeze.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "PATCH .../reservations/:id/cancel|no-show (releaseInventoryEntitlement)",
+        "issue": "The RESERVATION_INVENTORY_RELEASED audit row is written with actor_id NULL (verified in psql), while the sibling lifecycle audit/activity events do carry actorId. The 'auditable' release event therefore has no actor attribution."
+      },
+      {
+        "endpoint": "PATCH .../reservations/:id/check-out",
+        "issue": "The release hook only runs from terminate() (cancel/no-show). CHECKED_OUT is also non-consuming per INVENTORY_CONSUMING_STATUSES but emits no RESERVATION_INVENTORY_RELEASED event, so a Phase-1C ledger driven off this hook would never see the release for normal departures (asymmetric hook coverage). Verified: 0 events for the CHECKED_OUT demo reservation."
+      },
+      {
+        "endpoint": "PATCH .../reservations/:id/extend and generic PATCH {arrivalDate,departureDate,roomTypeId}",
+        "issue": "Entitlement is (property, roomType, stayDates, status), but date/roomType mutations emit no inventory event/hook - only terminal transitions do. Phase 1C will need a change/re-entitlement hook, otherwise extend and roomTypeId PATCH silently alter consumption with no audit trail."
+      },
+      {
+        "endpoint": "GET/PATCH /api/v1/properties/:propertyId/reservations/:id",
+        "issue": "Carried over from iter 8/9: ReservationResponseDto still omits policySnapshot/taxSnapshot (persisted, psql-verified only)."
+      },
+      {
+        "endpoint": "generic PATCH .../reservations/:id (room assignment)",
+        "issue": "Carried over: validate -> save -> re-fetch is not a single transaction with a row lock; concurrent double-assignment of the same room/window is theoretically possible (no DB exclusion constraint)."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_reservation_lifecycle.py",
+    "/app/test_reports/pytest/reservation_inventory_iter10.xml"
+  ],
+  "action_items": [
+    "No blocking action items: the behavior change (cancel/no-show keep roomId + release via RESERVATION_INVENTORY_RELEASED hook) and assignment-independence are verified end-to-end.",
+    "Optional before Phase 1C: (a) pass actorId into releaseInventoryEntitlement, (b) decide whether check-out should also fire the release hook, (c) plan a re-entitlement hook for date/roomType changes, (d) de-duplicate activeAssignmentStatuses (defined 3x) by importing INVENTORY_CONSUMING_STATUSES from reservation-inventory.ts."
+  ],
+  "critical_code_review_comments": [
+    "DRY / single-source-of-truth: the array [PENDING, CONFIRMED, CHECKED_IN] is duplicated as `activeAssignmentStatuses` in reservations.service.ts:45, reservation-workflow.service.ts:33 and operations/services/assignable-reservations.service.ts:15, while the canonical list now lives in domain/reservation-inventory.ts (INVENTORY_CONSUMING_STATUSES). These will drift; import the domain constant in all three.",
+    "terminate() correctly snapshots the entitlement BEFORE flipping status and writes the release event inside the same dataSource.transaction as the reservation save - atomicity confirmed (no orphan events on 400/403 paths, verified by tests).",
+    "releaseInventoryEntitlement() writes previous_state/next_state that differ only in `consuming`; consider also stamping the terminal status and releasedAt in metadata so the Phase-1C ledger can replay events without re-reading the reservation.",
+    "reservation-workflow.service.ts is 1032 lines (>700 guideline); split the terminal/lifecycle, assignment and check-in-workspace concerns into separate services before adding the Phase-1C ledger.",
+    "The release event uses entityType 'ReservationInventory' with entityId = reservation.id; since there is no audit query endpoint, this is only observable via psql - consider exposing GET /audit-events (filterable by entityType/entityId) for verifiability."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_reservation_lifecycle.py"
+  ],
+  "success_rate": {
+    "backend": "100% (53/53 pytest cases, 2 consecutive clean runs)",
+    "frontend": "not tested (backend-only request)"
+  },
+  "seed_data_creation": "Demo reservations mutated as instructed: HSDEMO-0003 -> CANCELLED (roomId retained), HSDEMO-0004 -> NO_SHOW. ~20 new TEST_lifecycle reservations in property 9d0680c0-89b0-41d5-ae06-b08cd7bedeae (future 2027-2031 windows); a new session teardown now cancels any still-active TEST_ reservations so repeat runs are not starved (the property only has 4 READY rooms). Also manually cancelled 4 leftover TEST_lifecycle reservations from earlier iterations that were holding all 4 READY rooms for today's window.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@stayos.local / Password123!, readonly@stayos.local / Password123! (from /app/memory/test_credentials.md). API http://localhost:3001/api/v1 (login returns 201, token at data.accessToken). Postgres localhost:5432 stayos_dev / stayos / StayOS@2026.",
+  "context_for_next_testing_agent": "Run: cd /app/backend && python -m pytest tests/test_reservation_lifecycle.py -p no:randomly -q (53 tests, ~3s). TestInventoryBoundary is the iter-10 class; helpers _release_events()/_release_event_payload() read audit_events via psql (no audit API exists). HSDEMO-0003 is now CANCELLED (roomId kept) and HSDEMO-0004 NO_SHOW - the demo-reservation tests are written idempotently (they skip the mutation if already terminal and only assert final state + audit event), so re-runs are safe. IMPORTANT: only 4 READY rooms exist, so assignment tests retry across rooms/random windows and the session teardown cancels leftover TEST_ reservations; if a room-assignment test fails with 'already assigned to another active overlapping reservation', it is test-data starvation, not a product bug. Do not run the jest suite.",
+  "rca_of_the_issue": "No product defect found this iteration. The single test failure seen mid-run (generic PATCH roomId -> 400 'Room is already assigned to another active overlapping reservation', and the assign/check-in regression finding no free room) was root-caused to test-data starvation: the property has only 4 READY rooms and previous iterations left CONFIRMED TEST_lifecycle reservations holding all of them for today's window; the overlap check correctly filters on active statuses (PENDING/CONFIRMED/CHECKED_IN), so cancelled reservations retaining roomId do NOT block assignment - i.e. keeping roomId after cancel does not regress the assignment guard. Fixed in-scope by retrying across rooms/windows and adding an inventory-releasing teardown."
+}

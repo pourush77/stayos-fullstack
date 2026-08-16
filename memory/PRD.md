@@ -186,3 +186,9 @@ Full front-desk lifecycle certified for real staff use. See CHANGELOG.md 2026-08
 - Closed HIGH bypass: status removed from UpdateReservationDto (OmitType) -> transitions only via lifecycle endpoints. Fixed MEDIUM: generic PATCH FK/relation updates now reliable + response re-fetched.
 - Verified testing_agent iteration_9 100% (42/42); jest reservations 74 green.
 - Phase-1C blockers: source enum expansion (PHONE/CHANNEL/OTHER) + external reservation/confirmation IDs foundation NOT yet added; expose snapshots via API read model; Inventory + Rate Plans (availability/overbooking/ARI) own the override read path.
+
+## 2026-08-16 — Reservation->Inventory boundary hardening
+- Decision: PENDING = canonical HOLD (no separate HOLD). Inventory entitlement = property+roomType+dates+status (INVENTORY_CONSUMING_STATUSES=PENDING/CONFIRMED/CHECKED_IN); roomId is assignment-only.
+- Removed the wrong "clear roomId releases inventory" assumption; cancel/no-show now release via releaseInventoryEntitlement() hook (RESERVATION_INVENTORY_RELEASED audit event, terminal-status driven) and KEEP roomId. Assign/unassign never triggers release.
+- Verified testing_agent iteration_10 100% (53/53); jest reservations 78 green.
+- Phase-1C blockers: implement the actual availability ledger inside the releaseInventoryEntitlement hook + reserve-on-confirm; room-type/date availability + overbooking + daily rates + rate plans + restrictions as single source; source/external-ID + snapshot read-model can fold into 1C.
