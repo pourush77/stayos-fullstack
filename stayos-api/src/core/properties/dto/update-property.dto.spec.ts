@@ -1,4 +1,5 @@
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
+import 'reflect-metadata';
 import { GroupBookingDepositPolicyType } from '../domain/group-booking-deposit-policy-type.enum';
 import { UpdatePropertyDto } from './update-property.dto';
 
@@ -92,5 +93,13 @@ describe('UpdatePropertyDto', () => {
         metadata,
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('exposes group booking deposit fields in the Swagger/OpenAPI schema', () => {
+    const swaggerProps: string[] =
+      Reflect.getMetadata('swagger/apiModelPropertiesArray', UpdatePropertyDto.prototype) ?? [];
+
+    expect(swaggerProps).toContain(':groupBookingDepositPolicyType');
+    expect(swaggerProps).toContain(':groupBookingDepositPolicyValue');
   });
 });

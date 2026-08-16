@@ -1,4 +1,4 @@
-import { PartialType } from '@nestjs/swagger';
+import { ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsEnum,
@@ -76,10 +76,22 @@ class GroupBookingDepositPolicyPatchRule implements ValidatorConstraintInterface
 }
 
 export class UpdatePropertyDto extends PartialType(CreatePropertyDto) {
+  @ApiPropertyOptional({
+    enum: GroupBookingDepositPolicyType,
+    example: GroupBookingDepositPolicyType.FIXED_AMOUNT,
+    description:
+      'Group booking deposit policy type. Omit groupBookingDepositPolicyValue when set to NONE.',
+  })
   @IsOptional()
   @IsEnum(GroupBookingDepositPolicyType)
   groupBookingDepositPolicyType?: GroupBookingDepositPolicyType;
 
+  @ApiPropertyOptional({
+    type: Number,
+    example: 5000,
+    description:
+      'Deposit value: percentage (0-100] for PERCENTAGE, positive amount for FIXED_AMOUNT, omitted for NONE.',
+  })
   @Transform(({ value }: { value: unknown }) =>
     value === undefined || value === null || value === '' ? undefined : Number(value),
   )

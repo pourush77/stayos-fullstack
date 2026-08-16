@@ -151,3 +151,8 @@ Full front-desk lifecycle certified for real staff use. See CHANGELOG.md 2026-08
 - Balance-based reservation `paymentStatus` sync happens inside `BillingService.addPayment` — no separate call needed from the frontend.
 - The backend is compiled (dist/) and runs via `node dist/src/main.js`. Any TS change to `stayos-api/` requires `npm run build` + `sudo supervisorctl restart stayos_api`.
 - `packages/ui/src/layout/stayos-app-shell.tsx` — must reference `process.env.NEXT_PUBLIC_API_BASE_URL` directly (Next.js only inlines literal references). Do NOT indirect via `globalThis`.
+
+## 2026-08-16 — Property Settings: Group Booking Deposit
+- Root cause: reported 400 "should not exist" came from a STALE API build (old UpdatePropertyDto without deposit fields); current source validates correctly. Real source defect: deposit fields missing @ApiPropertyOptional so absent from Swagger PATCH schema.
+- Fix: added @ApiPropertyOptional to groupBookingDepositPolicyType/Value in update-property.dto.ts; requires nest build + API restart to clear stale build.
+- Tests: stayos-api properties (22) + group-booking-deposit-policy (9) green; nest build passes.

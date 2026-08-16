@@ -14,7 +14,7 @@ import requests
 
 REPO = "/app"
 API_LOCAL = "http://localhost:8001/api/v1"
-PREVIEW = "https://group-stay-ops.preview.emergentagent.com"
+PREVIEW = "https://group-booking-fix-1.preview.emergentagent.com"
 FRONTEND = "http://localhost:3000"
 
 
