@@ -3,7 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 import { ApiErrorCode } from '../../common/errors/api-error-code.enum';
 import { RoomStatus } from '../rooms/domain/room-status.enum';
-import { computeAvailable } from './domain/inventory-nights';
+import { computeAvailable, InventoryKey } from './domain/inventory-nights';
 
 export interface AvailabilityDay {
   propertyId: string;
@@ -18,6 +18,17 @@ export interface InventoryMutationInput {
   propertyId: string;
   roomTypeId: string;
   nights: string[];
+  units?: number;
+}
+
+/**
+ * A combined release+reserve applied atomically. Used for date/roomType
+ * mutations where an entitlement moves between (roomType, date) keys.
+ */
+export interface InventoryDeltaInput {
+  propertyId: string;
+  toRelease: InventoryKey[];
+  toReserve: InventoryKey[];
   units?: number;
 }
 
@@ -82,6 +93,74 @@ export class AvailabilityService {
    */
   async restore(input: InventoryMutationInput, manager?: EntityManager): Promise<AvailabilityDay[]> {
     return this.inTransaction(manager, (em) => this.restoreWithin(em, input));
+  }
+
+  /**
+   * Apply an atomic release+reserve delta (date / roomType mutation).
+   *
+   * Locks EVERY affected (roomType, date) key — release and reserve alike — in
+   * one deterministic global order (roomType asc, then date asc) BEFORE mutating
+   * anything, so concurrent mutations can never deadlock. After all locks are
+   * held it validates that every reserve key has capacity; if any is short it
+   * throws INVENTORY_UNAVAILABLE and the caller's transaction rolls back both
+   * the reservation change and all inventory changes — the original entitlement
+   * survives intact. Only then are releases decremented and reserves incremented.
+   */
+  async applyDelta(input: InventoryDeltaInput, manager?: EntityManager): Promise<void> {
+    return this.inTransaction(manager, (em) => this.applyDeltaWithin(em, input));
+  }
+
+  private async applyDeltaWithin(em: EntityManager, input: InventoryDeltaInput): Promise<void> {
+    const units = input.units ?? 1;
+    const reserveKeySet = new Set(input.toReserve.map((k) => `${k.roomTypeId}|${k.date}`));
+
+    // Deterministic global lock order across property + roomType + date.
+    const allKeys = [...input.toRelease, ...input.toReserve].sort((a, b) =>
+      a.roomTypeId === b.roomTypeId
+        ? a.date.localeCompare(b.date)
+        : a.roomTypeId.localeCompare(b.roomTypeId),
+    );
+
+    const locked = new Map<string, { id: string; capacity: number; sold: number }>();
+    for (const key of allKeys) {
+      const mapKey = `${key.roomTypeId}|${key.date}`;
+      if (locked.has(mapKey)) continue;
+      if (reserveKeySet.has(mapKey)) {
+        await this.ensureRow(em, input.propertyId, key.roomTypeId, key.date);
+      }
+      const row = await this.lockRow(em, input.propertyId, key.roomTypeId, key.date);
+      if (row) locked.set(mapKey, row);
+    }
+
+    // Validate ALL reserve keys before mutating anything.
+    for (const key of input.toReserve) {
+      const row = locked.get(`${key.roomTypeId}|${key.date}`);
+      const available = row ? computeAvailable(row.capacity, row.sold) : 0;
+      if (available < units) {
+        throw new ConflictException({
+          code: ApiErrorCode.INVENTORY_UNAVAILABLE,
+          message: `Insufficient inventory for room type ${key.roomTypeId} on ${key.date}: requested ${units}, available ${available}`,
+        });
+      }
+    }
+
+    for (const key of input.toRelease) {
+      const row = locked.get(`${key.roomTypeId}|${key.date}`);
+      if (!row) continue;
+      const sold = Math.max(0, row.sold - units);
+      await em.query(`UPDATE room_type_inventory SET sold = $1, updated_at = now() WHERE id = $2`, [
+        sold,
+        row.id,
+      ]);
+    }
+
+    for (const key of input.toReserve) {
+      const row = locked.get(`${key.roomTypeId}|${key.date}`)!;
+      await em.query(
+        `UPDATE room_type_inventory SET sold = sold + $1, updated_at = now() WHERE id = $2`,
+        [units, row.id],
+      );
+    }
   }
 
   private async reserveWithin(em: EntityManager, input: InventoryMutationInput): Promise<AvailabilityDay[]> {

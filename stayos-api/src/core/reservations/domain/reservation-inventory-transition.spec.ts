@@ -1,5 +1,9 @@
 import { ReservationStatus } from './reservation-status.enum';
-import { InventoryDelta, inventoryDeltaForTransition } from './reservation-inventory-transition';
+import {
+  InventoryDelta,
+  inventoryDeltaForTransition,
+  diffEntitlements,
+} from './reservation-inventory-transition';
 
 describe('inventoryDeltaForTransition', () => {
   it('RESERVEs when creating directly into a consuming status', () => {
@@ -33,5 +37,71 @@ describe('inventoryDeltaForTransition', () => {
     expect(
       inventoryDeltaForTransition(ReservationStatus.CHECKED_IN, ReservationStatus.CHECKED_OUT),
     ).toBe(InventoryDelta.RELEASE);
+  });
+});
+
+describe('diffEntitlements', () => {
+  const set = (roomTypeId: string, nights: string[], consuming = true) => ({
+    consuming,
+    roomTypeId,
+    nights,
+  });
+
+  it('date extension reserves only the added nights', () => {
+    const diff = diffEntitlements(
+      set('rt-1', ['2026-07-15', '2026-07-16']),
+      set('rt-1', ['2026-07-15', '2026-07-16', '2026-07-17']),
+    );
+    expect(diff.toRelease).toEqual([]);
+    expect(diff.toReserve).toEqual([{ roomTypeId: 'rt-1', date: '2026-07-17' }]);
+  });
+
+  it('date shortening releases only the removed nights', () => {
+    const diff = diffEntitlements(
+      set('rt-1', ['2026-07-15', '2026-07-16', '2026-07-17']),
+      set('rt-1', ['2026-07-15', '2026-07-16']),
+    );
+    expect(diff.toReserve).toEqual([]);
+    expect(diff.toRelease).toEqual([{ roomTypeId: 'rt-1', date: '2026-07-17' }]);
+  });
+
+  it('date shift releases old-only nights and reserves new-only nights, leaving overlap untouched', () => {
+    const diff = diffEntitlements(
+      set('rt-1', ['2026-07-15', '2026-07-16']),
+      set('rt-1', ['2026-07-16', '2026-07-17']),
+    );
+    expect(diff.toRelease).toEqual([{ roomTypeId: 'rt-1', date: '2026-07-15' }]);
+    expect(diff.toReserve).toEqual([{ roomTypeId: 'rt-1', date: '2026-07-17' }]);
+  });
+
+  it('roomType change transfers the entire entitlement (all old released, all new reserved)', () => {
+    const diff = diffEntitlements(
+      set('rt-1', ['2026-07-15', '2026-07-16']),
+      set('rt-2', ['2026-07-15', '2026-07-16']),
+    );
+    expect(diff.toRelease).toEqual([
+      { roomTypeId: 'rt-1', date: '2026-07-15' },
+      { roomTypeId: 'rt-1', date: '2026-07-16' },
+    ]);
+    expect(diff.toReserve).toEqual([
+      { roomTypeId: 'rt-2', date: '2026-07-15' },
+      { roomTypeId: 'rt-2', date: '2026-07-16' },
+    ]);
+  });
+
+  it('non-consuming reservations hold nothing on either side', () => {
+    const diff = diffEntitlements(
+      set('rt-1', ['2026-07-15'], false),
+      set('rt-2', ['2026-07-20'], false),
+    );
+    expect(diff).toEqual({ toRelease: [], toReserve: [] });
+  });
+
+  it('an unchanged entitlement produces an empty diff', () => {
+    const diff = diffEntitlements(
+      set('rt-1', ['2026-07-15', '2026-07-16']),
+      set('rt-1', ['2026-07-15', '2026-07-16']),
+    );
+    expect(diff).toEqual({ toRelease: [], toReserve: [] });
   });
 });

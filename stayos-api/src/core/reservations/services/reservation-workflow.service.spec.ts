@@ -132,6 +132,12 @@ describe('ReservationWorkflowService', () => {
   let foliosRepository: MockRepository<FolioEntity>;
   let folioChargesRepository: MockRepository<FolioChargeEntity>;
   let checkInService: Pick<CheckInService, 'loadWorkspaceParts' | 'validateFinalChecklist'>;
+  let availabilityService: {
+    reserve: jest.Mock;
+    restore: jest.Mock;
+    applyDelta: jest.Mock;
+    read: jest.Mock;
+  };
 
   beforeEach(() => {
     reservationsRepository = {
@@ -209,6 +215,13 @@ describe('ReservationWorkflowService', () => {
       })),
     };
 
+    availabilityService = {
+      reserve: jest.fn().mockResolvedValue([]),
+      restore: jest.fn().mockResolvedValue([]),
+      applyDelta: jest.fn().mockResolvedValue(undefined),
+      read: jest.fn().mockResolvedValue([]),
+    };
+
     service = new ReservationWorkflowService(
       dataSource,
       checkInService as CheckInService,
@@ -216,6 +229,7 @@ describe('ReservationWorkflowService', () => {
       {
         resolveGroupDepositInput: jest.fn().mockResolvedValue({ type: 'NONE', value: 0 }),
       } as never,
+      availabilityService as never,
     );
   });
 
@@ -540,6 +554,89 @@ describe('ReservationWorkflowService', () => {
     });
   });
 
+  describe('inventory entitlement (1C-a3)', () => {
+    it('PENDING -> CANCELLED releases the entitlement exactly once', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ status: ReservationStatus.PENDING }),
+      );
+
+      await service.cancel(propertyId, reservationId, 'guest request');
+
+      expect(availabilityService.restore).toHaveBeenCalledTimes(1);
+      expect(availabilityService.restore).toHaveBeenCalledWith(
+        { propertyId, roomTypeId, nights: ['2026-07-15', '2026-07-16'], units: 1 },
+        expect.anything(),
+      );
+    });
+
+    it('CONFIRMED -> CANCELLED releases the entitlement exactly once', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ status: ReservationStatus.CONFIRMED }),
+      );
+
+      await service.cancel(propertyId, reservationId, null);
+
+      expect(availabilityService.restore).toHaveBeenCalledTimes(1);
+    });
+
+    it('CONFIRMED -> NO_SHOW releases the entitlement exactly once', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ status: ReservationStatus.CONFIRMED }),
+      );
+
+      await service.markNoShow(propertyId, reservationId, null);
+
+      expect(availabilityService.restore).toHaveBeenCalledTimes(1);
+    });
+
+    it('CHECKED_IN -> CHECKED_OUT releases the entitlement exactly once', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ roomId, status: ReservationStatus.CHECKED_IN }),
+      );
+
+      await service.checkOut(propertyId, reservationId);
+
+      expect(availabilityService.restore).toHaveBeenCalledTimes(1);
+      expect(availabilityService.restore).toHaveBeenCalledWith(
+        { propertyId, roomTypeId, nights: ['2026-07-15', '2026-07-16'], units: 1 },
+        expect.anything(),
+      );
+    });
+
+    it('cannot double-release: cancelling an already-cancelled reservation throws and does not restore', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ status: ReservationStatus.CANCELLED }),
+      );
+
+      await expect(service.cancel(propertyId, reservationId, null)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(availabilityService.restore).not.toHaveBeenCalled();
+    });
+
+    it('date extension reserves ONLY the added nights (no release)', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ roomId, status: ReservationStatus.CHECKED_IN }),
+      );
+      roomsRepository.findOne?.mockResolvedValue(
+        roomEntity({ operationalStatus: RoomOperationalStatus.OCCUPIED }),
+      );
+
+      await service.extendStay(propertyId, reservationId, { departureDate: '2026-07-18' });
+
+      expect(availabilityService.applyDelta).toHaveBeenCalledTimes(1);
+      expect(availabilityService.applyDelta).toHaveBeenCalledWith(
+        {
+          propertyId,
+          toRelease: [],
+          toReserve: [{ roomTypeId, date: '2026-07-17' }],
+          units: 1,
+        },
+        expect.anything(),
+      );
+    });
+  });
+
   describe('moveRoom', () => {
     beforeEach(() => {
       reservationsRepository.findOne?.mockResolvedValue(
@@ -559,6 +656,11 @@ describe('ReservationWorkflowService', () => {
         reservation: { id: reservationId, roomId: targetRoomId },
         room: { id: targetRoomId, operationalStatus: RoomOperationalStatus.OCCUPIED },
       });
+
+      // roomId change is a physical assignment only — zero inventory effect.
+      expect(availabilityService.reserve).not.toHaveBeenCalled();
+      expect(availabilityService.restore).not.toHaveBeenCalled();
+      expect(availabilityService.applyDelta).not.toHaveBeenCalled();
     });
 
     it('marks old room for cleaning', async () => {

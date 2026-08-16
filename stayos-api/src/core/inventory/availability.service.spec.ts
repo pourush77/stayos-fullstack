@@ -139,4 +139,138 @@ describe('AvailabilityService', () => {
     expect(result).toEqual([]);
     expect(store.size).toBe(0);
   });
+
+  describe('applyDelta (atomic release + reserve)', () => {
+    function createKeyedManager(
+      initial: Array<{ roomTypeId: string; date: string; capacity: number; sold: number }>,
+      capacityByRoomType: Record<string, number> = {},
+    ) {
+      const store = new Map<string, { id: string; capacity: number; sold: number }>();
+      for (const r of initial) {
+        store.set(`${r.roomTypeId}|${r.date}`, {
+          id: `inv-${r.roomTypeId}-${r.date}`,
+          capacity: r.capacity,
+          sold: r.sold,
+        });
+      }
+      const lockOrder: string[] = [];
+      const manager = {
+        query: jest.fn(async (sql: string, params: unknown[]) => {
+          const c = sql.replace(/\s+/g, ' ').trim();
+          if (c.startsWith('INSERT INTO room_type_inventory')) {
+            const rt = params[1] as string;
+            const date = params[2] as string;
+            const k = `${rt}|${date}`;
+            if (!store.has(k)) {
+              store.set(k, { id: `inv-${rt}-${date}`, capacity: capacityByRoomType[rt] ?? 0, sold: 0 });
+            }
+            return [];
+          }
+          if (c.includes('FOR UPDATE')) {
+            const rt = params[1] as string;
+            const date = params[2] as string;
+            const k = `${rt}|${date}`;
+            lockOrder.push(k);
+            const row = store.get(k);
+            return row ? [{ id: row.id, capacity: row.capacity, sold: row.sold }] : [];
+          }
+          if (c.includes('SET sold = sold +')) {
+            const units = params[0] as number;
+            const id = params[1] as string;
+            const row = [...store.values()].find((r) => r.id === id)!;
+            row.sold += units;
+            return [];
+          }
+          if (c.includes('SET sold = $1')) {
+            const sold = params[0] as number;
+            const id = params[1] as string;
+            const row = [...store.values()].find((r) => r.id === id)!;
+            row.sold = sold;
+            return [];
+          }
+          throw new Error(`Unexpected SQL: ${c}`);
+        }),
+      } as unknown as EntityManager;
+      return { manager, store, lockOrder };
+    }
+
+    it('transfers an entitlement atomically across room types and locks in global order', async () => {
+      const { manager, store, lockOrder } = createKeyedManager([
+        { roomTypeId: 'rt-1', date: '2026-06-10', capacity: 3, sold: 1 },
+        { roomTypeId: 'rt-1', date: '2026-06-11', capacity: 3, sold: 1 },
+        { roomTypeId: 'rt-2', date: '2026-06-10', capacity: 3, sold: 0 },
+        { roomTypeId: 'rt-2', date: '2026-06-11', capacity: 3, sold: 0 },
+      ]);
+
+      await service.applyDelta(
+        {
+          propertyId: 'prop-1',
+          toRelease: [
+            { roomTypeId: 'rt-1', date: '2026-06-10' },
+            { roomTypeId: 'rt-1', date: '2026-06-11' },
+          ],
+          toReserve: [
+            { roomTypeId: 'rt-2', date: '2026-06-10' },
+            { roomTypeId: 'rt-2', date: '2026-06-11' },
+          ],
+        },
+        manager,
+      );
+
+      expect(store.get('rt-1|2026-06-10')!.sold).toBe(0);
+      expect(store.get('rt-1|2026-06-11')!.sold).toBe(0);
+      expect(store.get('rt-2|2026-06-10')!.sold).toBe(1);
+      expect(store.get('rt-2|2026-06-11')!.sold).toBe(1);
+      // Deterministic global order: roomType asc, then date asc.
+      expect(lockOrder).toEqual([
+        'rt-1|2026-06-10',
+        'rt-1|2026-06-11',
+        'rt-2|2026-06-10',
+        'rt-2|2026-06-11',
+      ]);
+    });
+
+    it('rolls back the whole delta when any reserve target is unavailable (no partial mutation)', async () => {
+      const { manager, store } = createKeyedManager([
+        { roomTypeId: 'rt-1', date: '2026-06-10', capacity: 3, sold: 1 },
+        { roomTypeId: 'rt-2', date: '2026-06-10', capacity: 1, sold: 1 }, // full
+      ]);
+
+      await expect(
+        service.applyDelta(
+          {
+            propertyId: 'prop-1',
+            toRelease: [{ roomTypeId: 'rt-1', date: '2026-06-10' }],
+            toReserve: [{ roomTypeId: 'rt-2', date: '2026-06-10' }],
+          },
+          manager,
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      // Validation happens after locking but BEFORE any mutation: nothing changed.
+      expect(store.get('rt-1|2026-06-10')!.sold).toBe(1);
+      expect(store.get('rt-2|2026-06-10')!.sold).toBe(1);
+    });
+
+    it('date shift within a room type releases old-only and reserves new-only, leaving overlap untouched', async () => {
+      const { manager, store } = createKeyedManager([
+        { roomTypeId: 'rt-1', date: '2026-06-10', capacity: 3, sold: 1 },
+        { roomTypeId: 'rt-1', date: '2026-06-11', capacity: 3, sold: 1 },
+        { roomTypeId: 'rt-1', date: '2026-06-12', capacity: 3, sold: 0 },
+      ]);
+
+      await service.applyDelta(
+        {
+          propertyId: 'prop-1',
+          toRelease: [{ roomTypeId: 'rt-1', date: '2026-06-10' }],
+          toReserve: [{ roomTypeId: 'rt-1', date: '2026-06-12' }],
+        },
+        manager,
+      );
+
+      expect(store.get('rt-1|2026-06-10')!.sold).toBe(0); // released
+      expect(store.get('rt-1|2026-06-11')!.sold).toBe(1); // overlap untouched
+      expect(store.get('rt-1|2026-06-12')!.sold).toBe(1); // reserved
+    });
+  });
 });

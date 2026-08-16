@@ -47,3 +47,12 @@ export function expandStayNights(arrivalDate: string, departureDate: string): st
 export function computeAvailable(capacity: number, sold: number): number {
   return capacity - sold;
 }
+
+/**
+ * A single unit of room-type inventory on a specific date. The atomic key of
+ * the inventory ledger (property is implied by the operation scope).
+ */
+export interface InventoryKey {
+  roomTypeId: string;
+  date: string;
+}

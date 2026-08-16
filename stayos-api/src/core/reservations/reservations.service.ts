@@ -30,7 +30,9 @@ import { expandStayNights } from '../inventory/domain/inventory-nights';
 import {
   InventoryDelta,
   inventoryDeltaForTransition,
+  diffEntitlements,
 } from './domain/reservation-inventory-transition';
+import { reservationConsumesInventory } from './domain/reservation-inventory';
 
 export interface PaginatedReservations {
   data: ReservationEntity[];
@@ -298,18 +300,50 @@ export class ReservationsService {
     });
 
     try {
-      const updatedReservation = this.reservationsRepository.merge(reservation, {
-        ...this.toUpdatePersistenceFields(updateReservationDto),
+      const consuming = reservationConsumesInventory(reservation.status);
+      const beforeRoomTypeId = reservation.roomTypeId;
+      const beforeArrival = reservation.arrivalDate;
+      const beforeDeparture = reservation.departureDate;
+      const afterRoomTypeId = references.roomType.id;
+
+      // Entitlement diff for date/roomType changes (status is NOT changed by
+      // update). Only nights/roomType that disappear are released and only new
+      // ones are reserved; unchanged nights are never touched.
+      const diff = diffEntitlements(
+        {
+          consuming,
+          roomTypeId: beforeRoomTypeId,
+          nights: expandStayNights(beforeArrival, beforeDeparture),
+        },
+        {
+          consuming,
+          roomTypeId: afterRoomTypeId,
+          nights: expandStayNights(arrivalDate, departureDate),
+        },
+      );
+
+      await this.dataSource.transaction(async (manager) => {
+        const reservationRepository = manager.getRepository(ReservationEntity);
+        const updatedReservation = reservationRepository.merge(reservation, {
+          ...this.toUpdatePersistenceFields(updateReservationDto),
+        });
+
+        // Keep loaded relation objects in sync with the scalar FKs so TypeORM
+        // persists FK changes reliably (merge alone lets stale relations win).
+        updatedReservation.guest = references.guest;
+        updatedReservation.roomType = references.roomType;
+        updatedReservation.room = references.room;
+        updatedReservation.roomId = references.room ? references.room.id : null;
+
+        await reservationRepository.save(updatedReservation);
+
+        if (diff.toRelease.length > 0 || diff.toReserve.length > 0) {
+          await this.availabilityService.applyDelta(
+            { propertyId, toRelease: diff.toRelease, toReserve: diff.toReserve, units: 1 },
+            manager,
+          );
+        }
       });
-
-      // Keep loaded relation objects in sync with the scalar FKs so TypeORM
-      // persists FK changes reliably (merge alone lets stale relations win).
-      updatedReservation.guest = references.guest;
-      updatedReservation.roomType = references.roomType;
-      updatedReservation.room = references.room;
-      updatedReservation.roomId = references.room ? references.room.id : null;
-
-      await this.reservationsRepository.save(updatedReservation);
 
       // Re-fetch so the response reflects the persisted state (with relations).
       return await this.findOne(propertyId, id);

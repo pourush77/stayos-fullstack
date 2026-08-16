@@ -123,7 +123,7 @@ describe('ReservationsService', () => {
   let guestDocumentsRepository: MockRepository<GuestDocumentEntity>;
   const propertiesService = { findOne: jest.fn() };
   const childPricingService = { validateReservationChildAges: jest.fn() };
-  const availabilityService = { reserve: jest.fn(), restore: jest.fn(), read: jest.fn() };
+  const availabilityService = { reserve: jest.fn(), restore: jest.fn(), applyDelta: jest.fn(), read: jest.fn() };
   let dataSource: { transaction: jest.Mock };
 
   beforeEach(async () => {
@@ -144,6 +144,7 @@ describe('ReservationsService', () => {
     propertiesService.findOne.mockResolvedValue({ id: propertyId });
     childPricingService.validateReservationChildAges.mockResolvedValue(undefined);
     availabilityService.reserve.mockResolvedValue([]);
+    availabilityService.applyDelta.mockResolvedValue(undefined);
 
     // Fake transaction: runs the callback with a manager whose getRepository
     // returns the mocked reservations repository (mirrors real behaviour).
