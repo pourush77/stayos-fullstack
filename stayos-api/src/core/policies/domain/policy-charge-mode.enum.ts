@@ -1,0 +1,6 @@
+export enum PolicyChargeMode {
+  NONE = 'NONE',
+  PERCENTAGE = 'PERCENTAGE',
+  FIXED_AMOUNT = 'FIXED_AMOUNT',
+  FIRST_NIGHT = 'FIRST_NIGHT',
+}

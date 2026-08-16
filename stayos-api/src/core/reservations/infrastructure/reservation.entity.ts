@@ -152,6 +152,17 @@ export class ReservationEntity {
   })
   cFormStatus?: CFormStatus;
 
+  /**
+   * Foundation-only immutable snapshots of the policy/tax values applied when
+   * the reservation was created. Populated in a later phase so that changing
+   * property/rate-plan configuration never rewrites historical bookings.
+   */
+  @Column({ type: 'jsonb', name: 'policy_snapshot', nullable: true })
+  policySnapshot?: Record<string, unknown> | null;
+
+  @Column({ type: 'jsonb', name: 'tax_snapshot', nullable: true })
+  taxSnapshot?: Record<string, unknown> | null;
+
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt!: Date;
 

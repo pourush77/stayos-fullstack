@@ -69,6 +69,9 @@ export class PropertyResponseDto {
   @ApiProperty()
   checkOutTime!: string;
 
+  @ApiProperty({ example: '03:00:00' })
+  businessDayCutOffTime!: string;
+
   @ApiProperty()
   totalFloors!: number;
 

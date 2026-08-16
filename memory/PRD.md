@@ -161,3 +161,15 @@ Full front-desk lifecycle certified for real staff use. See CHANGELOG.md 2026-08
 - Root cause: normalizeGroupBookingDepositPolicy() rejected any non-null value for NONE, so persisted DB default (NONE, value 0) passed by group-room-mix.service caused 400.
 - Fix (normalization only): NONE now accepts undefined/null/0 (normalize to 0), rejects >0; PERCENTAGE >0..100; FIXED_AMOUNT >0.
 - Verified via testing_agent (iteration_4): real endpoint returns 200; 100% backend pass. No schema change/migration.
+
+## 2026-08-16 — Phase-1 Property/Policy Foundation
+- Added property_policies (deposit/cancellation/no-show/early-checkin/late-checkout; separable structured columns; rate_plan_id nullable + partial-unique for future hierarchy), property_billing_configs (invoice prefix/numbering + HSN/SAC), properties.business_day_cut_off_time + BusinessDateService, reservations.policy_snapshot/tax_snapshot (nullable foundation).
+- Endpoints: GET/PUT /properties/:id/policies(/:policyType), GET/PUT /properties/:id/billing-config. Deposit reuses normalizeGroupBookingDepositPolicy.
+- 4 migrations (20260817090000-093000) applied. Verified via testing_agent iteration_5 (36/36 after fixing foreign-ratePlanId 500->404). Jest: 18 policies + related green.
+- Next-phase blockers: consolidate legacy properties.group_booking_deposit_* into property_policies (currently dual source); populate reservation snapshots at booking; rate-plan override read path + seeding.
+
+## 2026-08-16 — Phase-1A: property_policies as authoritative deposit source
+- Deposit calc (group-room-mix, group-booking) + property GET/PATCH facade now resolve from property_policies via PolicyResolverService (RatePlan override -> Property default). Generic normalizeDepositPolicy replaces group-specific one.
+- Migration 20260818090000 backfilled GROUP_DEPOSIT rows and DROPPED legacy properties.group_booking_deposit_policy_* columns (single source of truth).
+- Verified: testing_agent iteration_6 100% (18 new + 41 regression), + resolver/negative-NONE/rate-plan-scoped-GET fixes (59 pytest + 48 jest green).
+- Phase-1B blockers: booking-time reservation policy/tax snapshot population; RatePlan CRUD to exercise overrides; wrap property base-save + deposit upsert in one transaction; consolidate DTO deposit rules into shared normalizer; batch-load deposits in properties list (N+1) when multi-property lands.

@@ -7,6 +7,7 @@ import { GroupBookingDepositPolicyType } from './domain/group-booking-deposit-po
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { PropertyEntity } from './infrastructure/property.entity';
 import { PropertiesService } from './properties.service';
+import { PoliciesService } from '../policies/policies.service';
 
 type MockRepository<T extends object = object> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -35,6 +36,7 @@ const propertyPayload: CreatePropertyDto = {
   currency: 'INR',
   checkInTime: '14:00',
   checkOutTime: '11:00',
+  businessDayCutOffTime: '00:00:00',
   totalFloors: 6,
   totalRooms: 120,
 };
@@ -47,9 +49,8 @@ const propertyEntity: PropertyEntity = {
   logoUrl: null,
   website: null,
   addressLine2: null,
+  businessDayCutOffTime: '00:00:00',
   status: PropertyStatus.ACTIVE,
-  groupBookingDepositPolicyType: GroupBookingDepositPolicyType.NONE,
-  groupBookingDepositPolicyValue: '0',
   createdAt: new Date('2026-06-30T00:00:00.000Z'),
   updatedAt: new Date('2026-06-30T00:00:00.000Z'),
 };
@@ -57,9 +58,11 @@ const propertyEntity: PropertyEntity = {
 describe('PropertiesService', () => {
   let service: PropertiesService;
   let repository: MockRepository<PropertyEntity>;
+  const policiesService = { upsert: jest.fn().mockResolvedValue({}) };
 
   beforeEach(async () => {
     repository = createRepositoryMock();
+    policiesService.upsert.mockClear();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -67,6 +70,10 @@ describe('PropertiesService', () => {
         {
           provide: getRepositoryToken(PropertyEntity),
           useValue: repository,
+        },
+        {
+          provide: PoliciesService,
+          useValue: policiesService,
         },
       ],
     }).compile();
@@ -161,93 +168,31 @@ describe('PropertiesService', () => {
     });
   });
 
-  it('persists NONE deposit policy with normalized numeric storage value', async () => {
-    const updatedProperty = {
-      ...propertyEntity,
-      groupBookingDepositPolicyType: GroupBookingDepositPolicyType.NONE,
-      groupBookingDepositPolicyValue: '0',
-    };
+  it('delegates group deposit changes to the policies service (single source of truth)', async () => {
     repository.findOne?.mockResolvedValue(propertyEntity);
-    repository.merge?.mockReturnValue(updatedProperty);
-    repository.save?.mockResolvedValue(updatedProperty);
+    repository.merge?.mockReturnValue(propertyEntity);
+    repository.save?.mockResolvedValue(propertyEntity);
 
-    await expect(
-      service.update(propertyEntity.id, {
-        groupBookingDepositPolicyType: GroupBookingDepositPolicyType.NONE,
-      }),
-    ).resolves.toEqual(updatedProperty);
-
-    expect(repository.merge).toHaveBeenCalledWith(propertyEntity, {
-      groupBookingDepositPolicyType: GroupBookingDepositPolicyType.NONE,
-      groupBookingDepositPolicyValue: '0',
-    });
-  });
-
-  it('persists percentage deposit policy values as numeric strings', async () => {
-    const updatedProperty = {
-      ...propertyEntity,
-      groupBookingDepositPolicyType: GroupBookingDepositPolicyType.PERCENTAGE,
-      groupBookingDepositPolicyValue: '25',
-    };
-    repository.findOne?.mockResolvedValue(propertyEntity);
-    repository.merge?.mockReturnValue(updatedProperty);
-    repository.save?.mockResolvedValue(updatedProperty);
-
-    await expect(
-      service.update(propertyEntity.id, {
-        groupBookingDepositPolicyType: GroupBookingDepositPolicyType.PERCENTAGE,
-        groupBookingDepositPolicyValue: 25,
-      }),
-    ).resolves.toEqual(updatedProperty);
-
-    expect(repository.merge).toHaveBeenCalledWith(propertyEntity, {
-      groupBookingDepositPolicyType: GroupBookingDepositPolicyType.PERCENTAGE,
-      groupBookingDepositPolicyValue: '25',
-    });
-  });
-
-  it('persists fixed-amount deposit policy values as numeric strings', async () => {
-    const updatedProperty = {
-      ...propertyEntity,
+    await service.update(propertyEntity.id, {
       groupBookingDepositPolicyType: GroupBookingDepositPolicyType.FIXED_AMOUNT,
-      groupBookingDepositPolicyValue: '5000',
-    };
-    repository.findOne?.mockResolvedValue(propertyEntity);
-    repository.merge?.mockReturnValue(updatedProperty);
-    repository.save?.mockResolvedValue(updatedProperty);
-
-    await expect(
-      service.update(propertyEntity.id, {
-        groupBookingDepositPolicyType: GroupBookingDepositPolicyType.FIXED_AMOUNT,
-        groupBookingDepositPolicyValue: 5000,
-      }),
-    ).resolves.toEqual(updatedProperty);
-
-    expect(repository.merge).toHaveBeenCalledWith(propertyEntity, {
-      groupBookingDepositPolicyType: GroupBookingDepositPolicyType.FIXED_AMOUNT,
-      groupBookingDepositPolicyValue: '5000',
+      groupBookingDepositPolicyValue: 5000,
     });
+
+    expect(policiesService.upsert).toHaveBeenCalledWith(propertyEntity.id, 'GROUP_DEPOSIT', {
+      depositMode: GroupBookingDepositPolicyType.FIXED_AMOUNT,
+      depositValue: 5000,
+    });
+    // legacy deposit columns are no longer written on the property row
+    expect(repository.merge).toHaveBeenCalledWith(propertyEntity, {});
   });
 
-  it('rejects invalid percentage deposit values', async () => {
+  it('does not touch the policies service when no deposit fields are provided', async () => {
     repository.findOne?.mockResolvedValue(propertyEntity);
+    repository.merge?.mockReturnValue(propertyEntity);
+    repository.save?.mockResolvedValue(propertyEntity);
 
-    await expect(
-      service.update(propertyEntity.id, {
-        groupBookingDepositPolicyType: GroupBookingDepositPolicyType.PERCENTAGE,
-        groupBookingDepositPolicyValue: 120,
-      }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-  });
+    await service.update(propertyEntity.id, { name: 'Renamed' });
 
-  it('rejects invalid fixed amount deposit values', async () => {
-    repository.findOne?.mockResolvedValue(propertyEntity);
-
-    await expect(
-      service.update(propertyEntity.id, {
-        groupBookingDepositPolicyType: GroupBookingDepositPolicyType.FIXED_AMOUNT,
-        groupBookingDepositPolicyValue: 0,
-      }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(policiesService.upsert).not.toHaveBeenCalled();
   });
 });

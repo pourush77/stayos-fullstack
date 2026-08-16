@@ -160,6 +160,13 @@ export class CreatePropertyDto {
   @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
   checkOutTime!: string;
 
+  @ApiPropertyOptional({ example: '03:00', description: 'End-of-day cut-off used to derive the operational business date.' })
+  @Transform(trim)
+  @IsOptional()
+  @IsString()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+  businessDayCutOffTime?: string;
+
   @ApiProperty({ example: 6, minimum: 0, maximum: 1000 })
   @IsInt()
   @Min(0)

@@ -35,3 +35,5 @@ sudo -u postgres psql -c "CREATE DATABASE stayos_dev OWNER stayos;"
 cd /app/stayos-api && npm run migration:run && npm run bootstrap:demo && node scripts/bootstrap-billing.js
 sudo supervisorctl restart stayos_api
 ```
+
+> NOTE: In this environment the StayOS API runs on port 3001 (http://localhost:3001/api/v1), not 8001.

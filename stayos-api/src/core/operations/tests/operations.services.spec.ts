@@ -113,6 +113,7 @@ const createGroupRoomMixService = (
         taxEnabled: false,
       })),
     } as never,
+    { resolveGroupDepositInput: jest.fn().mockResolvedValue({ type: 'NONE', value: 0 }) } as never,
   );
 
 const assignableReservation = (overrides: Partial<ReservationEntity> = {}) =>
@@ -2103,6 +2104,7 @@ describe('Operations services', () => {
           taxEnabled: true,
         })),
       } as never,
+      { resolveGroupDepositInput: jest.fn().mockResolvedValue({ type: 'NONE', value: 0 }) } as never,
     );
 
     const suggestion = await service.suggestRoomMix(propertyId, {

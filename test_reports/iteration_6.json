@@ -1,0 +1,35 @@
+{
+  "summary": "Backend-only verification of Phase-1A blocker closure (property_policies = authoritative group-deposit source) on http://localhost:3001/api/v1, property 9d0680c0-89b0-41d5-ae06-b08cd7bedeae. New suite /app/backend/tests/test_group_deposit_single_source.py: 18/18 PASSED. Verified: (1) migration ran - properties.group_booking_deposit_policy_type/value columns are GONE from the DB schema and a GROUP_DEPOSIT property_policies row exists (backfilled, ratePlanId null, isActive true, no _id leakage); (2) single source of truth - PATCH /properties/:id {PERCENTAGE,20} -> 200, GET /properties/:id returns PERCENTAGE/20 AND GET /policies/GROUP_DEPOSIT returns depositMode PERCENTAGE / depositValue 20; PUT /policies/GROUP_DEPOSIT {FIXED_AMOUNT,2500} -> 200 and facade GET reads back FIXED_AMOUNT/2500 (both directions agree); (3) group-room-mix-suggestions resolves from property_policies - with PERCENTAGE 20 every option.deposit = policyType PERCENTAGE / policyValue 20 / suggestedAmount > 0; after PATCH NONE -> 200 with policyType NONE and suggestedAmount 0 (old NONE/0 400-bug stays fixed); after direct PUT FIXED_AMOUNT 2500 -> options show FIXED_AMOUNT/2500/amount>0; (4) validation via facade - PERCENTAGE 101 -> 400, FIXED_AMOUNT 0 -> 400, value without type -> 400, NONE+value -> 400, type FOO -> 400, FIXED_AMOUNT 5000 -> 200 reflected in both GET property and policy row, NONE without value -> 200; rejected payloads left the policy row untouched (no partial write of other property fields either); (5) RBAC - readonly@stayos.local PATCH deposit -> 403 with policy unchanged; unauthenticated policy GET -> 401. Regression: prior suites test_group_room_mix_deposit.py + test_property_policies_billing_config.py = 41/41 PASSED (the previously reported FK 500 on unknown ratePlanId is now fixed). Targeted jest: src/core/policies (policy-resolver.service.spec, policies.service.spec, normalize-policy-charge.spec) 23/23 passed. Rate-plan override + cross-tenant isolation not API-testable (1 property, 0 rate plans) - covered by unit specs as agreed. Property deposit RESET to NONE at end (verified via API + SQL).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/v1/properties/:id", "issue": "Contract change: groupBookingDepositPolicyValue is now null when type is NONE (legacy NOT NULL column returned 0). properties.mapper.ts nulls it deliberately; apps/web settings page tolerates it (?? 0), but any other consumer doing arithmetic/toFixed on the field will break. Document in the API/Swagger + release notes."},
+      {"endpoint": "GET /api/v1/properties/:id/policies/:policyType", "issue": "Still no way to READ a rate-plan-scoped policy (getOne forces ratePlanId IS NULL, no query param), so rate-plan overrides used by PolicyResolverService cannot be inspected via API. Carried over from iteration 5."},
+      {"endpoint": "PUT /api/v1/properties/:id/policies/:policyType", "issue": "Deposit normalizer accepts a NEGATIVE value for a NONE policy (normalize-deposit-policy only rejects value > 0), silently coercing it to 0 instead of 400."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_group_deposit_single_source.py",
+    "/app/test_reports/pytest/group_deposit_single_source.xml",
+    "/app/test_reports/pytest/regression_iter6.xml"
+  ],
+  "action_items": [
+    "Optional: document/announce that groupBookingDepositPolicyValue is null (not 0) for NONE in the property facade response.",
+    "Optional: reject negative values for NONE deposit policies in normalizeDepositPolicy.",
+    "Optional: add read support for rate-plan-scoped policies (query param) so overrides are inspectable."
+  ],
+  "critical_code_review_comments": [
+    "properties.service.ts update(): the base property save and policiesService.upsert() run in two separate transactions. Today no reachable divergence exists because UpdatePropertyDto validation mirrors the normalizer rules (verified: a rejected PERCENTAGE 101 payload leaves name unchanged), but any future normalizer-only rule (or a DB error inside upsert) would commit the base fields and then 400 - wrap both in a single transaction/queryRunner.",
+    "Deposit rules are duplicated in UpdatePropertyDto (validate() messages) and normalizeDepositPolicy(); they must be kept in sync or the facade and direct policy endpoint will diverge in error behaviour. Prefer delegating DTO validation to the shared normalizer.",
+    "PropertiesController.toResponse() issues one policy-resolver query per property in findAll (Promise.all over the page) - N+1 on the property list; batch-load GROUP_DEPOSIT rows by propertyId when multi-property support lands."
+  ],
+  "updated_files": ["/app/backend/tests/test_group_deposit_single_source.py"],
+  "success_rate": {"backend": "100% (18/18 new + 41/41 regression + 23/23 targeted jest)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "No new rows. Existing property_policies rows for 9d0680c0-... left as: GROUP_DEPOSIT NONE/0 (reset as requested), INDIVIDUAL_DEPOSIT PERCENTAGE 20, CANCELLATION / NO_SHOW / LATE_CHECKOUT rows present with charge fields currently null (left by the prior billing/policies suite run).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@stayos.local / Password123!, readonly@stayos.local / Password123! (/app/memory/test_credentials.md; note the file still says API port 8001 - actual is 3001)",
+  "context_for_next_testing_agent": "Run: cd /app/backend && python -m pytest tests/test_group_deposit_single_source.py tests/test_group_room_mix_deposit.py tests/test_property_policies_billing_config.py -v -p no:randomly. Overridable via STAYOS_API_URL / STAYOS_PROPERTY_ID. The new suite resets GROUP_DEPOSIT to NONE in a module teardown fixture. Legacy properties.group_booking_deposit_policy_* columns no longer exist - assert only via the facade/policies endpoints. Only 1 property and 0 rate plans in stayos_dev, so rate-plan override / tenant isolation must be checked via jest specs (npx jest src/core/policies).",
+  "rca_of_the_issue": "No functional defect found in this iteration. The only behavioural delta is the intentional null-for-NONE deposit value in properties.mapper.ts, which changes the previous NOT NULL 0 contract."
+}

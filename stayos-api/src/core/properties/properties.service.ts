@@ -12,7 +12,8 @@ import {
   PaginationQueryDto,
   paginateQuery,
 } from '../../common/dto/pagination.dto';
-import { normalizeGroupBookingDepositPolicy } from '../operations/services/group-booking-deposit-policy';
+import { PoliciesService } from '../policies/policies.service';
+import { PropertyPolicyType } from '../policies/domain/property-policy-type.enum';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { PropertyEntity } from './infrastructure/property.entity';
@@ -35,6 +36,7 @@ export class PropertiesService {
   constructor(
     @InjectRepository(PropertyEntity)
     private readonly propertiesRepository: Repository<PropertyEntity>,
+    private readonly policiesService: PoliciesService,
   ) {}
 
   async findAll(query: PaginationQueryDto): Promise<PaginatedProperties> {
@@ -100,47 +102,27 @@ export class PropertiesService {
   async update(id: string, updatePropertyDto: UpdatePropertyDto): Promise<PropertyEntity> {
     const property = await this.findOne(id);
     const {
-      groupBookingDepositPolicyType: _groupBookingDepositPolicyType,
-      groupBookingDepositPolicyValue: _groupBookingDepositPolicyValue,
+      groupBookingDepositPolicyType,
+      groupBookingDepositPolicyValue,
       ...baseUpdates
     } = updatePropertyDto;
-    const normalizedDepositPolicy = this.normalizeGroupBookingDepositPolicyUpdate(
-      property,
-      updatePropertyDto,
-    );
 
     try {
-      const updatedProperty = this.propertiesRepository.merge(property, {
-        ...baseUpdates,
-        ...(normalizedDepositPolicy
-          ? {
-              groupBookingDepositPolicyType: normalizedDepositPolicy.type,
-              groupBookingDepositPolicyValue: String(normalizedDepositPolicy.value),
-            }
-          : {}),
-      });
+      if (
+        groupBookingDepositPolicyType !== undefined ||
+        groupBookingDepositPolicyValue !== undefined
+      ) {
+        await this.policiesService.upsert(id, PropertyPolicyType.GROUP_DEPOSIT, {
+          depositMode: groupBookingDepositPolicyType,
+          depositValue: groupBookingDepositPolicyValue,
+        });
+      }
 
+      const updatedProperty = this.propertiesRepository.merge(property, { ...baseUpdates });
       return await this.propertiesRepository.save(updatedProperty);
     } catch (error) {
       this.handlePersistenceError(error);
     }
-  }
-
-  private normalizeGroupBookingDepositPolicyUpdate(
-    existingProperty: PropertyEntity,
-    dto: UpdatePropertyDto,
-  ) {
-    if (
-      dto.groupBookingDepositPolicyType === undefined &&
-      dto.groupBookingDepositPolicyValue === undefined
-    ) {
-      return undefined;
-    }
-
-    return normalizeGroupBookingDepositPolicy({
-      type: dto.groupBookingDepositPolicyType ?? existingProperty.groupBookingDepositPolicyType,
-      value: dto.groupBookingDepositPolicyValue,
-    });
   }
 
   private handlePersistenceError(error: unknown): never {

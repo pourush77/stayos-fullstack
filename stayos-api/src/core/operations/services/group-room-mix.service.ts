@@ -28,6 +28,7 @@ import {
   overlapsDateRange,
 } from './operations-query.helpers';
 import { calculateGroupBookingDeposit } from './group-booking-deposit-policy';
+import { PolicyResolverService } from '../../policies/policy-resolver.service';
 
 type RoomTypeAvailability = GroupRoomMixAvailabilityDto & {
   nightlyRates?: number[];
@@ -74,6 +75,7 @@ export class GroupRoomMixService {
     private readonly dailyRatesRepository: Repository<RoomTypeDailyRateEntity>,
     private readonly propertiesService: PropertiesService,
     private readonly taxService: TaxService,
+    private readonly policyResolver: PolicyResolverService,
   ) {}
 
   async suggestRoomMix(
@@ -81,6 +83,7 @@ export class GroupRoomMixService {
     query: GroupRoomMixSuggestionQueryDto,
   ): Promise<GroupRoomMixSuggestionDto> {
     const property = await this.propertiesService.findOne(propertyId);
+    void property;
     this.validateQuery(query);
 
     const nights = this.calculateNights(query.arrivalDate, query.departureDate);
@@ -96,6 +99,7 @@ export class GroupRoomMixService {
       query.preference ?? GroupRoomMixPreference.BEST_FIT,
     );
     const warnings = this.buildWarnings(availability, candidates, query.adults, query.children);
+    const depositPolicy = await this.policyResolver.resolveGroupDepositInput(propertyId);
 
     return {
       adults: query.adults,
@@ -108,10 +112,7 @@ export class GroupRoomMixService {
       options: options.map((option) => ({
         ...option,
         deposit: calculateGroupBookingDeposit(
-          {
-            type: property.groupBookingDepositPolicyType,
-            value: Number(property.groupBookingDepositPolicyValue || 0),
-          },
+          depositPolicy,
           option.pricing?.grandTotal ?? option.estimatedTotal,
         ),
       })),

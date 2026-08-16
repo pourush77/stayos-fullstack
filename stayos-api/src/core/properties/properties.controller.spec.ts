@@ -5,6 +5,7 @@ import { CreatePropertyDto } from './dto/create-property.dto';
 import { PropertyEntity } from './infrastructure/property.entity';
 import { PropertiesController } from './properties.controller';
 import { PropertiesService } from './properties.service';
+import { PolicyResolverService } from '../policies/policy-resolver.service';
 
 const propertyEntity: PropertyEntity = {
   id: '4075c8fa-f36e-4f40-a3ef-2e9dbb1f0670',
@@ -29,17 +30,17 @@ const propertyEntity: PropertyEntity = {
   currency: 'INR',
   checkInTime: '14:00',
   checkOutTime: '11:00',
+  businessDayCutOffTime: '00:00:00',
   totalFloors: 6,
   totalRooms: 120,
   status: PropertyStatus.ACTIVE,
-  groupBookingDepositPolicyType: GroupBookingDepositPolicyType.NONE,
-  groupBookingDepositPolicyValue: '0',
   createdAt: new Date('2026-06-30T00:00:00.000Z'),
   updatedAt: new Date('2026-06-30T00:00:00.000Z'),
 };
 
 const propertyResponse = {
   ...propertyEntity,
+  groupBookingDepositPolicyType: GroupBookingDepositPolicyType.NONE,
   groupBookingDepositPolicyValue: null,
 };
 
@@ -72,9 +73,18 @@ describe('PropertiesController', () => {
     create: jest.fn(),
     update: jest.fn(),
   };
+  const policyResolver = {
+    resolveGroupDepositInput: jest
+      .fn()
+      .mockResolvedValue({ type: GroupBookingDepositPolicyType.NONE, value: 0 }),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    policyResolver.resolveGroupDepositInput.mockResolvedValue({
+      type: GroupBookingDepositPolicyType.NONE,
+      value: 0,
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [PropertiesController],
@@ -82,6 +92,10 @@ describe('PropertiesController', () => {
         {
           provide: PropertiesService,
           useValue: propertiesService,
+        },
+        {
+          provide: PolicyResolverService,
+          useValue: policyResolver,
         },
       ],
     }).compile();

@@ -20,6 +20,8 @@ import { ReportsModule } from './core/reports/reports.module';
 import { MaintenanceModule } from './core/maintenance/maintenance.module';
 import { AmenitiesModule } from './core/amenities/amenities.module';
 import { RatesModule } from './core/rates/rates.module';
+import { PoliciesModule } from './core/policies/policies.module';
+import { BillingConfigModule } from './core/billing-config/billing-config.module';
 import configuration from './core/config/configuration';
 import { validateEnvironment } from './core/config/environment.validation';
 import { GlobalSearchModule } from './core/global-search/global-search.module';
@@ -66,6 +68,8 @@ import { GlobalSearchModule } from './core/global-search/global-search.module';
     MaintenanceModule,
     AmenitiesModule,
     RatesModule,
+    PoliciesModule,
+    BillingConfigModule,
     GlobalSearchModule,
   ],
 })

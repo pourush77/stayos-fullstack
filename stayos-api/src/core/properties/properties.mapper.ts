@@ -2,8 +2,13 @@ import { PropertyResponseDto } from './dto/property-response.dto';
 import { GroupBookingDepositPolicyType } from './domain/group-booking-deposit-policy-type.enum';
 import { PropertyEntity } from './infrastructure/property.entity';
 
+export type ResolvedGroupDeposit = {
+  type: GroupBookingDepositPolicyType;
+  value: number;
+};
+
 export class PropertiesMapper {
-  static toResponse(entity: PropertyEntity): PropertyResponseDto {
+  static toResponse(entity: PropertyEntity, deposit: ResolvedGroupDeposit): PropertyResponseDto {
     return {
       id: entity.id,
       code: entity.code,
@@ -27,14 +32,13 @@ export class PropertiesMapper {
       currency: entity.currency,
       checkInTime: entity.checkInTime,
       checkOutTime: entity.checkOutTime,
+      businessDayCutOffTime: entity.businessDayCutOffTime,
       totalFloors: entity.totalFloors,
       totalRooms: entity.totalRooms,
       status: entity.status,
-      groupBookingDepositPolicyType: entity.groupBookingDepositPolicyType,
+      groupBookingDepositPolicyType: deposit.type,
       groupBookingDepositPolicyValue:
-        entity.groupBookingDepositPolicyType === GroupBookingDepositPolicyType.NONE
-          ? null
-          : Number(entity.groupBookingDepositPolicyValue || 0),
+        deposit.type === GroupBookingDepositPolicyType.NONE ? null : deposit.value,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
     };

@@ -1,0 +1,40 @@
+{
+  "summary": "Backend-only testing of StayOS Phase-1 Property/Policy foundation on the NestJS API (http://localhost:3001/api/v1). New pytest suite /app/backend/tests/test_property_policies_billing_config.py (36 tests: 35 PASSED, 1 FAILED - unhandled FK 500). Verified: deposit policies (GROUP_DEPOSIT FIXED_AMOUNT 5000 -> 200 with charge* null; INDIVIDUAL_DEPOSIT PERCENTAGE 20 -> 200; 101 -> 400; NONE without value -> 200 with value 0; missing depositMode -> 400), charge policies (CANCELLATION FIRST_NIGHT + cutoff 24 -> 200 with deposit* null; PERCENTAGE 150 -> 400; EARLY_CHECK_IN FIRST_NIGHT -> 400; LATE_CHECKOUT FIXED_AMOUNT 750 + grace 60 -> 200; NO_SHOW FIRST_NIGHT -> 200; missing/valueless charge modes -> 400), strict cross-field rejection (chargeMode on deposit type, depositMode on charge type, cancellationCutoffHours on NO_SHOW, graceMinutes on CANCELLATION -> all 400), whitelist rejection of unknown fields (policies + billing-config -> 400), invalid :policyType FOO -> 400 on GET and PUT, invalid property UUID -> 400, unknown property -> 404, unauthenticated -> 401. GET /policies returns array of 5 persisted policies (no _id leakage, correct propertyId). Billing config PUT/GET persists invoicePrefix/nextInvoiceNumber/resetSequenceYearly/financialYearStartMonth/defaultHsnSac; month 13 -> 400, nextInvoiceNumber 0 -> 400, bad prefix chars -> 400, config unchanged after invalid attempts. GET /properties/:id returns businessDayCutOffTime '00:00:00'. RBAC verified: readonly@stayos.local gets 403 on both PUTs and 200 on both GETs. DB schema verified directly (property_policies with CHECK/partial-unique constraints, property_billing_configs row, reservations.policy_snapshot/tax_snapshot jsonb nullable, properties.business_day_cut_off_time default '00:00:00'). Targeted jest specs for policies + billing-config: 20/20 passed. Prior regression suite test_group_room_mix_deposit.py: 5/5 passed.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "PUT /api/v1/properties/:id/policies/:policyType", "issue": "Passing a syntactically valid but non-existent ratePlanId returns HTTP 500 {code:'DATABASE_ERROR'} (unhandled FK violation on FK_property_policies_rate_plan_id). Should be 400/404 with VALIDATION_ERROR/NOT_FOUND. Repro: body {\"depositMode\":\"NONE\",\"ratePlanId\":\"00000000-0000-4000-8000-000000000000\"}.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "PUT /api/v1/properties/:id/policies/INDIVIDUAL_DEPOSIT", "issue": "Validation messages are group-specific because the group normalizer is reused: INDIVIDUAL_DEPOSIT with PERCENTAGE 101 returns 'Group booking deposit percentage must be greater than 0 and at most 100.' Misleading for individual/rate-plan deposits."},
+      {"endpoint": "GET /api/v1/properties/:id/policies/:policyType", "issue": "Returns 200 with data:null for a policy type that was never configured (e.g. EARLY_CHECK_IN). Acceptable, but inconsistent with the 404 used for unknown properties; document or return 404."},
+      {"endpoint": "GET /api/v1/properties/:id/policies/:policyType", "issue": "No way to read a rate-plan-scoped policy: getOne always queries ratePlanId IS NULL and there is no query param. Rate-plan overrides can be written (once a rate plan exists) but never read back."},
+      {"endpoint": "PUT /api/v1/properties/:id/billing-config", "issue": "invoicePrefix is silently upper-cased ('inv-' -> 'INV-') by the @Transform; harmless but the client's stored value differs from what it sent with no indication."},
+      {"endpoint": "PUT /api/v1/properties/:id/policies/GROUP_DEPOSIT", "issue": "Dual source of truth: after setting GROUP_DEPOSIT to FIXED_AMOUNT/5000 in property_policies, GET /properties/:id still reports groupBookingDepositPolicyType 'NONE' and the group-room-mix suggestions endpoint keeps using the legacy properties.group_booking_deposit_policy_* columns. Foundation-only for now, but the two stores can diverge indefinitely."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_property_policies_billing_config.py",
+    "/app/test_reports/pytest/policies_billing_results.xml"
+  ],
+  "action_items": [
+    "Handle non-existent/foreign ratePlanId in PoliciesService.upsert (validate the rate plan belongs to the property) so it returns 400/404 instead of a 500 DATABASE_ERROR.",
+    "Make deposit validation messages policy-type aware (or wrap the group normalizer) so INDIVIDUAL_DEPOSIT errors don't say 'Group booking deposit'.",
+    "Decide and document the GET single-policy contract (200 + null vs 404) and add a way to read rate-plan-scoped policies.",
+    "Plan the migration path so property_policies becomes the single source of truth over properties.group_booking_deposit_policy_* (currently divergent)."
+  ],
+  "critical_code_review_comments": [
+    "policies.service.ts upsert() blanks all mode/value columns before dispatch - good for strictness - but cancellationCutoffHours/graceMinutes are only re-applied when explicitly provided, so an upsert that omits them silently clears a previously configured cutoff/grace. Intentional for PUT semantics, but should be documented for API consumers.",
+    "No ownership check between ratePlanId and propertyId; a rate plan from another property would be accepted (only FK to rate_plans is enforced) - cross-tenant policy write risk.",
+    "policies.service.ts relies on DTO whitelist for unknown-field rejection and on rejectFields for cross-type fields; both work today, but rejectFields only checks undefined - an explicit null (e.g. {\"chargeMode\":null}) is silently accepted and ignored on a deposit policy instead of being rejected.",
+    "BillingConfigService.get() returns an unsaved entity built from DEFAULTS when no row exists, so GET returns an object without id/createdAt; clients should not assume the resource is persisted after a GET."
+  ],
+  "updated_files": ["/app/backend/tests/test_property_policies_billing_config.py"],
+  "success_rate": {"backend": "97% (35/36 assertions-suite tests passed)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "Left idempotent upserts in place on property 9d0680c0-89b0-41d5-ae06-b08cd7bedeae: GROUP_DEPOSIT FIXED_AMOUNT 5000, INDIVIDUAL_DEPOSIT PERCENTAGE 20, CANCELLATION FIRST_NIGHT cutoff 24, NO_SHOW FIRST_NIGHT, LATE_CHECKOUT FIXED_AMOUNT 750 grace 60; billing config INV-/1/true/4/996311.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@stayos.local / Password123!, readonly@stayos.local / Password123! (from /app/memory/test_credentials.md). API on localhost:3001 (credentials file still says 8001 - stale).",
+  "context_for_next_testing_agent": "Run: cd /app/backend && python -m pytest tests/test_property_policies_billing_config.py -v -p no:randomly. Base URL/property overridable via STAYOS_API_URL / STAYOS_PROPERTY_ID env vars. Only expected failure is test_unknown_rate_plan_id_should_not_500 (open bug). Property 9d0680c0-... has NO rate_plans rows, so rate-plan-scoped policy happy path is untestable until a rate plan is seeded. Responses wrapped as {success,data}; login returns 201.",
+  "rca_of_the_issue": "The 500 comes from PoliciesService.upsert persisting dto.ratePlanId without verifying the rate plan exists / belongs to the property; Postgres raises FK_property_policies_rate_plan_id violation which the global filter maps to DATABASE_ERROR (500). Fix: look up the rate plan by {id, propertyId} and throw BadRequest/NotFound when absent."
+}

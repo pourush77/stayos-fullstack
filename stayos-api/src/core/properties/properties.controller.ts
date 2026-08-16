@@ -16,9 +16,11 @@ import {
 } from '../../common/decorators/api-standard-response.decorator';
 import { PreWrappedSuccessResponse } from '../../common/dto/api-success-response.dto';
 import { PaginationMeta, PaginationQueryDto } from '../../common/dto/pagination.dto';
+import { PolicyResolverService } from '../policies/policy-resolver.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { PropertyResponseDto } from './dto/property-response.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
+import { PropertyEntity } from './infrastructure/property.entity';
 import { PropertiesMapper } from './properties.mapper';
 import { PropertiesService } from './properties.service';
 
@@ -31,7 +33,18 @@ type PropertyListResponse = PreWrappedSuccessResponse<PropertyResponseDto[]> & {
 @ApiBearerAuth()
 @Controller('properties')
 export class PropertiesController {
-  constructor(private readonly propertiesService: PropertiesService) {}
+  constructor(
+    private readonly propertiesService: PropertiesService,
+    private readonly policyResolver: PolicyResolverService,
+  ) {}
+
+  private async toResponse(property: PropertyEntity): Promise<PropertyResponseDto> {
+    const deposit = await this.policyResolver.resolveGroupDepositInput(property.id);
+    return PropertiesMapper.toResponse(property, {
+      type: deposit.type,
+      value: deposit.value ?? 0,
+    });
+  }
 
   @Get()
   @RequirePermissions(Permissions.SettingsView, Permissions.RoomsView, Permissions.OperationsView)
@@ -39,11 +52,12 @@ export class PropertiesController {
   @ApiStandardListResponse(PropertyResponseDto)
   async findAll(@Query() query: PaginationQueryDto): Promise<PropertyListResponse> {
     const result = await this.propertiesService.findAll(query);
+    const data = await Promise.all(result.data.map((property) => this.toResponse(property)));
 
     return {
       success: true,
       message: 'Records fetched successfully.',
-      data: result.data.map(PropertiesMapper.toResponse),
+      data,
       ...(result.pagination ? { pagination: result.pagination } : {}),
     };
   }
@@ -57,7 +71,7 @@ export class PropertiesController {
   async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<PropertyResponseDto> {
     const property = await this.propertiesService.findOne(id);
 
-    return PropertiesMapper.toResponse(property);
+    return this.toResponse(property);
   }
 
   @Post()
@@ -69,7 +83,7 @@ export class PropertiesController {
   async create(@Body() createPropertyDto: CreatePropertyDto): Promise<PropertyResponseDto> {
     const property = await this.propertiesService.create(createPropertyDto);
 
-    return PropertiesMapper.toResponse(property);
+    return this.toResponse(property);
   }
 
   @Patch(':id')
@@ -85,6 +99,6 @@ export class PropertiesController {
   ): Promise<PropertyResponseDto> {
     const property = await this.propertiesService.update(id, updatePropertyDto);
 
-    return PropertiesMapper.toResponse(property);
+    return this.toResponse(property);
   }
 }

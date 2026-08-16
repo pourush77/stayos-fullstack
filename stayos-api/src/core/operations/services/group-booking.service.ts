@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { ApiErrorCode } from '../../../common/errors/api-error-code.enum';
@@ -40,6 +40,9 @@ import { GroupRoomMixService } from './group-room-mix.service';
 import { RoomAvailabilityService } from './room-availability.service';
 import { activeReservationStatuses, overlapsDateRange } from './operations-query.helpers';
 import { calculateGroupBookingDeposit } from './group-booking-deposit-policy';
+import { PolicyResolverService } from '../../policies/policy-resolver.service';
+import { DepositPolicyInput } from '../../policies/domain/normalize-deposit-policy';
+import { GroupBookingDepositPolicyType } from '../../properties/domain/group-booking-deposit-policy-type.enum';
 
 function currentDateKey(date = new Date()): string {
   const year = date.getFullYear();
@@ -76,7 +79,16 @@ export class GroupBookingService {
     private readonly roomAvailabilityService: RoomAvailabilityService,
     @InjectRepository(FolioPaymentEntity)
     private readonly folioPaymentsRepository?: Repository<FolioPaymentEntity>,
+    @Optional()
+    private readonly policyResolver?: PolicyResolverService,
   ) {}
+
+  private resolveGroupDepositInput(propertyId: string): Promise<DepositPolicyInput> {
+    if (!this.policyResolver) {
+      return Promise.resolve({ type: GroupBookingDepositPolicyType.NONE, value: 0 });
+    }
+    return this.policyResolver.resolveGroupDepositInput(propertyId);
+  }
 
   async createHold(propertyId: string, dto: CreateGroupHoldDto): Promise<GroupHoldDto> {
     const property = await this.propertiesService.findOne(propertyId);
@@ -124,10 +136,7 @@ export class GroupBookingService {
         0,
       );
       const deposit = calculateGroupBookingDeposit(
-        {
-          type: property.groupBookingDepositPolicyType,
-          value: Number(property.groupBookingDepositPolicyValue || 0),
-        },
+        await this.resolveGroupDepositInput(propertyId),
         estimatedTotal,
       );
       const pricedBlocksByRoomType = new Map(
@@ -1004,10 +1013,7 @@ export class GroupBookingService {
 
     const finalEstimatedTotal = dto.estimatedTotal ?? totalEstimated;
     const deposit = calculateGroupBookingDeposit(
-      {
-        type: property.groupBookingDepositPolicyType,
-        value: Number(property.groupBookingDepositPolicyValue || 0),
-      },
+      await this.resolveGroupDepositInput(propertyId),
       finalEstimatedTotal,
     );
 
