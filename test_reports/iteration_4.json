@@ -1,0 +1,29 @@
+{
+  "summary": "Backend-only retest of the group booking deposit policy normalization fix on the NestJS API (http://localhost:3001/api/v1). Created pytest suite /app/backend/tests/test_group_room_mix_deposit.py (5 tests, all PASSED). Verified: (1) GET /properties/9d0680c0-.../operations/group-room-mix-suggestions?adults=2&children=0&arrivalDate=2026-08-16&departureDate=2026-08-17&preference=BEST_FIT now returns HTTP 200 for the NONE/0 property and every option's deposit is {policyType:'NONE', policyValue:0, required:false, suggestedAmount:0} (previously 400 VALIDATION_ERROR). (2) PATCH to PERCENTAGE 20 persists, suggestions stay 200 and deposit.suggestedAmount == round(20% of estimatedTotal) with required:true (e.g. 3920 -> 784); resetting to NONE returns 200 with suggestedAmount 0. (3) PATCH to FIXED_AMOUNT 5000 persists (GET reflects 5000) and suggestions return 200 with positive suggestedAmount (capped at estimated total, per Math.min logic). Invalid inputs still rejected: PERCENTAGE 150 -> 400, NONE with value 500 -> 400, FIXED_AMOUNT 0 -> 400. Fixture restored: DB row HILLSTON_IND is NONE / 0.00.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /api/v1/properties/:id", "issue": "DTO rule GroupBookingDepositPolicyRule rejects {type:'NONE', value:0} with 400 ('value must be omitted when type is NONE'), while the service normalizer now treats an explicit 0 as valid. Inconsistent contract between write validation and read/normalize layers; a UI that always sends both fields will get a 400 when selecting NONE."},
+      {"endpoint": "GET /api/v1/properties/:id", "issue": "groupBookingDepositPolicyValue is serialized as null even though the DB column is NOT NULL and stores 0.00 for NONE. Suggestions endpoint returns 0 for the same field, so clients see two different representations."},
+      {"endpoint": "POST /api/v1/auth/login", "issue": "Returns 201 Created for a login (non-resource-creating) action; 200 would be more conventional. Not a functional bug, only noted because tests must accept 201."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_group_room_mix_deposit.py", "/app/test_reports/pytest/group_deposit_results.xml"],
+  "action_items": [
+    "Optional: align update-property.dto.ts NONE rule with normalizeGroupBookingDepositPolicy so an explicit 0 is accepted (or make the UI omit the value field for NONE).",
+    "Optional: return 0 instead of null for groupBookingDepositPolicyValue on GET /properties/:id when type is NONE for consistency."
+  ],
+  "critical_code_review_comments": [
+    "group-booking-deposit-policy.ts NONE branch is correct now, but PERCENTAGE/FIXED_AMOUNT rely on Number(...) coercion of persisted numeric strings; group-room-mix.service.ts passes Number(property.groupBookingDepositPolicyValue || 0), which would silently coerce a corrupt/NaN value to a 400 at read time. Consider normalizing at persistence time instead of on every read.",
+    "FIXED_AMOUNT deposit is capped by Math.min(value, total) so a 5000 fixed deposit on a 3920 total silently becomes 3920 - intended? Worth documenting."
+  ],
+  "updated_files": ["/app/backend/tests/test_group_room_mix_deposit.py"],
+  "success_rate": {"backend": "100%", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "None. Only temporary PATCHes to property 9d0680c0-89b0-41d5-ae06-b08cd7bedeae, restored to NONE with DB value 0.00.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@stayos.local / Password123! (from /app/memory/test_credentials.md). NOTE: credentials file says API is on localhost:8001, but the NestJS API actually listens on localhost:3001; 8001 is dead and supervisor units backend/frontend are FATAL in this pod.",
+  "context_for_next_testing_agent": "Use http://localhost:3001/api/v1 (not 8001, not supervisor backend). Login returns HTTP 201 with token at data.accessToken. Run: cd /app/backend && python -m pytest tests/test_group_room_mix_deposit.py -v. The suite auto-resets the property deposit policy to NONE. Group room mix response shape: data.options[].deposit and data.options[].estimatedTotal / pricing.grandTotal.",
+  "rca_of_the_issue": "Original 400 came from normalizeGroupBookingDepositPolicy rejecting any non-null value for NONE, including the persisted DB default 0 that group-room-mix.service.ts passes via Number(property.groupBookingDepositPolicyValue || 0). The fix accepts undefined/null/0 for NONE and only rejects >0; verified fixed end-to-end via the real endpoints."
+}

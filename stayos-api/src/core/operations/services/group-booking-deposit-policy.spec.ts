@@ -83,4 +83,23 @@ describe('calculateGroupBookingDeposit', () => {
       calculateGroupBookingDeposit({ type: GroupBookingDepositPolicyType.NONE, value: 1 }, 3920),
     ).toThrow(BadRequestException);
   });
+
+  it('accepts a persisted zero value for NONE policy', () => {
+    expect(
+      calculateGroupBookingDeposit({ type: GroupBookingDepositPolicyType.NONE, value: 0 }, 3920),
+    ).toEqual({
+      basis: 'ESTIMATED_GRAND_TOTAL',
+      policyType: GroupBookingDepositPolicyType.NONE,
+      policyValue: 0,
+      required: false,
+      suggestedAmount: 0,
+    });
+  });
+
+  it('accepts a null value for NONE policy', () => {
+    expect(
+      calculateGroupBookingDeposit({ type: GroupBookingDepositPolicyType.NONE, value: null }, 3920)
+        .suggestedAmount,
+    ).toBe(0);
+  });
 });

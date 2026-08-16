@@ -156,3 +156,8 @@ Full front-desk lifecycle certified for real staff use. See CHANGELOG.md 2026-08
 - Root cause: reported 400 "should not exist" came from a STALE API build (old UpdatePropertyDto without deposit fields); current source validates correctly. Real source defect: deposit fields missing @ApiPropertyOptional so absent from Swagger PATCH schema.
 - Fix: added @ApiPropertyOptional to groupBookingDepositPolicyType/Value in update-property.dto.ts; requires nest build + API restart to clear stale build.
 - Tests: stayos-api properties (22) + group-booking-deposit-policy (9) green; nest build passes.
+
+## 2026-08-16 — group-room-mix-suggestions NONE+0 fix
+- Root cause: normalizeGroupBookingDepositPolicy() rejected any non-null value for NONE, so persisted DB default (NONE, value 0) passed by group-room-mix.service caused 400.
+- Fix (normalization only): NONE now accepts undefined/null/0 (normalize to 0), rejects >0; PERCENTAGE >0..100; FIXED_AMOUNT >0.
+- Verified via testing_agent (iteration_4): real endpoint returns 200; 100% backend pass. No schema change/migration.

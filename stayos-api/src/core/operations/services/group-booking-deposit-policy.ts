@@ -26,10 +26,12 @@ export function normalizeGroupBookingDepositPolicy(
   const rawValue = policy.value;
 
   if (policy.type === GroupBookingDepositPolicyType.NONE) {
-    if (rawValue !== undefined && rawValue !== null) {
+    const noneValue = rawValue === undefined || rawValue === null ? 0 : Number(rawValue);
+
+    if (!Number.isFinite(noneValue) || noneValue > 0) {
       throw new BadRequestException({
         code: ApiErrorCode.VALIDATION_ERROR,
-        message: 'Group booking deposit value must be omitted for NONE policy.',
+        message: 'Group booking deposit value must be omitted or zero for NONE policy.',
       });
     }
 
