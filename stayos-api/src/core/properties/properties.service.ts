@@ -108,18 +108,26 @@ export class PropertiesService {
     } = updatePropertyDto;
 
     try {
-      if (
-        groupBookingDepositPolicyType !== undefined ||
-        groupBookingDepositPolicyValue !== undefined
-      ) {
-        await this.policiesService.upsert(id, PropertyPolicyType.GROUP_DEPOSIT, {
-          depositMode: groupBookingDepositPolicyType,
-          depositValue: groupBookingDepositPolicyValue,
-        });
-      }
+      return await this.propertiesRepository.manager.transaction(async (manager) => {
+        if (
+          groupBookingDepositPolicyType !== undefined ||
+          groupBookingDepositPolicyValue !== undefined
+        ) {
+          await this.policiesService.upsert(
+            id,
+            PropertyPolicyType.GROUP_DEPOSIT,
+            {
+              depositMode: groupBookingDepositPolicyType,
+              depositValue: groupBookingDepositPolicyValue,
+            },
+            manager,
+          );
+        }
 
-      const updatedProperty = this.propertiesRepository.merge(property, { ...baseUpdates });
-      return await this.propertiesRepository.save(updatedProperty);
+        const propertyRepository = manager.getRepository(PropertyEntity);
+        const updatedProperty = propertyRepository.merge(property, { ...baseUpdates });
+        return propertyRepository.save(updatedProperty);
+      });
     } catch (error) {
       this.handlePersistenceError(error);
     }

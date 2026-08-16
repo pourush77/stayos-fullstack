@@ -1,0 +1,33 @@
+{
+  "summary": "Backend-only validation of Phase-1A atomic Property PATCH + DTO shape-only validation on StayOS (http://localhost:3001/api/v1). New suite /app/backend/tests/test_property_patch_atomicity.py: 18/18 passed. Verified (1) combined PATCH {name + PERCENTAGE 15} commits both (GET property + GET /policies/GROUP_DEPOSIT agree, single source), (2) normalizer business rules still return 400 {success:false,error.code:VALIDATION_ERROR} for PERCENTAGE 101, PERCENTAGE 0, FIXED_AMOUNT 0, FIXED_AMOUNT -10, NONE+value, PERCENTAGE with missing value, and value-without-type, (3) ATOMIC ROLLBACK: PATCH {name:'ROLLBACK_TEST_NAME', PERCENTAGE, 101} -> 400 and property name + GROUP_DEPOSIT policy both unchanged afterwards, (4) DTO shape/type validation intact: 'abc' -> 400, invalid enum -> 400, unknown field -> 400 (forbidNonWhitelisted), numeric string '25' still coerced and accepted, (5) FIXED_AMOUNT 5000 -> 200 reflected in GET + policy, NONE clears value, (6) regression: group-room-mix-suggestions deposit block shows policyType PERCENTAGE with suggestedAmount>0 and NONE with suggestedAmount 0/required=false. Also re-ran previous suites (test_group_deposit_single_source.py, test_group_room_mix_deposit.py, test_property_policies_billing_config.py): 59/59 passed. RBAC: readonly PATCH -> 403, unauthenticated -> 401. State reset at end: name='Hillston Resort', GROUP_DEPOSIT=NONE (verified via GET). No frontend testing (out of scope). No jest suite run.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_property_patch_atomicity.py",
+    "/app/test_reports/pytest/atomicity_iter7.xml",
+    "/app/test_reports/pytest/regression_iter7.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "properties.service.ts update(): handlePersistenceError re-throws non-QueryFailedError as-is, so BadRequestException from the normalizer propagates correctly - good. Note the transaction wraps deposit-first then base save, which is what makes the invalid-deposit rollback observable via API.",
+    "policies.service.ts upsert(): the manager-aware repo resolution is duplicated three times; a small private helper (resolveRepos(manager)) would remove the repetition, but behavior is correct.",
+    "The base-save-fails rollback direction is not reproducible through the public API in this environment (only 1 property, no unique-code collision path, no DB-level constraint reachable past DTO validation). It remains covered only by properties.service.spec.ts unit tests - acceptable, but worth noting no e2e coverage exists for that direction."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_property_patch_atomicity.py"
+  ],
+  "success_rate": {"backend": "100% (18/18 new, 59/59 regression)", "frontend": "not tested (out of scope)"},
+  "seed_data_creation": "None. Only the existing seeded property 9d0680c0-89b0-41d5-ae06-b08cd7bedeae was mutated; restored to name='Hillston Resort' and GROUP_DEPOSIT=NONE.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@stayos.local / Password123! (login returns HTTP 201, token at data.accessToken); readonly@stayos.local / Password123!",
+  "context_for_next_testing_agent": "API on http://localhost:3001/api/v1 (not 8001). New atomicity suite at /app/backend/tests/test_property_patch_atomicity.py; run with `cd /app/backend && python -m pytest tests/test_property_patch_atomicity.py -p no:randomly`. group-room-mix-suggestions returns deposit per option under data.options[].deposit (policyType, suggestedAmount, required) - not at the top level. Test suites mutate the single seeded property; always reset to name='Hillston Resort' + GROUP_DEPOSIT NONE afterwards (test_group_room_mix_deposit.py leaves FIXED_AMOUNT 5000 behind).",
+  "rca_of_the_issue": "N/A - no defects found. Only test-side issue was my initial wrong assumption about the suggestions payload shape (deposit is nested per option), fixed in the test file."
+}

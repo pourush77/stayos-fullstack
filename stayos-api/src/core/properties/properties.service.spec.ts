@@ -157,42 +157,97 @@ describe('PropertiesService', () => {
   it('updates an existing property', async () => {
     const updatedProperty = { ...propertyEntity, name: 'Updated Property' };
     repository.findOne?.mockResolvedValue(propertyEntity);
-    repository.merge?.mockReturnValue(updatedProperty);
-    repository.save?.mockResolvedValue(updatedProperty);
+    const { propertyRepo } = setupTransaction();
+    propertyRepo.save.mockResolvedValue(updatedProperty);
 
     await expect(service.update(propertyEntity.id, { name: 'Updated Property' })).resolves.toEqual(
       updatedProperty,
     );
-    expect(repository.merge).toHaveBeenCalledWith(propertyEntity, {
+    expect(propertyRepo.merge).toHaveBeenCalledWith(propertyEntity, {
       name: 'Updated Property',
     });
   });
 
-  it('delegates group deposit changes to the policies service (single source of truth)', async () => {
+  function setupTransaction(): {
+    propertyRepo: { merge: jest.Mock; save: jest.Mock };
+    manager: { getRepository: jest.Mock };
+  } {
+    const propertyRepo = {
+      merge: jest.fn((entity: PropertyEntity, updates: Partial<PropertyEntity>) => ({
+        ...entity,
+        ...updates,
+      })),
+      save: jest.fn((entity: PropertyEntity) => Promise.resolve(entity)),
+    };
+    const manager = { getRepository: jest.fn(() => propertyRepo) };
+    (repository as unknown as { manager: unknown }).manager = {
+      transaction: jest.fn(async (cb: (m: unknown) => unknown) => cb(manager)),
+    };
+    return { propertyRepo, manager };
+  }
+
+  it('commits both base fields and the group deposit policy in one transaction', async () => {
     repository.findOne?.mockResolvedValue(propertyEntity);
-    repository.merge?.mockReturnValue(propertyEntity);
-    repository.save?.mockResolvedValue(propertyEntity);
+    const { propertyRepo } = setupTransaction();
 
     await service.update(propertyEntity.id, {
+      name: 'Renamed',
       groupBookingDepositPolicyType: GroupBookingDepositPolicyType.FIXED_AMOUNT,
       groupBookingDepositPolicyValue: 5000,
     });
 
-    expect(policiesService.upsert).toHaveBeenCalledWith(propertyEntity.id, 'GROUP_DEPOSIT', {
-      depositMode: GroupBookingDepositPolicyType.FIXED_AMOUNT,
-      depositValue: 5000,
-    });
+    // deposit upsert runs inside the SAME transaction manager
+    expect(policiesService.upsert).toHaveBeenCalledWith(
+      propertyEntity.id,
+      'GROUP_DEPOSIT',
+      { depositMode: GroupBookingDepositPolicyType.FIXED_AMOUNT, depositValue: 5000 },
+      expect.anything(),
+    );
     // legacy deposit columns are no longer written on the property row
-    expect(repository.merge).toHaveBeenCalledWith(propertyEntity, {});
+    expect(propertyRepo.merge).toHaveBeenCalledWith(propertyEntity, { name: 'Renamed' });
+    expect(propertyRepo.save).toHaveBeenCalledTimes(1);
   });
 
   it('does not touch the policies service when no deposit fields are provided', async () => {
     repository.findOne?.mockResolvedValue(propertyEntity);
-    repository.merge?.mockReturnValue(propertyEntity);
-    repository.save?.mockResolvedValue(propertyEntity);
+    setupTransaction();
 
     await service.update(propertyEntity.id, { name: 'Renamed' });
 
     expect(policiesService.upsert).not.toHaveBeenCalled();
+  });
+
+  it('rolls back the base update when the deposit policy save fails', async () => {
+    repository.findOne?.mockResolvedValue(propertyEntity);
+    const { propertyRepo } = setupTransaction();
+    policiesService.upsert.mockRejectedValueOnce(new Error('policy save failed'));
+
+    await expect(
+      service.update(propertyEntity.id, {
+        name: 'Renamed',
+        groupBookingDepositPolicyType: GroupBookingDepositPolicyType.FIXED_AMOUNT,
+        groupBookingDepositPolicyValue: 5000,
+      }),
+    ).rejects.toThrow('policy save failed');
+
+    // deposit runs first; the base property row was never saved -> no partial state
+    expect(propertyRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('rolls back the deposit policy when the base property save fails', async () => {
+    repository.findOne?.mockResolvedValue(propertyEntity);
+    const { propertyRepo } = setupTransaction();
+    propertyRepo.save.mockRejectedValueOnce(new Error('property save failed'));
+
+    await expect(
+      service.update(propertyEntity.id, {
+        name: 'Renamed',
+        groupBookingDepositPolicyType: GroupBookingDepositPolicyType.FIXED_AMOUNT,
+        groupBookingDepositPolicyValue: 5000,
+      }),
+    ).rejects.toThrow('property save failed');
+
+    // both ran inside one transaction that rejected -> nothing commits
+    expect(policiesService.upsert).toHaveBeenCalled();
   });
 });

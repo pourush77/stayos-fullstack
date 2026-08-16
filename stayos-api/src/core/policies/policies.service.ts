@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { EntityManager, IsNull, Repository } from 'typeorm';
 import { ApiErrorCode } from '../../common/errors/api-error-code.enum';
 import { PropertyEntity } from '../properties/infrastructure/property.entity';
 import { RatePlanEntity } from '../rates/infrastructure/rate-plan.entity';
@@ -30,8 +30,11 @@ export class PoliciesService {
     private readonly propertiesRepository: Repository<PropertyEntity>,
   ) {}
 
-  private async assertPropertyExists(propertyId: string): Promise<void> {
-    const property = await this.propertiesRepository.findOne({ where: { id: propertyId } });
+  private async assertPropertyExists(
+    propertyId: string,
+    repository: Repository<PropertyEntity> = this.propertiesRepository,
+  ): Promise<void> {
+    const property = await repository.findOne({ where: { id: propertyId } });
     if (!property) {
       throw new NotFoundException(`Property ${propertyId} was not found`);
     }
@@ -62,17 +65,24 @@ export class PoliciesService {
     propertyId: string,
     policyType: PropertyPolicyType,
     dto: UpsertPropertyPolicyDto,
+    manager?: EntityManager,
   ): Promise<PropertyPolicyEntity> {
-    await this.assertPropertyExists(propertyId);
+    const policiesRepo = manager
+      ? manager.getRepository(PropertyPolicyEntity)
+      : this.policiesRepository;
+    const ratePlansRepo = manager ? manager.getRepository(RatePlanEntity) : this.ratePlansRepository;
+    const propertiesRepo = manager ? manager.getRepository(PropertyEntity) : this.propertiesRepository;
+
+    await this.assertPropertyExists(propertyId, propertiesRepo);
 
     const ratePlanId = dto.ratePlanId ?? null;
-    await this.assertRatePlanBelongsToProperty(propertyId, ratePlanId);
+    await this.assertRatePlanBelongsToProperty(propertyId, ratePlanId, ratePlansRepo);
 
-    const existing = await this.policiesRepository.findOne({
+    const existing = await policiesRepo.findOne({
       where: { propertyId, policyType, ratePlanId: ratePlanId ?? IsNull() },
     });
 
-    const policy = existing ?? this.policiesRepository.create({ propertyId, policyType, ratePlanId });
+    const policy = existing ?? policiesRepo.create({ propertyId, policyType, ratePlanId });
     policy.isActive = dto.isActive ?? true;
     policy.depositMode = null;
     policy.depositValue = null;
@@ -89,7 +99,7 @@ export class PoliciesService {
       throw this.invalid(`Unsupported policy type: ${String(policyType)}`);
     }
 
-    return this.policiesRepository.save(policy);
+    return policiesRepo.save(policy);
   }
 
   private applyDepositPolicy(policy: PropertyPolicyEntity, dto: UpsertPropertyPolicyDto): void {
@@ -160,10 +170,11 @@ export class PoliciesService {
   private async assertRatePlanBelongsToProperty(
     propertyId: string,
     ratePlanId: string | null,
+    repository: Repository<RatePlanEntity> = this.ratePlansRepository,
   ): Promise<void> {
     if (ratePlanId === null) return;
 
-    const ratePlan = await this.ratePlansRepository.findOne({
+    const ratePlan = await repository.findOne({
       where: { id: ratePlanId, propertyId },
     });
 

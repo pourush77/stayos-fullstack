@@ -59,7 +59,9 @@ describe('UpdatePropertyDto', () => {
     });
   });
 
-  it('rejects percentages above 100', async () => {
+  it('defers deposit business rules to the shared normalizer (shape-valid values pass the DTO)', async () => {
+    // The DTO now validates shape/type only; business rules (range, required
+    // value, NONE-without-value) are enforced by the shared deposit normalizer.
     await expect(
       pipe.transform(
         {
@@ -68,15 +70,31 @@ describe('UpdatePropertyDto', () => {
         },
         metadata,
       ),
-    ).rejects.toBeInstanceOf(BadRequestException);
-  });
+    ).resolves.toMatchObject({
+      groupBookingDepositPolicyType: GroupBookingDepositPolicyType.PERCENTAGE,
+      groupBookingDepositPolicyValue: 101,
+    });
 
-  it('rejects non-positive fixed amounts', async () => {
     await expect(
       pipe.transform(
         {
           groupBookingDepositPolicyType: GroupBookingDepositPolicyType.FIXED_AMOUNT,
           groupBookingDepositPolicyValue: 0,
+        },
+        metadata,
+      ),
+    ).resolves.toMatchObject({
+      groupBookingDepositPolicyType: GroupBookingDepositPolicyType.FIXED_AMOUNT,
+      groupBookingDepositPolicyValue: 0,
+    });
+  });
+
+  it('rejects a non-numeric deposit value (shape/type validation)', async () => {
+    await expect(
+      pipe.transform(
+        {
+          groupBookingDepositPolicyType: GroupBookingDepositPolicyType.FIXED_AMOUNT,
+          groupBookingDepositPolicyValue: 'abc',
         },
         metadata,
       ),

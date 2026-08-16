@@ -173,3 +173,9 @@ Full front-desk lifecycle certified for real staff use. See CHANGELOG.md 2026-08
 - Migration 20260818090000 backfilled GROUP_DEPOSIT rows and DROPPED legacy properties.group_booking_deposit_policy_* columns (single source of truth).
 - Verified: testing_agent iteration_6 100% (18 new + 41 regression), + resolver/negative-NONE/rate-plan-scoped-GET fixes (59 pytest + 48 jest green).
 - Phase-1B blockers: booking-time reservation policy/tax snapshot population; RatePlan CRUD to exercise overrides; wrap property base-save + deposit upsert in one transaction; consolidate DTO deposit rules into shared normalizer; batch-load deposits in properties list (N+1) when multi-property lands.
+
+## 2026-08-16 — Phase-1A consistency: atomic Property PATCH + DTO shape-only
+- Property PATCH now wraps GROUP_DEPOSIT policy upsert + base save in ONE transaction (deposit-first); invalid deposit or either save failing rolls back everything.
+- Removed duplicated deposit business rules from UpdatePropertyDto (shape/type only); shared normalizer via PoliciesService.upsert is the single rule source.
+- Verified: testing_agent iteration_7 100% (atomic rollback via API confirmed) + 139 jest green.
+- Next: Phase 1B Reservation & Stay Lifecycle (Rate Plan CRUD deferred to 1C).
