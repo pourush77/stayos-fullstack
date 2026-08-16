@@ -213,6 +213,9 @@ describe('ReservationWorkflowService', () => {
       dataSource,
       checkInService as CheckInService,
       taxService as unknown as TaxService,
+      {
+        resolveGroupDepositInput: jest.fn().mockResolvedValue({ type: 'NONE', value: 0 }),
+      } as never,
     );
   });
 

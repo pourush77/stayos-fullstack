@@ -1,0 +1,50 @@
+{
+  "summary": "Re-verification of the MEDIUM fix in ReservationsService.update() (relation/FK alignment + re-fetch) against http://localhost:3001/api/v1. Extended /app/backend/tests/test_reservation_lifecycle.py from 37 to 42 pytest cases with a new TestGenericPatchRelationUpdates class covering: assign READY room via generic PATCH (response == GET), roomId:null unassign persistence, roomTypeId change persistence, guestId change persistence, failed PATCH with a non-READY room (400 + no mutation), and a PATCH/GET round-trip on demo reservation HSDEMO-0005. Full file run twice: 42/42 passed both runs (no flakiness). The previously failing test_generic_patch_room_assignment_still_works now passes, and the HIGH status-whitelist bypass remains closed (all 7 TestGenericPatchStatusBypass cases pass). Lifecycle confirm/cancel/no-show, terminal 400s (INVALID_RESERVATION_STATE_TRANSITION), RBAC 403/401 and the assign -> unassign -> reassign -> check-in -> extend -> check-out regression flow all still pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET/PATCH /api/v1/properties/:propertyId/reservations/:id",
+        "issue": "ReservationResponseDto still omits policySnapshot/taxSnapshot (persisted in Postgres, verified via psql) - clients cannot read the frozen deposit/tax contract. Carried over from iteration 8, unchanged."
+      },
+      {
+        "endpoint": "PATCH .../reservations/:id (generic update)",
+        "issue": "update() runs validateReferences/validateRoomAssignment, save() and the re-fetch findOne() outside a single transaction/manager. Functionally correct in tests, but concurrent double-assignment of the same room in the same window is still theoretically possible (no row lock / unique constraint on (roomId, date range))."
+      },
+      {
+        "endpoint": "PATCH .../reservations/:id/check-in/guest-registration",
+        "issue": "Test-data pollution: guest-registration overwrites the shared seeded demo guest record, so demo reservation HSDEMO-0005 now reports guestName 'TEST Lifecycle Guest' / test.lifecycle*@demo.stayos.local. Not a code defect for this iteration, but consider re-running bootstrap:demo before demos."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_reservation_lifecycle.py",
+    "/app/test_reports/pytest/reservation_lifecycle_iter9.xml"
+  ],
+  "action_items": [
+    "No blocking action items - the relation/FK PATCH fix is verified. Optional: expose policySnapshot/taxSnapshot in ReservationResponseDto and wrap update() (validate -> save -> re-fetch) in a transaction with a row lock on the target room."
+  ],
+  "critical_code_review_comments": [
+    "reservations.service.ts update(): assigning references.guest/roomType/room plus roomId = references.room?.id ?? null and returning await this.findOne() is the correct pattern - response is now guaranteed to equal persisted DB state (verified for roomId, roomId:null, roomTypeId, guestId and the flattened guestName/roomTypeName echoes).",
+    "The catch block calls this.handlePersistenceError(error) without a return/never annotation on all paths; TS is satisfied only because the helper is typed never - keep it that way or the function could silently return undefined.",
+    "validateReferences + validateRoomAssignment + save + findOne are 4 round trips outside a transaction; consider this.dataSource.transaction(manager => ...) for the assignment path."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_reservation_lifecycle.py"
+  ],
+  "success_rate": {
+    "backend": "100% (42/42 pytest cases, 2 consecutive clean runs)",
+    "frontend": "not tested (backend-only request)"
+  },
+  "seed_data_creation": "~40 TEST_lifecycle reservations created in property 9d0680c0-89b0-41d5-ae06-b08cd7bedeae (notes='TEST_lifecycle', future 2026-2029 dates); most left in terminal states. HSDEMO-0005 notes were modified and restored to the original value by the round-trip test. No temp probe files left behind.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@stayos.local / Password123! and readonly@stayos.local / Password123! (from /app/memory/test_credentials.md); API on http://localhost:3001/api/v1",
+  "context_for_next_testing_agent": "Run: cd /app/backend && python -m pytest tests/test_reservation_lifecycle.py -p no:randomly -q (42 tests, ~2s). TestGenericPatchRelationUpdates covers the FK/relation PATCH fix; TestGenericPatchStatusBypass covers the status whitelist. Note the reservation DTO flattens relations (guestName/guestPhone/guestEmail/roomTypeName) - there is no embedded guest/roomType object, so assert on the flattened fields. A non-READY room correctly returns 400 'Assigned room must be ready'. Do not run the full jest suite.",
+  "rca_of_the_issue": "Previous failure: repository.merge() left stale loaded relation objects (room/roomType/guest) on the entity, and TypeORM's save() derived the FK columns from those relations, so scalar FK writes (including roomId:null) were dropped while the returned in-memory entity still echoed the requested value (fabricated success). Fix aligns the relation objects with the validated references and re-fetches via findOne(), so both persistence and the response body are correct - confirmed by 6 new persistence assertions plus a negative test proving a failed PATCH leaves roomId untouched."
+}

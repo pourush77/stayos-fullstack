@@ -25,6 +25,7 @@ import { ExtendReservationDto } from './dto/extend-reservation.dto';
 import { MoveRoomDto } from './dto/move-room.dto';
 import { PaymentReviewDto } from './dto/payment-review.dto';
 import { ReservationResponseDto } from './dto/reservation-response.dto';
+import { LifecycleActionDto } from './dto/lifecycle-action.dto';
 import { ReservationWorkflowResponseDto } from './dto/reservation-workflow-response.dto';
 import { UpdateGuestRegistrationDto } from './dto/update-guest-registration.dto';
 import { UpdateIdentityVerificationDto } from './dto/update-identity-verification.dto';
@@ -183,6 +184,65 @@ export class ReservationsController {
     return this.reservationWorkflowService.moveRoom(propertyId, reservationId, dto, {
       actorId: user?.id ?? null,
     });
+  }
+
+  @Patch(':reservationId/confirm')
+  @RequirePermissions(Permissions.BookingsManage)
+  @ApiOperation({ summary: 'Confirm a reservation (freezes policy/tax snapshot)' })
+  @ApiStandardOkResponse(ReservationResponseDto)
+  @ApiBadRequestResponse({ description: 'Invalid state transition' })
+  @ApiNotFoundResponse({ description: 'Reservation not found' })
+  async confirm(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('reservationId', ParseUUIDPipe) reservationId: string,
+    @CurrentUser() user?: AuthenticatedRequest['currentUser'],
+  ): Promise<ReservationResponseDto> {
+    const reservation = await this.reservationWorkflowService.confirm(propertyId, reservationId, {
+      actorId: user?.id ?? null,
+    });
+    return ReservationsMapper.toResponse(reservation);
+  }
+
+  @Patch(':reservationId/cancel')
+  @RequirePermissions(Permissions.BookingsManage)
+  @ApiOperation({ summary: 'Cancel a reservation' })
+  @ApiStandardOkResponse(ReservationResponseDto)
+  @ApiBadRequestResponse({ description: 'Invalid state transition' })
+  @ApiNotFoundResponse({ description: 'Reservation not found' })
+  async cancel(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('reservationId', ParseUUIDPipe) reservationId: string,
+    @Body() dto: LifecycleActionDto,
+    @CurrentUser() user?: AuthenticatedRequest['currentUser'],
+  ): Promise<ReservationResponseDto> {
+    const reservation = await this.reservationWorkflowService.cancel(
+      propertyId,
+      reservationId,
+      dto.reason ?? null,
+      { actorId: user?.id ?? null },
+    );
+    return ReservationsMapper.toResponse(reservation);
+  }
+
+  @Patch(':reservationId/no-show')
+  @RequirePermissions(Permissions.BookingsManage)
+  @ApiOperation({ summary: 'Mark a reservation as no-show' })
+  @ApiStandardOkResponse(ReservationResponseDto)
+  @ApiBadRequestResponse({ description: 'Invalid state transition' })
+  @ApiNotFoundResponse({ description: 'Reservation not found' })
+  async noShow(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('reservationId', ParseUUIDPipe) reservationId: string,
+    @Body() dto: LifecycleActionDto,
+    @CurrentUser() user?: AuthenticatedRequest['currentUser'],
+  ): Promise<ReservationResponseDto> {
+    const reservation = await this.reservationWorkflowService.markNoShow(
+      propertyId,
+      reservationId,
+      dto.reason ?? null,
+      { actorId: user?.id ?? null },
+    );
+    return ReservationsMapper.toResponse(reservation);
   }
 
   @Get(':reservationId/check-in-workspace')

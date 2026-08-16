@@ -1,0 +1,67 @@
+{
+  "summary": "Backend-only testing of StayOS Phase-1B reservation lifecycle (confirm/cancel/no-show + centralized transition map) against http://localhost:3001/api/v1. Created /app/backend/tests/test_reservation_lifecycle.py with 32 pytest cases: confirm happy path + snapshot capture/freeze, cancel (with/without reason, room release), no-show, illegal transitions from every terminal state, RBAC (readonly 403, unauthenticated 401), DTO whitelist, and full regression flow (assign -> unassign -> reassign -> check-in -> extend -> check-out with confirm/cancel/no-show rejected at CHECKED_IN and CHECKED_OUT). 29 passed, 3 failed. All confirm/cancel/no-show endpoints behave exactly as specified (200 on valid, 400 INVALID_RESERVATION_STATE_TRANSITION on every illegal/terminal transition). The 3 failures expose a bypass: the generic PATCH /reservations/:id endpoint still writes reservation.status directly, ignoring the canonical transition map.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "PATCH /api/v1/properties/:propertyId/reservations/:reservationId",
+        "issue": "Lifecycle bypass: UpdateReservationDto = PartialType(CreateReservationDto) so `status` is accepted and merged straight into the entity (reservations.service.ts update() -> toUpdatePersistenceFields). Verified: CONFIRMED -> CHECKED_OUT accepted with 200, and a terminal CANCELLED reservation was revived to CONFIRMED with 200. assertReservationTransition is never called on this path, so ALLOWED_RESERVATION_TRANSITIONS is NOT the single source of truth.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "PATCH /api/v1/properties/:propertyId/reservations/:reservationId (status=CANCELLED)",
+        "issue": "Duplicate ad-hoc cancel path in reservations.service.ts update() (lines 235-246): throws BadRequestException with a plain string (surfaces as VALIDATION_ERROR, not INVALID_RESERVATION_STATE_TRANSITION), does not clear roomId (no inventory release) and emits no audit/activity events, unlike ReservationWorkflowService.terminate()."
+      },
+      {
+        "endpoint": "GET/PATCH reservations (ReservationResponseDto)",
+        "issue": "policySnapshot / taxSnapshot are persisted in Postgres (verified via psql: groupDeposit + GST 12.00 with capturedAt) but are not exposed in any API response, so clients cannot read the frozen deposit/tax snapshot. Snapshot immutability had to be verified at DB level."
+      },
+      {
+        "endpoint": "POST /api/v1/properties/:propertyId/reservations",
+        "issue": "CreateReservationDto accepts any ReservationStatus, so a reservation can be created directly in CHECKED_IN/CHECKED_OUT/NO_SHOW, skipping the lifecycle entirely (useful for seeding, but an unguarded write path)."
+      },
+      {
+        "endpoint": "PATCH .../check-out, .../check-in, .../extend, .../move-room",
+        "issue": "These paths still use ad-hoc guards (ensureReservationStatus -> RESERVATION_NOT_CHECKED_IN / RESERVATION_NOT_CONFIRMED, moveRoom -> INVALID_STATE) rather than assertReservationTransition. Behaviour is correct (400) but error codes are inconsistent with the new canonical code."
+      },
+      {
+        "endpoint": "ReservationWorkflowService.applyPolicyTaxSnapshot",
+        "issue": "Unused `manager: EntityManager` parameter (dead argument)."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_reservation_lifecycle.py",
+    "/app/test_reports/pytest/reservation_lifecycle.xml"
+  ],
+  "action_items": [
+    "Route status changes in ReservationsService.update() through assertReservationTransition (or strip `status` from UpdateReservationDto and force clients to use the lifecycle endpoints) - currently any status jump, including reviving CANCELLED/CHECKED_OUT, is accepted with 200.",
+    "Delete the duplicate cancel branch in ReservationsService.update() and delegate to ReservationWorkflowService.cancel() so room release + audit/activity events + INVALID_RESERVATION_STATE_TRANSITION code are consistent.",
+    "Expose policySnapshot/taxSnapshot in ReservationResponseDto (read-only) so the frozen deposit/tax can be verified and rendered by clients.",
+    "Optionally migrate check-in/check-out/extend/move-room guards onto assertReservationTransition for one canonical error code."
+  ],
+  "critical_code_review_comments": [
+    "reservations.service.ts:235-246 + 281-285 - generic PATCH writes ReservationStatus without transition validation; this is the only remaining hole in the Phase-1B 'single source of truth' guarantee.",
+    "ReservationsMapper.toResponse omits policy_snapshot/tax_snapshot even though they are the immutable contract captured at confirmation.",
+    "terminate() clearing roomId is correct as an inventory release hook, but there is no explicit inventory/availability recompute - fine today because rooms only turn OCCUPIED at check-in; worth a comment/test when real inventory holds land."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_reservation_lifecycle.py"
+  ],
+  "success_rate": {
+    "backend": "90% (29/32 pytest cases; 3 failures are the generic-PATCH lifecycle bypass)",
+    "frontend": "not tested (backend-only request)"
+  },
+  "seed_data_creation": "~25 TEST reservations created via POST /reservations (notes='TEST_lifecycle') for guest fixtures; most were driven to CANCELLED/NO_SHOW/CHECKED_OUT terminal states and left in place (no delete endpoint exists). One demo guest's registration contact fields (mobile/email/address/purposeOfVisit) were updated by the check-in regression test with randomized values.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@stayos.local / Password123! (login is HTTP 201, token at data.accessToken); readonly@stayos.local / Password123! for RBAC 403 checks",
+  "context_for_next_testing_agent": "Run: cd /app/backend && python -m pytest tests/test_reservation_lifecycle.py -p no:xdist -v. API base is http://localhost:3001/api/v1 (not 8001). PENDING reservations must be created via POST with status=PENDING (create defaults to CONFIRMED). Snapshots are only observable via psql (PGPASSWORD='StayOS@2026' psql -h localhost -U stayos -d stayos_dev) - helper _snapshots() in the test file. Check-in requires guest registration (incl. purposeOfVisit), verified identity with a valid PASSPORT format (e.g. M1234567) and payment review, plus arrival date <= today; unique mobile/email needed to avoid 409 CONFLICT. TestGenericPatchStatusBypass is the only failing class - re-run it after the main agent guards status changes on PATCH /reservations/:id.",
+  "rca_of_the_issue": "ALLOWED_RESERVATION_TRANSITIONS/assertReservationTransition is only invoked from ReservationWorkflowService (confirm/cancel/markNoShow). The generic update endpoint copies the whole DTO (which inherits `status` from CreateReservationDto via PartialType) into the entity through toUpdatePersistenceFields and saves it, so any client with bookings.manage can set an arbitrary status. Reproduce: create reservation with status CONFIRMED, PATCH /properties/{propertyId}/reservations/{id} body {\"status\":\"CHECKED_OUT\"} -> 200; cancel a reservation then PATCH {\"status\":\"CONFIRMED\"} -> 200. Mitigation: validate with assertReservationTransition inside update(), or remove `status` from UpdateReservationDto."
+}

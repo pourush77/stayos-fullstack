@@ -344,7 +344,7 @@ describe('ReservationsService', () => {
     });
   });
 
-  it('updates a reservation', async () => {
+  it('updates a reservation and re-fetches the persisted state', async () => {
     reservationsRepository.findOne?.mockResolvedValue(reservationEntity);
     reservationsRepository.merge?.mockImplementation((reservation, update) => ({
       ...reservation,
@@ -354,14 +354,13 @@ describe('ReservationsService', () => {
 
     await expect(
       service.update(propertyId, reservationId, {
-        status: ReservationStatus.CHECKED_IN,
         roomId,
       }),
-    ).resolves.toEqual({
-      ...reservationEntity,
-      status: ReservationStatus.CHECKED_IN,
-      roomId,
-    });
+    ).resolves.toEqual(reservationEntity);
+    // scalar FK and relation are aligned before save so the write is reliable
+    expect(reservationsRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ roomId }),
+    );
   });
 
   it('ignores reservation code changes during update', async () => {
@@ -374,13 +373,10 @@ describe('ReservationsService', () => {
 
     await expect(
       service.update(propertyId, reservationId, {
-        status: ReservationStatus.CHECKED_IN,
+        notes: 'Updated',
         reservationCode: 'CLIENT-SUPPLIED-CODE',
       } as never),
-    ).resolves.toEqual({
-      ...reservationEntity,
-      status: ReservationStatus.CHECKED_IN,
-    });
+    ).resolves.toEqual(reservationEntity);
     expect(reservationsRepository.merge).toHaveBeenCalledWith(
       reservationEntity,
       expect.not.objectContaining({ reservationCode: expect.any(String) }),

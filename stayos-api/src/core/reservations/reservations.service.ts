@@ -232,19 +232,6 @@ export class ReservationsService {
   ): Promise<ReservationEntity> {
     const reservation = await this.findOne(propertyId, id);
 
-    if (updateReservationDto.status === ReservationStatus.CANCELLED) {
-      if (
-        reservation.status !== ReservationStatus.PENDING &&
-        reservation.status !== ReservationStatus.CONFIRMED
-      ) {
-        throw new BadRequestException('Only pending or confirmed reservations can be cancelled');
-      }
-
-      reservation.status = ReservationStatus.CANCELLED;
-
-      return this.reservationsRepository.save(reservation);
-    }
-
     const arrivalDate = updateReservationDto.arrivalDate ?? reservation.arrivalDate;
     const departureDate = updateReservationDto.departureDate ?? reservation.departureDate;
     const children = updateReservationDto.children ?? reservation.children;
@@ -282,7 +269,17 @@ export class ReservationsService {
         ...this.toUpdatePersistenceFields(updateReservationDto),
       });
 
-      return await this.reservationsRepository.save(updatedReservation);
+      // Keep loaded relation objects in sync with the scalar FKs so TypeORM
+      // persists FK changes reliably (merge alone lets stale relations win).
+      updatedReservation.guest = references.guest;
+      updatedReservation.roomType = references.roomType;
+      updatedReservation.room = references.room;
+      updatedReservation.roomId = references.room ? references.room.id : null;
+
+      await this.reservationsRepository.save(updatedReservation);
+
+      // Re-fetch so the response reflects the persisted state (with relations).
+      return await this.findOne(propertyId, id);
     } catch (error) {
       this.handlePersistenceError(error);
     }

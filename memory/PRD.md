@@ -179,3 +179,10 @@ Full front-desk lifecycle certified for real staff use. See CHANGELOG.md 2026-08
 - Removed duplicated deposit business rules from UpdatePropertyDto (shape/type only); shared normalizer via PoliciesService.upsert is the single rule source.
 - Verified: testing_agent iteration_7 100% (atomic rollback via API confirmed) + 139 jest green.
 - Next: Phase 1B Reservation & Stay Lifecycle (Rate Plan CRUD deferred to 1C).
+
+## 2026-08-16 — Phase-1B Reservation & Stay Lifecycle
+- Added canonical transition map (reservation-transitions.ts) as single source of truth + confirm/cancel/markNoShow in reservation-workflow.service (assign/move/check-in/out/extend pre-existing).
+- Confirm freezes immutable policy_snapshot+tax_snapshot (PolicyResolverService + TaxService). Cancel/no-show release the room-night hold (roomId cleared).
+- Closed HIGH bypass: status removed from UpdateReservationDto (OmitType) -> transitions only via lifecycle endpoints. Fixed MEDIUM: generic PATCH FK/relation updates now reliable + response re-fetched.
+- Verified testing_agent iteration_9 100% (42/42); jest reservations 74 green.
+- Phase-1C blockers: source enum expansion (PHONE/CHANNEL/OTHER) + external reservation/confirmation IDs foundation NOT yet added; expose snapshots via API read model; Inventory + Rate Plans (availability/overbooking/ARI) own the override read path.

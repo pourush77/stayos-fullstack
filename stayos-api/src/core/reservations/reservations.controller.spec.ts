@@ -133,19 +133,13 @@ describe('ReservationsController', () => {
   });
 
   it('delegates update requests to the service', async () => {
-    reservationsService.update.mockResolvedValue({
-      ...reservationEntity,
-      status: ReservationStatus.CHECKED_IN,
-    });
+    reservationsService.update.mockResolvedValue({ ...reservationEntity });
 
     await expect(
-      controller.update(propertyId, reservationId, { status: ReservationStatus.CHECKED_IN }),
-    ).resolves.toEqual({
-      ...reservationResponse,
-      status: ReservationStatus.CHECKED_IN,
-    });
+      controller.update(propertyId, reservationId, { notes: 'Updated note' }),
+    ).resolves.toEqual(reservationResponse);
     expect(reservationsService.update).toHaveBeenCalledWith(propertyId, reservationId, {
-      status: ReservationStatus.CHECKED_IN,
+      notes: 'Updated note',
     });
   });
 

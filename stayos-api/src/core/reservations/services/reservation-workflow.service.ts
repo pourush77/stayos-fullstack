@@ -23,6 +23,8 @@ import { ReservationEntity } from '../infrastructure/reservation.entity';
 import { ReservationsMapper } from '../reservations.mapper';
 import { RoomsMapper } from '../../rooms/rooms.mapper';
 import { CheckInService } from './check-in.service';
+import { PolicyResolverService } from '../../policies/policy-resolver.service';
+import { assertReservationTransition } from '../domain/reservation-transitions';
 
 const activeAssignmentStatuses = [
   ReservationStatus.PENDING,
@@ -40,7 +42,177 @@ export class ReservationWorkflowService {
     private readonly dataSource: DataSource,
     private readonly checkInService: CheckInService,
     private readonly taxService: TaxService,
+    private readonly policyResolver: PolicyResolverService,
   ) {}
+
+  async confirm(
+    propertyId: string,
+    reservationId: string,
+    actorContext: WorkflowActorContext = {},
+  ): Promise<ReservationEntity> {
+    return this.dataSource.transaction(async (manager) => {
+      const reservationRepository = manager.getRepository(ReservationEntity);
+      const reservation = await this.findReservation(reservationRepository, propertyId, reservationId);
+
+      assertReservationTransition(reservation.status, ReservationStatus.CONFIRMED);
+      const previousState = this.reservationAuditState(reservation);
+
+      reservation.status = ReservationStatus.CONFIRMED;
+      await this.applyPolicyTaxSnapshot(reservation);
+      const updated = await reservationRepository.save(reservation);
+
+      await this.createLifecycleEvents(manager, {
+        propertyId,
+        action: 'RESERVATION_CONFIRMED',
+        previousState,
+        nextState: this.reservationAuditState(updated),
+        activityType: 'RESERVATION_CONFIRMED',
+        activityTitle: 'Reservation confirmed',
+        activityDescription: `Reservation ${updated.reservationCode} confirmed.`,
+        reservation: updated,
+        actorId: actorContext.actorId ?? null,
+      });
+
+      return updated;
+    });
+  }
+
+  async cancel(
+    propertyId: string,
+    reservationId: string,
+    reason: string | null,
+    actorContext: WorkflowActorContext = {},
+  ): Promise<ReservationEntity> {
+    return this.terminate(
+      propertyId,
+      reservationId,
+      ReservationStatus.CANCELLED,
+      'RESERVATION_CANCELLED',
+      'Reservation cancelled',
+      reason,
+      actorContext,
+    );
+  }
+
+  async markNoShow(
+    propertyId: string,
+    reservationId: string,
+    reason: string | null,
+    actorContext: WorkflowActorContext = {},
+  ): Promise<ReservationEntity> {
+    return this.terminate(
+      propertyId,
+      reservationId,
+      ReservationStatus.NO_SHOW,
+      'RESERVATION_NO_SHOW',
+      'Reservation marked as no-show',
+      reason,
+      actorContext,
+    );
+  }
+
+  private async terminate(
+    propertyId: string,
+    reservationId: string,
+    target: ReservationStatus,
+    action: string,
+    title: string,
+    reason: string | null,
+    actorContext: WorkflowActorContext,
+  ): Promise<ReservationEntity> {
+    return this.dataSource.transaction(async (manager) => {
+      const reservationRepository = manager.getRepository(ReservationEntity);
+      const reservation = await this.findReservation(reservationRepository, propertyId, reservationId);
+
+      assertReservationTransition(reservation.status, target);
+      const previousState = this.reservationAuditState(reservation);
+
+      reservation.status = target;
+      // Inventory hook: release the room-night hold by clearing the assignment
+      // (rooms only become OCCUPIED at check-in, which these states cannot reach).
+      reservation.roomId = null;
+      const updated = await reservationRepository.save(reservation);
+
+      await this.createLifecycleEvents(manager, {
+        propertyId,
+        action,
+        previousState,
+        nextState: this.reservationAuditState(updated),
+        activityType: action,
+        activityTitle: title,
+        activityDescription: reason?.trim()
+          ? `${title}: ${reason.trim()}`
+          : `${title} (${updated.reservationCode}).`,
+        reservation: updated,
+        actorId: actorContext.actorId ?? null,
+        metadata: { reason: reason?.trim() || null },
+      });
+
+      return updated;
+    });
+  }
+
+  private async applyPolicyTaxSnapshot(reservation: ReservationEntity): Promise<void> {
+    if (reservation.policySnapshot) return; // immutable once captured
+
+    const deposit = await this.policyResolver.resolveGroupDepositInput(reservation.propertyId);
+    const tax = await this.taxService.calculateForProperty(reservation.propertyId, 0);
+    const capturedAt = new Date().toISOString();
+
+    reservation.policySnapshot = { groupDeposit: deposit, capturedAt };
+    reservation.taxSnapshot = {
+      taxName: tax.taxName,
+      taxPercentage: tax.taxPercentage,
+      taxEnabled: tax.taxEnabled,
+      capturedAt,
+    };
+  }
+
+  private async createLifecycleEvents(
+    manager: EntityManager,
+    input: {
+      propertyId: string;
+      action: string;
+      previousState: Record<string, unknown>;
+      nextState: Record<string, unknown>;
+      activityType: string;
+      activityTitle: string;
+      activityDescription: string;
+      reservation: ReservationEntity;
+      actorId: string | null;
+      metadata?: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    const auditRepository = manager.getRepository(AuditEventEntity);
+    const activityRepository = manager.getRepository(ActivityEventEntity);
+    const metadata = { reservationCode: input.reservation.reservationCode, ...(input.metadata ?? {}) };
+
+    await Promise.all([
+      auditRepository.save(
+        auditRepository.create({
+          propertyId: input.propertyId,
+          actorId: input.actorId,
+          entityType: 'Reservation',
+          entityId: input.reservation.id,
+          action: input.action,
+          previousState: input.previousState,
+          nextState: input.nextState,
+          metadata,
+        }),
+      ),
+      activityRepository.save(
+        activityRepository.create({
+          propertyId: input.propertyId,
+          type: input.activityType,
+          title: input.activityTitle,
+          description: input.activityDescription,
+          entityType: 'Reservation',
+          entityId: input.reservation.id,
+          metadata,
+        }),
+      ),
+    ]);
+  }
 
   async assignRoom(
     propertyId: string,
