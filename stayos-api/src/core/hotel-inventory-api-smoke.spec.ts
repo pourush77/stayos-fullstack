@@ -10,6 +10,8 @@ import { FloorsService } from './floors/floors.service';
 import { PropertyStatus } from './properties/domain/property-status.enum';
 import { PropertiesController } from './properties/properties.controller';
 import { PropertiesService } from './properties/properties.service';
+import { PolicyResolverService } from './policies/policy-resolver.service';
+import { GroupBookingDepositPolicyType } from './properties/domain/group-booking-deposit-policy-type.enum';
 import { RoomTypeStatus } from './room-types/domain/room-type-status.enum';
 import { RoomTypesController } from './room-types/room-types.controller';
 import { RoomTypesService } from './room-types/room-types.service';
@@ -108,6 +110,14 @@ describe('Hotel Inventory API smoke', () => {
             findOne: jest.fn(),
             create: jest.fn(),
             update: jest.fn(),
+          },
+        },
+        {
+          provide: PolicyResolverService,
+          useValue: {
+            resolveGroupDepositInput: jest
+              .fn()
+              .mockResolvedValue({ type: GroupBookingDepositPolicyType.NONE, value: 0 }),
           },
         },
         {

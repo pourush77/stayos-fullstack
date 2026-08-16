@@ -22,6 +22,7 @@ import { AmenitiesModule } from './core/amenities/amenities.module';
 import { RatesModule } from './core/rates/rates.module';
 import { PoliciesModule } from './core/policies/policies.module';
 import { BillingConfigModule } from './core/billing-config/billing-config.module';
+import { InventoryModule } from './core/inventory/inventory.module';
 import configuration from './core/config/configuration';
 import { validateEnvironment } from './core/config/environment.validation';
 import { GlobalSearchModule } from './core/global-search/global-search.module';
@@ -70,6 +71,7 @@ import { GlobalSearchModule } from './core/global-search/global-search.module';
     RatesModule,
     PoliciesModule,
     BillingConfigModule,
+    InventoryModule,
     GlobalSearchModule,
   ],
 })
