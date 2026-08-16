@@ -71,7 +71,7 @@ export function BackendConnectivityProvider({ children }: { children: ReactNode 
     try {
       sharedHealthInFlight = fetch(`${apiBaseUrl()}/health/ready`, {
         cache: 'no-store',
-        headers: { Accept: 'application/json' },
+        headers: { Accept: 'application/json', 'X-StayOS-Skip-Auth': 'true' },
       }).then(statusFromResponse);
       const nextStatus = await sharedHealthInFlight;
 

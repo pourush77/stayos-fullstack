@@ -1,6 +1,6 @@
 'use client';
 
-import { MantineProvider, createTheme } from '@mantine/core';
+import { MantineProvider, createTheme, Text } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import type { BrandPaletteName } from '@stayos/theme';
 import {
@@ -57,6 +57,13 @@ export function StayOSProvider({ children, brand = 'green' }: StayOSProviderProp
       xl: '88em',
     },
     components: {
+      Text: Text.extend({
+        defaultProps: {
+          style: {
+            cursor: 'pointer',
+          },
+        },
+      }),
       Button: {
         defaultProps: {
           radius: radius.md,

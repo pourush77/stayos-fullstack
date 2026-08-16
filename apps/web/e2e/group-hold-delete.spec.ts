@@ -1,5 +1,6 @@
 import { expect, test, type APIResponse, type Page } from '@playwright/test';
 import { loginAs } from './helpers/auth';
+import { ensureE2EProperty, resetE2EPropertyState } from './helpers/e2e-property';
 
 const API_BASE = process.env.E2E_API_BASE_URL ?? 'http://localhost:3002/api/v1';
 const FRONT_DESK_EMAIL =
@@ -9,11 +10,6 @@ type ApiEnvelope<T> = {
   success: boolean;
   data: T;
   message?: string;
-};
-
-type PropertyDto = {
-  id: string;
-  status?: string;
 };
 
 type AvailableRoomDto = {
@@ -106,17 +102,8 @@ function localDateValue(offsetDays: number) {
 }
 
 async function activeProperty(page: Page) {
-  const properties = await api<PropertyDto[]>(page, 'GET', '/properties');
-
-  const property =
-    properties.find((item) => String(item.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE') ??
-    properties[0];
-
-  if (!property?.id) {
-    throw new Error('No active property found for group-hold delete E2E.');
-  }
-
-  return property;
+  const fixture = await ensureE2EProperty(page);
+  return { id: fixture.id };
 }
 
 async function findAvailableRoom(
@@ -217,6 +204,10 @@ async function cancelGroupHoldBestEffort(
 }
 
 test.describe('group hold delete', () => {
+  test.beforeEach(() => {
+    resetE2EPropertyState();
+  });
+
   test.beforeEach(async ({ page }) => {
     await loginAs(page, FRONT_DESK_EMAIL);
   });

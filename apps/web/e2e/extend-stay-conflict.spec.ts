@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { loginAs } from './helpers/auth';
+import { ensureE2EProperty } from './helpers/e2e-property';
 
 const frontDeskEmail = 'frontdesk@stayos.local';
 
@@ -106,24 +107,7 @@ function addDays(dateString: string, days: number) {
 }
 
 async function discoverExtendCandidate(page: Page): Promise<ExtendCandidate> {
-  const propertiesResponse = await apiRequest<LooseRecord[]>(page, {
-    path: '/properties',
-  });
-
-  if (!propertiesResponse.ok) {
-    throw new Error(`Unable to load properties: HTTP ${propertiesResponse.status}`);
-  }
-
-  const activeProperty =
-    propertiesResponse.body.find(
-      (property) => String(property.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE',
-    ) ?? propertiesResponse.body[0];
-
-  const propertyId = String(activeProperty?.id ?? '');
-
-  if (!propertyId) {
-    throw new Error('No active property found for extend-stay E2E test.');
-  }
+  const propertyId = (await ensureE2EProperty(page)).id;
 
   const reservationsResponse = await apiRequest<LooseRecord[]>(page, {
     path: `/properties/${propertyId}/reservations?limit=100`,

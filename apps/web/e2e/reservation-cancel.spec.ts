@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { loginAs } from './helpers/auth';
+import { ensureE2EProperty, resetE2EPropertyState } from './helpers/e2e-property';
 
 const frontDeskEmail =
   process.env.E2E_FRONT_DESK_EMAIL ?? process.env.E2E_EMAIL ?? 'frontdesk@stayos.local';
@@ -80,14 +81,7 @@ async function apiRequest<T>(page: Page, input: ApiRequestInput): Promise<ApiRes
 }
 
 async function getActivePropertyId(page: Page) {
-  const response = await apiRequest<LooseRecord[]>(page, { path: '/properties' });
-  if (!response.ok) throw new Error(`Unable to load properties: HTTP ${response.status}`);
-  const property =
-    response.body.find((item) => String(item.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE') ??
-    response.body[0];
-  const propertyId = String(property?.id ?? property?._id ?? property?.uuid ?? '');
-  if (!propertyId) throw new Error('No active property found for reservation cancellation E2E.');
-  return propertyId;
+  return (await ensureE2EProperty(page)).id;
 }
 
 async function discoverReadyRoomForToday(page: Page): Promise<Scenario> {
@@ -258,6 +252,10 @@ async function cancelReservationBestEffort(page: Page, propertyId: string, reser
 }
 
 test.describe('reservation cancellation regression', () => {
+  test.beforeEach(() => {
+    resetE2EPropertyState();
+  });
+
   test('confirmed reservation can be cancelled even when assigned room is under maintenance', async ({
     page,
   }) => {

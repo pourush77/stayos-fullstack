@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -103,36 +103,39 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
   const [isDeleting, setIsDeleting] = useState(false);
   const hasValidGroupHoldId = Boolean(groupHoldId && groupHoldId !== 'undefined');
 
-  const load = async (id = propertyId, signal?: AbortSignal) => {
-    if (!id || !hasValidGroupHoldId) return;
-    setError(undefined);
-    const nextHold = await getGroupHold(id, groupHoldId, signal);
-    const roomRows = await getAvailableRooms(
-      id,
-      {
-        arrivalDate: nextHold.arrivalDate,
-        departureDate: nextHold.departureDate,
-      },
-      signal,
-    );
-    setHold(nextHold);
-    if (nextHold.status === 'CHECKED_IN' || nextHold.status === 'CHECKED_OUT') {
-      try {
-        setMasterFolio(await getGroupMasterFolio(id, groupHoldId, signal));
-      } catch {
+  const load = useCallback(
+    async (id: string, signal?: AbortSignal) => {
+      if (!id || !hasValidGroupHoldId) return;
+      setError(undefined);
+      const nextHold = await getGroupHold(id, groupHoldId, signal);
+      const roomRows = await getAvailableRooms(
+        id,
+        {
+          arrivalDate: nextHold.arrivalDate,
+          departureDate: nextHold.departureDate,
+        },
+        signal,
+      );
+      setHold(nextHold);
+      if (nextHold.status === 'CHECKED_IN' || nextHold.status === 'CHECKED_OUT') {
+        try {
+          setMasterFolio(await getGroupMasterFolio(id, groupHoldId, signal));
+        } catch {
+          setMasterFolio(undefined);
+        }
+      } else {
         setMasterFolio(undefined);
       }
-    } else {
-      setMasterFolio(undefined);
-    }
-    setRooms(
-      roomRows.map((room) => ({
-        label: `${room.roomNumber} - ${room.roomType.name || 'Room'}`,
-        roomTypeId: room.roomType.id,
-        value: room.roomId,
-      })),
-    );
-  };
+      setRooms(
+        roomRows.map((room) => ({
+          label: `${room.roomNumber} - ${room.roomType.name || 'Room'}`,
+          roomTypeId: room.roomType.id,
+          value: room.roomId,
+        })),
+      );
+    },
+    [groupHoldId, hasValidGroupHoldId],
+  );
 
   useEffect(() => {
     if (!hasValidGroupHoldId) {
@@ -156,7 +159,7 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
         setError(err instanceof Error ? err.message : 'Unable to load group hold.');
       });
     return () => controller.abort();
-  }, [groupHoldId, hasValidGroupHoldId]);
+  }, [groupHoldId, hasValidGroupHoldId, load]);
 
   const assignableRooms = useMemo(() => {
     if (!hold) return [];

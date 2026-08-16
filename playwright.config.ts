@@ -12,6 +12,7 @@ const shouldStartWeb = process.env.PLAYWRIGHT_START_WEB === 'true';
 
 export default defineConfig({
   testDir: './apps/web/e2e',
+  globalSetup: './apps/web/e2e/global-setup.ts',
   fullyParallel: false,
   workers: 1,
   timeout: 60_000,

@@ -1,8 +1,9 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import { PropertyStatus } from './domain/property-status.enum';
+import { GroupBookingDepositPolicyType } from './domain/group-booking-deposit-policy-type.enum';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { PropertyEntity } from './infrastructure/property.entity';
 import { PropertiesService } from './properties.service';
@@ -47,6 +48,8 @@ const propertyEntity: PropertyEntity = {
   website: null,
   addressLine2: null,
   status: PropertyStatus.ACTIVE,
+  groupBookingDepositPolicyType: GroupBookingDepositPolicyType.NONE,
+  groupBookingDepositPolicyValue: '0',
   createdAt: new Date('2026-06-30T00:00:00.000Z'),
   updatedAt: new Date('2026-06-30T00:00:00.000Z'),
 };
@@ -156,5 +159,95 @@ describe('PropertiesService', () => {
     expect(repository.merge).toHaveBeenCalledWith(propertyEntity, {
       name: 'Updated Property',
     });
+  });
+
+  it('persists NONE deposit policy with normalized numeric storage value', async () => {
+    const updatedProperty = {
+      ...propertyEntity,
+      groupBookingDepositPolicyType: GroupBookingDepositPolicyType.NONE,
+      groupBookingDepositPolicyValue: '0',
+    };
+    repository.findOne?.mockResolvedValue(propertyEntity);
+    repository.merge?.mockReturnValue(updatedProperty);
+    repository.save?.mockResolvedValue(updatedProperty);
+
+    await expect(
+      service.update(propertyEntity.id, {
+        groupBookingDepositPolicyType: GroupBookingDepositPolicyType.NONE,
+      }),
+    ).resolves.toEqual(updatedProperty);
+
+    expect(repository.merge).toHaveBeenCalledWith(propertyEntity, {
+      groupBookingDepositPolicyType: GroupBookingDepositPolicyType.NONE,
+      groupBookingDepositPolicyValue: '0',
+    });
+  });
+
+  it('persists percentage deposit policy values as numeric strings', async () => {
+    const updatedProperty = {
+      ...propertyEntity,
+      groupBookingDepositPolicyType: GroupBookingDepositPolicyType.PERCENTAGE,
+      groupBookingDepositPolicyValue: '25',
+    };
+    repository.findOne?.mockResolvedValue(propertyEntity);
+    repository.merge?.mockReturnValue(updatedProperty);
+    repository.save?.mockResolvedValue(updatedProperty);
+
+    await expect(
+      service.update(propertyEntity.id, {
+        groupBookingDepositPolicyType: GroupBookingDepositPolicyType.PERCENTAGE,
+        groupBookingDepositPolicyValue: 25,
+      }),
+    ).resolves.toEqual(updatedProperty);
+
+    expect(repository.merge).toHaveBeenCalledWith(propertyEntity, {
+      groupBookingDepositPolicyType: GroupBookingDepositPolicyType.PERCENTAGE,
+      groupBookingDepositPolicyValue: '25',
+    });
+  });
+
+  it('persists fixed-amount deposit policy values as numeric strings', async () => {
+    const updatedProperty = {
+      ...propertyEntity,
+      groupBookingDepositPolicyType: GroupBookingDepositPolicyType.FIXED_AMOUNT,
+      groupBookingDepositPolicyValue: '5000',
+    };
+    repository.findOne?.mockResolvedValue(propertyEntity);
+    repository.merge?.mockReturnValue(updatedProperty);
+    repository.save?.mockResolvedValue(updatedProperty);
+
+    await expect(
+      service.update(propertyEntity.id, {
+        groupBookingDepositPolicyType: GroupBookingDepositPolicyType.FIXED_AMOUNT,
+        groupBookingDepositPolicyValue: 5000,
+      }),
+    ).resolves.toEqual(updatedProperty);
+
+    expect(repository.merge).toHaveBeenCalledWith(propertyEntity, {
+      groupBookingDepositPolicyType: GroupBookingDepositPolicyType.FIXED_AMOUNT,
+      groupBookingDepositPolicyValue: '5000',
+    });
+  });
+
+  it('rejects invalid percentage deposit values', async () => {
+    repository.findOne?.mockResolvedValue(propertyEntity);
+
+    await expect(
+      service.update(propertyEntity.id, {
+        groupBookingDepositPolicyType: GroupBookingDepositPolicyType.PERCENTAGE,
+        groupBookingDepositPolicyValue: 120,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects invalid fixed amount deposit values', async () => {
+    repository.findOne?.mockResolvedValue(propertyEntity);
+
+    await expect(
+      service.update(propertyEntity.id, {
+        groupBookingDepositPolicyType: GroupBookingDepositPolicyType.FIXED_AMOUNT,
+        groupBookingDepositPolicyValue: 0,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

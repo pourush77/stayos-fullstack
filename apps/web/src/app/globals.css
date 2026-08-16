@@ -19,6 +19,39 @@ body {
   background: #fcfcfb;
 }
 
+/* Default arrow cursor across StayOS */
+html,
+body,
+body *,
+body *::before,
+body *::after {
+  cursor: default !important;
+}
+
+/* Hand cursor only for genuinely clickable elements */
+button,
+a,
+[role='button'],
+[data-clickable='true'] {
+  cursor: pointer !important;
+}
+
+/* Text cursor only inside editable fields */
+input,
+textarea,
+[contenteditable='true'] {
+  cursor: text !important;
+}
+
+/* Disabled controls */
+button:disabled,
+input:disabled,
+textarea:disabled,
+select:disabled,
+[aria-disabled='true'] {
+  cursor: not-allowed !important;
+}
+
 * {
   box-sizing: border-box;
 }

@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import { E2E_PROPERTY_CODE } from './e2e-db';
 
 type CheckInCandidate = {
   reservationId: string;
@@ -8,7 +9,7 @@ type CheckInCandidate = {
 export async function findCheckInReservationCandidates(page: Page): Promise<CheckInCandidate[]> {
   const apiBaseUrl = process.env.PLAYWRIGHT_API_BASE_URL ?? 'http://localhost:3002/api/v1';
 
-  const candidates = await page.evaluate(async (baseUrl) => {
+  const candidates = await page.evaluate(async ({ baseUrl, propertyCode }) => {
     type BrowserApiEnvelope<T> = T | { data?: T } | { items?: T } | { results?: T };
 
     type BrowserLooseRecord = Record<string, unknown>;
@@ -52,15 +53,11 @@ export async function findCheckInReservationCandidates(page: Page): Promise<Chec
 
     const properties = unwrapResponse<BrowserLooseRecord[]>(await propertiesResponse.json());
 
-    const activeProperty =
-      properties.find(
-        (property) => String(property.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE',
-      ) ?? properties[0];
-
-    const propertyId = typeof activeProperty?.id === 'string' ? activeProperty.id : '';
+    const e2eProperty = properties.find((property) => String(property.code ?? '') === propertyCode);
+    const propertyId = typeof e2eProperty?.id === 'string' ? e2eProperty.id : '';
 
     if (!propertyId) {
-      throw new Error('No active property found for E2E discovery.');
+      throw new Error(`No ${propertyCode} property found for E2E discovery.`);
     }
 
     const reservationsResponse = await fetch(
@@ -122,7 +119,7 @@ export async function findCheckInReservationCandidates(page: Page): Promise<Chec
     }
 
     return suitable;
-  }, apiBaseUrl);
+  }, { baseUrl: apiBaseUrl, propertyCode: E2E_PROPERTY_CODE });
 
   return candidates;
 }

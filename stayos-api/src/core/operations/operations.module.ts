@@ -4,6 +4,9 @@ import { ActivityEventEntity } from '../activity/infrastructure/activity-event.e
 import { AuditEventEntity } from '../audit/infrastructure/audit-event.entity';
 import { FolioPaymentEntity } from '../billing/infrastructure/folio-payment.entity';
 import { PropertiesModule } from '../properties/properties.module';
+import { RatesModule } from '../rates/rates.module';
+import { RatePlanEntity } from '../rates/infrastructure/rate-plan.entity';
+import { RoomTypeDailyRateEntity } from '../rates/infrastructure/room-type-daily-rate.entity';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 import { RoomTypeEntity } from '../room-types/infrastructure/room-type.entity';
 import { RoomEntity } from '../rooms/infrastructure/room.entity';
@@ -38,8 +41,11 @@ import { RoomDetailsService } from './services/room-details.service';
       FolioPaymentEntity,
       ActivityEventEntity,
       AuditEventEntity,
+      RatePlanEntity,
+      RoomTypeDailyRateEntity,
     ]),
     PropertiesModule,
+    RatesModule,
   ],
   controllers: [OperationsController],
   providers: [

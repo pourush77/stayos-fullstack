@@ -19,6 +19,7 @@ import { Type } from 'class-transformer';
 import { ReservationPaymentStatus } from '../../reservations/domain/reservation-payment-status.enum';
 import { ReservationStatus } from '../../reservations/domain/reservation-status.enum';
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
+import { GroupBookingDepositPolicyType } from '../../properties/domain/group-booking-deposit-policy-type.enum';
 import { GroupBookingSource } from '../domain/group-booking-source.enum';
 import { GroupBookingStatus } from '../domain/group-booking-status.enum';
 
@@ -563,6 +564,46 @@ export class GroupRoomMixBlockDto {
   estimatedTotal!: number;
 }
 
+export class GroupRoomMixPricingDto {
+  @ApiProperty()
+  roomSubtotal!: number;
+
+  @ApiProperty()
+  taxAmount!: number;
+
+  @ApiProperty()
+  otherCharges!: number;
+
+  @ApiProperty()
+  grandTotal!: number;
+
+  @ApiProperty({ nullable: true })
+  taxName!: string | null;
+
+  @ApiProperty()
+  taxPercentage!: string;
+
+  @ApiProperty()
+  taxEnabled!: boolean;
+}
+
+export class GroupBookingDepositDto {
+  @ApiProperty()
+  required!: boolean;
+
+  @ApiProperty({ enum: GroupBookingDepositPolicyType })
+  policyType!: GroupBookingDepositPolicyType;
+
+  @ApiProperty()
+  policyValue!: number;
+
+  @ApiProperty()
+  suggestedAmount!: number;
+
+  @ApiProperty({ enum: ['ESTIMATED_GRAND_TOTAL'] })
+  basis!: 'ESTIMATED_GRAND_TOTAL';
+}
+
 export class GroupRoomMixOptionDto {
   @ApiProperty({ enum: GroupRoomMixOptionType })
   type!: GroupRoomMixOptionType;
@@ -593,6 +634,12 @@ export class GroupRoomMixOptionDto {
 
   @ApiProperty()
   estimatedTotal!: number;
+
+  @ApiProperty({ type: GroupRoomMixPricingDto })
+  pricing!: GroupRoomMixPricingDto;
+
+  @ApiProperty({ type: GroupBookingDepositDto })
+  deposit!: GroupBookingDepositDto;
 
   @ApiProperty()
   canCreateHold!: boolean;
@@ -714,13 +761,6 @@ export class CreateGroupHoldDto {
   @IsOptional()
   @IsDateString()
   releaseAt?: string;
-
-  @ApiPropertyOptional({ minimum: 0 })
-  @Transform(({ value }: { value: unknown }) => (value === undefined ? undefined : Number(value)))
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  depositRequired?: number;
 
   @ApiPropertyOptional({ minimum: 0 })
   @Transform(({ value }: { value: unknown }) => (value === undefined ? undefined : Number(value)))
@@ -851,6 +891,9 @@ export class GroupHoldDto {
   @ApiProperty()
   depositRequired!: number;
 
+  @ApiProperty({ type: GroupBookingDepositDto })
+  deposit!: GroupBookingDepositDto;
+
   @ApiProperty()
   estimatedTotal!: number;
 
@@ -902,13 +945,6 @@ export class UpdateGroupHoldDto {
   @IsOptional()
   @IsDateString()
   releaseAt?: string;
-
-  @ApiPropertyOptional({ minimum: 0 })
-  @Transform(({ value }: { value: unknown }) => (value === undefined ? undefined : Number(value)))
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  depositRequired?: number;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -971,6 +1007,52 @@ export class GroupCheckInRoomPreviewDto {
 
   @ApiProperty()
   ready!: boolean;
+
+  @ApiProperty({ enum: ['READY', 'NOT_READY', 'BLOCKED'] })
+  readinessStatus!: 'READY' | 'NOT_READY' | 'BLOCKED';
+
+  @ApiPropertyOptional()
+  issue!: string | null;
+}
+
+export class GroupCheckInPaymentSummaryDto {
+  @ApiProperty()
+  estimatedTotal!: number;
+
+  @ApiProperty()
+  depositRequired!: number;
+
+  @ApiProperty()
+  depositPaid!: number;
+
+  @ApiProperty()
+  totalPaid!: number;
+
+  @ApiProperty()
+  balanceDue!: number;
+
+  @ApiProperty({ enum: ['UNPAID', 'PARTIALLY_PAID', 'PAID'] })
+  paymentStatus!: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
+}
+
+export class GroupCheckInArrivalDetailsDto {
+  @ApiProperty()
+  standardCheckInTime!: string;
+
+  @ApiProperty()
+  standardCheckOutTime!: string;
+
+  @ApiProperty()
+  timezone!: string;
+
+  @ApiProperty()
+  actualCheckInTime!: string;
+
+  @ApiProperty()
+  earlyCheckIn!: boolean;
+
+  @ApiPropertyOptional()
+  notes!: string | null;
 }
 
 export class GroupCheckInPreviewDto {
@@ -991,6 +1073,15 @@ export class GroupCheckInPreviewDto {
 
   @ApiProperty()
   folioMode!: 'MASTER_FOLIO_ONLY';
+
+  @ApiProperty({ enum: ['PENDING', 'ALREADY_CHECKED_IN', 'NOT_APPLICABLE'] })
+  previewStatus!: 'PENDING' | 'ALREADY_CHECKED_IN' | 'NOT_APPLICABLE';
+
+  @ApiProperty({ type: GroupCheckInPaymentSummaryDto })
+  paymentSummary!: GroupCheckInPaymentSummaryDto;
+
+  @ApiProperty({ type: GroupCheckInArrivalDetailsDto })
+  arrivalDetails!: GroupCheckInArrivalDetailsDto;
 }
 
 export class GroupCheckInResultDto {
@@ -1166,13 +1257,6 @@ export class CreateWalkInGroupDto {
   @IsNumber()
   @Min(0)
   estimatedTotal?: number;
-
-  @ApiPropertyOptional({ minimum: 0 })
-  @Transform(({ value }: { value: unknown }) => (value === undefined ? undefined : Number(value)))
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  depositRequired?: number;
 
   @ApiPropertyOptional()
   @IsOptional()

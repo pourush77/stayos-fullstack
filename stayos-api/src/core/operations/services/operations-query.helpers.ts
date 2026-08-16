@@ -11,7 +11,9 @@ import {
 import { ReservationStatus } from '../../reservations/domain/reservation-status.enum';
 import { ReservationEntity } from '../../reservations/infrastructure/reservation.entity';
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
+import { RoomStatus } from '../../rooms/domain/room-status.enum';
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
+import { RoomTypeStatus } from '../../room-types/domain/room-type-status.enum';
 
 export const activeReservationStatuses = [
   ReservationStatus.PENDING,
@@ -26,7 +28,7 @@ export const findRoomsWithInventory = (
   propertyId: string,
 ): Promise<RoomEntity[]> =>
   roomsRepository.find({
-    where: { propertyId },
+    where: { propertyId, status: RoomStatus.ACTIVE, roomType: { status: RoomTypeStatus.ACTIVE } },
     relations: { floor: true, roomType: true },
     order: { roomNumber: 'ASC' },
   });

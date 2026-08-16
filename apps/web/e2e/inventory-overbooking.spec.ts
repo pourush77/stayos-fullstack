@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { loginAs } from './helpers/auth';
+import { ensureE2EProperty, resetE2EPropertyState } from './helpers/e2e-property';
 
 const frontDeskEmail = 'frontdesk@stayos.local';
 
@@ -29,7 +30,8 @@ type CreatedReservation = {
 async function discoverInventoryCandidate(
   page: Page,
 ): Promise<InventoryCandidate> {
-  return page.evaluate(async (baseUrl) => {
+  const fixture = await ensureE2EProperty(page);
+  return page.evaluate(async ({ baseUrl, propertyId }) => {
     type ApiEnvelope<T> =
       | T
       | { data?: T }
@@ -71,33 +73,9 @@ async function discoverInventoryCandidate(
       Authorization: `Bearer ${token}`,
     };
 
-    const propertiesResponse = await fetch(
-      `${baseUrl}/properties`,
-      { headers },
-    );
-
-    if (!propertiesResponse.ok) {
-      throw new Error(
-        `Unable to load properties: ${propertiesResponse.status}`,
-      );
-    }
-
-    const properties = unwrap<LooseRecord[]>(
-      await propertiesResponse.json(),
-    );
-
-    const activeProperty =
-      properties.find(
-        (property) =>
-          String(property.status ?? 'ACTIVE').toUpperCase() ===
-          'ACTIVE',
-      ) ?? properties[0];
-
-    const propertyId = String(activeProperty?.id ?? '');
-
     if (!propertyId) {
       throw new Error(
-        'No active property found for inventory E2E test.',
+        'No E2E property found for inventory E2E test.',
       );
     }
 
@@ -209,7 +187,7 @@ async function discoverInventoryCandidate(
     throw new Error(
       'No Ready room could be found for a future two-night inventory test window.',
     );
-  }, apiBaseUrl);
+  }, { baseUrl: apiBaseUrl, propertyId: fixture.id });
 }
 
 async function apiRequest<T>(
@@ -445,6 +423,10 @@ test.describe(
   'inventory consistency - pre Channel Manager readiness',
   () => {
     test.setTimeout(90_000);
+
+    test.beforeEach(() => {
+      resetE2EPropertyState();
+    });
 
     test(
       'prevents overlapping room assignment and restores availability after cancellation',

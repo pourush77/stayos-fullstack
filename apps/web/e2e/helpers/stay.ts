@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import { E2E_PROPERTY_CODE } from './e2e-db';
 
 type ApiEnvelope<T> = T | { data?: T } | { items?: T } | { results?: T };
 type LooseRecord = Record<string, unknown>;
@@ -6,7 +7,7 @@ type LooseRecord = Record<string, unknown>;
 export async function findCheckedInReservationId(page: Page) {
   const apiBaseUrl = process.env.PLAYWRIGHT_API_BASE_URL ?? 'http://localhost:3002/api/v1';
 
-  const reservationId = await page.evaluate(async (baseUrl) => {
+  const reservationId = await page.evaluate(async ({ baseUrl, propertyCode }) => {
     const token =
       window.localStorage.getItem('stayos.accessToken') ??
       window.sessionStorage.getItem('stayos.accessToken');
@@ -26,11 +27,9 @@ export async function findCheckedInReservationId(page: Page) {
     const propertiesResponse = await fetch(`${baseUrl}/properties`, { headers });
     if (!propertiesResponse.ok) throw new Error('Unable to load properties for E2E stay discovery.');
     const properties = unwrapResponse<LooseRecord[]>(await propertiesResponse.json());
-    const activeProperty =
-      properties.find((property) => String(property.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE') ??
-      properties[0];
-    const propertyId = typeof activeProperty?.id === 'string' ? activeProperty.id : '';
-    if (!propertyId) throw new Error('No active property found for E2E stay discovery.');
+    const e2eProperty = properties.find((property) => String(property.code ?? '') === propertyCode);
+    const propertyId = typeof e2eProperty?.id === 'string' ? e2eProperty.id : '';
+    if (!propertyId) throw new Error(`No ${propertyCode} property found for E2E stay discovery.`);
 
     const reservationsResponse = await fetch(`${baseUrl}/properties/${propertyId}/reservations`, {
       headers,
@@ -53,7 +52,7 @@ export async function findCheckedInReservationId(page: Page) {
             : '';
     if (!id) throw new Error('No checked-in reservation found for E2E stay discovery.');
     return id;
-  }, apiBaseUrl);
+  }, { baseUrl: apiBaseUrl, propertyCode: E2E_PROPERTY_CODE });
 
   expect(reservationId).toBeTruthy();
   return reservationId;

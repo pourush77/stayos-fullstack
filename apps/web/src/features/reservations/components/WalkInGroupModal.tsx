@@ -72,7 +72,6 @@ export function WalkInGroupModal({
   const [leadPhone, setLeadPhone] = useState('');
   const [leadEmail, setLeadEmail] = useState('');
   const [notes, setNotes] = useState('');
-  const [depositRequired, setDepositRequired] = useState(0);
   const [availableRooms, setAvailableRooms] = useState<OperationsAvailableRoomDto[]>([]);
   const [isLoadingRooms, setIsLoadingRooms] = useState(false);
   const [assignments, setAssignments] = useState<Record<string, WalkInAssignment>>({});
@@ -89,7 +88,6 @@ export function WalkInGroupModal({
     setLeadPhone('');
     setLeadEmail('');
     setNotes('');
-    setDepositRequired(0);
     setAssignments({});
     setError(undefined);
     setResult(null);
@@ -188,7 +186,6 @@ export function WalkInGroupModal({
         leadPhone: leadPhone.trim(),
         leadEmail: leadEmail.trim() || undefined,
         notes: notes.trim() || undefined,
-        depositRequired: depositRequired > 0 ? depositRequired : undefined,
         roomAssignments: selectedList.map((assignment) => ({
           roomId: assignment.roomId,
           adults: assignment.adults,
@@ -374,14 +371,6 @@ export function WalkInGroupModal({
               value={leadEmail}
               onChange={(event) => setLeadEmail(event.currentTarget.value)}
               data-testid="walk-in-lead-email"
-            />
-            <NumberInput
-              label="Deposit collected (optional)"
-              value={depositRequired}
-              onChange={(value) => setDepositRequired(Number(value) || 0)}
-              min={0}
-              prefix="₹"
-              data-testid="walk-in-deposit"
             />
           </SimpleGrid>
 

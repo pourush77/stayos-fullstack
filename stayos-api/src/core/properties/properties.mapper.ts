@@ -1,4 +1,5 @@
 import { PropertyResponseDto } from './dto/property-response.dto';
+import { GroupBookingDepositPolicyType } from './domain/group-booking-deposit-policy-type.enum';
 import { PropertyEntity } from './infrastructure/property.entity';
 
 export class PropertiesMapper {
@@ -29,6 +30,11 @@ export class PropertiesMapper {
       totalFloors: entity.totalFloors,
       totalRooms: entity.totalRooms,
       status: entity.status,
+      groupBookingDepositPolicyType: entity.groupBookingDepositPolicyType,
+      groupBookingDepositPolicyValue:
+        entity.groupBookingDepositPolicyType === GroupBookingDepositPolicyType.NONE
+          ? null
+          : Number(entity.groupBookingDepositPolicyValue || 0),
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
     };

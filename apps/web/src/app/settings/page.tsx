@@ -136,11 +136,10 @@ export default function SettingsHomePage() {
     {
       key: 'property',
       title: 'Property',
-      description: 'Property profile, address, tax details and check-in policies.',
+      description: 'Property profile, address, check-in and group booking policies.',
       icon: <Building2 size={22} />,
       href: '/settings/property',
-      disabled: true,
-      disabledLabel: 'Coming soon',
+      permission: 'settings.view',
     },
     {
       key: 'security',

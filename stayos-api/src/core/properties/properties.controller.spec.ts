@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PropertyStatus } from './domain/property-status.enum';
+import { GroupBookingDepositPolicyType } from './domain/group-booking-deposit-policy-type.enum';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { PropertyEntity } from './infrastructure/property.entity';
 import { PropertiesController } from './properties.controller';
@@ -31,8 +32,15 @@ const propertyEntity: PropertyEntity = {
   totalFloors: 6,
   totalRooms: 120,
   status: PropertyStatus.ACTIVE,
+  groupBookingDepositPolicyType: GroupBookingDepositPolicyType.NONE,
+  groupBookingDepositPolicyValue: '0',
   createdAt: new Date('2026-06-30T00:00:00.000Z'),
   updatedAt: new Date('2026-06-30T00:00:00.000Z'),
+};
+
+const propertyResponse = {
+  ...propertyEntity,
+  groupBookingDepositPolicyValue: null,
 };
 
 const createPropertyDto: CreatePropertyDto = {
@@ -90,7 +98,7 @@ describe('PropertiesController', () => {
     await expect(controller.findAll({ page: 1, limit: 20, sortOrder: 'ASC' })).resolves.toEqual({
       success: true,
       message: 'Records fetched successfully.',
-      data: [propertyEntity],
+      data: [propertyResponse],
       pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
     });
   });
@@ -98,7 +106,7 @@ describe('PropertiesController', () => {
   it('delegates create requests to the service', async () => {
     propertiesService.create.mockResolvedValue(propertyEntity);
 
-    await expect(controller.create(createPropertyDto)).resolves.toEqual(propertyEntity);
+    await expect(controller.create(createPropertyDto)).resolves.toEqual(propertyResponse);
     expect(propertiesService.create).toHaveBeenCalledWith(createPropertyDto);
   });
 
@@ -107,7 +115,7 @@ describe('PropertiesController', () => {
 
     await expect(
       controller.update(propertyEntity.id, { status: PropertyStatus.INACTIVE }),
-    ).resolves.toEqual(propertyEntity);
+    ).resolves.toEqual(propertyResponse);
     expect(propertiesService.update).toHaveBeenCalledWith(propertyEntity.id, {
       status: PropertyStatus.INACTIVE,
     });

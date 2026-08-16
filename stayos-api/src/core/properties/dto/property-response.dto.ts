@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { GroupBookingDepositPolicyType } from '../domain/group-booking-deposit-policy-type.enum';
 import { PropertyStatus } from '../domain/property-status.enum';
 
 export class PropertyResponseDto {
@@ -76,6 +77,12 @@ export class PropertyResponseDto {
 
   @ApiProperty({ enum: PropertyStatus })
   status!: PropertyStatus;
+
+  @ApiProperty({ enum: GroupBookingDepositPolicyType })
+  groupBookingDepositPolicyType!: GroupBookingDepositPolicyType;
+
+  @ApiPropertyOptional()
+  groupBookingDepositPolicyValue!: number | null;
 
   @ApiProperty({ type: String, format: 'date-time' })
   createdAt!: Date;

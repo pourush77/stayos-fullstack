@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { loginAs } from './helpers/auth';
+import { ensureE2EProperty, resetE2EPropertyState } from './helpers/e2e-property';
 
 const frontDeskEmail = 'frontdesk@stayos.local';
 const maintenanceEmail = 'maintenance@stayos.local';
@@ -138,28 +139,7 @@ async function apiRequest<T>(page: Page, input: ApiRequestInput): Promise<ApiRes
 }
 
 async function getActivePropertyId(page: Page) {
-  const propertiesResponse = await apiRequest<LooseRecord[]>(page, {
-    path: '/properties',
-  });
-
-  if (!propertiesResponse.ok) {
-    throw new Error(`Unable to load properties: HTTP ${propertiesResponse.status}`);
-  }
-
-  const activeProperty =
-    propertiesResponse.body.find(
-      (property) => String(property.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE',
-    ) ?? propertiesResponse.body[0];
-
-  const propertyId = String(
-    activeProperty?.id ?? activeProperty?._id ?? activeProperty?.uuid ?? '',
-  );
-
-  if (!propertyId) {
-    throw new Error('No active property found for maintenance lifecycle tests.');
-  }
-
-  return propertyId;
+  return (await ensureE2EProperty(page)).id;
 }
 
 async function discoverReadyRoomForToday(page: Page): Promise<ScenarioRooms> {
@@ -1365,6 +1345,10 @@ async function reportOccupiedMaintenanceViaUi(
 
 test.describe('maintenance room lifecycle regression', () => {
   test.setTimeout(150_000);
+
+  test.beforeEach(() => {
+    resetE2EPropertyState();
+  });
 
   test('assigned room maintenance before check-in', async ({ page }) => {
     await loginAs(page, frontDeskEmail);

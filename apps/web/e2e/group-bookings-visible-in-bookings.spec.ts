@@ -1,12 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
 import { loginAs } from './helpers/auth';
+import { ensureE2EProperty, resetE2EPropertyState } from './helpers/e2e-property';
 
 const API_BASE = process.env.E2E_API_BASE_URL ?? 'http://localhost:3002/api/v1';
 const FRONT_DESK_EMAIL =
   process.env.E2E_FRONT_DESK_EMAIL ?? process.env.E2E_EMAIL ?? 'frontdesk@stayos.local';
 
 type ApiEnvelope<T> = { success: boolean; data: T; message?: string };
-type PropertyDto = { id: string; status?: string };
 type AvailableRoomDto = {
   roomId: string;
   roomNumber: string;
@@ -73,16 +73,8 @@ function dateValue(offsetDays: number) {
 }
 
 async function activeProperty(page: Page) {
-  const properties = await api<PropertyDto[]>(page, 'GET', '/properties');
-  const property =
-    properties.find((item) => String(item.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE') ??
-    properties[0];
-
-  if (!property?.id) {
-    throw new Error('No active property found for group-bookings visibility E2E.');
-  }
-
-  return property;
+  const fixture = await ensureE2EProperty(page);
+  return { id: fixture.id };
 }
 
 async function findAvailableRoom(
@@ -161,6 +153,10 @@ async function cancelGroupHoldBestEffort(
 }
 
 test.describe('group bookings in bookings list', () => {
+  test.beforeEach(() => {
+    resetE2EPropertyState();
+  });
+
   test('group hold appears with normal bookings and opens group details', async ({ page }) => {
     test.setTimeout(120_000);
 

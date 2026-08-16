@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { PropertyStatus } from '../domain/property-status.enum';
+import { GroupBookingDepositPolicyType } from '../domain/group-booking-deposit-policy-type.enum';
 
 @Entity({ name: 'properties' })
 export class PropertyEntity {
@@ -87,6 +88,23 @@ export class PropertyEntity {
     default: PropertyStatus.ACTIVE,
   })
   status!: PropertyStatus;
+
+  @Column({
+    type: 'enum',
+    enum: GroupBookingDepositPolicyType,
+    name: 'group_booking_deposit_policy_type',
+    default: GroupBookingDepositPolicyType.NONE,
+  })
+  groupBookingDepositPolicyType!: GroupBookingDepositPolicyType;
+
+  @Column({
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    name: 'group_booking_deposit_policy_value',
+    default: 0,
+  })
+  groupBookingDepositPolicyValue!: string;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt!: Date;

@@ -219,13 +219,33 @@ export type GroupRoomMixBlockDto = {
   roomTypeName: string;
 };
 
+export type GroupRoomMixPricingDto = {
+  grandTotal: number;
+  otherCharges: number;
+  roomSubtotal: number;
+  taxAmount: number;
+  taxEnabled: boolean;
+  taxName: string | null;
+  taxPercentage: string;
+};
+
+export type GroupBookingDepositDto = {
+  basis: 'ESTIMATED_GRAND_TOTAL';
+  policyType: 'NONE' | 'PERCENTAGE' | 'FIXED_AMOUNT';
+  policyValue: number;
+  required: boolean;
+  suggestedAmount: number;
+};
+
 export type GroupRoomMixOptionDto = {
   adultCapacity: number;
   canCreateHold: boolean;
   canCreateWalkInGroup: boolean;
   childCapacity: number;
   estimatedTotal: number;
+  deposit: GroupBookingDepositDto;
   label: string;
+  pricing?: GroupRoomMixPricingDto;
   reason: string;
   roomBlocks: GroupRoomMixBlockDto[];
   spareCapacity: number;
@@ -253,7 +273,6 @@ export type CreateGroupHoldDto = {
   arrivalDate: string;
   children: number;
   departureDate: string;
-  depositRequired?: number;
   estimatedTotal?: number;
   groupName: string;
   leadEmail?: string;
@@ -278,6 +297,7 @@ export type GroupHoldDto = {
   children: number;
   departureDate: string;
   depositRequired: number;
+  deposit: GroupBookingDepositDto;
   estimatedTotal: number;
   groupCode: string;
   groupBookingId?: string;
@@ -327,7 +347,6 @@ export type GroupHoldDto = {
 };
 
 export type UpdateGroupHoldDto = {
-  depositRequired?: number;
   groupName?: string;
   leadEmail?: string;
   leadName?: string;
@@ -344,7 +363,6 @@ export type CreateWalkInGroupDto = {
   arrivalDate: string;
   departureDate: string;
   estimatedTotal?: number;
-  depositRequired?: number;
   notes?: string;
   roomAssignments: Array<{
     roomId: string;
@@ -356,13 +374,32 @@ export type CreateWalkInGroupDto = {
 };
 
 export type GroupCheckInPreviewDto = {
+  arrivalDetails: {
+    actualCheckInTime: string;
+    earlyCheckIn: boolean;
+    notes: string | null;
+    standardCheckInTime: string;
+    standardCheckOutTime: string;
+    timezone: string;
+  };
   blockers: string[];
   canCheckIn: boolean;
   folioMode: 'MASTER_FOLIO_ONLY';
   group: GroupHoldDto;
+  paymentSummary: {
+    balanceDue: number;
+    depositPaid: number;
+    depositRequired: number;
+    estimatedTotal: number;
+    paymentStatus: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
+    totalPaid: number;
+  };
+  previewStatus: 'PENDING' | 'ALREADY_CHECKED_IN' | 'NOT_APPLICABLE';
   rooms: Array<{
+    issue: string | null;
     operationalStatus: string;
     ready: boolean;
+    readinessStatus: 'READY' | 'NOT_READY' | 'BLOCKED';
     roomId: string;
     roomNumber: string;
     roomTypeName: string;

@@ -62,6 +62,24 @@ type AuthContextValue = {
 };
 
 type ApiResponse<T> = T | { data?: T } | { user?: T };
+type AuthRequestErrorCode =
+  | 'INVALID_REFRESH_TOKEN'
+  | 'SESSION_EXPIRED'
+  | 'SESSION_LOCKED'
+  | 'SESSION_REVOKED'
+  | string;
+
+class AuthRequestError extends Error {
+  code?: AuthRequestErrorCode;
+  status?: number;
+
+  constructor(message: string, options: { cause?: unknown; code?: AuthRequestErrorCode; status?: number } = {}) {
+    super(message, { cause: options.cause });
+    this.name = 'AuthRequestError';
+    this.code = options.code;
+    this.status = options.status;
+  }
+}
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 //const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api/v1';
@@ -71,6 +89,7 @@ const rememberDeviceKey = 'stayos.rememberDevice';
 const manualLogoutKey = 'stayos.manualLogout';
 const publicPaths = new Set(['/login']);
 const refreshExcludedPaths = ['/auth/login', '/auth/logout', '/auth/refresh', '/auth/unlock'];
+const skipAuthHeader = 'X-StayOS-Skip-Auth';
 
 function isRefreshExcludedUrl(url: string) {
   return refreshExcludedPaths.some((path) => url.includes(path));
@@ -249,9 +268,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | undefined>();
   const rawFetchRef = useRef<typeof fetch | undefined>(undefined);
   const refreshPromiseRef = useRef<Promise<string> | null>(null);
+  const redirectingToLoginRef = useRef(false);
   const sessionSourceIdRef = useRef(createSessionSourceId());
 
   const redirectToLogin = useCallback(() => {
+    if (redirectingToLoginRef.current) return;
+    redirectingToLoginRef.current = true;
     if (hasManualLogout()) {
       router.replace('/login');
       return;
@@ -259,6 +281,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const next = pathname && !isPublicPath(pathname) ? `?next=${encodeURIComponent(pathname)}` : '';
     router.replace(`/login${next}`);
   }, [pathname, router]);
+
+  useEffect(() => {
+    if (pathname !== '/login') {
+      redirectingToLoginRef.current = false;
+    }
+  }, [pathname]);
 
   const refreshTokens = useCallback((): Promise<string> => {
     if (refreshPromiseRef.current) {
@@ -275,7 +303,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         method: 'POST',
       });
       const payload = await parseJson(response);
-      if (!response.ok) throw new Error(getMessage(payload, 'Session expired.'));
+      if (!response.ok) {
+        throw new AuthRequestError(getMessage(payload, 'Session expired.'), {
+          code: getErrorCode(payload),
+          status: response.status,
+        });
+      }
 
       const data = unwrap<Record<string, unknown>>(payload as ApiResponse<Record<string, unknown>>);
       const nextAccessToken = stringValue(data, ['accessToken', 'token']);
@@ -355,7 +388,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const retryHeaders = new Headers(init.headers);
           retryHeaders.set('Authorization', `Bearer ${nextToken}`);
           return (rawFetchRef.current ?? fetch)(input, { ...init, headers: retryHeaders });
-        } catch {
+        } catch (refreshError) {
+          if (refreshError instanceof AuthRequestError && refreshError.code === 'SESSION_LOCKED') {
+            setIsLocked(true);
+            return response;
+          }
+
           clearTokens();
           setUser(undefined);
           setAccessToken(undefined);
@@ -615,6 +653,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const isStayApi = url.startsWith(API_BASE_URL);
       const isCurrentRoutePublic = isPublicPath(pathname);
       const headers = new Headers(init.headers);
+      const skipAuth = headers.get(skipAuthHeader) === 'true';
+      headers.delete(skipAuthHeader);
+      if (skipAuth) {
+        return rawFetch(input, { ...init, headers });
+      }
+
       const token = readToken(accessTokenKey);
       if (isStayApi && token && !headers.has('Authorization')) {
         headers.set('Authorization', `Bearer ${token}`);
@@ -645,7 +689,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const retryHeaders = new Headers(init.headers);
         retryHeaders.set('Authorization', `Bearer ${nextToken}`);
         return rawFetch(input, { ...init, headers: retryHeaders });
-      } catch {
+      } catch (refreshError) {
+        if (refreshError instanceof AuthRequestError && refreshError.code === 'SESSION_LOCKED') {
+          setIsLocked(true);
+          return response;
+        }
+
         clearTokens();
         setUser(undefined);
         setAccessToken(undefined);

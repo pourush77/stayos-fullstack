@@ -39,6 +39,7 @@ import { GroupStayEntity } from '../infrastructure/group-stay.entity';
 import { GroupRoomMixService } from './group-room-mix.service';
 import { RoomAvailabilityService } from './room-availability.service';
 import { activeReservationStatuses, overlapsDateRange } from './operations-query.helpers';
+import { calculateGroupBookingDeposit } from './group-booking-deposit-policy';
 
 function currentDateKey(date = new Date()): string {
   const year = date.getFullYear();
@@ -78,7 +79,7 @@ export class GroupBookingService {
   ) {}
 
   async createHold(propertyId: string, dto: CreateGroupHoldDto): Promise<GroupHoldDto> {
-    await this.propertiesService.findOne(propertyId);
+    const property = await this.propertiesService.findOne(propertyId);
     this.validateDateRange(dto.arrivalDate, dto.departureDate);
 
     const availability = await this.groupRoomMixService.getAvailability(
@@ -117,9 +118,21 @@ export class GroupBookingService {
       const groupRepository = manager.getRepository(GroupBookingEntity);
       const blockRepository = manager.getRepository(GroupBookingRoomBlockEntity);
       const groupCode = await this.nextGroupCode(propertyId);
-      const estimatedTotal =
-        dto.estimatedTotal ??
-        dto.roomBlocks.reduce((sum, block) => sum + (block.estimatedTotal ?? 0), 0);
+      const pricedOption = await this.findPricedRoomMixOption(propertyId, dto);
+      const estimatedTotal = pricedOption?.estimatedTotal ?? dto.roomBlocks.reduce(
+        (sum, block) => sum + (block.estimatedTotal ?? 0),
+        0,
+      );
+      const deposit = calculateGroupBookingDeposit(
+        {
+          type: property.groupBookingDepositPolicyType,
+          value: Number(property.groupBookingDepositPolicyValue || 0),
+        },
+        estimatedTotal,
+      );
+      const pricedBlocksByRoomType = new Map(
+        pricedOption?.roomBlocks.map((block) => [block.roomTypeId, block]) ?? [],
+      );
 
       const group = await groupRepository.save(
         groupRepository.create({
@@ -127,7 +140,9 @@ export class GroupBookingService {
           arrivalDate: dto.arrivalDate,
           children: dto.children,
           departureDate: dto.departureDate,
-          depositRequired: String(dto.depositRequired ?? 0),
+          depositPolicyType: deposit.policyType,
+          depositPolicyValue: String(deposit.policyValue),
+          depositRequired: String(deposit.suggestedAmount),
           estimatedTotal: String(estimatedTotal),
           externalChannelId: null,
           groupCode,
@@ -148,9 +163,13 @@ export class GroupBookingService {
         dto.roomBlocks.map((block) =>
           blockRepository.create({
             adultsPerRoom: block.adultsPerRoom,
-            baseRate: String(block.baseRate ?? 0),
+            baseRate: String(pricedBlocksByRoomType.get(block.roomTypeId)?.baseRate ?? block.baseRate ?? 0),
             childrenPerRoom: block.childrenPerRoom,
-            estimatedTotal: String(block.estimatedTotal ?? 0),
+            estimatedTotal: String(
+              pricedBlocksByRoomType.get(block.roomTypeId)?.estimatedTotal ??
+                block.estimatedTotal ??
+                0,
+            ),
             groupBookingId: group.id,
             roomTypeId: block.roomTypeId,
             rooms: block.rooms,
@@ -163,6 +182,27 @@ export class GroupBookingService {
 
     const roomTypeById = new Map(roomTypes.map((roomType) => [roomType.id, roomType]));
     return this.toGroupHoldDto(saved.group, saved.blocks, roomTypeById);
+  }
+
+  private async findPricedRoomMixOption(propertyId: string, dto: CreateGroupHoldDto) {
+    const suggestion = await this.groupRoomMixService.suggestRoomMix(propertyId, {
+      adults: dto.adults,
+      arrivalDate: dto.arrivalDate,
+      children: dto.children,
+      departureDate: dto.departureDate,
+    });
+    const requestedKey = this.roomBlockSelectionKey(dto.roomBlocks);
+
+    return suggestion.options.find(
+      (option) => this.roomBlockSelectionKey(option.roomBlocks) === requestedKey,
+    );
+  }
+
+  private roomBlockSelectionKey(blocks: Array<{ roomTypeId: string; rooms: number }>) {
+    return blocks
+      .map((block) => `${block.roomTypeId}:${block.rooms}`)
+      .sort()
+      .join('|');
   }
 
   async listHolds(propertyId: string): Promise<GroupHoldDto[]> {
@@ -217,7 +257,6 @@ export class GroupBookingService {
     if (dto.leadEmail !== undefined) group.leadEmail = dto.leadEmail.trim() || null;
     if (dto.releaseAt !== undefined)
       group.releaseAt = dto.releaseAt ? new Date(dto.releaseAt) : null;
-    if (dto.depositRequired !== undefined) group.depositRequired = String(dto.depositRequired);
     if (dto.notes !== undefined) group.notes = dto.notes.trim() || null;
 
     const saved = await this.groupBookingsRepository.save(group);
@@ -685,10 +724,28 @@ export class GroupBookingService {
   }
 
   async getCheckInPreview(propertyId: string, id: string): Promise<GroupCheckInPreviewDto> {
+    const property = await this.propertiesService.findOne(propertyId);
     const group = await this.getHold(propertyId, id);
     const blockers: string[] = [];
     const warnings: string[] = [];
     const totalHeldRooms = group.roomBlocks.reduce((sum, block) => sum + block.rooms, 0);
+    const arrivalDetails = this.buildArrivalDetails(property);
+    const paymentSummary = await this.buildGroupCheckInPaymentSummary(propertyId, group);
+
+    if (group.status === GroupBookingStatus.CHECKED_IN) {
+      const rooms = await this.buildCheckInRoomPreview(propertyId, group.roomAssignments);
+      return {
+        arrivalDetails,
+        blockers: [],
+        canCheckIn: false,
+        folioMode: 'MASTER_FOLIO_ONLY',
+        group,
+        paymentSummary,
+        previewStatus: 'ALREADY_CHECKED_IN',
+        rooms,
+        warnings: ['This group is already checked in.'],
+      };
+    }
 
     const today = currentDateKey();
 
@@ -709,43 +766,29 @@ export class GroupBookingService {
         `${totalHeldRooms - group.roomAssignments.length} held room(s) are still unassigned.`,
       );
 
-    const assignedRooms = group.roomAssignments.length
-      ? await this.roomsRepository.find({
-          where: {
-            id: In(group.roomAssignments.map((assignment) => assignment.roomId)),
-            propertyId,
-          },
-          relations: { roomType: true },
-        })
-      : [];
-    const rooms = assignedRooms.map((room) => ({
-      operationalStatus: room.operationalStatus,
-      ready: room.operationalStatus === RoomOperationalStatus.READY,
-      roomId: room.id,
-      roomNumber: room.roomNumber,
-      roomTypeName: room.roomType?.name ?? 'Room type',
-    }));
+    const rooms = await this.buildCheckInRoomPreview(propertyId, group.roomAssignments);
     const notReady = rooms.filter((room) => !room.ready);
     if (notReady.length) blockers.push(`${notReady.length} assigned room(s) are not ready.`);
 
     return {
+      arrivalDetails,
       blockers,
       canCheckIn: blockers.length === 0,
       folioMode: 'MASTER_FOLIO_ONLY',
       group,
+      paymentSummary,
+      previewStatus:
+        group.status === GroupBookingStatus.RELEASED ||
+        group.status === GroupBookingStatus.CANCELLED ||
+        group.status === GroupBookingStatus.CHECKED_OUT
+          ? 'NOT_APPLICABLE'
+          : 'PENDING',
       rooms,
       warnings,
     };
   }
 
   async checkInGroup(propertyId: string, id: string): Promise<GroupCheckInResultDto> {
-    const preview = await this.getCheckInPreview(propertyId, id);
-    if (!preview.canCheckIn) {
-      throw new BadRequestException({
-        code: ApiErrorCode.VALIDATION_ERROR,
-        message: `Cannot check in group: ${preview.blockers.join(' ')}`,
-      });
-    }
     const existingStay = await this.groupStaysRepository.findOne({
       where: { groupBookingId: id, propertyId },
     });
@@ -753,6 +796,13 @@ export class GroupBookingService {
       throw new BadRequestException({
         code: ApiErrorCode.VALIDATION_ERROR,
         message: 'Group is already checked in.',
+      });
+    }
+    const preview = await this.getCheckInPreview(propertyId, id);
+    if (!preview.canCheckIn) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: `Cannot check in group: ${preview.blockers.join(' ')}`,
       });
     }
 
@@ -807,7 +857,7 @@ export class GroupBookingService {
     propertyId: string,
     dto: CreateWalkInGroupDto,
   ): Promise<GroupCheckInResultDto> {
-    await this.propertiesService.findOne(propertyId);
+    const property = await this.propertiesService.findOne(propertyId);
     this.validateDateRange(dto.arrivalDate, dto.departureDate);
 
     const today = currentDateKey();
@@ -953,6 +1003,13 @@ export class GroupBookingService {
     });
 
     const finalEstimatedTotal = dto.estimatedTotal ?? totalEstimated;
+    const deposit = calculateGroupBookingDeposit(
+      {
+        type: property.groupBookingDepositPolicyType,
+        value: Number(property.groupBookingDepositPolicyValue || 0),
+      },
+      finalEstimatedTotal,
+    );
 
     const result = await this.dataSource.transaction(async (manager) => {
       const groupRepository = manager.getRepository(GroupBookingEntity);
@@ -969,7 +1026,9 @@ export class GroupBookingService {
           arrivalDate: dto.arrivalDate,
           children: totalChildren,
           departureDate: dto.departureDate,
-          depositRequired: String(dto.depositRequired ?? 0),
+          depositPolicyType: deposit.policyType,
+          depositPolicyValue: String(deposit.policyValue),
+          depositRequired: String(deposit.suggestedAmount),
           estimatedTotal: String(finalEstimatedTotal),
           externalChannelId: null,
           groupCode,
@@ -1480,6 +1539,100 @@ export class GroupBookingService {
     }
   }
 
+  private async buildCheckInRoomPreview(
+    propertyId: string,
+    roomAssignments: GroupHoldDto['roomAssignments'],
+  ): Promise<GroupCheckInPreviewDto['rooms']> {
+    const assignedRooms = roomAssignments.length
+      ? await this.roomsRepository.find({
+          where: {
+            id: In(roomAssignments.map((assignment) => assignment.roomId)),
+            propertyId,
+          },
+          relations: { roomType: true },
+        })
+      : [];
+
+    return assignedRooms.map((room) => {
+      const blocked =
+        room.operationalStatus === RoomOperationalStatus.OUT_OF_ORDER ||
+        room.operationalStatus === RoomOperationalStatus.OCCUPIED;
+      const ready = room.operationalStatus === RoomOperationalStatus.READY;
+      return {
+        issue: ready
+          ? null
+          : room.operationalStatusNote ||
+            room.operationalStatusReason ||
+            `Current status: ${room.operationalStatus}`,
+        operationalStatus: room.operationalStatus,
+        readinessStatus: ready ? 'READY' : blocked ? 'BLOCKED' : 'NOT_READY',
+        ready,
+        roomId: room.id,
+        roomNumber: room.roomNumber,
+        roomTypeName: room.roomType?.name ?? 'Room type',
+      };
+    });
+  }
+
+  private async buildGroupCheckInPaymentSummary(
+    propertyId: string,
+    group: GroupHoldDto,
+  ): Promise<GroupCheckInPreviewDto['paymentSummary']> {
+    const folio = await this.groupMasterFoliosRepository.findOne({
+      where: { propertyId, groupBookingId: group.id },
+    });
+    const payments = folio?.id
+      ? ((await this.folioPaymentsRepository?.find({
+          where: { groupMasterFolioId: folio.id },
+        })) ?? [])
+      : [];
+    const totalPaid = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const estimatedTotal = Number(group.estimatedTotal || 0);
+    const balanceDue = Math.max(estimatedTotal - totalPaid, 0);
+
+    return {
+      balanceDue,
+      depositPaid: Math.min(totalPaid, Number(group.depositRequired || 0)),
+      depositRequired: Number(group.depositRequired || 0),
+      estimatedTotal,
+      paymentStatus:
+        balanceDue <= 0.01 && totalPaid > 0
+          ? 'PAID'
+          : totalPaid > 0
+            ? 'PARTIALLY_PAID'
+            : 'UNPAID',
+      totalPaid,
+    };
+  }
+
+  private buildArrivalDetails(property: {
+    checkInTime?: string | null;
+    checkOutTime?: string | null;
+    timezone?: string | null;
+  }): GroupCheckInPreviewDto['arrivalDetails'] {
+    const standardCheckInTime = property.checkInTime || '14:00:00';
+    const standardCheckOutTime = property.checkOutTime || '12:00:00';
+    const timezone = property.timezone || 'Asia/Kolkata';
+    const actual = new Date();
+    const actualCheckInTime = actual.toISOString();
+    const localTime = new Intl.DateTimeFormat('en-GB', {
+      hour: '2-digit',
+      hour12: false,
+      minute: '2-digit',
+      second: '2-digit',
+      timeZone: timezone,
+    }).format(actual);
+
+    return {
+      actualCheckInTime,
+      earlyCheckIn: localTime < standardCheckInTime,
+      notes: null,
+      standardCheckInTime,
+      standardCheckOutTime,
+      timezone,
+    };
+  }
+
   private ensureRoomAssignmentChangeAllowed(group: GroupBookingEntity) {
     if (
       ![GroupBookingStatus.ON_HOLD, GroupBookingStatus.CONFIRMED, GroupBookingStatus.CHECKED_IN].includes(
@@ -1638,6 +1791,13 @@ export class GroupBookingService {
       children: group.children,
       departureDate: group.departureDate,
       depositRequired: Number(group.depositRequired),
+      deposit: {
+        basis: 'ESTIMATED_GRAND_TOTAL',
+        policyType: group.depositPolicyType,
+        policyValue: Number(group.depositPolicyValue || 0),
+        required: Number(group.depositRequired) > 0,
+        suggestedAmount: Number(group.depositRequired),
+      },
       estimatedTotal: Number(group.estimatedTotal),
       groupCode: group.groupCode,
       groupName: group.groupName,

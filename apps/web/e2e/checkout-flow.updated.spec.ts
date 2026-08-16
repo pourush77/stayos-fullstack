@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { loginAs } from './helpers/auth';
+import { ensureE2EProperty, resetE2EPropertyState } from './helpers/e2e-property';
 
 const frontDeskEmail = 'frontdesk@stayos.local';
 const apiBaseUrl = process.env.PLAYWRIGHT_API_BASE_URL ?? 'http://localhost:3002/api/v1';
@@ -14,7 +15,8 @@ type CheckoutCandidate = {
 };
 
 async function discoverCheckedInCandidates(page: Page): Promise<CheckoutCandidate[]> {
-  return page.evaluate(async (baseUrl) => {
+  const fixture = await ensureE2EProperty(page);
+  return page.evaluate(async ({ baseUrl, propertyId }) => {
     type ApiEnvelope<T> = T | { data?: T } | { items?: T } | { results?: T };
 
     type BrowserLooseRecord = Record<string, unknown>;
@@ -50,25 +52,8 @@ async function discoverCheckedInCandidates(page: Page): Promise<CheckoutCandidat
       Authorization: `Bearer ${token}`,
     };
 
-    const propertiesResponse = await fetch(`${baseUrl}/properties`, { headers });
-
-    if (!propertiesResponse.ok) {
-      throw new Error(
-        `Unable to load properties for checkout discovery: ${propertiesResponse.status}`,
-      );
-    }
-
-    const properties = unwrap<BrowserLooseRecord[]>(await propertiesResponse.json());
-
-    const activeProperty =
-      properties.find(
-        (property) => String(property.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE',
-      ) ?? properties[0];
-
-    const propertyId = typeof activeProperty?.id === 'string' ? activeProperty.id : '';
-
     if (!propertyId) {
-      throw new Error('No active property found for checkout E2E discovery.');
+      throw new Error('No E2E property found for checkout E2E discovery.');
     }
 
     const reservationsResponse = await fetch(
@@ -91,7 +76,7 @@ async function discoverCheckedInCandidates(page: Page): Promise<CheckoutCandidat
         reservationId: String(reservation.id ?? reservation._id ?? reservation.uuid ?? ''),
       }))
       .filter((candidate) => Boolean(candidate.propertyId) && Boolean(candidate.reservationId));
-  }, apiBaseUrl);
+  }, { baseUrl: apiBaseUrl, propertyId: fixture.id });
 }
 
 async function openPaidCheckedInStay(page: Page): Promise<CheckoutCandidate> {

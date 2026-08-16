@@ -10,6 +10,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { PropertyEntity } from '../../properties/infrastructure/property.entity';
+import { GroupBookingDepositPolicyType } from '../../properties/domain/group-booking-deposit-policy-type.enum';
 import { GroupBookingSource } from '../domain/group-booking-source.enum';
 import { GroupBookingStatus } from '../domain/group-booking-status.enum';
 
@@ -77,6 +78,17 @@ export class GroupBookingEntity {
 
   @Column({ type: 'numeric', precision: 12, scale: 2, name: 'deposit_required', default: 0 })
   depositRequired!: string;
+
+  @Column({
+    type: 'enum',
+    enum: GroupBookingDepositPolicyType,
+    name: 'deposit_policy_type',
+    default: GroupBookingDepositPolicyType.NONE,
+  })
+  depositPolicyType!: GroupBookingDepositPolicyType;
+
+  @Column({ type: 'numeric', precision: 12, scale: 2, name: 'deposit_policy_value', default: 0 })
+  depositPolicyValue!: string;
 
   @Column({ type: 'numeric', precision: 12, scale: 2, name: 'estimated_total', default: 0 })
   estimatedTotal!: string;
