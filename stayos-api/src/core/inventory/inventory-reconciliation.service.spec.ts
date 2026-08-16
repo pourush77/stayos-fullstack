@@ -22,7 +22,15 @@ describe('InventoryReconciliationService', () => {
   it('reports consistent when stored matches expected', async () => {
     const { service } = serviceWithRows([row()]);
     const result = await service.reconcile();
-    expect(result).toEqual({ consistent: true, discrepancies: [] });
+    expect(result.consistent).toBe(true);
+    expect(result.discrepancies).toEqual([]);
+    expect(result.countsByType).toEqual({
+      MISSING_ROW: 0,
+      ORPHAN_SOLD: 0,
+      SOLD_MISMATCH: 0,
+      CAPACITY_MISMATCH: 0,
+      OVERSELL: 0,
+    });
   });
 
   it('passes the property filter into the query when provided', async () => {

@@ -137,14 +137,16 @@ export class ReservationWorkflowService {
 
       // Capture the entitlement being released BEFORE the status flips terminal.
       const releasedEntitlement = getReservationInventoryEntitlement(reservation);
+      const wasReserved = reservation.inventoryReserved;
 
       reservation.status = target;
+      reservation.inventoryReserved = false;
       // NOTE: physical roomId is intentionally NOT cleared here — assignment is
       // separate from inventory. Inventory entitlement is released via the hook
       // below (driven by the terminal status), not by clearing roomId.
       const updated = await reservationRepository.save(reservation);
 
-      await this.releaseInventoryEntitlement(manager, updated, releasedEntitlement);
+      await this.releaseInventoryEntitlement(manager, updated, releasedEntitlement, wasReserved);
 
       await this.createLifecycleEvents(manager, {
         propertyId,
@@ -178,8 +180,12 @@ export class ReservationWorkflowService {
     manager: EntityManager,
     reservation: ReservationEntity,
     entitlement: ReservationInventoryEntitlement,
+    wasReserved: boolean,
   ): Promise<void> {
-    if (entitlement.consuming) {
+    // Only restore inventory that was actually reserved by THIS reservation.
+    // The marker makes release idempotent/paired: cancelling a never-reserved
+    // (legacy / backfill-skipped oversold) reservation cannot phantom-decrement.
+    if (entitlement.consuming && wasReserved) {
       await this.availabilityService.restore(
         {
           propertyId: reservation.propertyId,
@@ -498,9 +504,11 @@ export class ReservationWorkflowService {
       // Capture the entitlement BEFORE the status flips to the non-consuming
       // CHECKED_OUT so it releases exactly the nights the stay held.
       const releasedEntitlement = getReservationInventoryEntitlement(reservation);
+      const wasReserved = reservation.inventoryReserved;
 
       const previousState = this.workflowAuditState(reservation, room);
       reservation.status = ReservationStatus.CHECKED_OUT;
+      reservation.inventoryReserved = false;
       room.operationalStatus = RoomOperationalStatus.NEEDS_CLEANING;
       room.operationalStatusReason = 'CHECKOUT';
       room.operationalStatusNote = 'Room marked for cleaning after checkout.';
@@ -510,7 +518,7 @@ export class ReservationWorkflowService {
         roomRepository.save(room),
       ]);
 
-      await this.releaseInventoryEntitlement(manager, updatedReservation, releasedEntitlement);
+      await this.releaseInventoryEntitlement(manager, updatedReservation, releasedEntitlement, wasReserved);
 
       await this.createEvents(manager, {
         propertyId,
@@ -577,28 +585,31 @@ export class ReservationWorkflowService {
 
       // Entitlement diff: same roomType, extend departure -> reserve ONLY the
       // newly added nights [previousDeparture, newDeparture). Unavailable nights
-      // roll back the whole extension (dates + charge + inventory).
-      const entitlementDiff = diffEntitlements(
-        {
-          consuming: true,
-          roomTypeId: updatedReservation.roomTypeId,
-          nights: expandStayNights(updatedReservation.arrivalDate, previousDepartureDate),
-        },
-        {
-          consuming: true,
-          roomTypeId: updatedReservation.roomTypeId,
-          nights: expandStayNights(updatedReservation.arrivalDate, updatedReservation.departureDate),
-        },
-      );
-      await this.availabilityService.applyDelta(
-        {
-          propertyId,
-          toRelease: entitlementDiff.toRelease,
-          toReserve: entitlementDiff.toReserve,
-          units: 1,
-        },
-        manager,
-      );
+      // roll back the whole extension (dates + charge + inventory). Only touch
+      // inventory when this reservation actually holds a ledger entitlement.
+      if (updatedReservation.inventoryReserved) {
+        const entitlementDiff = diffEntitlements(
+          {
+            consuming: true,
+            roomTypeId: updatedReservation.roomTypeId,
+            nights: expandStayNights(updatedReservation.arrivalDate, previousDepartureDate),
+          },
+          {
+            consuming: true,
+            roomTypeId: updatedReservation.roomTypeId,
+            nights: expandStayNights(updatedReservation.arrivalDate, updatedReservation.departureDate),
+          },
+        );
+        await this.availabilityService.applyDelta(
+          {
+            propertyId,
+            toRelease: entitlementDiff.toRelease,
+            toReserve: entitlementDiff.toReserve,
+            units: 1,
+          },
+          manager,
+        );
+      }
 
       await this.postExtensionCharge(manager, updatedReservation, previousDepartureDate);
 

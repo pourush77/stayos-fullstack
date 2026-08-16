@@ -70,7 +70,15 @@ def catalog(admin_client):
 created_ids = []
 
 
-def _create_reservation(client, catalog, status="PENDING", room_type_id=None, arrival="2026-11-02", departure="2026-11-04"):
+def _fresh_window(days=2):
+    """Inventory is now enforced, so every create needs an uncontended window."""
+    start = date(2043, 1, 1) + timedelta(days=random.randint(0, 3000))
+    return start.isoformat(), (start + timedelta(days=days)).isoformat()
+
+
+def _create_reservation(client, catalog, status="PENDING", room_type_id=None, arrival=None, departure=None):
+    if arrival is None or departure is None:
+        arrival, departure = _fresh_window()
     payload = {
         "guestId": catalog["guestId"],
         "arrivalDate": arrival,

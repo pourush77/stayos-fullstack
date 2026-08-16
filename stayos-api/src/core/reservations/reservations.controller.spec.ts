@@ -27,6 +27,7 @@ const reservationEntity: ReservationEntity = {
   roomType: undefined as never,
   roomId: null,
   room: null,
+  inventoryReserved: true,
   source: ReservationSource.DIRECT,
   status: ReservationStatus.CONFIRMED,
   paymentStatus: ReservationPaymentStatus.PAYMENT_DUE,

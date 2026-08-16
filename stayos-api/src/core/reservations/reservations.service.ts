@@ -224,6 +224,7 @@ export class ReservationsService {
 
     const reservationCode = await this.generateReservationCode(propertyId);
     const status = createReservationDto.status ?? ReservationStatus.CONFIRMED;
+    const willReserve = inventoryDeltaForTransition(null, status) === InventoryDelta.RESERVE;
 
     try {
       return await this.dataSource.transaction(async (manager) => {
@@ -233,6 +234,7 @@ export class ReservationsService {
           propertyId,
           reservationCode,
           status,
+          inventoryReserved: willReserve,
         });
 
         const saved = await reservationRepository.save(reservation);
@@ -241,7 +243,7 @@ export class ReservationsService {
         // NOT by the create action itself. Only entering a consuming status
         // reserves inventory, and it happens in THIS transaction so an
         // out-of-stock night rolls back the reservation write entirely.
-        if (inventoryDeltaForTransition(null, saved.status) === InventoryDelta.RESERVE) {
+        if (willReserve) {
           await this.availabilityService.reserve(
             {
               propertyId,
@@ -337,7 +339,13 @@ export class ReservationsService {
 
         await reservationRepository.save(updatedReservation);
 
-        if (diff.toRelease.length > 0 || diff.toReserve.length > 0) {
+        // Only mutate inventory when this reservation actually holds a ledger
+        // entitlement (paired reserve/release). A never-reserved (legacy /
+        // backfill-skipped) reservation is left untouched to avoid phantom drift.
+        if (
+          reservation.inventoryReserved &&
+          (diff.toRelease.length > 0 || diff.toReserve.length > 0)
+        ) {
           await this.availabilityService.applyDelta(
             { propertyId, toRelease: diff.toRelease, toReserve: diff.toReserve, units: 1 },
             manager,

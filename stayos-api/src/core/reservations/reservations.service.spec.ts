@@ -104,6 +104,7 @@ const reservationEntity: ReservationEntity = {
   roomType: roomTypeEntity,
   roomId: null,
   room: null,
+  inventoryReserved: true,
   source: ReservationSource.DIRECT,
   status: ReservationStatus.CONFIRMED,
   paymentStatus: ReservationPaymentStatus.PAYMENT_DUE,

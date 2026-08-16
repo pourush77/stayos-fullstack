@@ -35,6 +35,7 @@ const reservation = (overrides: Partial<ReservationEntity> = {}): ReservationEnt
   roomType: undefined as never,
   roomId: 'room-1',
   room: null,
+  inventoryReserved: true,
   source: ReservationSource.DIRECT,
   status: ReservationStatus.CONFIRMED,
   paymentStatus: ReservationPaymentStatus.PAID,

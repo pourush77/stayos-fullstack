@@ -1,0 +1,46 @@
+{
+  "summary": "Backend-only verification of Phase 1C-a4 inventory-engine hardening against http://localhost:3001/api/v1 (+ psql room_type_inventory audits). New pytest module /app/backend/tests/test_inventory_engine.py with 17 cases: 17/17 PASSED on two consecutive runs. Verified (1) Suite (0f0b435d...) capacity == 5 ACTIVE rooms and the 2042-06-01 test night was clean; (2) first 5 creates -> 201 and ledger sold goes 0->5, consuming reservation count 5; (3) 6th create -> HTTP 409 with error.code=INVENTORY_UNAVAILABLE, no reservation row leaked, sold stays 5; 3 further attempts all 409 with no drift; (4) cancelling one -> 200/CANCELLED, sold 5->4, and a brand-new create for the same night -> 201 (sold back to 5), then full again -> 409 INVENTORY_UNAVAILABLE; (5) NEW concurrency case: with exactly 1 unit left on 2042-06-10, 5 simultaneous creates yielded EXACTLY 1x201 + 4x409 and sold==capacity (SELECT..FOR UPDATE locking holds, no oversell race); (6) GET /properties/{id}/inventory/reconciliation -> 401 without Bearer, 400 for a non-UUID propertyId, 200 with success=true and data.consistent/countsByType/discrepancies, counters agree with the discrepancy list; two back-to-back calls returned IDENTICAL countsByType/consistent AND the full ledger aggregate (row count, sum(sold), sum(capacity)) was byte-identical before/after -> endpoint is strictly read-only; (7) lifecycle regression create->confirm->cancel: creates land directly in CONFIRMED so the explicit confirm is correctly rejected 400 INVALID_RESERVATION_STATE_TRANSITION (no double consumption), cancel releases sold 1->0; (8) full cleanup: all 12 reservations created by the suite cancelled, both test nights back to sold=0 / 0 consuming, and reconciliation shows ZERO discrepancies for any test date.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "PATCH /properties/{id}/reservations/{rid}/cancel|no-show|check-out (releaseInventoryEntitlement -> AvailabilityService.restore)",
+        "issue": "Release is unconditional and not tied to a per-reservation entitlement record: restore() blindly does sold = max(0, sold - 1). For any reservation that never reserved inventory (all pre-enforcement/legacy + seeded rows), a cancel decrements sold that was never incremented, so the ledger under-counts and can later permit real overbooking. Reproduced live: running the legacy suite against Deluxe 9f3f0c8f.. on 2026-11-02/03 left storedSold=0 while 218 consuming reservations exist (reconciliation now reports SOLD_MISMATCH 2 + OVERSELL 4 instead of the previous MISSING_ROW 4 + OVERSELL 4). Recommend guarding the release with a ledger/entitlement marker (e.g. per-reservation inventory row or a reserved flag) so release only fires when a matching reserve happened."
+      },
+      {
+        "endpoint": "seed/demo data (rooms.operational_status)",
+        "issue": "The property currently has 24 rooms and ZERO in operational_status=READY (19 NEEDS_CLEANING, 2 OCCUPIED, 1 INSPECTION, 1 MAINTENANCE, 1 OUT_OF_SERVICE). This makes 8 room-assignment cases in tests/test_reservation_lifecycle.py error out at the `catalog` fixture ('Seed data missing (guests/room types/ready rooms)'). Not an inventory-engine bug, but the demo dataset needs a housekeeping reset (or the tests need to reset a room to READY) before those assignment regressions can run again."
+      },
+      {
+        "endpoint": "reservations (legacy demo data)",
+        "issue": "218 inventory-consuming reservations exist for a 19-room type on 2026-11-02/03 (accumulated by earlier test iterations before inventory enforcement). This permanently poisons availability for those dates and inflates OVERSELL/SOLD_MISMATCH counters. Consider bulk-cancelling TEST_ reservations from prior iterations."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_inventory_engine.py",
+    "/app/test_reports/pytest/inventory_engine_iter11.xml"
+  ],
+  "action_items": [
+    "No blocking issue: overbooking rejection (409 INVENTORY_UNAVAILABLE), release-on-cancel, concurrency safety on the last unit and the read-only reconciliation endpoint all verified end-to-end.",
+    "Harden release: make releaseInventoryEntitlement idempotent w.r.t. an actual reserve (see minor issue #1) so cancelling pre-ledger/legacy reservations cannot drive sold below true consumption.",
+    "Reset demo data: restore some rooms to operational_status=READY and cancel the ~218 stale 2026-11-02/03 test reservations so lifecycle assignment tests and availability for those dates are usable again."
+  ],
+  "critical_code_review_comments": [
+    "AvailabilityService.restore clamps at 0 and has no reservation-level bookkeeping -> release/reserve are not paired; a ledger of entitlements (or a boolean on the reservation) is needed before Phase 1C ends, otherwise every legacy cancel silently frees phantom inventory.",
+    "InventoryReconciliationService is a single 90-line raw SQL FULL OUTER JOIN with the property filter interpolated via ${filter} into 3 CTEs while $1 is bound - correct today, but the string interpolation of the predicate is fragile; consider always binding propertyId (or NULL-safe predicate) to avoid future injection/param-index bugs.",
+    "InventoryController exposes reconciliation under OperationsView only; there is no pagination/limit on discrepancies - on a drifted property this response can grow unbounded (8 rows today, but expectedSold=218 style drift shows the shape). Consider a limit + summary-only mode."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_inventory_engine.py",
+    "/app/backend/tests/test_reservation_lifecycle.py"
+  ],
+  "success_rate": {"backend": "100% (17/17 inventory cases); legacy lifecycle suite 45/53 - 8 errors caused by zero READY rooms in demo data, not by the inventory engine", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "12 reservations created on far-future nights 2042-06-01, 2042-06-10 and 2042-07-10 for the Suite room type; ALL were cancelled at the end and both ledger nights verified back to sold=0 with zero reconciliation discrepancies. No seeded/demo data was modified by the new module.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@stayos.local / Password123! (from /app/memory/test_credentials.md); API on http://localhost:3001/api/v1 (public preview URL returned 502 during this run)",
+  "context_for_next_testing_agent": "Run `python -m pytest tests/test_inventory_engine.py -v` from /app/backend (needs psql on localhost with PGPASSWORD StayOS@2026, DB stayos_dev). The module is order-dependent inside the file (no xdist / no random order) and self-cleans. Nights used: 2042-06-01 (capacity test), 2042-06-10 (concurrency), 2042-07-10 (lifecycle). Baseline reconciliation drift for this property is now MISSING_ROW 2 / SOLD_MISMATCH 2 / OVERSELL 4 (8 discrepancies), all on Deluxe+Suite 2026-11-02/03 from legacy test data - treat as baseline, only assert no NEW drift on your own dates. tests/test_reservation_lifecycle.py default create window was changed to a random far-future window (_fresh_window) because inventory is now enforced; its 8 remaining failures are all the `catalog` fixture finding zero READY rooms.",
+  "rca_of_the_issue": "Legacy lifecycle-suite failures: (a) the file hardcoded arrival 2026-11-02, a date already holding 218 consuming reservations against a 19-room type, so creates now legitimately 409 INVENTORY_UNAVAILABLE - fixed in-test by randomising the window; (b) the remaining 8 failures are environment drift - no room is in operational_status READY, so the catalog fixture assertion fails before any request. Ledger under-count RCA: releaseInventoryEntitlement always calls restore() on a consuming->non-consuming transition, but pre-enforcement reservations never ran reserve(), so sold is decremented (clamped at 0) without a matching increment."
+}

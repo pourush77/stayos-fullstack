@@ -111,6 +111,7 @@ const reservationEntity = (overrides: Partial<ReservationEntity> = {}): Reservat
   roomType: undefined as never,
   roomId: null,
   room: null,
+  inventoryReserved: true,
   source: ReservationSource.DIRECT,
   status: ReservationStatus.CONFIRMED,
   paymentStatus: ReservationPaymentStatus.PAYMENT_DUE,
@@ -611,6 +612,16 @@ describe('ReservationWorkflowService', () => {
       await expect(service.cancel(propertyId, reservationId, null)).rejects.toBeInstanceOf(
         BadRequestException,
       );
+      expect(availabilityService.restore).not.toHaveBeenCalled();
+    });
+
+    it('never phantom-releases: cancelling a reservation that never reserved inventory does NOT restore', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ status: ReservationStatus.CONFIRMED, inventoryReserved: false }),
+      );
+
+      await service.cancel(propertyId, reservationId, 'legacy');
+
       expect(availabilityService.restore).not.toHaveBeenCalled();
     });
 

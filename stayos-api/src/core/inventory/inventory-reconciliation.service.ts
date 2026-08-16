@@ -23,6 +23,7 @@ export interface InventoryDiscrepancy {
 export interface ReconciliationResult {
   consistent: boolean;
   discrepancies: InventoryDiscrepancy[];
+  countsByType: Record<InventoryDiscrepancyType, number>;
 }
 
 interface ReconciliationRow {
@@ -133,6 +134,15 @@ export class InventoryReconciliationService {
       }
     }
 
-    return { consistent: discrepancies.length === 0, discrepancies };
+    const countsByType: Record<InventoryDiscrepancyType, number> = {
+      MISSING_ROW: 0,
+      ORPHAN_SOLD: 0,
+      SOLD_MISMATCH: 0,
+      CAPACITY_MISMATCH: 0,
+      OVERSELL: 0,
+    };
+    for (const d of discrepancies) countsByType[d.type] += 1;
+
+    return { consistent: discrepancies.length === 0, discrepancies, countsByType };
   }
 }

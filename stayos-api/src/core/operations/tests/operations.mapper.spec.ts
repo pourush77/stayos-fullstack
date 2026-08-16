@@ -47,6 +47,7 @@ const reservation = (departureDate = '2026-07-03'): ReservationEntity => ({
   roomType: undefined as never,
   roomId: '8075c8fa-f36e-4f40-a3ef-2e9dbb1f0674',
   room: undefined as never,
+  inventoryReserved: true,
   source: ReservationSource.DIRECT,
   status: ReservationStatus.CHECKED_IN,
   paymentStatus: ReservationPaymentStatus.PAID,

@@ -73,6 +73,16 @@ export class ReservationEntity {
   @Column({ type: 'uuid', name: 'room_id', nullable: true })
   roomId!: string | null;
 
+  /**
+   * True when this reservation currently holds a unit in the room_type_inventory
+   * ledger (i.e. a reserve() ran and committed for its current entitlement).
+   * Guards release so a terminal transition can only restore inventory that was
+   * actually reserved — cancelling a reservation that never reserved (legacy /
+   * backfill-skipped oversold) can never phantom-decrement sold.
+   */
+  @Column({ type: 'boolean', name: 'inventory_reserved', default: false })
+  inventoryReserved!: boolean;
+
   @ManyToOne(() => RoomEntity, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'room_id' })
   room!: RoomEntity | null;
