@@ -28,6 +28,7 @@ import { ChildPricingService } from '../rates/child-pricing.service';
 import { AvailabilityService } from '../inventory/availability.service';
 import { ReservationPricingService } from './services/reservation-pricing.service';
 import { ReservationRateSnapshotService } from './services/reservation-rate-snapshot.service';
+import { RestrictionService } from '../rates/restriction.service';
 import { ReservationRateSnapshotTrigger } from './domain/reservation-rate-snapshot-trigger.enum';
 import { expandStayNights } from '../inventory/domain/inventory-nights';
 import {
@@ -80,6 +81,7 @@ export class ReservationsService {
     private readonly availabilityService: AvailabilityService,
     private readonly reservationPricingService: ReservationPricingService,
     private readonly reservationRateSnapshotService: ReservationRateSnapshotService,
+    private readonly restrictionService: RestrictionService,
   ) {}
 
   async findAll(propertyId: string, query: PaginationQueryDto): Promise<PaginatedReservations> {
@@ -234,6 +236,24 @@ export class ReservationsService {
 
     try {
       return await this.dataSource.transaction(async (manager) => {
+        // Restriction gate: validate the entire newly requested stay under the
+        // EFFECTIVE rate plan (explicit -> default -> none/baseline) BEFORE any
+        // write. A RESTRICTION_VIOLATION (422) here rolls back the whole
+        // transaction => no reservation, no inventory, no snapshot. Validation
+        // only — never mutates inventory/pricing.
+        const effectiveRatePlanId = await this.reservationPricingService.resolveEffectiveRatePlanId({
+          propertyId,
+          roomTypeId: createReservationDto.roomTypeId,
+          ratePlanId,
+        });
+        await this.restrictionService.assertStaySellable({
+          propertyId,
+          roomTypeId: createReservationDto.roomTypeId,
+          ratePlanId: effectiveRatePlanId,
+          arrivalDate: createReservationDto.arrivalDate,
+          departureDate: createReservationDto.departureDate,
+        });
+
         const reservationRepository = manager.getRepository(ReservationEntity);
         const reservation = reservationRepository.create({
           ...this.toCreatePersistenceFields(createReservationDto),

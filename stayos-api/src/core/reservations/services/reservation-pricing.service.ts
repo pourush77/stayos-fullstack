@@ -33,17 +33,31 @@ export class ReservationPricingService {
     private readonly ratesService: RatesService,
   ) {}
 
-  async buildCommercialSnapshot(input: CommercialInput): Promise<CommercialResult> {
-    let ratePlanId = input.ratePlanId;
+  /**
+   * The single authoritative resolution of a reservation's EFFECTIVE rate plan,
+   * reused for both commercial snapshotting and restriction-scope evaluation:
+   * explicit applicable plan when supplied, else the property's default
+   * applicable plan, else null (roomType-level baseline only).
+   */
+  async resolveEffectiveRatePlanId(input: {
+    propertyId: string;
+    roomTypeId: string;
+    ratePlanId: string | null;
+  }): Promise<string | null> {
+    if (input.ratePlanId) return input.ratePlanId;
+    const defaultPlan = await this.ratesService.findDefaultApplicableRatePlan(
+      input.propertyId,
+      input.roomTypeId,
+    );
+    return defaultPlan?.id ?? null;
+  }
 
-    // Default-plan fallback only when caller omitted an explicit plan.
-    if (!ratePlanId) {
-      const defaultPlan = await this.ratesService.findDefaultApplicableRatePlan(
-        input.propertyId,
-        input.roomTypeId,
-      );
-      ratePlanId = defaultPlan?.id ?? null;
-    }
+  async buildCommercialSnapshot(input: CommercialInput): Promise<CommercialResult> {
+    const ratePlanId = await this.resolveEffectiveRatePlanId({
+      propertyId: input.propertyId,
+      roomTypeId: input.roomTypeId,
+      ratePlanId: input.ratePlanId,
+    });
 
     if (!ratePlanId) {
       return {

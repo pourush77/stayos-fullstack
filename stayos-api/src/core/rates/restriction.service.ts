@@ -123,8 +123,18 @@ export class RestrictionService {
   async assertStaySellable(query: StayRestrictionQuery): Promise<void> {
     const { sellable, violations } = await this.evaluateStay(query);
     if (!sellable) {
+      const details = violations.map((v) => ({
+        field: v.type,
+        message: v.message,
+        rejectedValue: { date: v.date, requiredMinStay: v.requiredMinStay, allowedMaxStay: v.allowedMaxStay },
+      }));
       throw new HttpException(
-        { code: ApiErrorCode.RESTRICTION_VIOLATION, message: 'Stay violates one or more sale restrictions', violations },
+        {
+          code: ApiErrorCode.RESTRICTION_VIOLATION,
+          message: 'Stay violates one or more sale restrictions',
+          details,
+          violations,
+        },
         HttpStatus.UNPROCESSABLE_ENTITY,
       );
     }

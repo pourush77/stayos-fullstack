@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { QueryFailedError, Repository, DataSource } from 'typeorm';
@@ -21,6 +21,7 @@ import { ChildPricingService } from '../rates/child-pricing.service';
 import { AvailabilityService } from '../inventory/availability.service';
 import { ReservationPricingService } from './services/reservation-pricing.service';
 import { ReservationRateSnapshotService } from './services/reservation-rate-snapshot.service';
+import { RestrictionService } from '../rates/restriction.service';
 
 type MockRepository<T extends object = object> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -129,7 +130,11 @@ describe('ReservationsService', () => {
   const propertiesService = { findOne: jest.fn() };
   const childPricingService = { validateReservationChildAges: jest.fn() };
   const availabilityService = { reserve: jest.fn(), restore: jest.fn(), applyDelta: jest.fn(), read: jest.fn() };
-  const reservationPricingService = { buildCommercialSnapshot: jest.fn() };
+  const reservationPricingService = {
+    buildCommercialSnapshot: jest.fn(),
+    resolveEffectiveRatePlanId: jest.fn().mockResolvedValue(null),
+  };
+  const restrictionService = { assertStaySellable: jest.fn().mockResolvedValue(undefined) };
   const reservationRateSnapshotService = {
     computeCommercialHash: jest.fn(
       (key: Record<string, unknown>) =>
@@ -198,6 +203,7 @@ describe('ReservationsService', () => {
         { provide: AvailabilityService, useValue: availabilityService },
         { provide: ReservationPricingService, useValue: reservationPricingService },
         { provide: ReservationRateSnapshotService, useValue: reservationRateSnapshotService },
+        { provide: RestrictionService, useValue: restrictionService },
       ],
     }).compile();
 
@@ -275,6 +281,66 @@ describe('ReservationsService', () => {
     });
 
     expect(availabilityService.reserve).not.toHaveBeenCalled();
+  });
+
+  describe('restriction validation on create (1C-c2)', () => {
+    const clearDto = (status: ReservationStatus, ratePlanId?: string) => ({
+      guestId, arrivalDate: '2026-07-15', departureDate: '2026-07-17', adults: 2, roomTypeId, ratePlanId, status,
+    });
+
+    beforeEach(() => {
+      reservationsRepository.create?.mockImplementation((input) => input);
+      reservationsRepository.save?.mockImplementation(async (input) => input);
+    });
+
+    it('allows a clear PENDING create (assertStaySellable resolves)', async () => {
+      await expect(service.create(propertyId, clearDto(ReservationStatus.PENDING))).resolves.toBeDefined();
+      expect(restrictionService.assertStaySellable).toHaveBeenCalledTimes(1);
+      expect(availabilityService.reserve).toHaveBeenCalledTimes(1);
+    });
+
+    it('allows a clear direct-CONFIRMED create', async () => {
+      await expect(service.create(propertyId, clearDto(ReservationStatus.CONFIRMED))).resolves.toBeDefined();
+      expect(restrictionService.assertStaySellable).toHaveBeenCalledTimes(1);
+      expect(reservationRateSnapshotService.recordInitialVersion).toHaveBeenCalledTimes(1);
+    });
+
+    it('propagates RESTRICTION_VIOLATION (422) and leaves NO reservation/inventory/snapshot side effects', async () => {
+      restrictionService.assertStaySellable.mockRejectedValueOnce(
+        new HttpException({ code: 'RESTRICTION_VIOLATION', message: 'blocked', violations: [{ type: 'STOP_SELL' }, { type: 'MIN_STAY' }] }, HttpStatus.UNPROCESSABLE_ENTITY),
+      );
+
+      const err = await service.create(propertyId, clearDto(ReservationStatus.CONFIRMED)).catch((e) => e);
+      expect(err).toBeInstanceOf(HttpException);
+      expect(err.getStatus()).toBe(422);
+      expect(err.getResponse()).toMatchObject({ code: 'RESTRICTION_VIOLATION', violations: expect.arrayContaining([{ type: 'STOP_SELL' }, { type: 'MIN_STAY' }]) });
+      // validation runs before any write => nothing persisted
+      expect(reservationsRepository.save).not.toHaveBeenCalled();
+      expect(availabilityService.reserve).not.toHaveBeenCalled();
+      expect(reservationRateSnapshotService.recordInitialVersion).not.toHaveBeenCalled();
+    });
+
+    it('validates using the EXPLICIT rate plan when supplied', async () => {
+      reservationPricingService.resolveEffectiveRatePlanId.mockResolvedValueOnce('rp-explicit');
+      await service.create(propertyId, clearDto(ReservationStatus.PENDING, 'rp-explicit'));
+      expect(reservationPricingService.resolveEffectiveRatePlanId).toHaveBeenCalledWith({ propertyId, roomTypeId, ratePlanId: 'rp-explicit' });
+      expect(restrictionService.assertStaySellable).toHaveBeenCalledWith(
+        expect.objectContaining({ propertyId, roomTypeId, ratePlanId: 'rp-explicit', arrivalDate: '2026-07-15', departureDate: '2026-07-17' }),
+      );
+    });
+
+    it('validates using the property DEFAULT rate plan when ratePlanId is omitted', async () => {
+      reservationPricingService.resolveEffectiveRatePlanId.mockResolvedValueOnce('rp-default');
+      await service.create(propertyId, clearDto(ReservationStatus.PENDING));
+      expect(reservationPricingService.resolveEffectiveRatePlanId).toHaveBeenCalledWith({ propertyId, roomTypeId, ratePlanId: null });
+      expect(restrictionService.assertStaySellable).toHaveBeenCalledWith(expect.objectContaining({ ratePlanId: 'rp-default' }));
+    });
+
+    it('falls back to roomType baseline (ratePlanId null) when no plan/default exists', async () => {
+      reservationPricingService.resolveEffectiveRatePlanId.mockResolvedValueOnce(null);
+      await service.create(propertyId, clearDto(ReservationStatus.PENDING));
+      expect(restrictionService.assertStaySellable).toHaveBeenCalledWith(expect.objectContaining({ ratePlanId: null }));
+    });
   });
 
   it('rolls back the reservation when inventory is insufficient (transactional)', async () => {
