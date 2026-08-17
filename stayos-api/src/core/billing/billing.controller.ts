@@ -102,6 +102,23 @@ export class BillingController {
     return BillingMapper.toResponse(folio);
   }
 
+  @Post('reservations/:reservationId/folio/reconcile-room-charges')
+  @RequirePermissions(Permissions.BillingManage)
+  @ApiStandardOkResponse(FolioResponseDto)
+  async reconcileRoomCharges(
+    @Param('propertyId', new ParseUUIDPipe()) propertyId: string,
+    @Param('reservationId', new ParseUUIDPipe()) reservationId: string,
+    @Req() req: AuthRequest,
+  ): Promise<FolioResponseDto> {
+    const folio = await this.billingService.reconcileRoomChargesForReservation(
+      propertyId,
+      reservationId,
+      req.user?.id ?? null,
+    );
+    return BillingMapper.toResponse(folio);
+  }
+
+
   @Post('folios/:folioId/charges/:chargeId/void')
   @RequirePermissions(Permissions.BillingManage)
   @ApiStandardOkResponse(FolioResponseDto)

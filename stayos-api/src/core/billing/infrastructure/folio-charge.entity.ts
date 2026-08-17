@@ -40,6 +40,14 @@ export class FolioChargeEntity {
   @Column({ type: 'uuid', name: 'reversal_of_charge_id', nullable: true })
   reversalOfChargeId!: string | null;
 
+  // Snapshot-driven ROOM charges (1D-b) carry the reservation_rate_snapshot they
+  // were generated from. NULL => legacy/manual charge (never reconciled).
+  @Column({ type: 'uuid', name: 'rate_snapshot_id', nullable: true })
+  rateSnapshotId!: string | null;
+
+  @Column({ type: 'integer', name: 'rate_snapshot_version', nullable: true })
+  rateSnapshotVersion!: number | null;
+
   @Column({ type: 'varchar', length: 160 })
   description!: string;
 

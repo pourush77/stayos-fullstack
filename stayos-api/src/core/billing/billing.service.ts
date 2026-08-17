@@ -4,9 +4,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { PropertiesService } from '../properties/properties.service';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
+import { ReservationRateSnapshotEntity } from '../reservations/infrastructure/reservation-rate-snapshot.entity';
+import { ReservationRateSnapshotStatus } from '../reservations/domain/reservation-rate-snapshot-status.enum';
 import { ReservationStatus } from '../reservations/domain/reservation-status.enum';
 import { ReservationPaymentStatus } from '../reservations/domain/reservation-payment-status.enum';
 import { FolioChargeEntity } from './infrastructure/folio-charge.entity';
@@ -17,7 +19,7 @@ import { FolioPaymentMethod } from './domain/folio-payment-method.enum';
 import { CreateFolioChargeDto } from './dto/create-folio-charge.dto';
 import { CreateFolioPaymentDto } from './dto/create-folio-payment.dto';
 import { calculateTotals } from './billing.mapper';
-import { toCents } from './domain/money';
+import { toCents, fromCents } from './domain/money';
 import { FolioChargeStatus } from './domain/folio-charge-status.enum';
 import { ChildPricingService } from '../rates/child-pricing.service';
 import { FolioChargeType } from './domain/folio-charge-type.enum';
@@ -34,6 +36,8 @@ export class BillingService {
     private readonly paymentsRepository: Repository<FolioPaymentEntity>,
     @InjectRepository(ReservationEntity)
     private readonly reservationsRepository: Repository<ReservationEntity>,
+    @InjectRepository(ReservationRateSnapshotEntity)
+    private readonly snapshotsRepository: Repository<ReservationRateSnapshotEntity>,
     private readonly propertiesService: PropertiesService,
     private readonly dataSource: DataSource,
     private readonly childPricingService: ChildPricingService,
@@ -81,7 +85,7 @@ export class BillingService {
     if (existing) return this.getFolio(propertyId, existing.id);
 
     const folioNumber = await this.nextFolioNumber(propertyId);
-    const nights = this.calculateNights(reservation.arrivalDate, reservation.departureDate);
+    const activeSnapshot = await this.loadActiveSnapshot(reservationId);
     const folio = await this.dataSource.transaction(async (manager) => {
       const created = await manager.getRepository(FolioEntity).save(
         manager.getRepository(FolioEntity).create({
@@ -93,52 +97,131 @@ export class BillingService {
           currency: 'INR',
         }),
       );
+      await this.generateRoomChargesFromSnapshot(manager, created.id, propertyId, reservation, activeSnapshot);
+      return created;
+    });
 
-      if (nights > 0) {
-        const nightlyRate = 3500;
-        const childPricing = await this.childPricingService.resolveChildPricing(
-          propertyId,
-          reservation.childAges ?? [],
-          nights,
-          nightlyRate,
-        );
-        const roomTax = await this.taxService.calculateForProperty(
-          propertyId,
-          nightlyRate * nights,
-        );
-        const childTax =
-          childPricing.total > 0
-            ? await this.taxService.calculateForProperty(propertyId, childPricing.total)
-            : null;
-        const roomCharge = await manager.getRepository(FolioChargeEntity).save(
-          manager.getRepository(FolioChargeEntity).create({
-            folioId: created.id,
-            type: FolioChargeType.ROOM,
-            description: `Room charges - ${nights} night${nights === 1 ? '' : 's'}`,
-            quantity: nights,
-            unitAmount: nightlyRate.toFixed(2),
-            amount: (nightlyRate * nights).toFixed(2),
-            taxAmount: roomTax.taxAmount,
+    return this.getFolio(propertyId, folio.id);
+  }
+
+  private async loadActiveSnapshot(reservationId: string): Promise<ReservationRateSnapshotEntity | null> {
+    return this.snapshotsRepository.findOne({
+      where: { reservationId, status: ReservationRateSnapshotStatus.ACTIVE },
+    });
+  }
+
+  /**
+   * Posts ROOM charge(s) from the reservation's ACTIVE commercial snapshot —
+   * billing CONSUMES the snapshot's priced totals (never recomputes rates). Each
+   * charge carries rate_snapshot_id + version for a provable audit link. An
+   * UNPRICED snapshot (or none, or zero total) posts NOTHING — no fabricated ₹0
+   * ROOM charge. Runs on the caller's transaction manager (no nested txn / no
+   * extra pool connection).
+   */
+  private async generateRoomChargesFromSnapshot(
+    manager: EntityManager,
+    folioId: string,
+    propertyId: string,
+    reservation: ReservationEntity,
+    activeSnapshot: ReservationRateSnapshotEntity | null,
+  ): Promise<void> {
+    if (!activeSnapshot) return;
+    const snap = (activeSnapshot.snapshot ?? {}) as {
+      pricingStatus?: string;
+      nights?: unknown[];
+      totals?: { grandTotal?: string };
+    };
+    if (snap.pricingStatus !== 'PRICED') return;
+
+    const grandTotalCents = toCents(snap.totals?.grandTotal);
+    if (grandTotalCents <= 0) return;
+
+    const nights = Array.isArray(snap.nights) && snap.nights.length > 0
+      ? snap.nights.length
+      : this.calculateNights(reservation.arrivalDate, reservation.departureDate);
+    const unitCents = nights > 0 ? Math.round(grandTotalCents / nights) : grandTotalCents;
+    const roomTax = await this.taxService.calculateForProperty(propertyId, grandTotalCents / 100);
+
+    await manager.getRepository(FolioChargeEntity).save(
+      manager.getRepository(FolioChargeEntity).create({
+        folioId,
+        type: FolioChargeType.ROOM,
+        status: FolioChargeStatus.POSTED,
+        rateSnapshotId: activeSnapshot.id,
+        rateSnapshotVersion: activeSnapshot.version,
+        description: `Room charges - ${nights} night${nights === 1 ? '' : 's'} (snapshot v${activeSnapshot.version})`,
+        quantity: nights,
+        unitAmount: fromCents(unitCents),
+        amount: fromCents(grandTotalCents),
+        taxAmount: roomTax.taxAmount,
+        chargedAt: new Date(),
+      }),
+    );
+  }
+
+  /**
+   * Reconciles an OPEN folio's snapshot-driven ROOM charges against the
+   * reservation's CURRENT ACTIVE snapshot using reverse + repost (1D-b). Only
+   * touches snapshot-driven ROOM charges (rate_snapshot_id NOT NULL); legacy/
+   * manual charges are never touched. Idempotent: if the live POSTED
+   * snapshot-driven charges already reference the ACTIVE version, it's a no-op.
+   * Transactional + cents-safe. No inventory/pricing side effects.
+   */
+  async reconcileRoomChargesForReservation(
+    propertyId: string,
+    reservationId: string,
+    actorUserId?: string | null,
+  ): Promise<FolioEntity> {
+    const reservation = await this.reservationsRepository.findOne({ where: { id: reservationId, propertyId } });
+    if (!reservation) throw new NotFoundException(`Reservation ${reservationId} was not found`);
+    const existingFolio = await this.foliosRepository.findOne({ where: { reservationId, propertyId } });
+    if (!existingFolio) throw new NotFoundException('No folio exists for this reservation');
+    const folio = await this.getFolio(propertyId, existingFolio.id);
+    if (folio.status !== FolioStatus.OPEN) {
+      throw new BadRequestException('Cannot reconcile a folio that is not OPEN');
+    }
+
+    const active = await this.loadActiveSnapshot(reservationId);
+    if (!active || (active.snapshot as { pricingStatus?: string })?.pricingStatus !== 'PRICED') {
+      // Nothing to repost from; leave existing charges untouched.
+      return folio;
+    }
+
+    const livePosted = (folio.charges ?? []).filter(
+      (c) =>
+        c.type === FolioChargeType.ROOM &&
+        c.status === FolioChargeStatus.POSTED &&
+        c.rateSnapshotId != null,
+    );
+    // Idempotent: already reconciled to the ACTIVE version.
+    if (livePosted.length > 0 && livePosted.every((c) => c.rateSnapshotVersion === active.version)) {
+      return folio;
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(FolioChargeEntity);
+      for (const original of livePosted) {
+        await repo.save(
+          repo.create({
+            folioId: folio.id,
+            type: original.type,
+            status: FolioChargeStatus.REVERSAL,
+            reversalOfChargeId: original.id,
+            rateSnapshotId: original.rateSnapshotId,
+            rateSnapshotVersion: original.rateSnapshotVersion,
+            description: `Reversal: ${original.description}`.slice(0, 160),
+            quantity: original.quantity,
+            unitAmount: fromCents(-toCents(original.unitAmount)),
+            amount: fromCents(-toCents(original.amount)),
+            taxAmount: fromCents(-toCents(original.taxAmount)),
             chargedAt: new Date(),
+            createdByUserId: actorUserId ?? null,
           }),
         );
-        const childCharge =
-          childPricing.total > 0
-            ? await manager.getRepository(FolioChargeEntity).save(
-                manager.getRepository(FolioChargeEntity).create({
-                  folioId: created.id,
-                  type: FolioChargeType.ROOM,
-                  description: `Child guest charges - ${childPricing.lines.length} child${childPricing.lines.length === 1 ? '' : 'ren'}`,
-                  quantity: 1,
-                  unitAmount: childPricing.total.toFixed(2),
-                  amount: childPricing.total.toFixed(2),
-                  taxAmount: childTax?.taxAmount ?? '0.00',
-                  chargedAt: new Date(),
-                }),
-              )
-            : null;
+        await repo.update({ id: original.id }, { status: FolioChargeStatus.REVERSED });
       }
-      return created;
+      await this.generateRoomChargesFromSnapshot(manager, folio.id, propertyId, reservation, active);
+      await manager.getRepository(FolioEntity).update({ id: folio.id }, { updatedAt: new Date() });
     });
 
     return this.getFolio(propertyId, folio.id);

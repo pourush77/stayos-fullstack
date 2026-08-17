@@ -10,6 +10,8 @@ export class FolioChargeResponseDto {
   @ApiProperty({ enum: FolioChargeType }) type!: FolioChargeType;
   @ApiProperty({ enum: FolioChargeStatus }) status!: FolioChargeStatus;
   @ApiProperty({ nullable: true }) reversalOfChargeId!: string | null;
+  @ApiProperty({ nullable: true }) rateSnapshotId!: string | null;
+  @ApiProperty({ nullable: true }) rateSnapshotVersion!: number | null;
   @ApiProperty() description!: string;
   @ApiProperty() quantity!: number;
   @ApiProperty() unitAmount!: string;

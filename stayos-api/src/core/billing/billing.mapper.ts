@@ -41,6 +41,8 @@ function toChargeDto(charge: FolioChargeEntity): FolioChargeResponseDto {
     type: charge.type,
     status: charge.status,
     reversalOfChargeId: charge.reversalOfChargeId ?? null,
+    rateSnapshotId: charge.rateSnapshotId ?? null,
+    rateSnapshotVersion: charge.rateSnapshotVersion ?? null,
     description: charge.description,
     quantity: charge.quantity,
     unitAmount: charge.unitAmount,

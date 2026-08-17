@@ -137,6 +137,7 @@ describe('BillingService', () => {
       chargesRepository as unknown as Repository<FolioChargeEntity>,
       paymentsRepository as unknown as Repository<FolioPaymentEntity>,
       reservationsRepository as unknown as Repository<ReservationEntity>,
+      { findOne: jest.fn().mockResolvedValue(null) } as never,
       propertiesService as unknown as PropertiesService,
       dataSource as unknown as DataSource,
       childPricingService as ChildPricingService,
