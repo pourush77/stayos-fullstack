@@ -450,3 +450,7 @@ Principle: restrictions gate newly-introduced/re-scoped sale entitlement, NOT al
 ### Local run notes (this session)
 - Postgres 15 reused from `/app/postgres_data` on :5432 (had to recreate ephemeral dirs pg_notify/pg_logical/snapshots etc after resume).
 - Nest API run manually: `cd /app/stayos-api && PORT=3002 npx nest start` → http://localhost:3002/api/v1 (`.env` created). Frontend deps installed (root `npm i`).
+
+## F2 — Group Booking pricing integration (2026-08-17)
+Fixed backend parallel pricing in `GroupRoomMixService`: replaced fabricated `estimateBaseRate` (3500/6500) with the default BAR `rate_plan_room_types` base rate (5900/7900) and swapped legacy flat `TaxService` for `GstService` (tax_rules ROOM 12%, intra-state, arrival-date). Group deposit already policy-driven (GROUP_DEPOSIT fixed ₹10,000). Updated `operations.module` (RatePlanRoomTypeEntity) + the group pricing unit test.
+Verified (live, self-cleaning): suggestion DLX 5900/STE 7900, GST 12%, deposit ₹10,000; PENDING(ON_HOLD) consumes room-type inventory without roomId (19→18); confirm no double-consume (18); cancel releases (→19); rooming list + room assignment OK; zero residue; config intact. Jest 71/71 (operations); backend tsc clean. Frontend already consumes backend pricing (no change). Note: walk-in group still has its own `estimateBaseRate` fallback (out of F2 quote/hold path).

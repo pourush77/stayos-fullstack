@@ -6,8 +6,12 @@ import { GroupBookingDepositPolicyType } from '../../properties/domain/group-boo
 import { PropertiesService } from '../../properties/properties.service';
 import { RatePlanStatus } from '../../rates/domain/rate-plan-status.enum';
 import { RatePlanEntity } from '../../rates/infrastructure/rate-plan.entity';
+import { RatePlanRoomTypeEntity } from '../../rates/infrastructure/rate-plan-room-type.entity';
 import { RoomTypeDailyRateEntity } from '../../rates/infrastructure/room-type-daily-rate.entity';
 import { TaxService } from '../../rates/tax.service';
+import { GstService } from '../../rates/gst.service';
+import { PlaceOfSupply } from '../../rates/domain/gst.types';
+import { FolioChargeType } from '../../billing/domain/folio-charge-type.enum';
 import { ReservationEntity } from '../../reservations/infrastructure/reservation.entity';
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
@@ -71,10 +75,13 @@ export class GroupRoomMixService {
     private readonly groupBookingRoomBlocksRepository: Repository<GroupBookingRoomBlockEntity>,
     @InjectRepository(RatePlanEntity)
     private readonly ratePlansRepository: Repository<RatePlanEntity>,
+    @InjectRepository(RatePlanRoomTypeEntity)
+    private readonly ratePlanRoomTypesRepository: Repository<RatePlanRoomTypeEntity>,
     @InjectRepository(RoomTypeDailyRateEntity)
     private readonly dailyRatesRepository: Repository<RoomTypeDailyRateEntity>,
     private readonly propertiesService: PropertiesService,
     private readonly taxService: TaxService,
+    private readonly gstService: GstService,
     private readonly policyResolver: PolicyResolverService,
   ) {}
 
@@ -97,6 +104,8 @@ export class GroupRoomMixService {
       propertyId,
       candidates,
       query.preference ?? GroupRoomMixPreference.BEST_FIT,
+      query.arrivalDate,
+      nights,
     );
     const warnings = this.buildWarnings(availability, candidates, query.adults, query.children);
     const depositPolicy = await this.policyResolver.resolveGroupDepositInput(propertyId);
@@ -173,7 +182,7 @@ export class GroupRoomMixService {
 
       byRoomType.set(room.roomTypeId, {
         availableRooms: 1,
-        baseRate: this.estimateBaseRate(roomType.name),
+        baseRate: 0,
         maxAdults: roomType.maxAdults,
         maxChildren: roomType.maxChildren,
         maxOccupancy: roomType.maxOccupancy,
@@ -201,11 +210,37 @@ export class GroupRoomMixService {
     });
 
     const availability = [...byRoomType.values()];
+    await this.applyDefaultPlanBaseRates(propertyId, availability);
     await this.applyConfiguredRates(propertyId, arrivalDate, departureDate, availability);
 
     return availability.sort((a, b) => {
       if (a.baseRate !== b.baseRate) return a.baseRate - b.baseRate;
       return a.roomTypeName.localeCompare(b.roomTypeName);
+    });
+  }
+
+  private async applyDefaultPlanBaseRates(
+    propertyId: string,
+    availability: RoomTypeAvailability[],
+  ) {
+    if (!availability.length) return;
+    const defaultRatePlan = await this.ratePlansRepository.findOne({
+      where: { propertyId, isDefault: true, status: RatePlanStatus.ACTIVE },
+    });
+    if (!defaultRatePlan) return;
+    const planRoomTypes = await this.ratePlanRoomTypesRepository.find({
+      where: {
+        propertyId,
+        ratePlanId: defaultRatePlan.id,
+        roomTypeId: In(availability.map((item) => item.roomTypeId)),
+      },
+    });
+    const baseRateByRoomType = new Map(
+      planRoomTypes.map((rprt) => [rprt.roomTypeId, Number(rprt.baseRate)]),
+    );
+    availability.forEach((item) => {
+      const configured = baseRateByRoomType.get(item.roomTypeId);
+      if (configured != null && Number.isFinite(configured)) item.baseRate = configured;
     });
   }
 
@@ -260,13 +295,6 @@ export class GroupRoomMixService {
       cursor.setUTCDate(cursor.getUTCDate() + 1);
     }
     return dates;
-  }
-
-  private estimateBaseRate(roomTypeName: string) {
-    const normalized = roomTypeName.toLowerCase();
-    if (normalized.includes('suite')) return 6500;
-    if (normalized.includes('deluxe')) return 3500;
-    return 2800;
   }
 
   private buildCandidates(
@@ -464,6 +492,8 @@ export class GroupRoomMixService {
     propertyId: string,
     candidates: Candidate[],
     preference: GroupRoomMixPreference,
+    arrivalDate: string,
+    nights: number,
   ): Promise<GroupRoomMixOptionDto[]> {
     if (!candidates.length) return Promise.resolve([]);
 
@@ -487,7 +517,9 @@ export class GroupRoomMixService {
       options.push(this.toOption(candidate, selector.type, selector.label, selector.reason));
     });
 
-    return Promise.all(options.slice(0, 3).map((option) => this.withPricing(propertyId, option)));
+    return Promise.all(
+      options.slice(0, 3).map((option) => this.withPricing(propertyId, option, arrivalDate, nights)),
+    );
   }
 
   private roomTypeStayTotal(
@@ -505,17 +537,31 @@ export class GroupRoomMixService {
   private async withPricing(
     propertyId: string,
     option: GroupRoomMixOptionDto,
+    arrivalDate: string,
+    nights: number,
   ): Promise<GroupRoomMixOptionDto> {
     const roomSubtotal = option.roomBlocks.reduce((sum, block) => sum + block.estimatedTotal, 0);
-    const tax = await this.taxService.calculateForProperty(propertyId, roomSubtotal);
+    const roomSubtotalCents = Math.round(roomSubtotal * 100);
+    const perNightCents = nights > 0 ? Math.round(roomSubtotalCents / nights) : roomSubtotalCents;
+    // ROOM GST via the authoritative tax-rules engine (same path billing posts):
+    // always intra-state, time of supply = arrival date. No legacy flat tax.
+    const gst = await this.gstService.computeTax({
+      propertyId,
+      chargeType: FolioChargeType.ROOM,
+      taxableAmountCents: roomSubtotalCents,
+      slabBasisAmount: perNightCents / 100,
+      placeOfSupply: PlaceOfSupply.INTRA_STATE,
+      chargeDate: new Date(arrivalDate),
+    });
+    const grandTotal = (roomSubtotalCents + gst.totalTaxCents) / 100;
     const pricing = {
-      grandTotal: Number(tax.total),
+      grandTotal,
       otherCharges: 0,
-      roomSubtotal: Number(tax.taxableSubtotal),
-      taxAmount: Number(tax.taxAmount),
-      taxEnabled: tax.taxEnabled,
-      taxName: tax.taxName,
-      taxPercentage: tax.taxPercentage,
+      roomSubtotal,
+      taxAmount: gst.totalTaxCents / 100,
+      taxEnabled: gst.applied,
+      taxName: gst.applied ? 'GST' : null,
+      taxPercentage: gst.totalRate,
     };
 
     return {

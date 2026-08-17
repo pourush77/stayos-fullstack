@@ -105,6 +105,7 @@ const createGroupRoomMixService = (
     asRepository(groupBlocksRepository),
     asRepository({ findOne: jest.fn().mockResolvedValue(null) }),
     asRepository({ find: jest.fn().mockResolvedValue([]) }),
+    asRepository({ find: jest.fn().mockResolvedValue([]) }),
     propertiesService,
     {
       calculateForProperty: jest.fn(async (_propertyId: string, taxableAmount: number) => ({
@@ -114,6 +115,20 @@ const createGroupRoomMixService = (
         taxName: null,
         taxPercentage: '0.00',
         taxEnabled: false,
+      })),
+    } as never,
+    {
+      computeTax: jest.fn(async () => ({
+        applied: false,
+        hsnSac: null,
+        placeOfSupply: 'INTRA_STATE',
+        totalRate: '0.00',
+        totalTax: '0.00',
+        totalTaxCents: 0,
+        components: [],
+        taxRuleId: null,
+        ruleEffectiveFrom: null,
+        taxableValue: '0.00',
       })),
     } as never,
     { resolveGroupDepositInput: jest.fn().mockResolvedValue({ type: 'NONE', value: 0 }) } as never,
@@ -2087,25 +2102,41 @@ describe('Operations services', () => {
     expect(suggestion.channelManagerSyncReady).toBe(true);
   });
 
-  it('returns tax-inclusive group room mix pricing from configured property tax', async () => {
-    roomsRepository.find?.mockResolvedValue([room({ id: 'room-1', roomNumber: '301' })]);
+  it('returns tax-inclusive group room mix pricing from configured BAR rate + GST engine', async () => {
+    roomsRepository.find?.mockResolvedValue([
+      room({
+        id: 'room-1',
+        roomNumber: '301',
+        roomTypeId: 'dlx-id',
+        roomType: { id: 'dlx-id', code: 'DLX', name: 'Deluxe', maxOccupancy: 3, maxAdults: 2, maxChildren: 1 } as never,
+      }),
+    ]);
     reservationsRepository.find?.mockResolvedValue([]);
     const service = new GroupRoomMixService(
       asRepository(roomsRepository),
       asRepository(reservationsRepository),
       asRepository(groupBlocksRepository),
-      asRepository({ findOne: jest.fn().mockResolvedValue(null) }),
+      asRepository({ findOne: jest.fn().mockResolvedValue({ id: 'bar', isDefault: true, status: 'ACTIVE' }) }),
+      asRepository({ find: jest.fn().mockResolvedValue([{ roomTypeId: 'dlx-id', baseRate: '3500.00' }]) }),
       asRepository({ find: jest.fn().mockResolvedValue([]) }),
       propertiesService,
+      { calculateForProperty: jest.fn() } as never,
       {
-        calculateForProperty: jest.fn(async (_propertyId: string, taxableAmount: number) => ({
-          taxableSubtotal: taxableAmount.toFixed(2),
-          taxAmount: (taxableAmount * 0.12).toFixed(2),
-          total: (taxableAmount * 1.12).toFixed(2),
-          taxName: 'GST',
-          taxPercentage: '12.00',
-          taxEnabled: true,
-        })),
+        computeTax: jest.fn(async (input: { taxableAmountCents: number }) => {
+          const totalTaxCents = Math.round(input.taxableAmountCents * 0.12);
+          return {
+            applied: true,
+            hsnSac: '996311',
+            placeOfSupply: 'INTRA_STATE',
+            totalRate: '12.00',
+            totalTax: (totalTaxCents / 100).toFixed(2),
+            totalTaxCents,
+            components: [],
+            taxRuleId: 'tax-1',
+            ruleEffectiveFrom: null,
+            taxableValue: (input.taxableAmountCents / 100).toFixed(2),
+          };
+        }),
       } as never,
       { resolveGroupDepositInput: jest.fn().mockResolvedValue({ type: 'NONE', value: 0 }) } as never,
     );

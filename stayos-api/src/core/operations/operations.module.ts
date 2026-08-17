@@ -7,6 +7,7 @@ import { PropertiesModule } from '../properties/properties.module';
 import { PoliciesModule } from '../policies/policies.module';
 import { RatesModule } from '../rates/rates.module';
 import { RatePlanEntity } from '../rates/infrastructure/rate-plan.entity';
+import { RatePlanRoomTypeEntity } from '../rates/infrastructure/rate-plan-room-type.entity';
 import { RoomTypeDailyRateEntity } from '../rates/infrastructure/room-type-daily-rate.entity';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 import { RoomTypeEntity } from '../room-types/infrastructure/room-type.entity';
@@ -43,6 +44,7 @@ import { RoomDetailsService } from './services/room-details.service';
       ActivityEventEntity,
       AuditEventEntity,
       RatePlanEntity,
+      RatePlanRoomTypeEntity,
       RoomTypeDailyRateEntity,
     ]),
     PropertiesModule,
