@@ -18,9 +18,21 @@ export function calculateTotals(
   // audit trail preserved).
   let subtotalCents = 0;
   let taxCents = 0;
+  let cgstCents = 0;
+  let sgstCents = 0;
+  let igstCents = 0;
   for (const charge of charges) {
     subtotalCents += toCents(charge.amount);
     taxCents += toCents(charge.taxAmount);
+    // GST breakdown is aggregated from the frozen per-line tax snapshot (only
+    // GST-engine charges carry one; explicit/manual tax is excluded here but
+    // still counted in the scalar `tax`).
+    for (const comp of charge.taxSnapshot?.components ?? []) {
+      const c = toCents(comp.amount);
+      if (comp.name === 'CGST') cgstCents += c;
+      else if (comp.name === 'SGST') sgstCents += c;
+      else if (comp.name === 'IGST') igstCents += c;
+    }
   }
   const totalCents = subtotalCents + taxCents;
   const paidCents = payments.reduce((sum, payment) => sum + toCents(payment.amount), 0);
@@ -31,6 +43,11 @@ export function calculateTotals(
     total: fromCents(totalCents),
     paid: fromCents(paidCents),
     balance: fromCents(balanceCents),
+    taxBreakdown: {
+      cgst: fromCents(cgstCents),
+      sgst: fromCents(sgstCents),
+      igst: fromCents(igstCents),
+    },
   };
 }
 
@@ -48,6 +65,8 @@ function toChargeDto(charge: FolioChargeEntity): FolioChargeResponseDto {
     unitAmount: charge.unitAmount,
     amount: charge.amount,
     taxAmount: charge.taxAmount,
+    hsnSac: charge.hsnSac ?? null,
+    taxSnapshot: charge.taxSnapshot ?? null,
     chargedAt: charge.chargedAt,
     createdByUserId: charge.createdByUserId,
     createdAt: charge.createdAt,

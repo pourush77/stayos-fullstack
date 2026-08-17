@@ -1,0 +1,39 @@
+{
+  "summary": "Independent backend verification of Phase 1D-c1 (Indian GST engine) only. Wrote a new self-cleaning pytest suite /app/backend/tests/test_gst_engine_1dc.py (30 tests, 30 passed) against the live API at http://localhost:3001/api/v1 covering tax-rule CRUD + validation + RBAC, ROOM charge GST snapshot (12% on 15000 -> 1800.00 = CGST 900 + SGST 900, hsnSac 996311, totalRate 12.00 / INTRA_STATE), tariff-slab selection by per-night rate (5000->12%, 9000->18%, exact 7500 boundary inclusive -> 12% while stay total 15000 proves per-unit basis), ship-empty (LAUNDRY -> 0.00 tax + null snapshot), manual auto-GST (F&B 5%) vs explicit taxAmount override (honored verbatim, no snapshot), effective-dating (12% before 2026-09-01, 5% on/after, boundary day inclusive, inactive rule skipped), inter-state single IGST component at full rate, folio totals taxBreakdown aggregation == scalar tax and == sum of line snapshots, amendment reverse+repost NEGATED snapshot (-900/-900, room CGST nets to 1200 after date change), snapshot immutability (editing/deleting the rule leaves historical charges untouched; new charges after delete get 0 tax), specificity/createdAt tie-break, and cents-safe math (components always sum exactly to line taxAmount, verified also as a DB-wide SQL invariant). Ran an exploratory probe script (/tmp/probe_gst.py) that surfaced 4 non-blocking design/validation gaps. Full self-clean confirmed: 0 tax_rules residue for the property, 0 rate plans, 0 leftover reservations for my date windows, 0 inventory invariant violations (sold<0 or sold>capacity).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /properties/:pid/folios/:fid/charges", "issue": "ROOM GST is resolved against the POSTING date (new Date()) rather than the stay/arrival date: a rule with effectiveFrom 2031-06-01 was NOT applied to a room charge for a 2031-06-05 stay posted today (tax 0.00, snapshot null). For advance bookings the supply date is the stay night, so a rule that becomes effective before check-in is silently ignored (and a mid-stay rate change cannot be represented since ROOM posts one aggregate line for the whole stay). Confirm this is the intended 1D-c1 simplification or switch the chargeDate basis to arrivalDate/per-night."},
+      {"endpoint": "POST /properties/:pid/folios/:fid/charges", "issue": "Negative unitAmount is accepted (e.g. FOOD_AND_BEVERAGE -500.00 -> amount -500.00) and GstService clamps taxable to max(0, ...), so the negative line reduces the subtotal but carries 0.00 tax — GST is not symmetric for credit-style lines. DTO doc says 'positive; use DISCOUNT type' but there is no validator enforcing it."},
+      {"endpoint": "POST /properties/:pid/folios/:fid/charges", "issue": "Explicit taxAmount override accepts negatives (taxAmount '-50.00' stored verbatim, 201). No lower bound / sanity check on the manual tax override."},
+      {"endpoint": "POST /properties/:pid/rates/tax-rules", "issue": "No overlap/uniqueness guard: two rules for the same (property, chargeType, effectiveFrom) with identical specificity but different rates are both accepted (12% and 18%); resolution silently falls back to latest createdAt. Deterministic but easy to misconfigure — consider rejecting or flagging overlapping slabs/dates."},
+      {"endpoint": "GET /properties/:pid/rates/tax-rules", "issue": "Read permission is SettingsView OR BookingsView (readonly@stayos.local can list rules) — slightly wider than the stated SettingsView-only scope. Writes correctly require SettingsManage (readonly -> 403)."},
+      {"endpoint": "GST engine rounding", "issue": "Odd rates split into halves can under-collect 1 paisa vs the scalar rate: 5% of 333.33 -> CGST 8.33 + SGST 8.33 = 16.66 while 5% exact is 16.67. Components-sum design keeps the line internally consistent (verified), but the effective rate on such lines is marginally below the configured rate; acceptable only if intentional."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_gst_engine_1dc.py",
+    "/app/test_reports/pytest/gst_1dc_results.xml",
+    "/tmp/probe_gst.py"
+  ],
+  "action_items": [
+    "Decide/document the ROOM GST effective-date basis (posting date vs stay date) — currently a rule effective before check-in but after today is not applied to advance bookings.",
+    "Add validation for negative unitAmount and negative explicit taxAmount on POST folio charges (or explicitly support credit lines with negated GST).",
+    "Consider an overlap guard (or a documented deterministic precedence) for tax rules with identical chargeType/effectiveFrom/specificity."
+  ],
+  "critical_code_review_comments": [
+    "gst.service.ts resolveRule() loads all active rules for (property, chargeType) and filters in JS — fine at current volumes, but the effectiveFrom/slab filter should eventually move into the SQL WHERE clause for large rule sets.",
+    "billing.service.ts generateRoomChargesFromSnapshot() uses `slabBasisAmount: unitCents/100` derived from grandTotal/nights (an AVERAGE per-night). With per-night differential pricing the slab match may straddle two slabs; a per-night breakdown from snapshot.nights would be more accurate.",
+    "billing.service.ts is 606 lines and approaching the 700-line split threshold; the GST/tax-snapshot helpers (toStoredSnapshot/negateTaxSnapshot) are good candidates to extract.",
+    "No cross-property leakage found: tax-rule endpoints are property-scoped (unknown property -> 404, malformed uuid -> 400) and responses contain no internal ids beyond uuids."
+  ],
+  "updated_files": ["/app/backend/tests/test_gst_engine_1dc.py"],
+  "success_rate": {"backend": "100% (30/30 GST-slice tests)", "frontend": "not tested (backend-only scope)"},
+  "seed_data_creation": "Temporary only: 3 ACTIVE rate plans (T1GSTL 5000/night default, T1GSTH 9000/night, T1GSTE 7500/night), ~7 tax rules (ROOM slabs 12/18, F&B 5, MINIBAR 18, SPA 12 + 5 effective-dated, transient MISC rules) and 6 CONFIRMED reservations in 2031-03/04 with folios. All removed in session teardown; residue counts verified zero.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@stayos.local / Password123! and readonly@stayos.local / Password123! (from /app/memory/test_credentials.md); API on http://localhost:3001/api/v1",
+  "context_for_next_testing_agent": "Reusable GST regression suite: /app/backend/tests/test_gst_engine_1dc.py (self-cleaning, date window 2031-03-02..2031-04-30, TAG=T1GST). It creates its own rate plans + tax rules per session, so do not run it concurrently with other billing suites (tax rules are property-global and would change other suites' tax expectations). Pre-existing unrelated reservation residue exists at arrival dates 2031-05-07 / 2031-06-01 / 2031-06-21 from earlier iterations. Phase 1D-c1 verified functionally correct; only design/validation gaps listed above remain open.",
+  "rca_of_the_issue": "No functional defect found in the 1D-c1 slice. The ROOM effective-date observation roots in billing.service.ts:156 passing `chargeDate: new Date()` to GstService.computeTax, so rule resolution uses posting time rather than the stay period; the negative-amount observations root in create-folio-charge.dto.ts using @IsNumberString() without a positivity constraint combined with GstService clamping taxableCents with Math.max(0, ...)."
+}

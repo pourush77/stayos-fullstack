@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import { ApiBadRequestResponse, ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
 import { Permissions } from '../auth/permissions';
@@ -15,6 +16,10 @@ import { RestrictionService } from './restriction.service';
 import { ListRestrictionsQueryDto, UpsertRestrictionsDto } from './dto/restriction.dto';
 import { Query } from '@nestjs/common';
 import { TaxService } from './tax.service';
+import { GstService } from './gst.service';
+import { CreateTaxRuleDto, UpdateTaxRuleDto } from './dto/tax-rule.dto';
+
+type AuthRequest = Request & { user?: { id?: string } };
 
 @ApiTags('Rates')
 @ApiBearerAuth()
@@ -24,6 +29,7 @@ export class RatesController {
     private readonly ratesService: RatesService,
     private readonly taxService: TaxService,
     private readonly restrictionService: RestrictionService,
+    private readonly gstService: GstService,
   ) {}
 
   @Get('rate-plans')
@@ -203,5 +209,44 @@ export class RatesController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.restrictionService.deleteRestriction(propertyId, id);
+  }
+
+  @Get('tax-rules')
+  @RequirePermissions(Permissions.SettingsView, Permissions.BookingsView)
+  @ApiOperation({ summary: 'List configurable GST tax rules (HSN/SAC + tariff slabs)' })
+  listTaxRules(@Param('propertyId', ParseUUIDPipe) propertyId: string) {
+    return this.gstService.listTaxRules(propertyId);
+  }
+
+  @Post('tax-rules')
+  @RequirePermissions(Permissions.SettingsManage)
+  @ApiOperation({ summary: 'Create a GST tax rule' })
+  createTaxRule(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Body() dto: CreateTaxRuleDto,
+    @Req() req: AuthRequest,
+  ) {
+    return this.gstService.createTaxRule(propertyId, dto, req.user?.id ?? null);
+  }
+
+  @Patch('tax-rules/:id')
+  @RequirePermissions(Permissions.SettingsManage)
+  @ApiOperation({ summary: 'Update a GST tax rule' })
+  updateTaxRule(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateTaxRuleDto,
+  ) {
+    return this.gstService.updateTaxRule(propertyId, id, dto);
+  }
+
+  @Delete('tax-rules/:id')
+  @RequirePermissions(Permissions.SettingsManage)
+  @ApiOperation({ summary: 'Delete a GST tax rule (historical charge snapshots are unaffected)' })
+  removeTaxRule(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.gstService.deleteTaxRule(propertyId, id);
   }
 }

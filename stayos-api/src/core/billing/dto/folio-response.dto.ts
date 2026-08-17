@@ -3,6 +3,7 @@ import { FolioChargeType } from '../domain/folio-charge-type.enum';
 import { FolioChargeStatus } from '../domain/folio-charge-status.enum';
 import { FolioPaymentMethod } from '../domain/folio-payment-method.enum';
 import { FolioStatus } from '../domain/folio-status.enum';
+import { TaxSnapshot } from '../../rates/domain/gst.types';
 
 export class FolioChargeResponseDto {
   @ApiProperty() id!: string;
@@ -17,6 +18,8 @@ export class FolioChargeResponseDto {
   @ApiProperty() unitAmount!: string;
   @ApiProperty() amount!: string;
   @ApiProperty() taxAmount!: string;
+  @ApiProperty({ nullable: true }) hsnSac!: string | null;
+  @ApiProperty({ nullable: true, type: Object }) taxSnapshot!: TaxSnapshot | null;
   @ApiProperty() chargedAt!: Date;
   @ApiProperty({ nullable: true }) createdByUserId!: string | null;
   @ApiProperty() createdAt!: Date;
@@ -34,12 +37,19 @@ export class FolioPaymentResponseDto {
   @ApiProperty() createdAt!: Date;
 }
 
+export class FolioTaxBreakdownDto {
+  @ApiProperty() cgst!: string;
+  @ApiProperty() sgst!: string;
+  @ApiProperty() igst!: string;
+}
+
 export class FolioTotalsDto {
   @ApiProperty() subtotal!: string;
   @ApiProperty() tax!: string;
   @ApiProperty() total!: string;
   @ApiProperty() paid!: string;
   @ApiProperty() balance!: string;
+  @ApiProperty({ type: FolioTaxBreakdownDto }) taxBreakdown!: FolioTaxBreakdownDto;
 }
 
 export class FolioGuestSummaryDto {

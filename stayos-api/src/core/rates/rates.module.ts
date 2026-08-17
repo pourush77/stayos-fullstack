@@ -16,6 +16,8 @@ import { RatesController } from './rates.controller';
 import { RatesService } from './rates.service';
 import { RestrictionService } from './restriction.service';
 import { TaxService } from './tax.service';
+import { GstService } from './gst.service';
+import { TaxRuleEntity } from './infrastructure/tax-rule.entity';
 
 @Module({
   imports: [
@@ -27,13 +29,14 @@ import { TaxService } from './tax.service';
       ChildAgeBandEntity,
       PropertyTaxConfigEntity,
       RateRestrictionEntity,
+      TaxRuleEntity,
     ]),
     PropertiesModule,
     RoomTypesModule,
     PoliciesModule,
   ],
   controllers: [RatesController],
-  providers: [RatesService, ChildPricingService, TaxService, RateResolverService, RestrictionService],
-  exports: [RatesService, ChildPricingService, TaxService, RateResolverService, RestrictionService],
+  providers: [RatesService, ChildPricingService, TaxService, GstService, RateResolverService, RestrictionService],
+  exports: [RatesService, ChildPricingService, TaxService, GstService, RateResolverService, RestrictionService],
 })
 export class RatesModule {}

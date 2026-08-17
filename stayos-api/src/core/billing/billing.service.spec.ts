@@ -11,7 +11,6 @@ import { FolioEntity } from './infrastructure/folio.entity';
 import { FolioPaymentEntity } from './infrastructure/folio-payment.entity';
 import { BillingService } from './billing.service';
 import { ChildPricingService } from '../rates/child-pricing.service';
-import { TaxService } from '../rates/tax.service';
 
 type MockRepository<T extends object = object> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -92,15 +91,20 @@ describe('BillingService', () => {
     childPricingService = {
       resolveChildPricing: jest.fn().mockResolvedValue({ lines: [], total: 0, limitations: [] }),
     };
-    const taxService = {
-      calculateForProperty: jest.fn(async (_propertyId: string, taxableAmount: number) => ({
-        taxableSubtotal: taxableAmount.toFixed(2),
-        taxAmount: (taxableAmount * 0.12).toFixed(2),
-        total: (taxableAmount * 1.12).toFixed(2),
-        taxName: 'GST',
-        taxPercentage: '12.00',
-        taxEnabled: true,
+    const gstService = {
+      computeTax: jest.fn(async () => ({
+        applied: false,
+        hsnSac: null,
+        taxableValue: '0.00',
+        placeOfSupply: 'INTRA_STATE',
+        totalRate: '0.00',
+        totalTax: '0.00',
+        totalTaxCents: 0,
+        components: [],
+        taxRuleId: null,
+        ruleEffectiveFrom: null,
       })),
+      resolvePlaceOfSupply: jest.fn(() => 'INTRA_STATE'),
     };
     dataSource = {
       transaction: jest.fn(async (callback: (manager: { getRepository: (entity: unknown) => unknown }) => Promise<unknown>) => {
@@ -141,7 +145,7 @@ describe('BillingService', () => {
       propertiesService as unknown as PropertiesService,
       dataSource as unknown as DataSource,
       childPricingService as ChildPricingService,
-      taxService as unknown as TaxService,
+      gstService as never,
     );
   });
 

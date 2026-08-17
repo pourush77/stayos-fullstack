@@ -24,7 +24,8 @@ import { toCents, fromCents } from './domain/money';
 import { FolioChargeStatus } from './domain/folio-charge-status.enum';
 import { ChildPricingService } from '../rates/child-pricing.service';
 import { FolioChargeType } from './domain/folio-charge-type.enum';
-import { TaxService } from '../rates/tax.service';
+import { GstService } from '../rates/gst.service';
+import { PlaceOfSupply, TaxSnapshot } from '../rates/domain/gst.types';
 
 @Injectable()
 export class BillingService {
@@ -42,7 +43,7 @@ export class BillingService {
     private readonly propertiesService: PropertiesService,
     private readonly dataSource: DataSource,
     private readonly childPricingService: ChildPricingService,
-    private readonly taxService: TaxService,
+    private readonly gstService: GstService,
   ) {}
 
   async listFolios(propertyId: string, status?: FolioStatus): Promise<FolioEntity[]> {
@@ -142,7 +143,23 @@ export class BillingService {
       ? snap.nights.length
       : this.calculateNights(reservation.arrivalDate, reservation.departureDate);
     const unitCents = nights > 0 ? Math.round(grandTotalCents / nights) : grandTotalCents;
-    const roomTax = await this.taxService.calculateForProperty(propertyId, grandTotalCents / 100);
+    // GST on accommodation: place of supply is legally the hotel's location, so
+    // ROOM is ALWAYS intra-state (CGST + SGST). The per-night rate drives the
+    // tariff-slab match; the full stay total is the taxable value.
+    const gst = await this.gstService.computeTax(
+      {
+        propertyId,
+        chargeType: FolioChargeType.ROOM,
+        taxableAmountCents: grandTotalCents,
+        slabBasisAmount: unitCents / 100,
+        placeOfSupply: PlaceOfSupply.INTRA_STATE,
+        // Time of supply for accommodation is the stay, so GST rule resolution
+        // uses the arrival date (advance bookings honor a rule that becomes
+        // effective before check-in), then freezes it on the charge.
+        chargeDate: new Date(reservation.arrivalDate),
+      },
+      manager,
+    );
 
     await manager.getRepository(FolioChargeEntity).save(
       manager.getRepository(FolioChargeEntity).create({
@@ -155,11 +172,41 @@ export class BillingService {
         quantity: nights,
         unitAmount: fromCents(unitCents),
         amount: fromCents(grandTotalCents),
-        taxAmount: roomTax.taxAmount,
+        taxAmount: gst.totalTax,
+        hsnSac: gst.hsnSac,
+        taxSnapshot: gst.applied ? this.toStoredSnapshot(gst) : null,
         chargedAt: new Date(),
         createdByUserId: actorUserId ?? null,
       }),
     );
+  }
+
+  private toStoredSnapshot(gst: TaxSnapshot): TaxSnapshot {
+    return {
+      hsnSac: gst.hsnSac,
+      taxableValue: gst.taxableValue,
+      placeOfSupply: gst.placeOfSupply,
+      totalRate: gst.totalRate,
+      totalTax: gst.totalTax,
+      components: gst.components,
+      taxRuleId: gst.taxRuleId,
+      ruleEffectiveFrom: gst.ruleEffectiveFrom,
+    };
+  }
+
+  /**
+   * Negates a frozen tax snapshot for a REVERSAL row so aggregate GST
+   * (CGST/SGST/IGST) nets to zero against the original, preserving full audit.
+   */
+  private negateTaxSnapshot(snap: TaxSnapshot | null): TaxSnapshot | null {
+    if (!snap) return null;
+    const neg = (v: string): string => fromCents(-toCents(v));
+    return {
+      ...snap,
+      taxableValue: neg(snap.taxableValue),
+      totalTax: neg(snap.totalTax),
+      components: snap.components.map((c) => ({ ...c, amount: neg(c.amount) })),
+    };
   }
 
   /**
@@ -247,6 +294,8 @@ export class BillingService {
           unitAmount: fromCents(-toCents(original.unitAmount)),
           amount: fromCents(-toCents(original.amount)),
           taxAmount: fromCents(-toCents(original.taxAmount)),
+          hsnSac: original.hsnSac,
+          taxSnapshot: this.negateTaxSnapshot(original.taxSnapshot),
           chargedAt: new Date(),
           createdByUserId: actorUserId ?? null,
         }),
@@ -299,8 +348,42 @@ export class BillingService {
     const unit = parseFloat(dto.unitAmount);
     if (!Number.isFinite(unit)) throw new BadRequestException('unitAmount must be numeric');
     const amount = unit * quantity;
-    const taxAmount = dto.taxAmount ? parseFloat(dto.taxAmount) : 0;
+    const amountCents = Math.round(amount * 100);
     const chargedAt = dto.chargedAt ? new Date(dto.chargedAt) : new Date();
+
+    // Tax resolution: an explicit taxAmount is honored as a manual override (no
+    // GST snapshot). Otherwise the GST engine computes the breakdown for this
+    // line's charge type. Place of supply defaults to the guest-vs-property
+    // state comparison, or an explicit override on the DTO.
+    let taxAmount = '0.00';
+    let hsnSac: string | null = null;
+    let taxSnapshot: TaxSnapshot | null = null;
+    if (dto.taxAmount != null) {
+      const explicit = parseFloat(dto.taxAmount);
+      if (!Number.isFinite(explicit)) throw new BadRequestException('taxAmount must be numeric');
+      taxAmount = explicit.toFixed(2);
+      hsnSac = dto.hsnSac?.trim() || null;
+    } else {
+      const placeOfSupply =
+        (dto.placeOfSupply as PlaceOfSupply | undefined) ??
+        this.gstService.resolvePlaceOfSupply(
+          folio.property?.state,
+          folio.property?.stateCode,
+          folio.guest?.state,
+        );
+      const gst = await this.gstService.computeTax({
+        propertyId,
+        chargeType: dto.type,
+        taxableAmountCents: amountCents,
+        slabBasisAmount: unit,
+        placeOfSupply,
+        chargeDate: chargedAt,
+        hsnSacOverride: dto.hsnSac?.trim() || null,
+      });
+      taxAmount = gst.totalTax;
+      hsnSac = gst.hsnSac;
+      taxSnapshot = gst.applied ? this.toStoredSnapshot(gst) : null;
+    }
 
     const charge = this.chargesRepository.create({
       folioId,
@@ -309,7 +392,9 @@ export class BillingService {
       quantity,
       unitAmount: unit.toFixed(2),
       amount: amount.toFixed(2),
-      taxAmount: taxAmount.toFixed(2),
+      taxAmount,
+      hsnSac,
+      taxSnapshot,
       chargedAt,
       createdByUserId: actorUserId ?? null,
     });
@@ -358,6 +443,8 @@ export class BillingService {
           unitAmount: (-toCents(original.unitAmount) / 100).toFixed(2),
           amount: (-toCents(original.amount) / 100).toFixed(2),
           taxAmount: (-toCents(original.taxAmount) / 100).toFixed(2),
+          hsnSac: original.hsnSac,
+          taxSnapshot: this.negateTaxSnapshot(original.taxSnapshot),
           chargedAt: new Date(),
           createdByUserId: actorUserId ?? null,
         }),

@@ -10,6 +10,7 @@ import {
 import { FolioEntity } from './folio.entity';
 import { FolioChargeType } from '../domain/folio-charge-type.enum';
 import { FolioChargeStatus } from '../domain/folio-charge-status.enum';
+import { TaxSnapshot } from '../../rates/domain/gst.types';
 
 @Entity({ name: 'folio_charges' })
 @Index('IDX_folio_charges_folio_id', ['folioId'])
@@ -62,6 +63,17 @@ export class FolioChargeEntity {
 
   @Column({ type: 'numeric', precision: 12, scale: 2, name: 'tax_amount', default: '0' })
   taxAmount!: string;
+
+  // HSN/SAC code frozen on the charge (Phase 1D-c). NULL for legacy/manual
+  // charges or when no GST rule applied.
+  @Column({ type: 'varchar', length: 16, name: 'hsn_sac', nullable: true })
+  hsnSac!: string | null;
+
+  // Frozen GST breakdown (TaxSnapshot) that applied when this charge was posted:
+  // taxable value, place of supply, CGST/SGST/IGST components + rates, and the
+  // rule reference. NULL => no GST engine snapshot (legacy/manual/explicit tax).
+  @Column({ type: 'jsonb', name: 'tax_snapshot', nullable: true })
+  taxSnapshot!: TaxSnapshot | null;
 
   @Column({ type: 'timestamptz', name: 'charged_at' })
   chargedAt!: Date;
