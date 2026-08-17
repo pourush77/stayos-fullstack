@@ -9,10 +9,12 @@ import { PropertyTaxConfigEntity } from './infrastructure/property-tax-config.en
 import { RatePlanEntity } from './infrastructure/rate-plan.entity';
 import { RoomTypeDailyRateEntity } from './infrastructure/room-type-daily-rate.entity';
 import { RatePlanRoomTypeEntity } from './infrastructure/rate-plan-room-type.entity';
+import { RateRestrictionEntity } from './infrastructure/rate-restriction.entity';
 import { ChildPricingService } from './child-pricing.service';
 import { RateResolverService } from './rate-resolver.service';
 import { RatesController } from './rates.controller';
 import { RatesService } from './rates.service';
+import { RestrictionService } from './restriction.service';
 import { TaxService } from './tax.service';
 
 @Module({
@@ -24,13 +26,14 @@ import { TaxService } from './tax.service';
       GuestPricingPolicyEntity,
       ChildAgeBandEntity,
       PropertyTaxConfigEntity,
+      RateRestrictionEntity,
     ]),
     PropertiesModule,
     RoomTypesModule,
     PoliciesModule,
   ],
   controllers: [RatesController],
-  providers: [RatesService, ChildPricingService, TaxService, RateResolverService],
-  exports: [RatesService, ChildPricingService, TaxService, RateResolverService],
+  providers: [RatesService, ChildPricingService, TaxService, RateResolverService, RestrictionService],
+  exports: [RatesService, ChildPricingService, TaxService, RateResolverService, RestrictionService],
 })
 export class RatesModule {}

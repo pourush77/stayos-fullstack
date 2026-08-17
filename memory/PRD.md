@@ -282,3 +282,26 @@ Full front-desk lifecycle certified for real staff use. See CHANGELOG.md 2026-08
 - Files (new): domain/reservation-rate-snapshot-status.enum.ts, domain/reservation-rate-snapshot-trigger.enum.ts, infrastructure/reservation-rate-snapshot.entity.ts, services/reservation-rate-snapshot.service.ts(+spec), migration. (modified): reservation.entity.ts (rate_snapshot_version optional), reservations.module.ts, reservations.service.ts (create/update + gates + trigger), reservation-workflow.service.ts (confirm/extend), + specs.
 - Verified (focused only, full Jest NOT run): 155/155 focused specs (child-pricing, rate-resolver, rates.service, reservation-rate-snapshot, reservation-pricing, reservations.service, reservation-workflow); tsc --noEmit clean; migration applied; rebuilt+restarted live API. Live E2E (self-cleaned): initial v1 (10000) -> DATE_CHANGE v2 (15000) -> RATE_PLAN_CHANGE v3 (18000, ratePlanId follows) -> roomType+plan AMENDMENT v4 (24000) -> OCCUPANCY_CHANGE v5 (30000); operational edit & commercial no-op made NO version; failed re-price (inapplicable plan) => 400 with version+mirror unchanged (rollback); CANCELLED commercial amend => 400; CHECKED_IN extension => new version via resolver (10000->20000), general commercial amend on CHECKED_IN => 400. DB: exactly one ACTIVE, immutable superseded chain, mirror (ratePlan+snapshot) matches ACTIVE, 0 global one-active violations.
 - **Phase 1C-b (Rate Plans + child pricing + versioned commercial snapshots) is COMPLETE.** Not started: 1C-c, 1D, POS, frontend.
+
+## 2026-08-17 — Phase 1C-c1: Restrictions foundation (schema + engine + CRUD) — DONE & VERIFIED
+- New table `rate_restrictions` (migration `20260825090000`, additive/no-backfill): {property_id, room_type_id, rate_plan_id NULL=roomType-level baseline, date, stop_sell/cta/ctd nullable bool (NULL=inherit), min_stay/max_stay nullable int, timestamps}. Partial unique indexes: one roomType-level row + one row per rate plan per date. FKs to room_types/rate_plans (CASCADE). Per-row CHECKs (min/max>=1, max>=min). Added ApiErrorCode.RESTRICTION_VIOLATION.
+- `RestrictionService` (RatesModule, exported, READ-ONLY — never touches inventory/pricing/snapshots): `evaluateStay({propertyId,roomTypeId,ratePlanId?,arrivalDate,departureDate})` -> {sellable, violations[]}; `assertStaySellable()` throws 422 RESTRICTION_VIOLATION with ALL violations (type, date?, requiredMinStay/allowedMaxStay). CRUD: bulk `upsertRestrictions` (inclusive date range; only provided fields written, others preserved), `listRestrictions`, `deleteRestriction`.
+- SEMANTICS (approved): occupied nights = [arrival..departure-1]. stopSell blocks any occupied night; CTA only on arrival date; CTD only on departure date; minStay/maxStay = arrival-anchored LOS (LOS=departure-arrival nights). Precedence = specificity override, NULL=inherit: effective = ratePlanRow.field ?? roomTypeRow.field ?? default(bool false / int null); an explicit rate-plan `false` reopens a baseline restriction.
+- CRUD endpoints under rates: GET/PUT `/properties/:propertyId/rates/restrictions`, DELETE `/properties/:propertyId/rates/restrictions/:id` (SettingsView/BookingsView read, SettingsManage write).
+- Verified: focused specs 15/15 (restriction.service.spec evaluation matrix + 422 payload; rates.controller.spec); tsc clean; migration applied; rebuilt+restarted live API; live CRUD smoke (bulk upsert 3 dates, list, merge-preserving partial re-upsert, delete cleanup -> 0). Full Jest/reservation/inventory suites intentionally NOT run.
+- NOT wired into reservation lifecycle yet (1C-c2/c3). `assertStaySellable` ready for wiring.
+
+### APPROVED change-aware amendment validation rules — TO IMPLEMENT in 1C-c2/c3 (do NOT replace with blanket full-stay revalidation)
+Principle: restrictions gate newly-introduced/re-scoped sale entitlement, NOT already-held grandfathered entitlement. Existing confirmed reservations are grandfathered.
+- create() (1C-c2): validate the full requested stay under (roomType, ratePlan). PENDING & CONFIRMED are sales -> validate both.
+- confirm(): NO restriction re-validation (PENDING already a held sale).
+- update()/extend (1C-c3), change-aware:
+  * occupancy/guest-count-only (roomType/ratePlan/dates unchanged) -> NO stay-restriction check.
+  * date extension -> validate only newly-added occupied nights for stopSell + new departure CTD + resulting LOS min/maxStay; CTA only if arrival changed.
+  * date shortening -> validate resulting LOS + new departure CTD; do NOT reject on unchanged historical nights now stop-sold.
+  * arrival/date shift -> validate newly-introduced nights + CTA on new arrival + CTD on new departure + LOS min/maxStay.
+  * roomType change -> validate the COMPLETE resulting stay (entire entitlement newly introduced under another roomType).
+  * ratePlan change -> validate the COMPLETE resulting stay under the new plan (restriction scope changed).
+  * operational-only edits -> NO restriction validation.
+- Error: 422 RESTRICTION_VIOLATION with all violations.
+- Staff force/override: DEFERRED (must later be permission-controlled + audited, not generic force=true).

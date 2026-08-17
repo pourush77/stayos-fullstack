@@ -4,6 +4,7 @@ import { ChildPricingMode } from './domain/child-pricing-mode.enum';
 import { UpsertGuestPricingPolicyDto } from './dto/upsert-guest-pricing-policy.dto';
 import { RatesController } from './rates.controller';
 import { RatesService } from './rates.service';
+import { RestrictionService } from './restriction.service';
 import { TaxService } from './tax.service';
 
 const propertyId = '4075c8fa-f36e-4f40-a3ef-2e9dbb1f0670';
@@ -57,6 +58,11 @@ describe('RatesController', () => {
     getPropertyTaxConfig: jest.fn(),
     upsertPropertyTaxConfig: jest.fn(),
   };
+  const restrictionService = {
+    listRestrictions: jest.fn(),
+    upsertRestrictions: jest.fn(),
+    deleteRestriction: jest.fn(),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -71,6 +77,10 @@ describe('RatesController', () => {
         {
           provide: TaxService,
           useValue: taxService,
+        },
+        {
+          provide: RestrictionService,
+          useValue: restrictionService,
         },
       ],
     }).compile();

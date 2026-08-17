@@ -11,6 +11,9 @@ import {
   UpsertRatePlanRoomTypeDto,
 } from './dto/rate-plan.dto';
 import { RatesService } from './rates.service';
+import { RestrictionService } from './restriction.service';
+import { ListRestrictionsQueryDto, UpsertRestrictionsDto } from './dto/restriction.dto';
+import { Query } from '@nestjs/common';
 import { TaxService } from './tax.service';
 
 @ApiTags('Rates')
@@ -20,6 +23,7 @@ export class RatesController {
   constructor(
     private readonly ratesService: RatesService,
     private readonly taxService: TaxService,
+    private readonly restrictionService: RestrictionService,
   ) {}
 
   @Get('rate-plans')
@@ -169,5 +173,35 @@ export class RatesController {
     @Body() dto: UpsertPropertyTaxConfigDto,
   ) {
     return this.taxService.upsertPropertyTaxConfig(propertyId, dto);
+  }
+
+  @Get('restrictions')
+  @RequirePermissions(Permissions.SettingsView, Permissions.BookingsView)
+  @ApiOperation({ summary: 'List sale restrictions (stopSell/CTA/CTD/minStay/maxStay)' })
+  listRestrictions(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Query() query: ListRestrictionsQueryDto,
+  ) {
+    return this.restrictionService.listRestrictions(propertyId, query);
+  }
+
+  @Put('restrictions')
+  @RequirePermissions(Permissions.SettingsManage)
+  @ApiOperation({ summary: 'Bulk upsert sale restrictions across a date range' })
+  upsertRestrictions(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Body() dto: UpsertRestrictionsDto,
+  ) {
+    return this.restrictionService.upsertRestrictions(propertyId, dto);
+  }
+
+  @Delete('restrictions/:id')
+  @RequirePermissions(Permissions.SettingsManage)
+  @ApiOperation({ summary: 'Delete a sale restriction row' })
+  removeRestriction(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.restrictionService.deleteRestriction(propertyId, id);
   }
 }
