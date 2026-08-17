@@ -32,6 +32,8 @@ import {
 import { diffEntitlements } from '../domain/reservation-inventory-transition';
 import { AvailabilityService } from '../../inventory/availability.service';
 import { ReservationPricingService } from './reservation-pricing.service';
+import { ReservationRateSnapshotService } from './reservation-rate-snapshot.service';
+import { ReservationRateSnapshotTrigger } from '../domain/reservation-rate-snapshot-trigger.enum';
 import { expandStayNights } from '../../inventory/domain/inventory-nights';
 
 const activeAssignmentStatuses = [
@@ -53,6 +55,7 @@ export class ReservationWorkflowService {
     private readonly policyResolver: PolicyResolverService,
     private readonly availabilityService: AvailabilityService,
     private readonly reservationPricingService: ReservationPricingService,
+    private readonly reservationRateSnapshotService: ReservationRateSnapshotService,
   ) {}
 
   async confirm(
@@ -70,20 +73,17 @@ export class ReservationWorkflowService {
       reservation.status = ReservationStatus.CONFIRMED;
       await this.applyPolicyTaxSnapshot(reservation);
 
-      // Freeze the commercial snapshot at confirm if not already frozen.
-      if (!reservation.rateSnapshot) {
-        const commercial = await this.reservationPricingService.buildCommercialSnapshot({
-          propertyId,
-          ratePlanId: reservation.ratePlanId,
-          roomTypeId: reservation.roomTypeId,
-          arrivalDate: reservation.arrivalDate,
-          departureDate: reservation.departureDate,
-          adults: reservation.adults,
-          childAges: reservation.childAges ?? [],
-        });
-        reservation.ratePlanId = commercial.ratePlanId;
-        reservation.rateSnapshot = commercial.rateSnapshot;
-      }
+      // Freeze the commercial snapshot as version 1 at confirm (idempotent:
+      // a reservation created directly as CONFIRMED already holds version 1).
+      await this.reservationRateSnapshotService.recordInitialVersion(manager, reservation, {
+        propertyId,
+        ratePlanId: reservation.ratePlanId,
+        roomTypeId: reservation.roomTypeId,
+        arrivalDate: reservation.arrivalDate,
+        departureDate: reservation.departureDate,
+        adults: reservation.adults,
+        childAges: reservation.childAges,
+      });
 
       const updated = await reservationRepository.save(reservation);
 
@@ -629,7 +629,7 @@ export class ReservationWorkflowService {
         );
       }
 
-      await this.postExtensionCharge(manager, updatedReservation, previousDepartureDate);
+      await this.postExtensionSnapshotVersion(manager, updatedReservation);
 
       await this.createEvents(manager, {
         propertyId,
@@ -973,56 +973,33 @@ export class ReservationWorkflowService {
     };
   }
 
-  private async postExtensionCharge(
+  /**
+   * Re-prices the full (extended) stay through the authoritative resolver and
+   * records a new immutable commercial snapshot version (trigger
+   * STAY_EXTENSION). Replaces the previous ad-hoc folio charge / hard-coded
+   * nightly-rate fallback: NO independent pricing source lives here. Folio
+   * posting for the added nights is deferred to Phase 1D, which will consume
+   * this snapshot version.
+   */
+  private async postExtensionSnapshotVersion(
     manager: EntityManager,
     reservation: ReservationEntity,
-    previousDepartureDate: string,
   ): Promise<void> {
-    const extraNights = this.calculateNights(previousDepartureDate, reservation.departureDate);
-    if (extraNights <= 0) return;
-
-    const folioRepository = manager.getRepository(FolioEntity);
-    const chargeRepository = manager.getRepository(FolioChargeEntity);
-    const reservationRepository = manager.getRepository(ReservationEntity);
-    const folio = await folioRepository.findOne({
-      where: { propertyId: reservation.propertyId, reservationId: reservation.id },
-      relations: { charges: true, payments: true },
-    });
-    if (!folio) return;
-
-    const existingRoomCharge = (folio.charges ?? []).find(
-      (charge) => charge.type === FolioChargeType.ROOM,
+    await this.reservationRateSnapshotService.amend(
+      manager,
+      reservation,
+      {
+        propertyId: reservation.propertyId,
+        ratePlanId: reservation.ratePlanId,
+        roomTypeId: reservation.roomTypeId,
+        arrivalDate: reservation.arrivalDate,
+        departureDate: reservation.departureDate,
+        adults: reservation.adults,
+        childAges: reservation.childAges,
+      },
+      ReservationRateSnapshotTrigger.STAY_EXTENSION,
     );
-    const nightlyRate = Number(existingRoomCharge?.unitAmount ?? 3500);
-    const baseAmount = nightlyRate * extraNights;
-    const tax = await this.taxService.calculateForProperty(reservation.propertyId, baseAmount);
-
-    const charge = chargeRepository.create({
-      folioId: folio.id,
-      type: FolioChargeType.ROOM,
-      description: `Extended stay - ${extraNights} night${extraNights === 1 ? '' : 's'}`,
-      quantity: extraNights,
-      unitAmount: nightlyRate.toFixed(2),
-      amount: baseAmount.toFixed(2),
-      taxAmount: tax.taxAmount,
-      chargedAt: new Date(),
-      createdByUserId: null,
-    });
-    await chargeRepository.save(charge);
-
-    const updatedCharges = [...(folio.charges ?? []), charge];
-    const totals = calculateTotals(updatedCharges, folio.payments ?? []);
-    const balance = Number(totals.balance);
-    const paid = Number(totals.paid);
-    let paymentStatus = ReservationPaymentStatus.PAYMENT_DUE;
-    if (balance <= 0.01 && paid > 0) paymentStatus = ReservationPaymentStatus.PAID;
-    else if (paid > 0) paymentStatus = ReservationPaymentStatus.PARTIALLY_PAID;
-
-    await reservationRepository.update(
-      { id: reservation.id, propertyId: reservation.propertyId },
-      { paymentStatus },
-    );
-    await folioRepository.update({ id: folio.id }, { updatedAt: new Date() });
+    await manager.getRepository(ReservationEntity).save(reservation);
   }
 
   private async ensureFolioSettledForCheckout(

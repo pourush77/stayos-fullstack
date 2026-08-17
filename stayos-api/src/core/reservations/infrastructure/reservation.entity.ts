@@ -90,6 +90,10 @@ export class ReservationEntity {
   @Column({ type: 'jsonb', name: 'rate_snapshot', nullable: true })
   rateSnapshot!: Record<string, unknown> | null;
 
+  /** Version number of the current ACTIVE reservation_rate_snapshots row (mirror). */
+  @Column({ type: 'integer', name: 'rate_snapshot_version', nullable: true })
+  rateSnapshotVersion?: number | null;
+
   @ManyToOne(() => RoomEntity, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'room_id' })
   room!: RoomEntity | null;

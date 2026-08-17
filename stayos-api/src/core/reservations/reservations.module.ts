@@ -17,17 +17,20 @@ import { MobileCaptureService } from './check-in-capture/mobile-capture.service'
 import { MobileCaptureSessionEntity } from './check-in-capture/mobile-capture-session.entity';
 import { GuestIdentityDocumentEntity } from './infrastructure/guest-identity-document.entity';
 import { ReservationEntity } from './infrastructure/reservation.entity';
+import { ReservationRateSnapshotEntity } from './infrastructure/reservation-rate-snapshot.entity';
 import { ReservationsController } from './reservations.controller';
 import { ReservationsService } from './reservations.service';
 import { CheckInService } from './services/check-in.service';
 import { ReservationWorkflowService } from './services/reservation-workflow.service';
 import { ReservationPricingService } from './services/reservation-pricing.service';
+import { ReservationRateSnapshotService } from './services/reservation-rate-snapshot.service';
 import { StaysController } from './stays.controller';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       ReservationEntity,
+      ReservationRateSnapshotEntity,
       GuestEntity,
       RoomTypeEntity,
       RoomEntity,
@@ -52,6 +55,7 @@ import { StaysController } from './stays.controller';
     ReservationsService,
     ReservationWorkflowService,
     ReservationPricingService,
+    ReservationRateSnapshotService,
     CheckInService,
     MobileCaptureService,
     DocumentStorageService,

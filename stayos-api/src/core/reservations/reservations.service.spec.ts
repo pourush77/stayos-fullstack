@@ -20,6 +20,7 @@ import { ReservationsService } from './reservations.service';
 import { ChildPricingService } from '../rates/child-pricing.service';
 import { AvailabilityService } from '../inventory/availability.service';
 import { ReservationPricingService } from './services/reservation-pricing.service';
+import { ReservationRateSnapshotService } from './services/reservation-rate-snapshot.service';
 
 type MockRepository<T extends object = object> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -129,6 +130,26 @@ describe('ReservationsService', () => {
   const childPricingService = { validateReservationChildAges: jest.fn() };
   const availabilityService = { reserve: jest.fn(), restore: jest.fn(), applyDelta: jest.fn(), read: jest.fn() };
   const reservationPricingService = { buildCommercialSnapshot: jest.fn() };
+  const reservationRateSnapshotService = {
+    computeCommercialHash: jest.fn(
+      (key: Record<string, unknown>) =>
+        `${key.ratePlanId ?? 'NONE'}|${key.roomTypeId}|${key.arrivalDate}|${key.departureDate}|${key.adults}|${[...((key.childAges as number[]) ?? [])].sort((a, b) => a - b).join(',')}`,
+    ),
+    recordInitialVersion: jest.fn(async (_m: unknown, reservation: Record<string, unknown>, key: Record<string, unknown>) => {
+      const c = await reservationPricingService.buildCommercialSnapshot({ ...key });
+      reservation.ratePlanId = c.ratePlanId;
+      reservation.rateSnapshot = c.rateSnapshot;
+      reservation.rateSnapshotVersion = 1;
+    }),
+    amend: jest.fn(async (_m: unknown, reservation: Record<string, unknown>, key: Record<string, unknown>) => {
+      const c = await reservationPricingService.buildCommercialSnapshot({ ...key });
+      reservation.ratePlanId = c.ratePlanId;
+      reservation.rateSnapshot = c.rateSnapshot;
+      const v = ((reservation.rateSnapshotVersion as number) ?? 1) + 1;
+      reservation.rateSnapshotVersion = v;
+      return { changed: true, version: v };
+    }),
+  };
   let dataSource: { transaction: jest.Mock };
 
   beforeEach(async () => {
@@ -176,6 +197,7 @@ describe('ReservationsService', () => {
         { provide: DataSource, useValue: dataSource },
         { provide: AvailabilityService, useValue: availabilityService },
         { provide: ReservationPricingService, useValue: reservationPricingService },
+        { provide: ReservationRateSnapshotService, useValue: reservationRateSnapshotService },
       ],
     }).compile();
 
@@ -196,7 +218,13 @@ describe('ReservationsService', () => {
         roomTypeId,
         roomId,
       }),
-    ).resolves.toEqual({ ...reservationEntity, roomId });
+    ).resolves.toEqual({
+      ...reservationEntity,
+      roomId,
+      ratePlanId: null,
+      rateSnapshot: { version: 1, pricingStatus: 'UNPRICED', reason: 'NO_APPLICABLE_RATE_PLAN' },
+      rateSnapshotVersion: 1,
+    });
     expect(reservationsRepository.create).toHaveBeenCalledWith(
       expect.objectContaining({
         propertyId,

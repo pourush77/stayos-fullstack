@@ -16,6 +16,7 @@ import { FolioEntity } from '../../billing/infrastructure/folio.entity';
 import { ReservationPaymentStatus } from '../domain/reservation-payment-status.enum';
 import { ReservationSource } from '../domain/reservation-source.enum';
 import { ReservationStatus } from '../domain/reservation-status.enum';
+import { ReservationRateSnapshotTrigger } from '../domain/reservation-rate-snapshot-trigger.enum';
 import { ReservationEntity } from '../infrastructure/reservation.entity';
 import { CheckInService } from './check-in.service';
 import { ReservationWorkflowService } from './reservation-workflow.service';
@@ -141,6 +142,11 @@ describe('ReservationWorkflowService', () => {
     applyDelta: jest.Mock;
     read: jest.Mock;
   };
+  let rateSnapshotService: {
+    recordInitialVersion: jest.Mock;
+    amend: jest.Mock;
+    computeCommercialHash: jest.Mock;
+  };
 
   beforeEach(() => {
     reservationsRepository = {
@@ -225,6 +231,12 @@ describe('ReservationWorkflowService', () => {
       read: jest.fn().mockResolvedValue([]),
     };
 
+    rateSnapshotService = {
+      recordInitialVersion: jest.fn().mockResolvedValue(undefined),
+      amend: jest.fn().mockResolvedValue({ changed: true, version: 2 }),
+      computeCommercialHash: jest.fn().mockReturnValue('hash'),
+    };
+
     service = new ReservationWorkflowService(
       dataSource,
       checkInService as CheckInService,
@@ -238,6 +250,7 @@ describe('ReservationWorkflowService', () => {
           .fn()
           .mockResolvedValue({ ratePlanId: null, rateSnapshot: { version: 1, pricingStatus: 'UNPRICED' } }),
       } as never,
+      rateSnapshotService as never,
     );
   });
 
@@ -496,7 +509,7 @@ describe('ReservationWorkflowService', () => {
   });
 
   describe('extendStay', () => {
-    it('adds an extra-night folio charge and reopens balance on a paid stay', async () => {
+    it('re-prices via a new commercial snapshot version and posts no ad-hoc folio charge', async () => {
       reservationsRepository.findOne?.mockResolvedValue(
         reservationEntity({
           roomId,
@@ -507,21 +520,6 @@ describe('ReservationWorkflowService', () => {
       roomsRepository.findOne?.mockResolvedValue(
         roomEntity({ operationalStatus: RoomOperationalStatus.OCCUPIED }),
       );
-      foliosRepository.findOne?.mockResolvedValue({
-        id: 'folio-1',
-        propertyId,
-        reservationId,
-        charges: [
-          {
-            type: FolioChargeType.ROOM,
-            quantity: 2,
-            unitAmount: '3500.00',
-            amount: '7000.00',
-            taxAmount: '840.00',
-          },
-        ],
-        payments: [{ amount: '7840.00' }],
-      } as FolioEntity);
 
       await expect(
         service.extendStay(propertyId, reservationId, { departureDate: '2026-07-18' }),
@@ -529,26 +527,15 @@ describe('ReservationWorkflowService', () => {
         reservation: { id: reservationId, departureDate: '2026-07-18' },
       });
 
-      expect(folioChargesRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          folioId: 'folio-1',
-          type: FolioChargeType.ROOM,
-          description: 'Extended stay - 1 night',
-          quantity: 1,
-          unitAmount: '3500.00',
-          amount: '3500.00',
-          taxAmount: '420.00',
-        }),
+      // Authoritative re-pricing: a new snapshot version, NOT an ad-hoc folio charge.
+      expect(rateSnapshotService.amend).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ id: reservationId, departureDate: '2026-07-18' }),
+        expect.objectContaining({ departureDate: '2026-07-18' }),
+        ReservationRateSnapshotTrigger.STAY_EXTENSION,
       );
-      expect(folioChargesRepository.save).toHaveBeenCalled();
-      expect(reservationsRepository.update).toHaveBeenCalledWith(
-        { id: reservationId, propertyId },
-        { paymentStatus: ReservationPaymentStatus.PARTIALLY_PAID },
-      );
-      expect(foliosRepository.update).toHaveBeenCalledWith(
-        { id: 'folio-1' },
-        expect.objectContaining({ updatedAt: expect.any(Date) }),
-      );
+      expect(folioChargesRepository.create).not.toHaveBeenCalled();
+      expect(folioChargesRepository.save).not.toHaveBeenCalled();
     });
 
     it('rejects a departure date that is not later than the current departure', async () => {

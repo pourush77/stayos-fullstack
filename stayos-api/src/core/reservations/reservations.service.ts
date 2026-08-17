@@ -27,6 +27,8 @@ import { RoomOperationalStatus } from '../rooms/domain/room-operational-status.e
 import { ChildPricingService } from '../rates/child-pricing.service';
 import { AvailabilityService } from '../inventory/availability.service';
 import { ReservationPricingService } from './services/reservation-pricing.service';
+import { ReservationRateSnapshotService } from './services/reservation-rate-snapshot.service';
+import { ReservationRateSnapshotTrigger } from './domain/reservation-rate-snapshot-trigger.enum';
 import { expandStayNights } from '../inventory/domain/inventory-nights';
 import {
   InventoryDelta,
@@ -77,6 +79,7 @@ export class ReservationsService {
     private readonly dataSource: DataSource,
     private readonly availabilityService: AvailabilityService,
     private readonly reservationPricingService: ReservationPricingService,
+    private readonly reservationRateSnapshotService: ReservationRateSnapshotService,
   ) {}
 
   async findAll(propertyId: string, query: PaginationQueryDto): Promise<PaginatedReservations> {
@@ -227,25 +230,7 @@ export class ReservationsService {
     const reservationCode = await this.generateReservationCode(propertyId);
     const status = createReservationDto.status ?? ReservationStatus.CONFIRMED;
     const willReserve = inventoryDeltaForTransition(null, status) === InventoryDelta.RESERVE;
-
-    // Commercial commit rule: snapshot pricing only when creating directly into
-    // the committed CONFIRMED state. PENDING stays unsnapshotted until confirm,
-    // even though it consumes inventory (pricing-commit != inventory-consume).
-    let ratePlanId: string | null = createReservationDto.ratePlanId ?? null;
-    let rateSnapshot: Record<string, unknown> | null = null;
-    if (status === ReservationStatus.CONFIRMED) {
-      const commercial = await this.reservationPricingService.buildCommercialSnapshot({
-        propertyId,
-        ratePlanId,
-        roomTypeId: createReservationDto.roomTypeId,
-        arrivalDate: createReservationDto.arrivalDate,
-        departureDate: createReservationDto.departureDate,
-        adults: createReservationDto.adults,
-        childAges: createReservationDto.childAges,
-      });
-      ratePlanId = commercial.ratePlanId;
-      rateSnapshot = commercial.rateSnapshot;
-    }
+    const ratePlanId: string | null = createReservationDto.ratePlanId ?? null;
 
     try {
       return await this.dataSource.transaction(async (manager) => {
@@ -257,10 +242,28 @@ export class ReservationsService {
           status,
           inventoryReserved: willReserve,
           ratePlanId,
-          rateSnapshot,
+          rateSnapshot: null,
+          rateSnapshotVersion: null,
         });
 
         const saved = await reservationRepository.save(reservation);
+
+        // Commercial commit rule: snapshot version 1 only when creating directly
+        // into the committed CONFIRMED state. PENDING stays unsnapshotted until
+        // confirm (pricing-commit != inventory-consume). Runs in THIS
+        // transaction so an invalid rate plan rolls back the whole create.
+        if (status === ReservationStatus.CONFIRMED) {
+          await this.reservationRateSnapshotService.recordInitialVersion(manager, saved, {
+            propertyId,
+            ratePlanId,
+            roomTypeId: saved.roomTypeId,
+            arrivalDate: saved.arrivalDate,
+            departureDate: saved.departureDate,
+            adults: saved.adults,
+            childAges: saved.childAges,
+          });
+          await reservationRepository.save(saved);
+        }
 
         // Inventory is driven by the entitlement transition (none -> status),
         // NOT by the create action itself. Only entering a consuming status
@@ -331,6 +334,38 @@ export class ReservationsService {
       const beforeDeparture = reservation.departureDate;
       const afterRoomTypeId = references.roomType.id;
 
+      // Classify the edit as commercial (re-price + new snapshot version) or
+      // operational (no version). ratePlanId/roomType/dates/occupancy are
+      // commercial; guest/room/notes/etc are operational.
+      const nextRatePlanId =
+        'ratePlanId' in updateReservationDto
+          ? (updateReservationDto.ratePlanId ?? null)
+          : reservation.ratePlanId;
+      const currentKey = {
+        propertyId,
+        ratePlanId: reservation.ratePlanId,
+        roomTypeId: beforeRoomTypeId,
+        arrivalDate: beforeArrival,
+        departureDate: beforeDeparture,
+        adults: reservation.adults,
+        childAges: reservation.childAges,
+      };
+      const nextKey = {
+        propertyId,
+        ratePlanId: nextRatePlanId,
+        roomTypeId: afterRoomTypeId,
+        arrivalDate,
+        departureDate,
+        adults: updateReservationDto.adults ?? reservation.adults,
+        childAges,
+      };
+      const commercialChanged =
+        this.reservationRateSnapshotService.computeCommercialHash(currentKey) !==
+        this.reservationRateSnapshotService.computeCommercialHash(nextKey);
+      if (commercialChanged) {
+        this.assertCommercialAmendmentAllowed(reservation.status);
+      }
+
       // Entitlement diff for date/roomType changes (status is NOT changed by
       // update). Only nights/roomType that disappear are released and only new
       // ones are reserved; unchanged nights are never touched.
@@ -373,6 +408,21 @@ export class ReservationsService {
             { propertyId, toRelease: diff.toRelease, toReserve: diff.toReserve, units: 1 },
             manager,
           );
+        }
+
+        // Commercial amendment: re-price via the authoritative resolver and
+        // record a new immutable snapshot version (only for reservations that
+        // already hold an ACTIVE snapshot; PENDING stays deferred to confirm).
+        // A commercial no-op creates no version. Runs in THIS transaction so
+        // pricing + inventory + reservation commit/roll back together.
+        if (commercialChanged && reservation.rateSnapshotVersion != null) {
+          await this.reservationRateSnapshotService.amend(
+            manager,
+            updatedReservation,
+            nextKey,
+            this.commercialTrigger(currentKey, nextKey),
+          );
+          await reservationRepository.save(updatedReservation);
         }
       });
 
@@ -586,6 +636,40 @@ export class ReservationsService {
     }
 
     return persistenceFields;
+  }
+
+  private assertCommercialAmendmentAllowed(status: ReservationStatus): void {
+    if (status === ReservationStatus.PENDING || status === ReservationStatus.CONFIRMED) return;
+    if (status === ReservationStatus.CHECKED_IN) {
+      throw new BadRequestException(
+        'Checked-in reservations can only be amended commercially via stay extension',
+      );
+    }
+    throw new BadRequestException(
+      `Commercial amendments are not allowed on a ${status} reservation`,
+    );
+  }
+
+  private commercialTrigger(
+    current: { ratePlanId: string | null; roomTypeId: string; arrivalDate: string; departureDate: string; adults: number; childAges?: number[] | null },
+    next: { ratePlanId: string | null; roomTypeId: string; arrivalDate: string; departureDate: string; adults: number; childAges?: number[] | null },
+  ): ReservationRateSnapshotTrigger {
+    const changes: ReservationRateSnapshotTrigger[] = [];
+    if (current.arrivalDate !== next.arrivalDate || current.departureDate !== next.departureDate) {
+      changes.push(ReservationRateSnapshotTrigger.DATE_CHANGE);
+    }
+    if (current.roomTypeId !== next.roomTypeId) {
+      changes.push(ReservationRateSnapshotTrigger.ROOM_TYPE_CHANGE);
+    }
+    if ((current.ratePlanId ?? null) !== (next.ratePlanId ?? null)) {
+      changes.push(ReservationRateSnapshotTrigger.RATE_PLAN_CHANGE);
+    }
+    const curChild = [...(current.childAges ?? [])].sort((a, b) => a - b).join(',');
+    const nextChild = [...(next.childAges ?? [])].sort((a, b) => a - b).join(',');
+    if (current.adults !== next.adults || curChild !== nextChild) {
+      changes.push(ReservationRateSnapshotTrigger.OCCUPANCY_CHANGE);
+    }
+    return changes.length === 1 ? changes[0] : ReservationRateSnapshotTrigger.AMENDMENT;
   }
 
   private handlePersistenceError(error: unknown): never {
