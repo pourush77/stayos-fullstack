@@ -186,45 +186,72 @@ export class BillingService {
       // Nothing to repost from; leave existing charges untouched.
       return folio;
     }
-
-    const livePosted = (folio.charges ?? []).filter(
-      (c) =>
-        c.type === FolioChargeType.ROOM &&
-        c.status === FolioChargeStatus.POSTED &&
-        c.rateSnapshotId != null,
+    await this.dataSource.transaction((manager) =>
+      this.reconcileRoomChargesOnManager(manager, propertyId, reservationId, actorUserId),
     );
-    // Idempotent: already reconciled to the ACTIVE version.
-    if (livePosted.length > 0 && livePosted.every((c) => c.rateSnapshotVersion === active.version)) {
-      return folio;
+    return this.getFolio(propertyId, folio.id);
+  }
+
+  /**
+   * Manager-aware reconcile core. Runs on the CALLER's transaction (no nested
+   * txn / no extra pool connection) so a reservation amendment + snapshot
+   * version + inventory delta + folio reconcile all commit or roll back
+   * together. Idempotent no-op when the live POSTED snapshot-driven ROOM charges
+   * already reference the ACTIVE snapshot version. Only touches snapshot-linked
+   * ROOM charges (rate_snapshot_id NOT NULL); legacy/manual charges untouched.
+   * Safe to call unconditionally after any amendment — it self-detects work.
+   */
+  async reconcileRoomChargesOnManager(
+    manager: EntityManager,
+    propertyId: string,
+    reservationId: string,
+    actorUserId?: string | null,
+  ): Promise<void> {
+    const folioRepo = manager.getRepository(FolioEntity);
+    const existingFolio = await folioRepo.findOne({ where: { reservationId, propertyId } });
+    if (!existingFolio || existingFolio.status !== FolioStatus.OPEN) return; // no folio / not OPEN => nothing
+
+    const reservation = await manager
+      .getRepository(ReservationEntity)
+      .findOne({ where: { id: reservationId, propertyId } });
+    if (!reservation) return;
+
+    const active = await manager.getRepository(ReservationRateSnapshotEntity).findOne({
+      where: { reservationId, status: ReservationRateSnapshotStatus.ACTIVE },
+    });
+    if (!active || (active.snapshot as { pricingStatus?: string })?.pricingStatus !== 'PRICED') return;
+
+    const repo = manager.getRepository(FolioChargeEntity);
+    const livePosted = await repo.find({
+      where: { folioId: existingFolio.id, type: FolioChargeType.ROOM, status: FolioChargeStatus.POSTED },
+    });
+    const snapshotDriven = livePosted.filter((c) => c.rateSnapshotId != null);
+    if (snapshotDriven.length > 0 && snapshotDriven.every((c) => c.rateSnapshotVersion === active.version)) {
+      return; // idempotent: already at ACTIVE version
     }
 
-    await this.dataSource.transaction(async (manager) => {
-      const repo = manager.getRepository(FolioChargeEntity);
-      for (const original of livePosted) {
-        await repo.save(
-          repo.create({
-            folioId: folio.id,
-            type: original.type,
-            status: FolioChargeStatus.REVERSAL,
-            reversalOfChargeId: original.id,
-            rateSnapshotId: original.rateSnapshotId,
-            rateSnapshotVersion: original.rateSnapshotVersion,
-            description: `Reversal: ${original.description}`.slice(0, 160),
-            quantity: original.quantity,
-            unitAmount: fromCents(-toCents(original.unitAmount)),
-            amount: fromCents(-toCents(original.amount)),
-            taxAmount: fromCents(-toCents(original.taxAmount)),
-            chargedAt: new Date(),
-            createdByUserId: actorUserId ?? null,
-          }),
-        );
-        await repo.update({ id: original.id }, { status: FolioChargeStatus.REVERSED });
-      }
-      await this.generateRoomChargesFromSnapshot(manager, folio.id, propertyId, reservation, active);
-      await manager.getRepository(FolioEntity).update({ id: folio.id }, { updatedAt: new Date() });
-    });
-
-    return this.getFolio(propertyId, folio.id);
+    for (const original of snapshotDriven) {
+      await repo.save(
+        repo.create({
+          folioId: existingFolio.id,
+          type: original.type,
+          status: FolioChargeStatus.REVERSAL,
+          reversalOfChargeId: original.id,
+          rateSnapshotId: original.rateSnapshotId,
+          rateSnapshotVersion: original.rateSnapshotVersion,
+          description: `Reversal: ${original.description}`.slice(0, 160),
+          quantity: original.quantity,
+          unitAmount: fromCents(-toCents(original.unitAmount)),
+          amount: fromCents(-toCents(original.amount)),
+          taxAmount: fromCents(-toCents(original.taxAmount)),
+          chargedAt: new Date(),
+          createdByUserId: actorUserId ?? null,
+        }),
+      );
+      await repo.update({ id: original.id }, { status: FolioChargeStatus.REVERSED });
+    }
+    await this.generateRoomChargesFromSnapshot(manager, existingFolio.id, propertyId, reservation, active);
+    await folioRepo.update({ id: existingFolio.id }, { updatedAt: new Date() });
   }
 
   async addCharge(

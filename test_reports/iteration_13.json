@@ -1,0 +1,51 @@
+{
+  "summary": "Focused INDEPENDENT verification of Phase 1D-b automatic folio reconciliation on commercial reservation amendments (StayOS API, http://localhost:3001/api/v1). Created two new pytest suites (14 tests) exercising the live HTTP flows end-to-end with a self-seeded ACTIVE Deluxe rate plan (so snapshots are PRICED), plus direct PostgreSQL verification of snapshot versions, folio_charges rows and inventory invariants. All 8 requested behaviours verified PASSING, plus 3 extra edge cases. Suite run twice back-to-back: 14/14 passed both times, zero residue, zero inventory invariant violations. No frontend testing, no broad regression, no jest full-suite (per scope).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /properties/:pid/reservations/:id (auto-reconcile)", "issue": "Audit attribution gap: reconcileRoomChargesOnManager is called from ReservationsService.update() and postExtensionSnapshotVersion() WITHOUT actorUserId, and generateRoomChargesFromSnapshot never sets createdByUserId at all. Verified in DB: the auto REVERSAL row and the new POSTED ROOM charge both have created_by_user_id = NULL, so the folio history cannot attribute the reverse+repost to the amending user. Financial-audit smell, not a functional break."},
+      {"endpoint": "PATCH /properties/:pid/reservations/:id with non-OPEN folio", "issue": "A commercial amendment on a reservation whose folio is SETTLED returns 200 and bumps the snapshot to a new PRICED version, while reconcile silently returns early (correct by design) — leaving the folio's ROOM charge pinned to the OLD version/amount with no warning, audit note or drift flag. Verified: folio rows and amount unchanged, ACTIVE version advanced. Consider surfacing a drift signal or blocking commercial amendments once the folio is settled."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_folio_auto_reconcile_1db.py",
+    "/app/backend/tests/test_folio_auto_reconcile_1db_edge.py",
+    "/app/test_reports/pytest/pytest_1db_autoreconcile.xml"
+  ],
+  "verified_behaviours": [
+    "PRECONDITION: seeded ACTIVE Deluxe plan (5000.00) yields PRICED snapshot v1 and a folio ROOM charge 10000.00 @ v1.",
+    "Date-change PATCH: 200; ACTIVE version -> v2; original ROOM charge flipped to REVERSED (same row id, not deleted); REVERSAL row inserted with amount -10000.00, reversalOfChargeId = original, retaining the OLD rateSnapshotId/version; new POSTED ROOM charge 15000.00 qty 3 @ v2 with a NEW rateSnapshotId; exactly +2 rows; folio subtotal = 15000.00 (reversed pair nets to zero). NO manual endpoint call.",
+    "Rate-plan change PATCH (5000 -> 7000 plan): 200; v2; reconciled live charge 14000.00, 1 REVERSED row, subtotal 14000.00.",
+    "Operational-only edit (notes): 200; zero new folio rows, snapshot version unchanged, no REVERSED/REVERSAL rows.",
+    "Commercial no-op (identical values re-PATCHed twice): 200; no extra folio rows, no version bump (idempotent).",
+    "Manual POST /folio/reconcile-room-charges immediately after an auto-reconcile is a true no-op (row count unchanged) -> auto path leaves nothing pending.",
+    "Legacy/manual charge (folio_charges.rate_snapshot_id NULL, MISC 500.00) still POSTED, untouched, rate_snapshot_id still NULL after an amendment reconcile; subtotal 15500.00.",
+    "No-folio case (PENDING reservation): commercial amendment 200 and folios count stays 0 — reconcile never creates a folio.",
+    "extendStay PATCH /extend on CHECKED_IN with OPEN folio: 200; v2; old charge REVERSED + REVERSAL -10000.00 + new POSTED 15000.00 qty 3 @ v2; subtotal 15000.00.",
+    "Rollback: stop-sell on the newly-added night -> amendment 422; folio row count + live amount unchanged, ACTIVE snapshot version unchanged, reservation.departure_date unchanged (reservation + snapshot + folio roll back together).",
+    "EDGE: room-type change to a type with no applicable ACTIVE plan is rejected 400 upstream (folio + version untouched) — the folio cannot silently drift onto an UNPRICED version through that path.",
+    "EDGE: SETTLED (non-OPEN) folio is never mutated by reconcile.",
+    "INVARIANT: room_type_inventory has zero rows with sold<0 or sold>capacity after all runs."
+  ],
+  "action_items": [
+    "OPTIONAL (minor): pass the amending actorUserId into reconcileRoomChargesOnManager and set createdByUserId on both the REVERSAL row and the reposted ROOM charge for audit attribution.",
+    "OPTIONAL (minor): decide/document the desired behaviour when a commercial amendment lands while the folio is non-OPEN (SETTLED) — today it silently leaves the folio at the stale snapshot version."
+  ],
+  "critical_code_review_comments": [
+    "reconcileRoomChargesOnManager correctly guards on folio existence/status, PRICED pricingStatus, and rateSnapshotId != NULL, and its version-equality short-circuit makes it genuinely idempotent — verified live.",
+    "generateRoomChargesFromSnapshot recomputes unitAmount as round(grandTotal/nights); for stays where grandTotal is not evenly divisible the unit x quantity will not equal amount (amount is authoritative, so totals stay correct, but the displayed unit rate can be off by cents). Cosmetic only; not part of this slice's acceptance criteria.",
+    "No nested transaction: both call sites pass the caller's EntityManager, so no extra pool connection — consistent with the 422 rollback test result."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_folio_auto_reconcile_1db.py (new)",
+    "/app/backend/tests/test_folio_auto_reconcile_1db_edge.py (new)"
+  ],
+  "success_rate": {"backend": "100% (14/14 focused reconciliation tests)", "frontend": "not tested (out of scope)"},
+  "seed_data_creation": "Two temporary ACTIVE rate plans (T1RECONA 5000.00 default, T1RECONB 7000.00) applicable to Deluxe, ~10 reservations in 2030-05-04..2030-08-15, one stop-sell restriction, one legacy MISC folio charge. ALL removed in session teardown — verified residue: rate_plans like 'T1RECON%' = 0, T1RECON folio charges = 0, restrictions in window = 0, inventory violations = 0 (the 2 remaining CANCELLED reservations in that date window pre-date this session).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@stayos.local / Password123! (from /app/memory/test_credentials.md). NOTE: POST /auth/login returns HTTP 201, not 200 — tests must accept 201.",
+  "context_for_next_testing_agent": "Reusable suites: /app/backend/tests/test_folio_auto_reconcile_1db.py (+_edge.py). They self-seed an ACTIVE Deluxe rate plan (required — a bare seed DB has no active plans, so snapshots are UNPRICED and reconcile legitimately no-ops) and self-clean via psql (host localhost, db stayos_dev, user stayos). Run with: cd /app/backend && python -m pytest tests/test_folio_auto_reconcile_1db.py tests/test_folio_auto_reconcile_1db_edge.py -p no:randomly. Folio totals DTO keys are subtotal/tax/total/paid/balance (no chargesTotal). FolioStatus enum = OPEN|SETTLED|VOID (no CLOSED). Phase 1D-c not started, no frontend testing performed.",
+  "rca_of_the_issue": "No product defect found in this slice. Two test-harness bugs of my own were fixed during the run (login returns 201; wrong totals key / invalid folio status literal 'CLOSED' — the psql helper now raises on stderr so silent SQL failures can no longer mask results)."
+}

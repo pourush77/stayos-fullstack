@@ -9,6 +9,7 @@ import { RatesModule } from '../rates/rates.module';
 import { RoomTypeEntity } from '../room-types/infrastructure/room-type.entity';
 import { RoomEntity } from '../rooms/infrastructure/room.entity';
 import { InventoryModule } from '../inventory/inventory.module';
+import { BillingModule } from '../billing/billing.module';
 import { CheckInCaptureController } from './check-in-capture/check-in-capture.controller';
 import { DocumentStorageService } from './check-in-capture/document-storage.service';
 import { GuestDocumentEntity } from './check-in-capture/guest-document.entity';
@@ -43,6 +44,7 @@ import { StaysController } from './stays.controller';
     PropertiesModule,
     RatesModule,
     PoliciesModule,
+    BillingModule,
     InventoryModule,
   ],
   controllers: [

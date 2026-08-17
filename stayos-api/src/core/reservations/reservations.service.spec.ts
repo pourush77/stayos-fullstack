@@ -22,6 +22,7 @@ import { AvailabilityService } from '../inventory/availability.service';
 import { ReservationPricingService } from './services/reservation-pricing.service';
 import { ReservationRateSnapshotService } from './services/reservation-rate-snapshot.service';
 import { RestrictionService } from '../rates/restriction.service';
+import { BillingService } from '../billing/billing.service';
 
 type MockRepository<T extends object = object> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -138,6 +139,9 @@ describe('ReservationsService', () => {
     assertStaySellable: jest.fn().mockResolvedValue(undefined),
     assertAmendmentSellable: jest.fn().mockResolvedValue(undefined),
   };
+  const billingService = {
+    reconcileRoomChargesOnManager: jest.fn().mockResolvedValue(undefined),
+  };
   const reservationRateSnapshotService = {
     computeCommercialHash: jest.fn(
       (key: Record<string, unknown>) =>
@@ -212,6 +216,7 @@ describe('ReservationsService', () => {
         { provide: ReservationPricingService, useValue: reservationPricingService },
         { provide: ReservationRateSnapshotService, useValue: reservationRateSnapshotService },
         { provide: RestrictionService, useValue: restrictionService },
+        { provide: BillingService, useValue: billingService },
       ],
     }).compile();
 
@@ -752,12 +757,23 @@ describe('ReservationsService', () => {
     reservationsRepository.findOne?.mockResolvedValue(res);
     await service.update(propertyId, reservationId, { departureDate: '2026-07-14' });
     expect(restrictionService.assertAmendmentSellable).toHaveBeenCalledTimes(1);
+    // commercial amendment created a new ACTIVE snapshot version -> the OPEN
+    // folio's snapshot-driven ROOM charges are auto-reconciled in the same txn.
+    expect(billingService.reconcileRoomChargesOnManager).toHaveBeenCalledTimes(1);
+    expect(billingService.reconcileRoomChargesOnManager).toHaveBeenCalledWith(
+      expect.anything(),
+      propertyId,
+      reservationId,
+    );
 
     // operational-only edit -> no restriction validation
     restrictionService.assertAmendmentSellable.mockClear();
+    billingService.reconcileRoomChargesOnManager.mockClear();
     reservationsRepository.findOne?.mockResolvedValue(res);
     await service.update(propertyId, reservationId, { notes: 'front desk note' });
     expect(restrictionService.assertAmendmentSellable).not.toHaveBeenCalled();
+    // operational no-op -> no folio reconciliation triggered.
+    expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
   });
 
   it('propagates a RESTRICTION_VIOLATION from a commercial amendment (rollback, no amend)', async () => {
@@ -773,6 +789,8 @@ describe('ReservationsService', () => {
     expect(err).toBeInstanceOf(HttpException);
     expect(err.getStatus()).toBe(422);
     expect(reservationRateSnapshotService.amend).not.toHaveBeenCalled();
+    // restriction gate fails before amend -> no folio reconciliation.
+    expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
   });
 
   it('validates restrictions on a PENDING commercial amendment even without an existing snapshot version (no amend)', async () => {
@@ -793,6 +811,8 @@ describe('ReservationsService', () => {
     // happens because PENDING has no ACTIVE snapshot yet (deferred to confirm).
     expect(restrictionService.assertAmendmentSellable).toHaveBeenCalledTimes(1);
     expect(reservationRateSnapshotService.amend).not.toHaveBeenCalled();
+    // no amend on PENDING (no ACTIVE snapshot) -> no folio reconciliation.
+    expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
   });
 
   describe('externalConfirmationId write-once (1C-d3)', () => {

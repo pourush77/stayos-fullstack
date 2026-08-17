@@ -151,11 +151,17 @@ describe('ReservationWorkflowService', () => {
     assertAmendmentSellable: jest.Mock;
     assertStaySellable: jest.Mock;
   };
+  let billingService: {
+    reconcileRoomChargesOnManager: jest.Mock;
+  };
 
   beforeEach(() => {
     restrictionService = {
       assertAmendmentSellable: jest.fn().mockResolvedValue(undefined),
       assertStaySellable: jest.fn().mockResolvedValue(undefined),
+    };
+    billingService = {
+      reconcileRoomChargesOnManager: jest.fn().mockResolvedValue(undefined),
     };
     reservationsRepository = {
       findOne: jest.fn().mockResolvedValue(reservationEntity()),
@@ -259,6 +265,7 @@ describe('ReservationWorkflowService', () => {
           .mockResolvedValue({ ratePlanId: null, rateSnapshot: { version: 1, pricingStatus: 'UNPRICED' } }),
       } as never,
       rateSnapshotService as never,
+      billingService as never,
       restrictionService as never,
     );
   });
@@ -545,6 +552,29 @@ describe('ReservationWorkflowService', () => {
       );
       expect(folioChargesRepository.create).not.toHaveBeenCalled();
       expect(folioChargesRepository.save).not.toHaveBeenCalled();
+      // A new ACTIVE snapshot version was created -> the OPEN folio's
+      // snapshot-driven ROOM charges are auto-reconciled in the same txn.
+      expect(billingService.reconcileRoomChargesOnManager).toHaveBeenCalledTimes(1);
+      expect(billingService.reconcileRoomChargesOnManager).toHaveBeenCalledWith(
+        expect.anything(),
+        propertyId,
+        reservationId,
+      );
+    });
+
+    it('does NOT reconcile the folio when the extension re-price is a commercial no-op', async () => {
+      rateSnapshotService.amend.mockResolvedValueOnce({ changed: false, version: 1 });
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ roomId, status: ReservationStatus.CHECKED_IN }),
+      );
+      roomsRepository.findOne?.mockResolvedValue(
+        roomEntity({ operationalStatus: RoomOperationalStatus.OCCUPIED }),
+      );
+
+      await service.extendStay(propertyId, reservationId, { departureDate: '2026-07-18' });
+
+      expect(rateSnapshotService.amend).toHaveBeenCalledTimes(1);
+      expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
     });
 
     it('runs the change-aware restriction gate on the added nights + new departure', async () => {
@@ -584,6 +614,8 @@ describe('ReservationWorkflowService', () => {
       // Gate runs BEFORE inventory delta + snapshot amend -> nothing committed.
       expect(availabilityService.applyDelta).not.toHaveBeenCalled();
       expect(rateSnapshotService.amend).not.toHaveBeenCalled();
+      // Gate fails before amend -> no folio reconciliation.
+      expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
     });
 
     it('rejects a departure date that is not later than the current departure', async () => {

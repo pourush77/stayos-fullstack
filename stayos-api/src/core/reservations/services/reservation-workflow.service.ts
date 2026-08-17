@@ -8,6 +8,7 @@ import { RoomTypeEntity } from '../../room-types/infrastructure/room-type.entity
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
 import { calculateTotals } from '../../billing/billing.mapper';
+import { BillingService } from '../../billing/billing.service';
 import { FolioChargeType } from '../../billing/domain/folio-charge-type.enum';
 import { FolioStatus } from '../../billing/domain/folio-status.enum';
 import { FolioChargeEntity } from '../../billing/infrastructure/folio-charge.entity';
@@ -57,6 +58,7 @@ export class ReservationWorkflowService {
     private readonly availabilityService: AvailabilityService,
     private readonly reservationPricingService: ReservationPricingService,
     private readonly reservationRateSnapshotService: ReservationRateSnapshotService,
+    private readonly billingService: BillingService,
     private readonly restrictionService: RestrictionService,
   ) {}
 
@@ -998,7 +1000,7 @@ export class ReservationWorkflowService {
     manager: EntityManager,
     reservation: ReservationEntity,
   ): Promise<void> {
-    await this.reservationRateSnapshotService.amend(
+    const amendResult = await this.reservationRateSnapshotService.amend(
       manager,
       reservation,
       {
@@ -1013,6 +1015,13 @@ export class ReservationWorkflowService {
       ReservationRateSnapshotTrigger.STAY_EXTENSION,
     );
     await manager.getRepository(ReservationEntity).save(reservation);
+    if (amendResult?.changed) {
+      await this.billingService.reconcileRoomChargesOnManager(
+        manager,
+        reservation.propertyId,
+        reservation.id,
+      );
+    }
   }
 
   private async ensureFolioSettledForCheckout(

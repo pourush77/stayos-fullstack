@@ -1,3 +1,11 @@
+## 2026-08-17 — Phase 1D-b HARDENING: automatic folio reconciliation wired into amendments — DONE & VERIFIED
+- `ReservationsService.update()` and `ReservationWorkflowService.extendStay()` now call `BillingService.reconcileRoomChargesOnManager(manager, propertyId, id)` INSIDE the existing amendment transaction, guarded by `commercialChanged && rateSnapshotVersion != null && amendResult?.changed` — so it fires only when a new ACTIVE snapshot version is actually created. Same EntityManager threaded (no nested txn); rolls back with the amendment on failure.
+- Reconcile is a NO-OP when the ACTIVE snapshot is UNPRICED (bare seed DB has no active rate plans) and when live POSTED snapshot-driven ROOM charges already reference the ACTIVE version (idempotent). Legacy/manual charges (rate_snapshot_id NULL) never touched.
+- Verified: focused Jest specs (reservations.service.spec.ts + reservation-workflow.service.spec.ts) 88/88 — assert reconcile called only on version-changing commercial amendments, NOT on operational/no-op/rejected edits. Live self-cleaning E2E /tmp/verify_d1b_auto.py 24/24. Independent testing_agent (iteration_13) 14/14, 100% backend, 0 critical — covering date-change, rate-plan change, extendStay(CHECKED_IN), operational no-op, commercial no-op idempotency, legacy-charge preservation, no-folio case, and 422 rollback (reservation+snapshot+folio together). Zero residue, zero inventory invariant violations.
+- Deferred (both OPTIONAL/minor, pre-existing — not introduced by this slice, per user scope): (1) reconcile REVERSAL/repost rows have created_by_user_id=NULL (shared gap in generateRoomChargesFromSnapshot); (2) commercial amendment on a SETTLED (non-OPEN) folio bumps snapshot version while reconcile returns early by design, with no drift signal.
+- NOT started: Phase 1D-c (Indian GST engine).
+
+
 ## 2026-08-03 — Walk-in Group + Phase 5B
 - New endpoint `POST /properties/:propertyId/operations/group-holds/walk-in` — one atomic transaction creates group + inventory blocks + room assignments + group stay + one master folio and marks rooms OCCUPIED.
 - New `WalkInGroupModal.tsx` opened via "Walk-in Group" button on Bookings page. Live room picker by type, per-room occupants, deposit, notes; on success shows GRP + master folio + link.

@@ -39,6 +39,7 @@ import {
 } from './domain/reservation-inventory-transition';
 import { reservationConsumesInventory } from './domain/reservation-inventory';
 import { ApiErrorCode } from '../../common/errors/api-error-code.enum';
+import { BillingService } from '../billing/billing.service';
 
 export interface PaginatedReservations {
   data: ReservationEntity[];
@@ -83,6 +84,7 @@ export class ReservationsService {
     private readonly availabilityService: AvailabilityService,
     private readonly reservationPricingService: ReservationPricingService,
     private readonly reservationRateSnapshotService: ReservationRateSnapshotService,
+    private readonly billingService: BillingService,
     private readonly restrictionService: RestrictionService,
   ) {}
 
@@ -550,13 +552,18 @@ export class ReservationsService {
         // A commercial no-op creates no version. Runs in THIS transaction so
         // pricing + inventory + reservation commit/roll back together.
         if (commercialChanged && reservation.rateSnapshotVersion != null) {
-          await this.reservationRateSnapshotService.amend(
+          const amendResult = await this.reservationRateSnapshotService.amend(
             manager,
             updatedReservation,
             nextKey,
             this.commercialTrigger(currentKey, nextKey),
           );
           await reservationRepository.save(updatedReservation);
+          // Auto-reconcile an OPEN folio to the new ACTIVE snapshot version, in
+          // THIS transaction (reverse+repost). No-op when nothing changed.
+          if (amendResult?.changed) {
+            await this.billingService.reconcileRoomChargesOnManager(manager, propertyId, id);
+          }
         }
       });
 
