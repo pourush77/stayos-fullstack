@@ -8,7 +8,7 @@ import { MealPlan } from './domain/meal-plan.enum';
 import { RatePlanEntity } from './infrastructure/rate-plan.entity';
 import { RatePlanRoomTypeEntity } from './infrastructure/rate-plan-room-type.entity';
 import { RoomTypeDailyRateEntity } from './infrastructure/room-type-daily-rate.entity';
-import { ChildPricingService } from './child-pricing.service';
+import { ChildPricingLine, ChildPricingService } from './child-pricing.service';
 
 export interface ResolveRateInput {
   propertyId: string;
@@ -31,6 +31,13 @@ export interface ResolvedNight {
   nightTotal: string;
 }
 
+export interface ResolvedChildLine {
+  age: number;
+  category: string;
+  source: string;
+  amount: string;
+}
+
 export interface ResolvedRate {
   propertyId: string;
   ratePlanId: string;
@@ -38,11 +45,18 @@ export interface ResolvedRate {
   roomTypeId: string;
   mealPlan: MealPlan;
   refundable: boolean;
-  occupancy: { adults: number; children: number; baseOccupancy: number; extraAdults: number };
+  occupancy: {
+    adults: number;
+    children: number;
+    baseOccupancy: number;
+    extraAdults: number;
+    adultPricedChildren: number;
+    extraOccupantsCharged: number;
+  };
   nights: ResolvedNight[];
   totals: { room: string; extraAdult: string; child: string; grandTotal: string };
   policies: Record<string, unknown>;
-  childPricing: { limitations: string[] };
+  childPricing: { lines: ResolvedChildLine[]; limitations: string[] };
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -100,7 +114,7 @@ export class RateResolverService {
     const baseOccupancy = applicability.baseOccupancy;
     const baseRateCents = strToCents(applicability.baseRate);
     const extraAdultCents = strToCents(applicability.extraAdultCharge);
-    const extraAdults = Math.max(0, input.adults - baseOccupancy);
+    const extraChildRupees = Number(applicability.extraChildCharge ?? '0');
 
     const overrides = await this.dailyRatesRepository.find({
       where: {
@@ -113,6 +127,8 @@ export class RateResolverService {
 
     const limitations = new Set<string>();
     const resolvedNights: ResolvedNight[] = [];
+    const perChildCents = new Array<number>(childAges.length).fill(0);
+    let classification: ChildPricingLine[] = [];
     let roomTotal = 0;
     let extraAdultTotal = 0;
     let childTotal = 0;
@@ -125,18 +141,35 @@ export class RateResolverService {
         throw new BadRequestException(`No valid rate could be resolved for ${date}`);
       }
 
-      const nightExtraAdultCents = extraAdults * extraAdultCents;
-
-      // Child charges delegated to the existing child-pricing behaviour, per
-      // night (nights=1) so PERCENT_OF_ROOM_RATE uses that night's room rate.
+      // Child classification + band charges, per night (nights=1) so
+      // PERCENT_OF_ROOM_RATE uses that night's room rate and
+      // RATE_PLAN_EXTRA_CHILD uses this rate plan's per-child charge.
       const childResult = await this.childPricingService.resolveChildPricing(
         input.propertyId,
         childAges,
         1,
         roomRateCents / 100,
+        extraChildRupees,
       );
-      const nightChildCents = Math.round(childResult.total * 100);
+      classification = childResult.lines;
       childResult.limitations.forEach((l) => limitations.add(l));
+
+      // Adult-priced children (ADULT_PRICING band / above max age) are NOT
+      // charged in the child bucket — they consume an occupant slot and are
+      // billed via the rate plan's extra-adult charge (single mechanism, no
+      // double-charge).
+      let nightChildCents = 0;
+      childResult.lines.forEach((line, k) => {
+        if (!line.isAdultPriced) {
+          const cents = Math.round(line.amount * 100);
+          perChildCents[k] += cents;
+          nightChildCents += cents;
+        }
+      });
+
+      const adultPricedCount = childResult.lines.filter((l) => l.isAdultPriced).length;
+      const extraOccupants = Math.max(0, input.adults + adultPricedCount - baseOccupancy);
+      const nightExtraAdultCents = extraOccupants * extraAdultCents;
 
       const nightTotalCents = roomRateCents + nightExtraAdultCents + nightChildCents;
       roomTotal += roomRateCents;
@@ -155,6 +188,18 @@ export class RateResolverService {
 
     const policies = await this.resolvePolicies(input.propertyId, input.ratePlanId);
 
+    const realExtraAdults = Math.max(0, input.adults - baseOccupancy);
+    const adultPricedChildren = classification.filter((l) => l.isAdultPriced).length;
+    const extraOccupantsCharged = Math.max(0, input.adults + adultPricedChildren - baseOccupancy);
+    const childPricingLines = this.buildChildPricingLines(
+      classification,
+      perChildCents,
+      input.adults,
+      baseOccupancy,
+      extraAdultCents,
+      nights.length,
+    );
+
     return {
       propertyId: input.propertyId,
       ratePlanId: input.ratePlanId,
@@ -162,7 +207,14 @@ export class RateResolverService {
       roomTypeId: input.roomTypeId,
       mealPlan: ratePlan.mealPlan,
       refundable: ratePlan.refundable,
-      occupancy: { adults: input.adults, children: childAges.length, baseOccupancy, extraAdults },
+      occupancy: {
+        adults: input.adults,
+        children: childAges.length,
+        baseOccupancy,
+        extraAdults: realExtraAdults,
+        adultPricedChildren,
+        extraOccupantsCharged,
+      },
       nights: resolvedNights,
       totals: {
         room: centsToStr(roomTotal),
@@ -171,8 +223,49 @@ export class RateResolverService {
         grandTotal: centsToStr(roomTotal + extraAdultTotal + childTotal),
       },
       policies,
-      childPricing: { limitations: [...limitations] },
+      childPricing: { lines: childPricingLines, limitations: [...limitations] },
     };
+  }
+
+  /**
+   * Builds auditable per-child pricing lines. Band-priced children carry their
+   * accumulated band amount; adult-priced children (ADULT_PRICING / over-age)
+   * carry the extra-adult charge only when they fall beyond base occupancy
+   * (adults fill base occupancy first), otherwise the base occupancy absorbs
+   * them at zero — never double-charged.
+   */
+  private buildChildPricingLines(
+    classification: ChildPricingLine[],
+    perChildCents: number[],
+    adults: number,
+    baseOccupancy: number,
+    extraAdultCents: number,
+    nights: number,
+  ): ResolvedChildLine[] {
+    const lines: ResolvedChildLine[] = [];
+    let adultPricedOrdinal = 0;
+
+    classification.forEach((line, k) => {
+      if (line.isAdultPriced) {
+        const isExtra = adults + adultPricedOrdinal >= baseOccupancy;
+        adultPricedOrdinal += 1;
+        lines[k] = {
+          age: line.age,
+          category: line.pricingMode,
+          source: isExtra ? 'EXTRA_ADULT' : 'BASE_OCCUPANCY_ABSORBED',
+          amount: centsToStr(isExtra ? extraAdultCents * nights : 0),
+        };
+      } else {
+        lines[k] = {
+          age: line.age,
+          category: line.pricingMode,
+          source: line.source,
+          amount: centsToStr(perChildCents[k]),
+        };
+      }
+    });
+
+    return lines;
   }
 
   private async resolvePolicies(

@@ -662,6 +662,29 @@ describe('RatesService', () => {
       expect(result.childAgeBands).toHaveLength(3);
     });
 
+    it('accepts a RATE_PLAN_EXTRA_CHILD band (amount comes from the rate plan, not the band)', async () => {
+      await expect(
+        service.upsertGuestPricingPolicy(propertyId, {
+          maximumChildAge: 17,
+          childAgeBands: [
+            { label: 'Rate Plan Child', minAge: 0, maxAge: 17, pricingMode: ChildPricingMode.RATE_PLAN_EXTRA_CHILD },
+          ],
+        }),
+      ).resolves.toBeDefined();
+      expect(transactionalBandRepository.save).toHaveBeenCalled();
+    });
+
+    it('rejects a RATE_PLAN_EXTRA_CHILD band that defines fixedAmount or percentage', async () => {
+      await expect(
+        service.upsertGuestPricingPolicy(propertyId, {
+          maximumChildAge: 17,
+          childAgeBands: [
+            { label: 'Bad', minAge: 0, maxAge: 11, pricingMode: ChildPricingMode.RATE_PLAN_EXTRA_CHILD, fixedAmount: '500.00' },
+          ],
+        }),
+      ).rejects.toThrow(/must not define fixedAmount or percentage/);
+    });
+
     it('updates an existing property policy instead of creating a second one', async () => {
       transactionalPolicyRepository.findOne?.mockResolvedValue({
         ...guestPricingPolicyEntity,

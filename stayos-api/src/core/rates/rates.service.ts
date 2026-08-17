@@ -431,6 +431,7 @@ export class RatesService {
     switch (band.pricingMode) {
       case ChildPricingMode.FREE:
       case ChildPricingMode.ADULT_PRICING:
+      case ChildPricingMode.RATE_PLAN_EXTRA_CHILD:
         if (band.fixedAmount != null || band.percentage != null) {
           throw new BadRequestException(
             `${band.pricingMode} child age bands must not define fixedAmount or percentage`,

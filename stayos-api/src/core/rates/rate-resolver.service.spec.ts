@@ -86,11 +86,54 @@ describe('RateResolverService', () => {
   });
 
   it('delegates child pricing to ChildPricingService and includes it in totals', async () => {
-    const { service, childPricingService } = build({ childResult: { lines: [], total: 500, limitations: ['x'] } });
+    const { service, childPricingService } = build({
+      childResult: {
+        lines: [{ age: 6, pricingMode: 'FIXED_PER_NIGHT', label: 'Fixed', amount: 500, isAdultPriced: false, source: 'BAND_FIXED_PER_NIGHT' }],
+        total: 500,
+        limitations: ['x'],
+      },
+    });
     const r = await service.resolve({ ...baseInput, childAges: [6] });
-    expect(childPricingService.resolveChildPricing).toHaveBeenCalledWith(propertyId, [6], 1, 5000);
+    expect(childPricingService.resolveChildPricing).toHaveBeenCalledWith(propertyId, [6], 1, 5000, 0);
     expect(r.totals.child).toBe('1000.00'); // 500 * 2 nights
     expect(r.childPricing.limitations).toContain('x');
+  });
+
+  it('charges an adult-priced child as an extra adult (single mechanism, not double-charged)', async () => {
+    const { service } = build({
+      childResult: {
+        lines: [
+          { age: 15, pricingMode: 'ADULT_PRICING', label: 'Adult', amount: 0, isAdultPriced: true, source: 'ADULT_PRICING' },
+        ],
+        total: 0,
+        limitations: [],
+      },
+    });
+    const r = await service.resolve({ ...baseInput, adults: 2, childAges: [15] });
+    // base occupancy 2, adults 2 + 1 adult-priced child => 1 extra occupant @ 1500/night x2 nights
+    expect(r.totals.extraAdult).toBe('3000.00');
+    expect(r.totals.child).toBe('0.00');
+    expect(r.occupancy.adultPricedChildren).toBe(1);
+    expect(r.occupancy.extraOccupantsCharged).toBe(1);
+    expect(r.childPricing.lines[0]).toMatchObject({ age: 15, source: 'EXTRA_ADULT', amount: '3000.00' });
+  });
+
+  it('prices a RATE_PLAN_EXTRA_CHILD child from the plan extra-child charge (passed to the child service)', async () => {
+    const { service, childPricingService } = build({
+      applicability: { propertyId, ratePlanId, roomTypeId, baseOccupancy: 2, baseRate: '5000.00', extraAdultCharge: '1500.00', extraChildCharge: '700.00' },
+      childResult: {
+        lines: [
+          { age: 5, pricingMode: 'RATE_PLAN_EXTRA_CHILD', label: 'Child', amount: 700, isAdultPriced: false, source: 'RATE_PLAN_EXTRA_CHILD' },
+        ],
+        total: 700,
+        limitations: [],
+      },
+    });
+    const r = await service.resolve({ ...baseInput, adults: 2, childAges: [5] });
+    expect(childPricingService.resolveChildPricing).toHaveBeenCalledWith(propertyId, [5], 1, 5000, 700);
+    expect(r.totals.child).toBe('1400.00'); // 700 x 2 nights
+    expect(r.totals.extraAdult).toBe('0.00');
+    expect(r.childPricing.lines[0]).toMatchObject({ age: 5, source: 'RATE_PLAN_EXTRA_CHILD', amount: '1400.00' });
   });
 
   it('rejects an inactive rate plan', async () => {

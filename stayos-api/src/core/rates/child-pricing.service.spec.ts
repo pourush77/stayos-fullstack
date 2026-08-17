@@ -76,15 +76,30 @@ describe('ChildPricingService', () => {
   it('calculates free, fixed, percent, adult, and above-maximum children', async () => {
     await expect(service.resolveChildPricing(propertyId, [4, 9, 12, 14, 18], 2, 4000)).resolves.toMatchObject({
       lines: [
-        { age: 4, pricingMode: ChildPricingMode.FREE, amount: 0 },
-        { age: 9, pricingMode: ChildPricingMode.FIXED_PER_NIGHT, amount: 1700 },
-        { age: 12, pricingMode: ChildPricingMode.PERCENT_OF_ROOM_RATE, amount: 4000 },
-        { age: 14, pricingMode: ChildPricingMode.ADULT_PRICING, amount: 0 },
-        { age: 18, pricingMode: 'ABOVE_MAXIMUM_CHILD_AGE', amount: 0 },
+        { age: 4, pricingMode: ChildPricingMode.FREE, amount: 0, isAdultPriced: false, source: 'BAND_FREE' },
+        { age: 9, pricingMode: ChildPricingMode.FIXED_PER_NIGHT, amount: 1700, isAdultPriced: false, source: 'BAND_FIXED_PER_NIGHT' },
+        { age: 12, pricingMode: ChildPricingMode.PERCENT_OF_ROOM_RATE, amount: 4000, isAdultPriced: false, source: 'BAND_PERCENT_OF_ROOM_RATE' },
+        { age: 14, pricingMode: ChildPricingMode.ADULT_PRICING, amount: 0, isAdultPriced: true, source: 'ADULT_PRICING' },
+        { age: 18, pricingMode: 'ABOVE_MAXIMUM_CHILD_AGE', amount: 0, isAdultPriced: true, source: 'ABOVE_MAXIMUM_CHILD_AGE' },
       ],
       total: 5700,
-      limitations: ['No adult/additional-occupant pricing mechanism exists yet.'],
+      limitations: [],
     });
+  });
+
+  it('prices a RATE_PLAN_EXTRA_CHILD band from the rate plan extra-child charge', async () => {
+    bandRepository.find.mockResolvedValue([
+      band({ label: 'RatePlanChild', minAge: 0, maxAge: 12, pricingMode: ChildPricingMode.RATE_PLAN_EXTRA_CHILD }),
+    ]);
+    const r = await service.resolveChildPricing(propertyId, [5], 2, 4000, 700);
+    expect(r.lines[0]).toMatchObject({
+      age: 5,
+      pricingMode: ChildPricingMode.RATE_PLAN_EXTRA_CHILD,
+      amount: 1400,
+      isAdultPriced: false,
+      source: 'RATE_PLAN_EXTRA_CHILD',
+    });
+    expect(r.total).toBe(1400);
   });
 
   it('rejects missing, negative, decimal, and mismatched child ages', async () => {

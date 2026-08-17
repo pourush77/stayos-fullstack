@@ -10,6 +10,10 @@ export type ChildPricingLine = {
   pricingMode: ChildPricingMode | 'ABOVE_MAXIMUM_CHILD_AGE';
   label: string;
   amount: number;
+  /** True when the child consumes an occupant slot billed via extra-adult (not the child bucket). */
+  isAdultPriced: boolean;
+  /** Auditable source of this child's amount. */
+  source: string;
 };
 
 export type ChildPricingResult = {
@@ -46,6 +50,7 @@ export class ChildPricingService {
     childAges: number[],
     nights: number,
     nightlyRoomRate: number,
+    extraChildChargePerNight = 0,
   ): Promise<ChildPricingResult> {
     const policy = await this.getActivePolicy(propertyId);
     if (!policy?.ageBasedChildPricingEnabled || childAges.length === 0) {
@@ -63,14 +68,18 @@ export class ChildPricingService {
     for (const age of childAges) {
       this.validateAge(age);
 
+      // Above the maximum child age => treated as an extra adult occupant,
+      // billed via the rate plan's extra-adult charge (resolver-side), never
+      // in the child bucket.
       if (age > policy.maximumChildAge) {
         lines.push({
           age,
           pricingMode: 'ABOVE_MAXIMUM_CHILD_AGE',
           label: 'Adult pricing',
           amount: 0,
+          isAdultPriced: true,
+          source: 'ABOVE_MAXIMUM_CHILD_AGE',
         });
-        limitations.add('No adult/additional-occupant pricing mechanism exists yet.');
         continue;
       }
 
@@ -80,16 +89,18 @@ export class ChildPricingService {
       }
 
       const band = matches[0];
-      const amount = this.calculateBandAmount(band, nights, nightlyRoomRate);
-      if (band.pricingMode === ChildPricingMode.ADULT_PRICING) {
-        limitations.add('No adult/additional-occupant pricing mechanism exists yet.');
-      }
+      const isAdultPriced = band.pricingMode === ChildPricingMode.ADULT_PRICING;
+      const amount = isAdultPriced
+        ? 0
+        : this.calculateBandAmount(band, nights, nightlyRoomRate, extraChildChargePerNight);
 
       lines.push({
         age,
         pricingMode: band.pricingMode,
         label: band.label,
         amount,
+        isAdultPriced,
+        source: isAdultPriced ? 'ADULT_PRICING' : this.bandSource(band.pricingMode),
       });
     }
 
@@ -124,10 +135,26 @@ export class ChildPricingService {
     }
   }
 
+  private bandSource(mode: ChildPricingMode): string {
+    switch (mode) {
+      case ChildPricingMode.FREE:
+        return 'BAND_FREE';
+      case ChildPricingMode.FIXED_PER_NIGHT:
+        return 'BAND_FIXED_PER_NIGHT';
+      case ChildPricingMode.PERCENT_OF_ROOM_RATE:
+        return 'BAND_PERCENT_OF_ROOM_RATE';
+      case ChildPricingMode.RATE_PLAN_EXTRA_CHILD:
+        return 'RATE_PLAN_EXTRA_CHILD';
+      default:
+        return 'BAND';
+    }
+  }
+
   private calculateBandAmount(
     band: ChildAgeBandEntity,
     nights: number,
     nightlyRoomRate: number,
+    extraChildChargePerNight: number,
   ): number {
     switch (band.pricingMode) {
       case ChildPricingMode.FREE:
@@ -137,6 +164,8 @@ export class ChildPricingService {
         return Number(band.fixedAmount ?? 0) * nights;
       case ChildPricingMode.PERCENT_OF_ROOM_RATE:
         return nightlyRoomRate * nights * (Number(band.percentage ?? 0) / 100);
+      case ChildPricingMode.RATE_PLAN_EXTRA_CHILD:
+        return extraChildChargePerNight * nights;
       default:
         return 0;
     }
