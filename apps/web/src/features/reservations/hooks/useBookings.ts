@@ -7,6 +7,7 @@ import { getAvailableRooms, getRoomBoard } from '../../../lib/operations-api';
 import {
   assignRoomToReservation,
   cancelReservation,
+  confirmReservation,
   checkInReservation,
   checkOutReservation,
   createPropertyReservation,
@@ -264,6 +265,7 @@ export function useBookingDetails({
 }): BookingDetailsState & {
   assignRoom: (roomId: string) => Promise<void>;
   cancelBooking: () => Promise<void>;
+  confirmBooking: () => Promise<void>;
   checkInBooking: () => Promise<void>;
   checkOutBooking: () => Promise<void>;
   getRooms: () => Promise<AvailableRoomOption[]>;
@@ -394,8 +396,19 @@ export function useBookingDetails({
     async (values: BookingFormValues) => {
       if (!bookingId) throw new Error('Booking missing.');
       const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
+      // The generic PATCH endpoint is for operational/commercial field edits
+      // only; it forbids lifecycle/source fields (status, source, ratePlanId).
+      // Status changes go through dedicated lifecycle endpoints, and editing
+      // never changes the rate plan (no plan selector). Date/room-type changes
+      // still re-resolve pricing authoritatively on the backend.
+      const {
+        ratePlanId: _ratePlanId,
+        status: _status,
+        source: _source,
+        ...updatePayload
+      } = formValuesToPayload(values) as Record<string, unknown>;
       const booking = mapBooking(
-        await updatePropertyReservation(propertyId, bookingId, formValuesToPayload(values)),
+        await updatePropertyReservation(propertyId, bookingId, updatePayload),
       );
       await loadBooking();
       return booking;
@@ -406,11 +419,14 @@ export function useBookingDetails({
   const cancelBooking = useCallback(async () => {
     if (!bookingId) throw new Error('Booking missing.');
     const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
-    try {
-      await cancelReservation(propertyId, bookingId);
-    } catch {
-      await updatePropertyReservation(propertyId, bookingId, { status: 'CANCELLED' });
-    }
+    await cancelReservation(propertyId, bookingId);
+    await loadBooking();
+  }, [bookingId, loadBooking, state.propertyId]);
+
+  const confirmBooking = useCallback(async () => {
+    if (!bookingId) throw new Error('Booking missing.');
+    const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
+    await confirmReservation(propertyId, bookingId);
     await loadBooking();
   }, [bookingId, loadBooking, state.propertyId]);
 
@@ -457,6 +473,7 @@ export function useBookingDetails({
     ...state,
     assignRoom,
     cancelBooking,
+    confirmBooking,
     checkInBooking,
     checkOutBooking,
     getRooms,

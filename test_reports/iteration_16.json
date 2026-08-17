@@ -1,0 +1,31 @@
+{
+  "summary": "Frontend-only re-test of F3 reservation lifecycle on the public preview URL (admin@stayos.local). ALL 3 requested scenarios PASS. (1) REGRESSION FIXED - Edit save works: /reservations/5d4f398d-9c37-4239-87e3-d7aa481665b3/edit (HS260817-01004, Karan Gill, Deluxe, 20->22 Dec 2026, CONFIRMED) -> changed Special requests + Internal notes -> Save Changes fired PATCH /properties/:pid/reservations/:id returning 200 (no 400 VALIDATION_ERROR), green toast 'Booking updated / Booking saved successfully.', app navigated back to the detail page, and both edits are reflected there (Notes card 'T1 notes 1786997159', Special requests 'Late checkout 1786997225') and persist after reload. useBookings.updateBooking now strips status/source/ratePlanId as intended. (2) Cancel flow: data-testid='cancel-booking-trigger' opens the 'Cancel booking?' modal; data-testid='cancel-confirm-button' fires PATCH .../cancel -> 200, green toast 'Booking cancelled / The booking has been cancelled.', badge flips Confirmed -> Cancelled, read-only 'Cancelled booking' alert shows, and the Activity card now reads exactly 'Booking cancelled. Any held room and inventory have been released.' - the stale 'Booking confirmed. Room assignment pending.' sentence is GONE. (3) Confirm re-check on PENDING 059be554-5c0e-4527-b236-42a4984ccb67 (HSDEMO-0012): data-testid='confirm-booking-button' -> PATCH .../confirm 200, toast 'Booking confirmed / The booking is confirmed. Assign a room to continue to check-in.', badge -> Confirmed, button unmounts. Two pre-existing cosmetic issues from iteration_15 are still open (duplicate 'Check-in not available yet' block; cancelled booking still shows a 'Payment Due' chip + 'Collect during check-in after ID verification.' guidance).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "BookingDetailPage - readiness section", "issue": "STILL OPEN (cosmetic): 'Check-in not available yet' rendered twice (blue Alert + duplicate section heading) for future arrivals.", "selector": "text=Check-in not available yet", "priority": "LOW"},
+      {"component": "BookingDetailPage - Payment card (CANCELLED)", "issue": "STILL OPEN (cosmetic): a cancelled booking keeps the 'Payment Due' chip and 'No payment recorded yet. Collect during check-in after ID verification.' guidance even though check-in is no longer possible.", "selector": "text=Collect during check-in after ID verification.", "priority": "LOW"},
+      {"component": "BookingForm (edit mode)", "issue": "No data-testid on the 'Special requests' / 'Internal notes' textareas or the 'Save Changes' button; tests must fall back to label/role selectors.", "selector": "button:has-text('Save Changes')", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional (LOW): remove the duplicated 'Check-in not available yet' block on the detail page.",
+    "Optional (LOW): suppress payment-collection copy/chip for CANCELLED / NO_SHOW bookings.",
+    "Optional (LOW): add data-testid to the edit form textareas and the Save Changes button (booking-notes-input / booking-special-requests-input / booking-save-button)."
+  ],
+  "critical_code_review_comments": [
+    "updateBooking now destructures status/source/ratePlanId out of formValuesToPayload() - correct, but the create/update split still lives in the hook. Consider two mapper functions (formValuesToCreatePayload / formValuesToUpdatePayload) so a future field addition cannot re-introduce the 400.",
+    "BookingDetailPage.tsx is still ~1490 lines (>700-line guideline); modals (cancel/assign/extend/checkout) should be extracted."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not in scope", "frontend": "100% (3/3 requested scenarios pass)"},
+  "seed_data_creation": "No new seed data. State changes caused by testing: HS260817-01004 (5d4f398d-9c37-4239-87e3-d7aa481665b3) is now CANCELLED with specialRequests 'Late checkout 1786997225' and notes 'T1 notes 1786997159'; PENDING 059be554-5c0e-4527-b236-42a4984ccb67 is now CONFIRMED. Remaining PENDING for future confirm tests: 5199d92f-9e12-4d9d-bfb6-6757ec55f28a.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@stayos.local / Password123!",
+  "context_for_next_testing_agent": "Preview URL works; API on :8001 (ingress /api). apps/web/.env.local points NEXT_PUBLIC_API_BASE_URL at the preview /api/v1 - do not revert. Property id 9d0680c0-89b0-41d5-ae06-b08cd7bedeae. IMPORTANT test-harness note: the app runs under `next dev`, so the first page visit triggers an HMR recompile that reloads the page and wipes typed form values - always wait ~4s after load and retry the login fill/submit (loop implemented in this iteration's script) before asserting a login failure. Booking detail route is /reservations/{id}, edit is /reservations/{id}/edit. Remaining PENDING booking for confirm tests: 5199d92f-9e12-4d9d-bfb6-6757ec55f28a.",
+  "rca_of_the_issue": "Previous 400 was caused by formValuesToPayload() injecting status/source into the PATCH body; the fix in useBookings.updateBooking strips status, source and ratePlanId, so the request now matches UpdateReservationDto's whitelist and returns 200. Verified end-to-end through the browser (network shows PATCH 200 and the detail page reflects the edited fields)."
+}

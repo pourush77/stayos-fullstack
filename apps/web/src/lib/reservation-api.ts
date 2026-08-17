@@ -194,11 +194,49 @@ export function quoteReservation(
   });
 }
 
-export function cancelReservation(propertyId: string, reservationId: string, signal?: AbortSignal) {
-  // Backend currently supports cancellation through the standard reservation update endpoint.
-  // Keeping this helper preserves the semantic API used by the booking hooks without
-  // issuing a request to a non-existent /cancel route.
-  return updatePropertyReservation(propertyId, reservationId, { status: 'CANCELLED' }, signal);
+export function cancelReservation(
+  propertyId: string,
+  reservationId: string,
+  reason?: string,
+  signal?: AbortSignal,
+) {
+  // Dedicated lifecycle endpoint: transitions the reservation to CANCELLED and
+  // releases its room-type inventory entitlement (paired reserve/release). The
+  // generic PATCH does NOT accept status changes, so it can never cancel.
+  return request<ReservationDto>(
+    `/properties/${propertyId}/reservations/${reservationId}/cancel`,
+    {
+      body: JSON.stringify(reason ? { reason } : {}),
+      method: 'PATCH',
+      signal,
+    },
+  );
+}
+
+export function confirmReservation(propertyId: string, reservationId: string, signal?: AbortSignal) {
+  // PENDING -> CONFIRMED. Freezes the commercial (rate/policy/tax) snapshot.
+  return request<ReservationDto>(
+    `/properties/${propertyId}/reservations/${reservationId}/confirm`,
+    { body: JSON.stringify({}), method: 'PATCH', signal },
+  );
+}
+
+export function markReservationNoShow(
+  propertyId: string,
+  reservationId: string,
+  reason?: string,
+  signal?: AbortSignal,
+) {
+  // CONFIRMED -> NO_SHOW. Releases inventory entitlement and applies the
+  // NO_SHOW policy on the backend.
+  return request<ReservationDto>(
+    `/properties/${propertyId}/reservations/${reservationId}/no-show`,
+    {
+      body: JSON.stringify(reason ? { reason } : {}),
+      method: 'PATCH',
+      signal,
+    },
+  );
 }
 
 export type ReservationWorkflowResponseDto = {

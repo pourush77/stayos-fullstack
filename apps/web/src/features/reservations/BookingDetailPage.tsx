@@ -802,6 +802,26 @@ export default function BookingDetailPage() {
     }
   };
 
+  const confirmBooking = async () => {
+    setIsActing(true);
+    try {
+      await bookingState.confirmBooking();
+      showToast({
+        color: 'green',
+        title: 'Booking confirmed',
+        message: 'The booking is confirmed. Assign a room to continue to check-in.',
+      });
+    } catch (error) {
+      showToast({
+        color: 'red',
+        title: 'Unable to confirm booking',
+        message: friendlyBookingError(error),
+      });
+    } finally {
+      setIsActing(false);
+    }
+  };
+
   const assignRoom = async (roomId: string) => {
     setIsActing(true);
     try {
@@ -1030,12 +1050,19 @@ export default function BookingDetailPage() {
                   Change Room
                 </Button>
               </>
+            ) : booking.status === 'PENDING' ? (
+              <Button
+                color="stayosBrand"
+                loading={isActing}
+                onClick={() => void confirmBooking()}
+                data-testid="confirm-booking-button"
+              >
+                Confirm Booking
+              </Button>
             ) : canAssignRoom ? (
               <Button color="stayosBrand" onClick={() => setAssignOpened(true)}>
                 Assign Room
               </Button>
-            ) : booking.status === 'PENDING' ? (
-              <Button color="stayosBrand">Confirm Booking</Button>
             ) : null}
 
             {canEditBooking ? (
@@ -1080,6 +1107,7 @@ export default function BookingDetailPage() {
                 color="red"
                 leftSection={<XCircle size={16} />}
                 onClick={() => setCancelOpened(true)}
+                data-testid="cancel-booking-trigger"
               >
                 Cancel Booking
               </Button>
@@ -1371,9 +1399,15 @@ export default function BookingDetailPage() {
           <Section title="Activity" icon={<IdCard size={17} />}>
             <Stack gap={spacing[2]}>
               <Text size="sm" c="#334155">
-                {booking.room !== 'Unassigned'
-                  ? 'Room assigned and booking confirmed.'
-                  : 'Booking confirmed. Room assignment pending.'}
+                {booking.status === 'CANCELLED'
+                  ? 'Booking cancelled. Any held room and inventory have been released.'
+                  : booking.status === 'NO_SHOW'
+                    ? 'Marked as no-show. Inventory has been released.'
+                    : booking.status === 'PENDING'
+                      ? 'On hold. Confirm the booking to secure it.'
+                      : booking.room !== 'Unassigned'
+                        ? 'Room assigned and booking confirmed.'
+                        : 'Booking confirmed. Room assignment pending.'}
               </Text>
               <Text size="xs" c="#64748b">
                 {bookingStatusLabel(booking.status)} · {paymentStatusLabel(booking.paymentStatus)}
@@ -1398,7 +1432,7 @@ export default function BookingDetailPage() {
             <Button variant="subtle" color="gray" onClick={() => setCancelOpened(false)}>
               Keep Booking
             </Button>
-            <Button color="red" loading={isActing} onClick={() => void cancelBooking()}>
+            <Button color="red" loading={isActing} onClick={() => void cancelBooking()} data-testid="cancel-confirm-button">
               Cancel Booking
             </Button>
           </Group>

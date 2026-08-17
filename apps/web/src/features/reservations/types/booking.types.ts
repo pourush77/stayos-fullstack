@@ -1,4 +1,4 @@
-export type BookingStatus = 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'CANCELLED';
+export type BookingStatus = 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'CANCELLED' | 'NO_SHOW';
 export type BookingPaymentStatus = 'PAID' | 'PAYMENT_DUE' | 'PARTIALLY_PAID';
 export type BookingSource = 'DIRECT' | 'WALK_IN' | 'OTA' | 'CORPORATE';
 export type BookingFilter =

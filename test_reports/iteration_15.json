@@ -1,0 +1,48 @@
+{
+  "summary": "F3 Reservation lifecycle frontend verification via the public preview URL. Both fixed bugs PASS: (1) 'Confirm Booking' on a PENDING reservation now calls PATCH /properties/:pid/reservations/:id/confirm (200), shows green toast 'Booking confirmed / The booking is confirmed. Assign a room to continue to check-in.', badge flips Pending -> Confirmed and persists after reload; the button unmounts after success so no duplicate submission. Verified on HS260817-01000 and again on a freshly seeded PENDING HS260817-01002. (2) Cancel opens 'Cancel booking?' modal with red 'Cancel Booking' -> PATCH .../cancel (200), toast 'Booking cancelled / The booking has been cancelled.', badge Confirmed -> Cancelled, persists after reload, read-only 'Cancelled booking' alert appears. Inventory entitlement is truly released (room_type_inventory.sold for DLX 2026-11-10 went 2 -> 1 after cancelling HS260817-01002; with 1 CONFIRMED + cancelled ones sold matches confirmed count). Folio total/balance is backend-driven (GET /properties/:pid/reservations/:id/folio) and the Edit form shows no hardcoded rate/price. REGRESSION FAIL: saving the Edit form returns 400 VALIDATION_ERROR - the update payload still contains status + source (backend forbids both on PATCH), so notes/special-request/date edits cannot be saved from the UI at all. Also had to fix a blocking env misconfig (client bundle pointed at http://localhost:8001) before any UI test was possible.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /api/v1/properties/:pid/reservations/:id", "issue": "Returns 400 'property status should not exist' / 'property source should not exist' for the payload the web Edit form sends. Backend behaviour is arguably correct (lifecycle-only endpoints), so the fix belongs in the frontend payload builder."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "BookingDetailPage - Activity card", "issue": "After cancelling, the Activity card still reads 'Booking confirmed. Room assignment pending.' on a CANCELLED booking (only the small sub-line shows 'Cancelled'). Stale/misleading copy.", "selector": "text=Booking confirmed. Room assignment pending.", "priority": "MEDIUM"},
+      {"component": "BookingDetailPage - readiness section", "issue": "'Check-in not available yet' is rendered twice (blue Alert + duplicate section heading) for future arrivals.", "selector": "text=Check-in not available yet", "priority": "LOW"},
+      {"component": "BookingDetailPage - Payment card", "issue": "Cancelled booking still shows 'Payment Due' chip and 'Collect during check-in after ID verification.' guidance.", "selector": "text=Payment Due", "priority": "LOW"},
+      {"component": "BookingDetailPage - Cancel flow", "issue": "Cancel trigger and the modal confirm button have no data-testid (had to select by role/name); confirm button is also matched by the same accessible name as the trigger ('Cancel Booking').", "selector": "button:has-text('Cancel Booking')", "priority": "MEDIUM"},
+      {"component": "Error mapping (friendlyBookingError)", "issue": "A 400 VALIDATION_ERROR is surfaced as 'Bookings are temporarily unavailable.' and a 502 on login is surfaced as 'Email or password was not recognized.' - both hide the real cause.", "selector": "[class*='Notification-root']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Edit reservation -> Save Changes", "issue": "PATCH /properties/:pid/reservations/:id -> 400 VALIDATION_ERROR. utils/booking-mappers.formValuesToPayload() (shared by create and update) always injects status:'CONFIRMED' and source; the update DTO whitelists neither ('property status should not exist', 'property source should not exist'). Editing special requests / internal notes / dates / occupancy is therefore impossible from the UI. Direct PATCH with only {specialRequests} returns 200, proving the endpoint works. Also seen: paymentStatus 'DUE' is rejected (backend enum = PAID | PAYMENT_DUE | PARTIALLY_PAID) - check the mapper does not emit 'DUE'.", "affected_selectors": ["button:has-text('Save Changes')"]},
+      {"flow": "All client-side API calls / login", "issue": "features/auth/auth-context.tsx and packages/ui/src/connectivity/backend-connectivity.tsx use NEXT_PUBLIC_API_BASE_URL (http://localhost:8001) directly in the browser instead of getBrowserReachableApiBaseUrl(), so from the preview host every fetch failed with ERR_CONNECTION_REFUSED and login was impossible ('Failed to fetch'). Worked around by pointing NEXT_PUBLIC_API_BASE_URL at the preview /api/v1 in apps/web/.env.local.", "affected_selectors": ["[data-testid='login-submit']"]}
+    ],
+    "design_issues": [
+      {"screen": "Reservation detail (future arrival)", "issues": ["Duplicate 'Check-in not available yet' messaging stacked twice", "Cancelled state keeps payment-collection guidance and stale activity text"]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "FIX (HIGH): strip status/source (and any non-whitelisted field) from the reservation UPDATE payload - split formValuesToPayload into create vs update variants so Edit -> Save Changes stops returning 400.",
+    "FIX (HIGH): use getBrowserReachableApiBaseUrl() for browser fetches in features/auth/auth-context.tsx and packages/ui/src/connectivity/backend-connectivity.tsx (health/ready), otherwise the app is unusable behind the preview ingress whenever NEXT_PUBLIC_API_BASE_URL is a localhost URL.",
+    "FIX (MEDIUM): improve friendlyBookingError mapping - surface validation details for 4xx and a distinct 'service unavailable' message for 5xx instead of 'temporarily unavailable' / 'Email or password was not recognized'.",
+    "FIX (MEDIUM): refresh the Activity card / payment chips for CANCELLED bookings; remove the duplicated 'Check-in not available yet' block.",
+    "ADD: data-testid on the Cancel trigger (e.g. cancel-booking-button) and on the modal confirm (e.g. cancel-booking-confirm).",
+    "OPS: Postgres and the NestJS API are not supervisor-managed - after the pod resumed both were down (ingress /api returned 502). Consider supervisor entries for postgres + stayos_api on :8001."
+  ],
+  "critical_code_review_comments": [
+    "booking-mappers.formValuesToPayload() is reused for POST and PATCH; a create-only field (status:'CONFIRMED') hard-fails every update. Lifecycle status must never travel on the generic update payload.",
+    "getBrowserReachableApiBaseUrl() exists but is only used in 2 places (check-in capture); every other client fetch uses API_BASE_URL, so the localhost/public split is silently broken.",
+    "BookingDetailPage.tsx is 1490 lines - exceeds the 700-line guideline; split modals (cancel/assign/extend/move) into components.",
+    "A single isActing flag drives loading for all actions on the detail page; because the Confirm button unmounts on success the loading state cannot be asserted - consider per-action loading state."
+  ],
+  "updated_files": ["/app/apps/web/.env.local"],
+  "success_rate": {"backend": "not in scope (spot-checked lifecycle + update endpoints via curl: confirm/cancel 200, generic update 400 only for forbidden fields)", "frontend": "75% (3/4 scenarios pass; Edit/Save regression fails)"},
+  "seed_data_creation": "Created PENDING reservation HS260817-01002 (id 8ceb0b85-ba04-4fb9-a4d3-ebf4c05b09a3, Karan Gill, DLX 2026-11-10 -> 12) to re-verify the confirm toast; confirmed via UI then cancelled via API afterwards, so inventory is back to sold=1 for 2026-11-10. HS260817-01000 is now CONFIRMED and HS260817-01001 is CANCELLED (expected end state of the tested flows). Its specialRequests was set to 'T1 note direct'/'x' by curl repro calls.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@stayos.local / Password123! (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Environment: Postgres must be started from /app/postgres_data (recreate pg_notify/pg_stat_tmp/pg_serial/pg_snapshots/pg_logical dirs, then sudo -u postgres pg_ctl -D /app/postgres_data start); API: cd /app/stayos-api && PORT=8001 npx nest start (log /tmp/nest_t1.log); web is supervisor 'frontend' (next dev :3000). apps/web/.env.local NEXT_PUBLIC_API_BASE_URL now points at the preview /api/v1 - do not revert to localhost or the browser cannot reach the API. Property id 9d0680c0-89b0-41d5-ae06-b08cd7bedeae, DLX roomTypeId 9f3f0c8f-5f98-473d-8474-d6301d4640a0, guestId aee56901-a2c1-497c-a7be-6762aef9a559. Bookings list route is /reservations (there is no /bookings route - it 404s while the sidebar label says Bookings). No PENDING Karan Gill reservation remains; seed a new one via POST /properties/:pid/reservations with status PENDING to retest confirm.",
+  "rca_of_the_issue": "Edit regression: apps/web/src/features/reservations/utils/booking-mappers.ts formValuesToPayload() returns status:'CONFIRMED' plus source/paymentStatus; useBookings.updateBooking only strips ratePlanId before PATCHing, and the backend UpdateReservationDto forbids non-whitelisted properties, so the request fails with 400 details [{field:'status',message:'property status should not exist'}] (and 'source' likewise). Reproduced by curl: PATCH with {specialRequests} -> 200; PATCH with {status:'CONFIRMED'} -> 400. Login blocker: client bundle used NEXT_PUBLIC_API_BASE_URL=http://localhost:8001 for browser fetches (ERR_CONNECTION_REFUSED from the preview host); mitigated by setting that var to the public /api/v1 base."
+}

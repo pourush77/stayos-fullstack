@@ -43,3 +43,9 @@ sudo supervisorctl restart stayos_api
 - Nest API (this session) runs on **:3002** → `http://localhost:3002/api/v1` (`stayos-api/.env` PORT=3002). Login: `admin@stayos.local` / `Password123!` (token at `data.accessToken`).
 - Property Hillston Resort (HILLSTON_IND) id: `9d0680c0-89b0-41d5-ae06-b08cd7bedeae`.
 - QA baseline config seeded via `cd /app/stayos-api && npx ts-node -r tsconfig-paths/register -r dotenv/config scripts/seed-qa-config.ts` (idempotent).
+
+## F3 session (2026-08-17) — UI browser-reachable setup
+- Nest API now on **:8001** (ingress `/api` → 8001); preview `https://0c9a02a5-a776-4fec-8e1d-b4f6511c9382.preview.emergentagent.com/api/v1/health` works.
+- Frontend served via `next dev` on :3000 (supervisor frontend stopped). `apps/web/.env.local` sets NEXT_PUBLIC_API_PUBLIC_BASE_URL to the preview `/api/v1`.
+- Start API: `cd /app/stayos-api && PORT=8001 npx nest start`. Start web: `cd /app/apps/web && PORT=3000 npx next dev`.
+- F3 test reservations (guest Karan Gill, DLX 2026-11-10→12): PENDING `HS260817-01000`, CONFIRMED `HS260817-01001`.
