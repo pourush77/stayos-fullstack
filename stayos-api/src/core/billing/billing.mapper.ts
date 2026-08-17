@@ -1,6 +1,7 @@
 import { FolioEntity } from './infrastructure/folio.entity';
 import { FolioChargeEntity } from './infrastructure/folio-charge.entity';
 import { FolioPaymentEntity } from './infrastructure/folio-payment.entity';
+import { toCents, fromCents } from './domain/money';
 import {
   FolioChargeResponseDto,
   FolioPaymentResponseDto,
@@ -8,35 +9,28 @@ import {
   FolioTotalsDto,
 } from './dto/folio-response.dto';
 
-function toNumber(value: string | number | null | undefined): number {
-  if (value === null || value === undefined) return 0;
-  const parsed = typeof value === 'number' ? value : parseFloat(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function money(value: number): string {
-  return value.toFixed(2);
-}
-
 export function calculateTotals(
   charges: FolioChargeEntity[] = [],
   payments: FolioPaymentEntity[] = [],
 ): FolioTotalsDto {
-  let subtotal = 0;
-  let tax = 0;
+  // Cents-safe: sum every charge row (a REVERSAL row carries negated
+  // amount/tax, so an original + its reversal net to zero — no filtering, full
+  // audit trail preserved).
+  let subtotalCents = 0;
+  let taxCents = 0;
   for (const charge of charges) {
-    subtotal += toNumber(charge.amount);
-    tax += toNumber(charge.taxAmount);
+    subtotalCents += toCents(charge.amount);
+    taxCents += toCents(charge.taxAmount);
   }
-  const total = subtotal + tax;
-  const paid = payments.reduce((sum, payment) => sum + toNumber(payment.amount), 0);
-  const balance = total - paid;
+  const totalCents = subtotalCents + taxCents;
+  const paidCents = payments.reduce((sum, payment) => sum + toCents(payment.amount), 0);
+  const balanceCents = totalCents - paidCents;
   return {
-    subtotal: money(subtotal),
-    tax: money(tax),
-    total: money(total),
-    paid: money(paid),
-    balance: money(balance),
+    subtotal: fromCents(subtotalCents),
+    tax: fromCents(taxCents),
+    total: fromCents(totalCents),
+    paid: fromCents(paidCents),
+    balance: fromCents(balanceCents),
   };
 }
 
@@ -45,6 +39,8 @@ function toChargeDto(charge: FolioChargeEntity): FolioChargeResponseDto {
     id: charge.id,
     folioId: charge.folioId,
     type: charge.type,
+    status: charge.status,
+    reversalOfChargeId: charge.reversalOfChargeId ?? null,
     description: charge.description,
     quantity: charge.quantity,
     unitAmount: charge.unitAmount,

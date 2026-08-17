@@ -9,10 +9,12 @@ import {
 } from 'typeorm';
 import { FolioEntity } from './folio.entity';
 import { FolioChargeType } from '../domain/folio-charge-type.enum';
+import { FolioChargeStatus } from '../domain/folio-charge-status.enum';
 
 @Entity({ name: 'folio_charges' })
 @Index('IDX_folio_charges_folio_id', ['folioId'])
 @Index('IDX_folio_charges_charged_at', ['chargedAt'])
+@Index('IDX_folio_charges_reversal_of', ['reversalOfChargeId'])
 export class FolioChargeEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -29,6 +31,14 @@ export class FolioChargeEntity {
 
   @Column({ type: 'enum', enum: FolioChargeType })
   type!: FolioChargeType;
+
+  @Column({ type: 'enum', enum: FolioChargeStatus, default: FolioChargeStatus.POSTED })
+  status!: FolioChargeStatus;
+
+  // Set on a REVERSAL row -> the original POSTED charge it reverses. Null for
+  // ordinary POSTED/REVERSED rows.
+  @Column({ type: 'uuid', name: 'reversal_of_charge_id', nullable: true })
+  reversalOfChargeId!: string | null;
 
   @Column({ type: 'varchar', length: 160 })
   description!: string;

@@ -17,11 +17,11 @@ import { FolioPaymentMethod } from './domain/folio-payment-method.enum';
 import { CreateFolioChargeDto } from './dto/create-folio-charge.dto';
 import { CreateFolioPaymentDto } from './dto/create-folio-payment.dto';
 import { calculateTotals } from './billing.mapper';
+import { toCents } from './domain/money';
+import { FolioChargeStatus } from './domain/folio-charge-status.enum';
 import { ChildPricingService } from '../rates/child-pricing.service';
 import { FolioChargeType } from './domain/folio-charge-type.enum';
 import { TaxService } from '../rates/tax.service';
-
-const BOOKING_MARKED_PAID_REFERENCE = 'BOOKING_MARKED_PAID';
 
 @Injectable()
 export class BillingService {
@@ -78,9 +78,9 @@ export class BillingService {
       where: { reservationId, propertyId },
       relations: { guest: true, reservation: true, charges: true, payments: true },
     });
-    if (existing) return this.syncPaidReservationFolio(propertyId, existing, reservation);
+    if (existing) return this.getFolio(propertyId, existing.id);
 
-    const folioNumber = await this.generateFolioNumber(propertyId);
+    const folioNumber = await this.nextFolioNumber(propertyId);
     const nights = this.calculateNights(reservation.arrivalDate, reservation.departureDate);
     const folio = await this.dataSource.transaction(async (manager) => {
       const created = await manager.getRepository(FolioEntity).save(
@@ -137,54 +137,10 @@ export class BillingService {
                 }),
               )
             : null;
-        if (reservation.paymentStatus === ReservationPaymentStatus.PAID) {
-          const totals = calculateTotals(childCharge ? [roomCharge, childCharge] : [roomCharge], []);
-          const amount = parseFloat(totals.balance);
-          if (amount > 0.01) {
-            await manager.getRepository(FolioPaymentEntity).save(
-              manager.getRepository(FolioPaymentEntity).create({
-                folioId: created.id,
-                method: FolioPaymentMethod.OTHER,
-                amount: amount.toFixed(2),
-                reference: BOOKING_MARKED_PAID_REFERENCE,
-                notes: 'Auto-posted because the reservation was already marked paid before folio creation.',
-                receivedAt: new Date(),
-                receivedByUserId: null,
-              }),
-            );
-          }
-        }
       }
       return created;
     });
 
-    return this.getFolio(propertyId, folio.id);
-  }
-
-  private async syncPaidReservationFolio(
-    propertyId: string,
-    folio: FolioEntity,
-    reservation: ReservationEntity,
-  ): Promise<FolioEntity> {
-    if (reservation.paymentStatus !== ReservationPaymentStatus.PAID) return folio;
-    const payments = folio.payments ?? [];
-    if (payments.some((payment) => payment.reference === BOOKING_MARKED_PAID_REFERENCE)) return folio;
-
-    const totals = calculateTotals(folio.charges ?? [], payments);
-    const balance = parseFloat(totals.balance);
-    if (!Number.isFinite(balance) || balance <= 0.01) return folio;
-
-    const payment = this.paymentsRepository.create({
-      folioId: folio.id,
-      method: FolioPaymentMethod.OTHER,
-      amount: balance.toFixed(2),
-      reference: BOOKING_MARKED_PAID_REFERENCE,
-      notes: 'Auto-posted because the reservation was already marked paid before folio payment recording.',
-      receivedAt: new Date(),
-      receivedByUserId: null,
-    });
-    await this.paymentsRepository.save(payment);
-    await this.foliosRepository.update({ id: folio.id }, { updatedAt: new Date() });
     return this.getFolio(propertyId, folio.id);
   }
 
@@ -221,6 +177,56 @@ export class BillingService {
     return this.getFolio(propertyId, folioId);
   }
 
+  /**
+   * Reverses a POSTED charge WITHOUT destroying history: flips the original to
+   * REVERSED and inserts a REVERSAL row with negated amount/tax pointing at it.
+   * Totals net to zero for the pair (calculateTotals sums all rows). Idempotent:
+   * re-voiding an already-REVERSED charge is a safe no-op. Transaction-safe.
+   */
+  async voidCharge(
+    propertyId: string,
+    folioId: string,
+    chargeId: string,
+    reason: string,
+    actorUserId?: string | null,
+  ): Promise<FolioEntity> {
+    const folio = await this.getFolio(propertyId, folioId);
+    if (folio.status !== FolioStatus.OPEN) {
+      throw new BadRequestException('Cannot void charges on a folio that is not OPEN');
+    }
+    const original = (folio.charges ?? []).find((c) => c.id === chargeId);
+    if (!original) throw new NotFoundException(`Charge ${chargeId} was not found on this folio`);
+
+    if (original.status === FolioChargeStatus.REVERSED) {
+      return folio; // idempotent no-op
+    }
+    if (original.status === FolioChargeStatus.REVERSAL) {
+      throw new BadRequestException('A reversal row cannot itself be voided');
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(FolioChargeEntity);
+      await repo.save(
+        repo.create({
+          folioId,
+          type: original.type,
+          status: FolioChargeStatus.REVERSAL,
+          reversalOfChargeId: original.id,
+          description: `Reversal: ${original.description}${reason ? ` (${reason})` : ''}`.slice(0, 160),
+          quantity: original.quantity,
+          unitAmount: (-toCents(original.unitAmount) / 100).toFixed(2),
+          amount: (-toCents(original.amount) / 100).toFixed(2),
+          taxAmount: (-toCents(original.taxAmount) / 100).toFixed(2),
+          chargedAt: new Date(),
+          createdByUserId: actorUserId ?? null,
+        }),
+      );
+      await repo.update({ id: original.id }, { status: FolioChargeStatus.REVERSED });
+      await manager.getRepository(FolioEntity).update({ id: folioId }, { updatedAt: new Date() });
+    });
+    return this.getFolio(propertyId, folioId);
+  }
+
   async addPayment(
     propertyId: string,
     folioId: string,
@@ -251,11 +257,11 @@ export class BillingService {
     // Update reservation payment status based on totals
     const updatedFolio = await this.getFolio(propertyId, folioId);
     const totals = calculateTotals(updatedFolio.charges, updatedFolio.payments);
-    const balance = parseFloat(totals.balance);
-    const paid = parseFloat(totals.paid);
+    const balanceCents = toCents(totals.balance);
+    const paidCents = toCents(totals.paid);
     let paymentStatus: ReservationPaymentStatus = ReservationPaymentStatus.PAYMENT_DUE;
-    if (balance <= 0.01 && paid > 0) paymentStatus = ReservationPaymentStatus.PAID;
-    else if (paid > 0) paymentStatus = ReservationPaymentStatus.PARTIALLY_PAID;
+    if (balanceCents <= 0 && paidCents > 0) paymentStatus = ReservationPaymentStatus.PAID;
+    else if (paidCents > 0) paymentStatus = ReservationPaymentStatus.PARTIALLY_PAID;
     await this.reservationsRepository.update(
       { id: updatedFolio.reservationId, propertyId },
       { paymentStatus },
@@ -271,8 +277,8 @@ export class BillingService {
       throw new BadRequestException('Voided folios cannot be settled');
     }
     const totals = calculateTotals(folio.charges, folio.payments);
-    const balance = parseFloat(totals.balance);
-    if (balance > 0.01) {
+    const balanceCents = toCents(totals.balance);
+    if (balanceCents > 0) {
       throw new BadRequestException(`Folio has an outstanding balance of ${totals.balance}`);
     }
     await this.foliosRepository.update(
@@ -296,21 +302,24 @@ export class BillingService {
     );
   }
 
-  private async generateFolioNumber(propertyId: string): Promise<string> {
+  private async nextFolioNumber(propertyId: string): Promise<string> {
+    // Atomic per-property counter (own auto-committed statement, before any
+    // transaction) — collision-safe under concurrency, no count()+1 race. Gaps
+    // on rollback are acceptable and never produce a duplicate.
+    const rows: Array<{ last_value: string | number }> = await this.dataSource.query(
+      `INSERT INTO folio_number_counters (property_id, last_value)
+       VALUES ($1, 1)
+       ON CONFLICT (property_id)
+       DO UPDATE SET last_value = folio_number_counters.last_value + 1, updated_at = now()
+       RETURNING last_value`,
+      [propertyId],
+    );
     const now = new Date();
     const yy = String(now.getFullYear()).slice(2);
     const mm = String(now.getMonth() + 1).padStart(2, '0');
     const dd = String(now.getDate()).padStart(2, '0');
-    const count = await this.foliosRepository.count({ where: { propertyId } });
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      const seq = String(count + attempt + 1).padStart(5, '0');
-      const candidate = `FO${yy}${mm}${dd}-${seq}`;
-      const existing = await this.foliosRepository.findOne({
-        where: { propertyId, folioNumber: candidate },
-      });
-      if (!existing) return candidate;
-    }
-    return `FO${yy}${mm}${dd}-${String(Date.now()).slice(-6)}`;
+    const seq = String(rows[0].last_value).padStart(5, '0');
+    return `FO${yy}${mm}${dd}-${seq}`;
   }
 
   // Reservation status update helpers reserved for future workflow integration.

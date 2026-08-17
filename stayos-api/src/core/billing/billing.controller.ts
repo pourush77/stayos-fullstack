@@ -24,6 +24,7 @@ import { BillingMapper } from './billing.mapper';
 import { RazorpayService } from './razorpay.service';
 import { ReceiptPdfService } from './receipt-pdf.service';
 import { CreateFolioChargeDto } from './dto/create-folio-charge.dto';
+import { VoidFolioChargeDto } from './dto/void-folio-charge.dto';
 import { CreateFolioPaymentDto } from './dto/create-folio-payment.dto';
 import { FolioResponseDto } from './dto/folio-response.dto';
 import { FolioStatus } from './domain/folio-status.enum';
@@ -96,6 +97,26 @@ export class BillingController {
       propertyId,
       folioId,
       dto,
+      req.user?.id ?? null,
+    );
+    return BillingMapper.toResponse(folio);
+  }
+
+  @Post('folios/:folioId/charges/:chargeId/void')
+  @RequirePermissions(Permissions.BillingManage)
+  @ApiStandardOkResponse(FolioResponseDto)
+  async voidCharge(
+    @Param('propertyId', new ParseUUIDPipe()) propertyId: string,
+    @Param('folioId', new ParseUUIDPipe()) folioId: string,
+    @Param('chargeId', new ParseUUIDPipe()) chargeId: string,
+    @Body() dto: VoidFolioChargeDto,
+    @Req() req: AuthRequest,
+  ): Promise<FolioResponseDto> {
+    const folio = await this.billingService.voidCharge(
+      propertyId,
+      folioId,
+      chargeId,
+      dto.reason,
       req.user?.id ?? null,
     );
     return BillingMapper.toResponse(folio);

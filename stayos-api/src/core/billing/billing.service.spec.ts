@@ -69,7 +69,7 @@ describe('BillingService', () => {
   let reservationsRepository: MockRepository<ReservationEntity>;
   let propertiesService: Pick<PropertiesService, 'findOne'>;
   let childPricingService: Pick<ChildPricingService, 'resolveChildPricing'>;
-  let dataSource: { transaction: jest.Mock };
+  let dataSource: { transaction: jest.Mock; query: jest.Mock };
   let service: BillingService;
 
   beforeEach(() => {
@@ -129,6 +129,7 @@ describe('BillingService', () => {
         };
         return callback(manager);
       }),
+      query: jest.fn().mockResolvedValue([{ last_value: 1 }]),
     };
 
     service = new BillingService(
@@ -143,10 +144,9 @@ describe('BillingService', () => {
     );
   });
 
-  it('posts a matching folio payment when creating a folio for a paid reservation', async () => {
+  it('does NOT auto-post a payment when creating a folio for a paid reservation (1D-a de-coupling)', async () => {
     foliosRepository.findOne = jest
       .fn()
-      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
         id: 'folio-1',
@@ -162,45 +162,27 @@ describe('BillingService', () => {
 
     await service.getOrCreateFolioForReservation(propertyId, reservationId);
 
-    expect(paymentsRepository.save).toHaveBeenCalledWith(expect.objectContaining({
-      amount: '11760.00',
-      method: FolioPaymentMethod.OTHER,
-      reference: 'BOOKING_MARKED_PAID',
-    }));
+    // The hidden BOOKING_MARKED_PAID auto-payment has been removed: folio
+    // creation never posts a payment based on reservation.paymentStatus.
+    expect(paymentsRepository.save).not.toHaveBeenCalled();
   });
 
-  it('backfills a missing folio payment for an existing paid reservation folio', async () => {
-    foliosRepository.findOne = jest
-      .fn()
-      .mockResolvedValueOnce({
-        id: 'folio-1',
-        propertyId,
-        reservationId,
-        guestId,
-        folioNumber: 'FO260803-00001',
-        status: FolioStatus.OPEN,
-        currency: 'INR',
-        charges: [{ amount: '10500.00', taxAmount: '1260.00' }],
-        payments: [],
-      })
-      .mockResolvedValueOnce({
-        id: 'folio-1',
-        propertyId,
-        reservationId,
-        guestId,
-        folioNumber: 'FO260803-00001',
-        status: FolioStatus.OPEN,
-        currency: 'INR',
-        charges: [{ amount: '10500.00', taxAmount: '1260.00' }],
-        payments: [{ amount: '11760.00', method: FolioPaymentMethod.OTHER }],
-      });
+  it('returns an existing folio unchanged without backfilling any payment (1D-a de-coupling)', async () => {
+    const existing = {
+      id: 'folio-1',
+      propertyId,
+      reservationId,
+      guestId,
+      folioNumber: 'FO260803-00001',
+      status: FolioStatus.OPEN,
+      currency: 'INR',
+      charges: [{ amount: '10500.00', taxAmount: '1260.00' }],
+      payments: [],
+    };
+    foliosRepository.findOne = jest.fn().mockResolvedValue(existing);
 
     await service.getOrCreateFolioForReservation(propertyId, reservationId);
 
-    expect(paymentsRepository.save).toHaveBeenCalledWith(expect.objectContaining({
-      amount: '11760.00',
-      reference: 'BOOKING_MARKED_PAID',
-    }));
-    expect(foliosRepository.update).toHaveBeenCalledWith({ id: 'folio-1' }, expect.objectContaining({ updatedAt: expect.any(Date) }));
+    expect(paymentsRepository.save).not.toHaveBeenCalled();
   });
 });

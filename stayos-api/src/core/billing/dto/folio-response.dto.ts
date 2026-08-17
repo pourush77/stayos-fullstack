@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { FolioChargeType } from '../domain/folio-charge-type.enum';
+import { FolioChargeStatus } from '../domain/folio-charge-status.enum';
 import { FolioPaymentMethod } from '../domain/folio-payment-method.enum';
 import { FolioStatus } from '../domain/folio-status.enum';
 
@@ -7,6 +8,8 @@ export class FolioChargeResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() folioId!: string;
   @ApiProperty({ enum: FolioChargeType }) type!: FolioChargeType;
+  @ApiProperty({ enum: FolioChargeStatus }) status!: FolioChargeStatus;
+  @ApiProperty({ nullable: true }) reversalOfChargeId!: string | null;
   @ApiProperty() description!: string;
   @ApiProperty() quantity!: number;
   @ApiProperty() unitAmount!: string;
