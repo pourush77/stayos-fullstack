@@ -122,22 +122,75 @@ export class RestrictionService {
    */
   async assertStaySellable(query: StayRestrictionQuery): Promise<void> {
     const { sellable, violations } = await this.evaluateStay(query);
-    if (!sellable) {
-      const details = violations.map((v) => ({
-        field: v.type,
-        message: v.message,
-        rejectedValue: { date: v.date, requiredMinStay: v.requiredMinStay, allowedMaxStay: v.allowedMaxStay },
-      }));
-      throw new HttpException(
-        {
-          code: ApiErrorCode.RESTRICTION_VIOLATION,
-          message: 'Stay violates one or more sale restrictions',
-          details,
-          violations,
-        },
-        HttpStatus.UNPROCESSABLE_ENTITY,
-      );
+    if (!sellable) this.raise(violations);
+  }
+
+  /**
+   * Change-aware amendment evaluation (grandfathering). Validates ONLY newly
+   * introduced / re-scoped entitlement, never unchanged historical nights:
+   * - roomType or ratePlan change => full resulting stay under the new scope;
+   * - same scope, date change => added occupied nights (stopSell), CTA only if
+   *   arrival changed, CTD only if departure changed, and LOS min/maxStay.
+   */
+  async evaluateAmendment(
+    current: StayRestrictionQuery,
+    next: StayRestrictionQuery,
+  ): Promise<{ sellable: boolean; violations: RestrictionViolation[] }> {
+    const scopeChanged =
+      current.roomTypeId !== next.roomTypeId ||
+      (current.ratePlanId ?? null) !== (next.ratePlanId ?? null);
+    if (scopeChanged) {
+      return this.evaluateStay(next);
     }
+
+    const nextNights = expandStayNights(next.arrivalDate, next.departureDate);
+    const currentNights = new Set(expandStayNights(current.arrivalDate, current.departureDate));
+    const addedNights = nextNights.filter((n) => !currentNights.has(n));
+    const los = nextNights.length;
+
+    const rows = await this.restrictionsRepository.find({
+      where: { propertyId: next.propertyId, roomTypeId: next.roomTypeId, date: Between(next.arrivalDate, next.departureDate) },
+    });
+    const byDate = this.effectiveByDate(rows, next.ratePlanId ?? null);
+    const violations: RestrictionViolation[] = [];
+
+    for (const date of addedNights) {
+      if (byDate.get(date)?.stopSell) {
+        violations.push({ type: RestrictionViolationType.STOP_SELL, date, message: `Sales are closed for ${date}` });
+      }
+    }
+    if (current.arrivalDate !== next.arrivalDate && byDate.get(next.arrivalDate)?.cta) {
+      violations.push({ type: RestrictionViolationType.CTA, date: next.arrivalDate, message: `Arrival is closed on ${next.arrivalDate}` });
+    }
+    if (current.departureDate !== next.departureDate && byDate.get(next.departureDate)?.ctd) {
+      violations.push({ type: RestrictionViolationType.CTD, date: next.departureDate, message: `Departure is closed on ${next.departureDate}` });
+    }
+    const arrival = byDate.get(next.arrivalDate);
+    if (arrival?.minStay != null && los < arrival.minStay) {
+      violations.push({ type: RestrictionViolationType.MIN_STAY, date: next.arrivalDate, requiredMinStay: arrival.minStay, message: `Minimum stay of ${arrival.minStay} night(s) required for arrival ${next.arrivalDate} (requested ${los})` });
+    }
+    if (arrival?.maxStay != null && los > arrival.maxStay) {
+      violations.push({ type: RestrictionViolationType.MAX_STAY, date: next.arrivalDate, allowedMaxStay: arrival.maxStay, message: `Maximum stay of ${arrival.maxStay} night(s) allowed for arrival ${next.arrivalDate} (requested ${los})` });
+    }
+
+    return { sellable: violations.length === 0, violations };
+  }
+
+  async assertAmendmentSellable(current: StayRestrictionQuery, next: StayRestrictionQuery): Promise<void> {
+    const { sellable, violations } = await this.evaluateAmendment(current, next);
+    if (!sellable) this.raise(violations);
+  }
+
+  private raise(violations: RestrictionViolation[]): never {
+    const details = violations.map((v) => ({
+      field: v.type,
+      message: v.message,
+      rejectedValue: { date: v.date, requiredMinStay: v.requiredMinStay, allowedMaxStay: v.allowedMaxStay },
+    }));
+    throw new HttpException(
+      { code: ApiErrorCode.RESTRICTION_VIOLATION, message: 'Stay violates one or more sale restrictions', details, violations },
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
   }
 
   private effectiveByDate(rows: RateRestrictionEntity[], ratePlanId: string | null): Map<string, EffectiveRestriction> {

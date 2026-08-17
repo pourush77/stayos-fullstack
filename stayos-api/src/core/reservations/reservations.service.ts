@@ -385,6 +385,24 @@ export class ReservationsService {
       if (commercialChanged) {
         this.assertCommercialAmendmentAllowed(reservation.status);
       }
+      // Resolve the EFFECTIVE rate plan for BOTH sides (explicit -> default ->
+      // baseline) so restriction scope-change detection is symmetric: a null
+      // ratePlanId that resolves to the same default plan is NOT a scope change
+      // and stays change-aware (grandfathered nights preserved).
+      const currentEffectiveRatePlanId = commercialChanged
+        ? await this.reservationPricingService.resolveEffectiveRatePlanId({
+            propertyId,
+            roomTypeId: beforeRoomTypeId,
+            ratePlanId: reservation.ratePlanId,
+          })
+        : reservation.ratePlanId;
+      const nextEffectiveRatePlanId = commercialChanged
+        ? await this.reservationPricingService.resolveEffectiveRatePlanId({
+            propertyId,
+            roomTypeId: afterRoomTypeId,
+            ratePlanId: nextRatePlanId,
+          })
+        : reservation.ratePlanId;
 
       // Entitlement diff for date/roomType changes (status is NOT changed by
       // update). Only nights/roomType that disappear are released and only new
@@ -427,6 +445,20 @@ export class ReservationsService {
           await this.availabilityService.applyDelta(
             { propertyId, toRelease: diff.toRelease, toReserve: diff.toReserve, units: 1 },
             manager,
+          );
+        }
+
+        // Change-aware restriction gate: runs on ANY commercial change for a
+        // sellable reservation (PENDING or CONFIRMED — CHECKED_IN/terminal are
+        // rejected upstream by assertCommercialAmendmentAllowed), INDEPENDENT of
+        // snapshot versioning. Validates only newly-introduced/re-scoped
+        // entitlement (grandfathering unchanged historical nights). A 422
+        // RESTRICTION_VIOLATION here rolls back the reservation + inventory +
+        // snapshot together.
+        if (commercialChanged) {
+          await this.restrictionService.assertAmendmentSellable(
+            { propertyId, roomTypeId: beforeRoomTypeId, ratePlanId: currentEffectiveRatePlanId, arrivalDate: beforeArrival, departureDate: beforeDeparture },
+            { propertyId, roomTypeId: afterRoomTypeId, ratePlanId: nextEffectiveRatePlanId, arrivalDate, departureDate },
           );
         }
 

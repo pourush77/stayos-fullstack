@@ -134,7 +134,10 @@ describe('ReservationsService', () => {
     buildCommercialSnapshot: jest.fn(),
     resolveEffectiveRatePlanId: jest.fn().mockResolvedValue(null),
   };
-  const restrictionService = { assertStaySellable: jest.fn().mockResolvedValue(undefined) };
+  const restrictionService = {
+    assertStaySellable: jest.fn().mockResolvedValue(undefined),
+    assertAmendmentSellable: jest.fn().mockResolvedValue(undefined),
+  };
   const reservationRateSnapshotService = {
     computeCommercialHash: jest.fn(
       (key: Record<string, unknown>) =>
@@ -602,6 +605,60 @@ describe('ReservationsService', () => {
       expect.not.objectContaining({ reservationCode: expect.any(String) }),
     );
   });
+
+  it('validates restrictions on a commercial amendment (date change) and skips them for operational edits', async () => {
+    const res = { ...reservationEntity, arrivalDate: '2026-07-10', departureDate: '2026-07-12', status: ReservationStatus.CONFIRMED, rateSnapshotVersion: 1 };
+    reservationsRepository.merge?.mockImplementation((r, u) => ({ ...r, ...u }));
+    reservationsRepository.save?.mockImplementation(async (r) => r);
+
+    // commercial (date) change -> change-aware restriction validation runs
+    reservationsRepository.findOne?.mockResolvedValue(res);
+    await service.update(propertyId, reservationId, { departureDate: '2026-07-14' });
+    expect(restrictionService.assertAmendmentSellable).toHaveBeenCalledTimes(1);
+
+    // operational-only edit -> no restriction validation
+    restrictionService.assertAmendmentSellable.mockClear();
+    reservationsRepository.findOne?.mockResolvedValue(res);
+    await service.update(propertyId, reservationId, { notes: 'front desk note' });
+    expect(restrictionService.assertAmendmentSellable).not.toHaveBeenCalled();
+  });
+
+  it('propagates a RESTRICTION_VIOLATION from a commercial amendment (rollback, no amend)', async () => {
+    const res = { ...reservationEntity, arrivalDate: '2026-07-10', departureDate: '2026-07-12', status: ReservationStatus.CONFIRMED, rateSnapshotVersion: 1 };
+    reservationsRepository.findOne?.mockResolvedValue(res);
+    reservationsRepository.merge?.mockImplementation((r, u) => ({ ...r, ...u }));
+    reservationsRepository.save?.mockImplementation(async (r) => r);
+    restrictionService.assertAmendmentSellable.mockRejectedValueOnce(
+      new HttpException({ code: 'RESTRICTION_VIOLATION', details: [{ field: 'STOP_SELL' }] }, HttpStatus.UNPROCESSABLE_ENTITY),
+    );
+
+    const err = await service.update(propertyId, reservationId, { departureDate: '2026-07-14' }).catch((e) => e);
+    expect(err).toBeInstanceOf(HttpException);
+    expect(err.getStatus()).toBe(422);
+    expect(reservationRateSnapshotService.amend).not.toHaveBeenCalled();
+  });
+
+  it('validates restrictions on a PENDING commercial amendment even without an existing snapshot version (no amend)', async () => {
+    const res = {
+      ...reservationEntity,
+      arrivalDate: '2026-07-10',
+      departureDate: '2026-07-12',
+      status: ReservationStatus.PENDING,
+      rateSnapshotVersion: null,
+    };
+    reservationsRepository.findOne?.mockResolvedValue(res);
+    reservationsRepository.merge?.mockImplementation((r, u) => ({ ...r, ...u }));
+    reservationsRepository.save?.mockImplementation(async (r) => r);
+
+    await service.update(propertyId, reservationId, { departureDate: '2026-07-14' });
+
+    // restriction gate fires on PENDING (grandfathering) but no snapshot amend
+    // happens because PENDING has no ACTIVE snapshot yet (deferred to confirm).
+    expect(restrictionService.assertAmendmentSellable).toHaveBeenCalledTimes(1);
+    expect(reservationRateSnapshotService.amend).not.toHaveBeenCalled();
+  });
+
+
 
   it('gets a reservation by id within the property', async () => {
     reservationsRepository.findOne?.mockResolvedValue(reservationEntity);

@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { ActivityEventEntity } from '../../activity/infrastructure/activity-event.entity';
 import { AuditEventEntity } from '../../audit/infrastructure/audit-event.entity';
@@ -147,8 +147,16 @@ describe('ReservationWorkflowService', () => {
     amend: jest.Mock;
     computeCommercialHash: jest.Mock;
   };
+  let restrictionService: {
+    assertAmendmentSellable: jest.Mock;
+    assertStaySellable: jest.Mock;
+  };
 
   beforeEach(() => {
+    restrictionService = {
+      assertAmendmentSellable: jest.fn().mockResolvedValue(undefined),
+      assertStaySellable: jest.fn().mockResolvedValue(undefined),
+    };
     reservationsRepository = {
       findOne: jest.fn().mockResolvedValue(reservationEntity()),
       count: jest.fn().mockResolvedValue(0),
@@ -251,6 +259,7 @@ describe('ReservationWorkflowService', () => {
           .mockResolvedValue({ ratePlanId: null, rateSnapshot: { version: 1, pricingStatus: 'UNPRICED' } }),
       } as never,
       rateSnapshotService as never,
+      restrictionService as never,
     );
   });
 
@@ -536,6 +545,44 @@ describe('ReservationWorkflowService', () => {
       );
       expect(folioChargesRepository.create).not.toHaveBeenCalled();
       expect(folioChargesRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('runs the change-aware restriction gate on the added nights + new departure', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ roomId, status: ReservationStatus.CHECKED_IN }),
+      );
+      roomsRepository.findOne?.mockResolvedValue(
+        roomEntity({ operationalStatus: RoomOperationalStatus.OCCUPIED }),
+      );
+
+      await service.extendStay(propertyId, reservationId, { departureDate: '2026-07-18' });
+
+      expect(restrictionService.assertAmendmentSellable).toHaveBeenCalledTimes(1);
+      expect(restrictionService.assertAmendmentSellable).toHaveBeenCalledWith(
+        expect.objectContaining({ departureDate: '2026-07-17' }),
+        expect.objectContaining({ departureDate: '2026-07-18' }),
+      );
+    });
+
+    it('rolls back the extension when the restriction gate rejects the new nights', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ roomId, status: ReservationStatus.CHECKED_IN }),
+      );
+      roomsRepository.findOne?.mockResolvedValue(
+        roomEntity({ operationalStatus: RoomOperationalStatus.OCCUPIED }),
+      );
+      restrictionService.assertAmendmentSellable.mockRejectedValueOnce(
+        new HttpException({ code: 'RESTRICTION_VIOLATION' }, HttpStatus.UNPROCESSABLE_ENTITY),
+      );
+
+      const err = await service
+        .extendStay(propertyId, reservationId, { departureDate: '2026-07-18' })
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(HttpException);
+      expect(err.getStatus()).toBe(422);
+      // Gate runs BEFORE inventory delta + snapshot amend -> nothing committed.
+      expect(availabilityService.applyDelta).not.toHaveBeenCalled();
+      expect(rateSnapshotService.amend).not.toHaveBeenCalled();
     });
 
     it('rejects a departure date that is not later than the current departure', async () => {

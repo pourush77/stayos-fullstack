@@ -33,6 +33,7 @@ import { diffEntitlements } from '../domain/reservation-inventory-transition';
 import { AvailabilityService } from '../../inventory/availability.service';
 import { ReservationPricingService } from './reservation-pricing.service';
 import { ReservationRateSnapshotService } from './reservation-rate-snapshot.service';
+import { RestrictionService } from '../../rates/restriction.service';
 import { ReservationRateSnapshotTrigger } from '../domain/reservation-rate-snapshot-trigger.enum';
 import { expandStayNights } from '../../inventory/domain/inventory-nights';
 
@@ -56,6 +57,7 @@ export class ReservationWorkflowService {
     private readonly availabilityService: AvailabilityService,
     private readonly reservationPricingService: ReservationPricingService,
     private readonly reservationRateSnapshotService: ReservationRateSnapshotService,
+    private readonly restrictionService: RestrictionService,
   ) {}
 
   async confirm(
@@ -596,6 +598,17 @@ export class ReservationWorkflowService {
 
       const previousState = this.workflowAuditState(reservation, room);
       const previousDepartureDate = reservation.departureDate;
+
+      // Change-aware restriction gate: only the newly-added nights + new
+      // departure (CTD) + resulting LOS are validated; arrival is unchanged so
+      // CTA is not re-checked and grandfathered nights are not revalidated.
+      // Inside the txn so a violation rolls back the extension, inventory delta
+      // and snapshot version.
+      await this.restrictionService.assertAmendmentSellable(
+        { propertyId, roomTypeId: reservation.roomTypeId, ratePlanId: reservation.ratePlanId, arrivalDate: reservation.arrivalDate, departureDate: previousDepartureDate },
+        { propertyId, roomTypeId: reservation.roomTypeId, ratePlanId: reservation.ratePlanId, arrivalDate: reservation.arrivalDate, departureDate: dto.departureDate },
+      );
+
       reservation.departureDate = dto.departureDate;
       await this.ensureNoOverlappingAssignment(reservationRepository, reservation, room);
 
@@ -630,7 +643,6 @@ export class ReservationWorkflowService {
       }
 
       await this.postExtensionSnapshotVersion(manager, updatedReservation);
-
       await this.createEvents(manager, {
         propertyId,
         action: 'RESERVATION_STAY_EXTENDED',
