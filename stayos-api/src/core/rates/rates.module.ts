@@ -7,6 +7,7 @@ import { GuestPricingPolicyEntity } from './infrastructure/guest-pricing-policy.
 import { PropertyTaxConfigEntity } from './infrastructure/property-tax-config.entity';
 import { RatePlanEntity } from './infrastructure/rate-plan.entity';
 import { RoomTypeDailyRateEntity } from './infrastructure/room-type-daily-rate.entity';
+import { RatePlanRoomTypeEntity } from './infrastructure/rate-plan-room-type.entity';
 import { ChildPricingService } from './child-pricing.service';
 import { RatesController } from './rates.controller';
 import { RatesService } from './rates.service';
@@ -17,6 +18,7 @@ import { TaxService } from './tax.service';
     TypeOrmModule.forFeature([
       RatePlanEntity,
       RoomTypeDailyRateEntity,
+      RatePlanRoomTypeEntity,
       GuestPricingPolicyEntity,
       ChildAgeBandEntity,
       PropertyTaxConfigEntity,

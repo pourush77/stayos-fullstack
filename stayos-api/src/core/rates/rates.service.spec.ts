@@ -6,9 +6,11 @@ import { PropertiesService } from '../properties/properties.service';
 import { RoomTypesService } from '../room-types/room-types.service';
 import { ChildPricingMode } from './domain/child-pricing-mode.enum';
 import { RatePlanStatus } from './domain/rate-plan-status.enum';
+import { MealPlan } from './domain/meal-plan.enum';
 import { ChildAgeBandEntity } from './infrastructure/child-age-band.entity';
 import { GuestPricingPolicyEntity } from './infrastructure/guest-pricing-policy.entity';
 import { RatePlanEntity } from './infrastructure/rate-plan.entity';
+import { RatePlanRoomTypeEntity } from './infrastructure/rate-plan-room-type.entity';
 import { RoomTypeDailyRateEntity } from './infrastructure/room-type-daily-rate.entity';
 import { RatesService } from './rates.service';
 
@@ -29,6 +31,8 @@ const ratePlanEntity: RatePlanEntity = {
   description: null,
   isDefault: true,
   status: RatePlanStatus.ACTIVE,
+  mealPlan: MealPlan.ROOM_ONLY,
+  refundable: true,
   createdAt: new Date('2026-06-30T00:00:00.000Z'),
   updatedAt: new Date('2026-06-30T00:00:00.000Z'),
 };
@@ -111,6 +115,7 @@ describe('RatesService', () => {
 
   let ratePlansRepository: MockRepository<RatePlanEntity>;
   let dailyRatesRepository: MockRepository<RoomTypeDailyRateEntity>;
+  let ratePlanRoomTypesRepository: MockRepository<RatePlanRoomTypeEntity>;
   let guestPricingPoliciesRepository: MockRepository<GuestPricingPolicyEntity>;
   let childAgeBandsRepository: MockRepository<ChildAgeBandEntity>;
 
@@ -135,11 +140,22 @@ describe('RatesService', () => {
       findOne: jest.fn(),
       create: jest.fn(),
       save: jest.fn(),
+      merge: jest.fn(),
     };
 
     dailyRatesRepository = {
       create: jest.fn(),
       save: jest.fn(),
+      find: jest.fn(),
+      delete: jest.fn(),
+    };
+
+    ratePlanRoomTypesRepository = {
+      find: jest.fn(),
+      findOne: jest.fn(),
+      create: jest.fn((v) => v),
+      save: jest.fn((v) => v),
+      delete: jest.fn(),
     };
 
     guestPricingPoliciesRepository = {
@@ -203,6 +219,10 @@ describe('RatesService', () => {
         {
           provide: getRepositoryToken(RoomTypeDailyRateEntity),
           useValue: dailyRatesRepository,
+        },
+        {
+          provide: getRepositoryToken(RatePlanRoomTypeEntity),
+          useValue: ratePlanRoomTypesRepository,
         },
         {
           provide: getRepositoryToken(GuestPricingPolicyEntity),
@@ -333,6 +353,75 @@ describe('RatesService', () => {
         propertyId: otherPropertyId,
         isDefault: true,
       });
+    });
+  });
+
+  describe('rate plan room-type pricing (1C-b1)', () => {
+    beforeEach(() => {
+      ratePlansRepository.findOne?.mockResolvedValue(ratePlanEntity);
+    });
+
+    it('upserts base pricing for a (rate plan, room type)', async () => {
+      ratePlanRoomTypesRepository.findOne?.mockResolvedValue(null);
+
+      const result = await service.upsertRatePlanRoomType(propertyId, ratePlanId, {
+        roomTypeId,
+        baseOccupancy: 2,
+        baseRate: '5000.00',
+        extraAdultCharge: '1500.00',
+      });
+
+      expect(result).toMatchObject({
+        propertyId,
+        ratePlanId,
+        roomTypeId,
+        baseOccupancy: 2,
+        baseRate: '5000.00',
+        extraAdultCharge: '1500.00',
+        extraChildCharge: '0',
+      });
+    });
+
+    it('rejects a negative/invalid base rate', async () => {
+      await expect(
+        service.upsertRatePlanRoomType(propertyId, ratePlanId, {
+          roomTypeId,
+          baseOccupancy: 2,
+          baseRate: '-5',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects a base occupancy below 1', async () => {
+      await expect(
+        service.upsertRatePlanRoomType(propertyId, ratePlanId, {
+          roomTypeId,
+          baseOccupancy: 0,
+          baseRate: '5000.00',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('throws NotFound when removing a room type not on the plan', async () => {
+      ratePlanRoomTypesRepository.delete?.mockResolvedValue({ affected: 0 });
+      await expect(
+        service.removeRatePlanRoomType(propertyId, ratePlanId, roomTypeId),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('updateRatePlan (1C-b1)', () => {
+    it('merges updatable fields and persists', async () => {
+      ratePlansRepository.findOne?.mockResolvedValue(ratePlanEntity);
+      ratePlansRepository.merge?.mockImplementation((base, patch) => ({ ...base, ...patch }));
+      ratePlansRepository.save?.mockImplementation(async (v) => v);
+
+      const result = await service.updateRatePlan(propertyId, ratePlanId, {
+        status: RatePlanStatus.INACTIVE,
+        refundable: false,
+      });
+
+      expect(result).toMatchObject({ status: RatePlanStatus.INACTIVE, refundable: false });
     });
   });
 

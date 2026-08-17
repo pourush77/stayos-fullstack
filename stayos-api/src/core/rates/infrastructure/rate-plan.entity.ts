@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { PropertyEntity } from '../../properties/infrastructure/property.entity';
 import { RatePlanStatus } from '../domain/rate-plan-status.enum';
+import { MealPlan } from '../domain/meal-plan.enum';
 
 /**
  * A pricing channel for a property (for example BAR) that can price
@@ -59,6 +60,17 @@ export class RatePlanEntity {
     default: RatePlanStatus.ACTIVE,
   })
   status!: RatePlanStatus;
+
+  @Column({
+    type: 'enum',
+    enum: MealPlan,
+    name: 'meal_plan',
+    default: MealPlan.ROOM_ONLY,
+  })
+  mealPlan!: MealPlan;
+
+  @Column({ type: 'boolean', default: true })
+  refundable!: boolean;
 
   @CreateDateColumn({
     type: 'timestamptz',

@@ -11,11 +11,16 @@ import { RoomTypesService } from '../room-types/room-types.service';
 import { ChildPricingMode } from './domain/child-pricing-mode.enum';
 import { ChildAgeBandInput } from './dto/child-age-band.input';
 import { CreateDailyRateInput } from './dto/create-daily-rate.input';
-import { CreateRatePlanInput } from './dto/create-rate-plan.input';
+import {
+  CreateRatePlanInput,
+  UpdateRatePlanInput,
+  UpsertRatePlanRoomTypeInput,
+} from './dto/create-rate-plan.input';
 import { UpsertGuestPricingPolicyInput } from './dto/upsert-guest-pricing-policy.input';
 import { ChildAgeBandEntity } from './infrastructure/child-age-band.entity';
 import { GuestPricingPolicyEntity } from './infrastructure/guest-pricing-policy.entity';
 import { RatePlanEntity } from './infrastructure/rate-plan.entity';
+import { RatePlanRoomTypeEntity } from './infrastructure/rate-plan-room-type.entity';
 import { RoomTypeDailyRateEntity } from './infrastructure/room-type-daily-rate.entity';
 
 @Injectable()
@@ -28,6 +33,8 @@ export class RatesService {
     private readonly ratePlansRepository: Repository<RatePlanEntity>,
     @InjectRepository(RoomTypeDailyRateEntity)
     private readonly dailyRatesRepository: Repository<RoomTypeDailyRateEntity>,
+    @InjectRepository(RatePlanRoomTypeEntity)
+    private readonly ratePlanRoomTypesRepository: Repository<RatePlanRoomTypeEntity>,
     @InjectRepository(GuestPricingPolicyEntity)
     private readonly guestPricingPoliciesRepository: Repository<GuestPricingPolicyEntity>,
     @InjectRepository(ChildAgeBandEntity)
@@ -74,6 +81,108 @@ export class RatesService {
       return await this.ratePlansRepository.save(ratePlan);
     } catch (error) {
       this.handleRatePlanPersistenceError(error);
+    }
+  }
+
+  async updateRatePlan(
+    propertyId: string,
+    id: string,
+    input: UpdateRatePlanInput,
+  ): Promise<RatePlanEntity> {
+    const ratePlan = await this.findRatePlan(propertyId, id);
+
+    try {
+      const merged = this.ratePlansRepository.merge(ratePlan, {
+        ...input,
+        description: input.description === undefined ? ratePlan.description : input.description,
+      });
+      return await this.ratePlansRepository.save(merged);
+    } catch (error) {
+      this.handleRatePlanPersistenceError(error);
+    }
+  }
+
+  async findRatePlanRoomTypes(
+    propertyId: string,
+    ratePlanId: string,
+  ): Promise<RatePlanRoomTypeEntity[]> {
+    await this.findRatePlan(propertyId, ratePlanId);
+    return this.ratePlanRoomTypesRepository.find({
+      where: { propertyId, ratePlanId },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  /**
+   * Create or update the base commercial terms for one (rate plan, room type).
+   * Pricing only — never touches inventory.
+   */
+  async upsertRatePlanRoomType(
+    propertyId: string,
+    ratePlanId: string,
+    input: UpsertRatePlanRoomTypeInput,
+  ): Promise<RatePlanRoomTypeEntity> {
+    await this.findRatePlan(propertyId, ratePlanId);
+    await this.roomTypesService.findOne(propertyId, input.roomTypeId);
+    this.validateAmount(input.baseRate);
+    if (input.extraAdultCharge != null) this.validateAmount(input.extraAdultCharge);
+    if (input.extraChildCharge != null) this.validateAmount(input.extraChildCharge);
+    if (!Number.isInteger(input.baseOccupancy) || input.baseOccupancy < 1) {
+      throw new BadRequestException('baseOccupancy must be a whole number >= 1');
+    }
+
+    const existing = await this.ratePlanRoomTypesRepository.findOne({
+      where: { propertyId, ratePlanId, roomTypeId: input.roomTypeId },
+    });
+
+    const entity = this.ratePlanRoomTypesRepository.create({
+      ...(existing ?? {}),
+      propertyId,
+      ratePlanId,
+      roomTypeId: input.roomTypeId,
+      baseOccupancy: input.baseOccupancy,
+      baseRate: input.baseRate,
+      extraAdultCharge: input.extraAdultCharge ?? existing?.extraAdultCharge ?? '0',
+      extraChildCharge: input.extraChildCharge ?? existing?.extraChildCharge ?? '0',
+    });
+
+    return this.ratePlanRoomTypesRepository.save(entity);
+  }
+
+  async removeRatePlanRoomType(
+    propertyId: string,
+    ratePlanId: string,
+    roomTypeId: string,
+  ): Promise<void> {
+    await this.findRatePlan(propertyId, ratePlanId);
+    const result = await this.ratePlanRoomTypesRepository.delete({
+      propertyId,
+      ratePlanId,
+      roomTypeId,
+    });
+    if (!result.affected) {
+      throw new NotFoundException(
+        `Rate plan ${ratePlanId} has no pricing for room type ${roomTypeId}`,
+      );
+    }
+  }
+
+  async findDailyRates(
+    propertyId: string,
+    ratePlanId: string,
+    roomTypeId?: string,
+  ): Promise<RoomTypeDailyRateEntity[]> {
+    await this.findRatePlan(propertyId, ratePlanId);
+    return this.dailyRatesRepository.find({
+      where: { propertyId, ratePlanId, ...(roomTypeId ? { roomTypeId } : {}) },
+      order: { stayDate: 'ASC' },
+    });
+  }
+
+  async removeDailyRate(propertyId: string, id: string): Promise<void> {
+    const result = await this.dailyRatesRepository.delete({ id, propertyId });
+    if (!result.affected) {
+      throw new NotFoundException(`Daily rate ${id} was not found`);
     }
   }
 
