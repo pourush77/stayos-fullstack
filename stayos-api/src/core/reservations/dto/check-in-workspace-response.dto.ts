@@ -161,6 +161,19 @@ export class CheckInFinalChecklistDto {
   missingRegistrationFields!: string[];
 }
 
+export class CheckInOperationalContextDto {
+  @ApiPropertyOptional({ description: "Property standard check-in time (HH:mm:ss)" })
+  standardCheckInTime!: string | null;
+  @ApiPropertyOptional({ description: "Property standard check-out time (HH:mm:ss)" })
+  standardCheckOutTime!: string | null;
+  @ApiProperty({ description: 'True when arriving today before the standard check-in time' })
+  earlyCheckIn!: boolean;
+  @ApiProperty({ description: 'True when a checked-in guest is past the standard check-out time on departure day' })
+  lateCheckout!: boolean;
+  @ApiProperty({ description: 'True when a physical room is assigned to the reservation' })
+  roomAssigned!: boolean;
+}
+
 export class CheckInWorkspaceResponseDto {
   @ApiProperty({ type: CheckInBookingDto })
   booking!: CheckInBookingDto;
@@ -176,6 +189,8 @@ export class CheckInWorkspaceResponseDto {
   payment!: CheckInPaymentDto;
   @ApiProperty({ type: CheckInRoomDto })
   room!: CheckInRoomDto;
+  @ApiProperty({ type: CheckInOperationalContextDto })
+  operational!: CheckInOperationalContextDto;
   @ApiProperty({ type: CheckInFinalChecklistDto })
   finalChecklist!: CheckInFinalChecklistDto;
 }

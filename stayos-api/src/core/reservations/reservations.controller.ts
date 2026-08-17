@@ -26,7 +26,7 @@ import { ExtendReservationDto } from './dto/extend-reservation.dto';
 import { MoveRoomDto } from './dto/move-room.dto';
 import { PaymentReviewDto } from './dto/payment-review.dto';
 import { ReservationResponseDto } from './dto/reservation-response.dto';
-import { LifecycleActionDto } from './dto/lifecycle-action.dto';
+import { CheckInActionDto, CheckOutActionDto, LifecycleActionDto } from './dto/lifecycle-action.dto';
 import { ReservationWorkflowResponseDto } from './dto/reservation-workflow-response.dto';
 import { UpdateGuestRegistrationDto } from './dto/update-guest-registration.dto';
 import { UpdateIdentityVerificationDto } from './dto/update-identity-verification.dto';
@@ -319,11 +319,15 @@ export class ReservationsController {
   async checkIn(
     @Param('propertyId', ParseUUIDPipe) propertyId: string,
     @Param('reservationId', ParseUUIDPipe) reservationId: string,
+    @Body() dto: CheckInActionDto,
     @CurrentUser() user?: AuthenticatedRequest['currentUser'],
   ): Promise<ReservationWorkflowResponseDto> {
-    return this.reservationWorkflowService.checkIn(propertyId, reservationId, {
-      actorId: user?.id ?? null,
-    });
+    return this.reservationWorkflowService.checkIn(
+      propertyId,
+      reservationId,
+      { actorId: user?.id ?? null },
+      { earlyCheckIn: dto?.earlyCheckIn ?? false },
+    );
   }
 
   @Patch(':reservationId/check-out')
@@ -335,10 +339,14 @@ export class ReservationsController {
   async checkOut(
     @Param('propertyId', ParseUUIDPipe) propertyId: string,
     @Param('reservationId', ParseUUIDPipe) reservationId: string,
+    @Body() dto: CheckOutActionDto,
     @CurrentUser() user?: AuthenticatedRequest['currentUser'],
   ): Promise<ReservationWorkflowResponseDto> {
-    return this.reservationWorkflowService.checkOut(propertyId, reservationId, {
-      actorId: user?.id ?? null,
-    });
+    return this.reservationWorkflowService.checkOut(
+      propertyId,
+      reservationId,
+      { actorId: user?.id ?? null },
+      { lateCheckout: dto?.lateCheckout ?? false },
+    );
   }
 }

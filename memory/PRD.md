@@ -431,3 +431,11 @@ Principle: restrictions gate newly-introduced/re-scoped sale entitlement, NOT al
 - PHASE 1D COMPLETE (a ledger, b snapshot ROOM, c GST, d payments/settlement, e invoices). Deferred: PDF/doc rendering (JSON contract ready), partial credit notes (full-reversal only), persisted DRAFT lifecycle (read-only preview used), guest GSTIN capture (field present/null), reconcile-repost actor attribution (1F). Out of scope: 1E, frontend, POS, deposit policy, payment receipts.
 - MINIMUM BACKEND BEFORE FRONTEND: (1) PDF/document rendering OR let frontend render from the invoice JSON contract (data is complete); (2) optional formal InvoiceResponseDto (currently returns entity — acceptable); (3) optional aggregated billing-screen read endpoint (folio + invoices) — existing endpoints already suffice. No blocker remains for frontend to start against these APIs.
 
+
+## 2026-08-17 — Phase 1E minimum backend (3 MUST-HAVE) — DONE & VERIFIED
+- (1) assignRoom overlap guard verified already correct (ensureNoOverlappingAssignment) — no change.
+- (2) Check-in workspace read model gains operational context: standardCheckInTime/standardCheckOutTime + derived earlyCheckIn/lateCheckout + roomAssigned (detection only, no enforcement/charge/inventory impact).
+- (3) Existing EARLY_CHECK_IN/LATE_CHECKOUT policies wired: charge posted ONLY on explicit approval (earlyCheckIn/lateCheckout flags on PATCH check-in/check-out) via BillingService.postPolicyChargeOnManager (reuses GST + ledger, idempotent by description). Late charge committed in its own txn BEFORE the settle gate so a blocked checkout does not roll it back; early charge inside check-in txn.
+- Preserved inventory/roomId separation, READY check-in, checkout->NEEDS_CLEANING, exact-zero checkout, policy resolution, GST. No new policy types/engine/schema.
+- Verified: Jest 67/67; live /tmp/verify_lifecycle.py 14/14; zero inventory violations, zero residue.
+- PHASE 1E MINIMUM BACKEND FOR FRONTEND: COMPLETE. Deferred to frontend/after-P1: arrival/departure/housekeeping queues (data already available), auto early/late enforcement, no-show auto-charge, housekeeping task workflow.

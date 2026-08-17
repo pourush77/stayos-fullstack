@@ -28,6 +28,9 @@ import { ReservationsMapper } from '../reservations.mapper';
 import { RoomsMapper } from '../../rooms/rooms.mapper';
 import { CheckInService } from './check-in.service';
 import { PolicyResolverService } from '../../policies/policy-resolver.service';
+import { PropertyPolicyType } from '../../policies/domain/property-policy-type.enum';
+import { PolicyChargeMode } from '../../policies/domain/policy-charge-mode.enum';
+import { normalizePolicyCharge } from '../../policies/domain/normalize-policy-charge';
 import { assertReservationTransition } from '../domain/reservation-transitions';
 import {
   ReservationInventoryEntitlement,
@@ -417,6 +420,7 @@ export class ReservationWorkflowService {
     propertyId: string,
     reservationId: string,
     actorContext: WorkflowActorContext = {},
+    options: { earlyCheckIn?: boolean } = {},
   ): Promise<ReservationWorkflowResponseDto> {
     return this.dataSource.transaction(async (manager) => {
       const reservationRepository = manager.getRepository(ReservationEntity);
@@ -462,6 +466,19 @@ export class ReservationWorkflowService {
       );
       this.checkInService.validateFinalChecklist(workspaceParts);
 
+      // Early check-in charge is posted ONLY when the request explicitly
+      // approves it (never auto-charged by the clock).
+      if (options.earlyCheckIn) {
+        await this.postLifecyclePolicyCharge(
+          manager,
+          propertyId,
+          reservation,
+          PropertyPolicyType.EARLY_CHECK_IN,
+          'Early check-in charge',
+          actorContext.actorId ?? null,
+        );
+      }
+
       const previousState = this.workflowAuditState(reservation, room);
       reservation.status = ReservationStatus.CHECKED_IN;
       room.operationalStatus = RoomOperationalStatus.OCCUPIED;
@@ -494,7 +511,29 @@ export class ReservationWorkflowService {
     propertyId: string,
     reservationId: string,
     actorContext: WorkflowActorContext = {},
+    options: { lateCheckout?: boolean } = {},
   ): Promise<ReservationWorkflowResponseDto> {
+    // Late checkout charge is posted (and COMMITTED) in its own transaction
+    // BEFORE the checkout/settlement transaction. This way the charge persists
+    // and must be collected: if the settlement gate then blocks (balance != 0),
+    // the charge is not rolled back. Idempotent by description on retry.
+    if (options.lateCheckout) {
+      await this.dataSource.transaction(async (m) => {
+        const reservation = await m
+          .getRepository(ReservationEntity)
+          .findOne({ where: { id: reservationId, propertyId } });
+        if (reservation && reservation.status === ReservationStatus.CHECKED_IN) {
+          await this.postLifecyclePolicyCharge(
+            m,
+            propertyId,
+            reservation,
+            PropertyPolicyType.LATE_CHECKOUT,
+            'Late check-out charge',
+            actorContext.actorId ?? null,
+          );
+        }
+      });
+    }
     return this.dataSource.transaction(async (manager) => {
       const reservationRepository = manager.getRepository(ReservationEntity);
       const roomRepository = manager.getRepository(RoomEntity);
@@ -1115,6 +1154,72 @@ export class ReservationWorkflowService {
       null,
       null,
     );
+  }
+
+  /**
+   * Resolves the effective EARLY_CHECK_IN / LATE_CHECKOUT policy and posts the
+   * applicable charge via BillingService on the caller's manager (no nested
+   * txn, idempotent by description). No-op when the policy is absent/NONE or the
+   * computed amount is zero. Reuses existing policy resolution + billing ledger.
+   */
+  private async postLifecyclePolicyCharge(
+    manager: EntityManager,
+    propertyId: string,
+    reservation: ReservationEntity,
+    policyType: PropertyPolicyType,
+    description: string,
+    actorId: string | null,
+  ): Promise<void> {
+    const policy = await this.policyResolver.resolve(
+      propertyId,
+      policyType,
+      reservation.ratePlanId ?? null,
+      manager,
+    );
+    if (!policy || !policy.isActive || !policy.chargeMode || policy.chargeMode === PolicyChargeMode.NONE) {
+      return;
+    }
+    const normalized = normalizePolicyCharge(
+      { mode: policy.chargeMode, value: policy.chargeValue != null ? Number(policy.chargeValue) : null },
+      { allowFirstNight: true },
+    );
+    if (normalized.mode === PolicyChargeMode.NONE) return;
+
+    let amountCents = 0;
+    if (normalized.mode === PolicyChargeMode.FIXED_AMOUNT) {
+      amountCents = Math.round(normalized.value * 100);
+    } else {
+      const baseCents = await this.perNightBaseCents(manager, propertyId, reservation.id);
+      amountCents =
+        normalized.mode === PolicyChargeMode.PERCENTAGE
+          ? Math.round((baseCents * normalized.value) / 100)
+          : baseCents; // FIRST_NIGHT
+    }
+    if (amountCents <= 0) return;
+
+    await this.billingService.postPolicyChargeOnManager(
+      manager,
+      propertyId,
+      reservation.id,
+      { type: FolioChargeType.MISC, description, unitAmount: (amountCents / 100).toFixed(2) },
+      actorId,
+    );
+  }
+
+  /** Per-night base (cents) from the folio's active ROOM charge; 0 if none. */
+  private async perNightBaseCents(
+    manager: EntityManager,
+    propertyId: string,
+    reservationId: string,
+  ): Promise<number> {
+    const folio = await manager
+      .getRepository(FolioEntity)
+      .findOne({ where: { reservationId, propertyId } });
+    if (!folio) return 0;
+    const roomCharge = await manager.getRepository(FolioChargeEntity).findOne({
+      where: { folioId: folio.id, type: FolioChargeType.ROOM, status: FolioChargeStatus.POSTED },
+    });
+    return roomCharge ? Math.round(parseFloat(roomCharge.unitAmount) * 100) : 0;
   }
 
   private calculateNights(arrivalDate: string, departureDate: string): number {

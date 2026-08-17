@@ -11,6 +11,7 @@ import { ApiErrorCode } from '../../../common/errors/api-error-code.enum';
 import { calculateTotals } from '../../billing/billing.mapper';
 import { FolioEntity } from '../../billing/infrastructure/folio.entity';
 import { GuestEntity } from '../../guests/infrastructure/guest.entity';
+import { PropertyEntity } from '../../properties/infrastructure/property.entity';
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
 import { CFormStatus } from '../domain/c-form-status.enum';
@@ -43,6 +44,7 @@ interface WorkspaceParts {
   identity: GuestIdentityDocumentEntity | null;
   documents?: GuestDocumentEntity[];
   folio?: FolioEntity | null;
+  property?: PropertyEntity | null;
 }
 
 @Injectable()
@@ -278,6 +280,9 @@ export class CheckInService {
         relations: { charges: true, payments: true },
       }),
     ]);
+    const property = await manager
+      .getRepository(PropertyEntity)
+      .findOne({ where: { id: propertyId } });
 
     if (!guest) {
       throw new NotFoundException({
@@ -286,7 +291,7 @@ export class CheckInService {
       });
     }
 
-    return { reservation, guest, room, identity, documents, folio };
+    return { reservation, guest, room, identity, documents, folio, property };
   }
 
   toWorkspace(parts: WorkspaceParts): CheckInWorkspaceResponseDto {
@@ -375,6 +380,7 @@ export class CheckInService {
         readyForCheckIn: room?.operationalStatus === RoomOperationalStatus.READY,
         warnings: this.getRoomWarnings(room),
       },
+      operational: this.getOperationalContext(parts),
       finalChecklist: {
         bookingReviewed: true,
         guestRegistrationComplete: this.isGuestRegistrationComplete(reservation, guest),
@@ -456,6 +462,44 @@ export class CheckInService {
     if (!room) return ['No room assigned'];
     if (room.operationalStatus === RoomOperationalStatus.READY) return [];
     return [`Room is ${room.operationalStatus}`];
+  }
+
+  /**
+   * Read-only operational context (Phase 1E). Detects, but does NOT enforce or
+   * charge, early check-in / late checkout against the property standard times.
+   */
+  private getOperationalContext(parts: WorkspaceParts): {
+    standardCheckInTime: string | null;
+    standardCheckOutTime: string | null;
+    earlyCheckIn: boolean;
+    lateCheckout: boolean;
+    roomAssigned: boolean;
+  } {
+    const checkInTime = parts.property?.checkInTime ?? null;
+    const checkOutTime = parts.property?.checkOutTime ?? null;
+    const today = currentDateKey();
+    const now = new Date();
+    const nowTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:00`;
+
+    const earlyCheckIn =
+      parts.reservation.status !== 'CHECKED_IN' &&
+      parts.reservation.arrivalDate === today &&
+      checkInTime != null &&
+      nowTime < checkInTime;
+
+    const lateCheckout =
+      parts.reservation.status === 'CHECKED_IN' &&
+      parts.reservation.departureDate === today &&
+      checkOutTime != null &&
+      nowTime > checkOutTime;
+
+    return {
+      standardCheckInTime: checkInTime,
+      standardCheckOutTime: checkOutTime,
+      earlyCheckIn,
+      lateCheckout,
+      roomAssigned: parts.reservation.roomId != null,
+    };
   }
 
   private applyFullName(guest: GuestEntity, fullName: string): void {

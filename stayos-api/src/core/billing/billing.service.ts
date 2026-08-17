@@ -406,6 +406,105 @@ export class BillingService {
   }
 
   /**
+   * Posts an ad-hoc charge (e.g. an early check-in / late checkout policy fee)
+   * on the CALLER's transaction manager — no nested transaction. Reuses the GST
+   * engine like addCharge. Idempotent per (folio, type, description): if a
+   * matching POSTED charge already exists it is a safe no-op, so a retried
+   * check-in/checkout never double-charges.
+   */
+  async postPolicyChargeOnManager(
+    manager: EntityManager,
+    propertyId: string,
+    reservationId: string,
+    input: { type: FolioChargeType; description: string; unitAmount: string },
+    actorUserId?: string | null,
+  ): Promise<void> {
+    const amountCents = Math.round(parseFloat(input.unitAmount) * 100);
+    if (!Number.isFinite(amountCents) || amountCents <= 0) return;
+
+    const chargeRepo = manager.getRepository(FolioChargeEntity);
+    const folioRepo = manager.getRepository(FolioEntity);
+
+    let folio = await folioRepo.findOne({
+      where: { reservationId, propertyId },
+      relations: { property: true, guest: true },
+    });
+    if (folio && folio.status !== FolioStatus.OPEN) return;
+
+    if (!folio) {
+      const reservation = await manager
+        .getRepository(ReservationEntity)
+        .findOne({ where: { id: reservationId, propertyId } });
+      if (!reservation) throw new NotFoundException(`Reservation ${reservationId} was not found`);
+      const folioNumber = await this.nextFolioNumber(propertyId);
+      const activeSnapshot = await manager
+        .getRepository(ReservationRateSnapshotEntity)
+        .findOne({ where: { reservationId, status: 'ACTIVE' as never } });
+      folio = await folioRepo.save(
+        folioRepo.create({
+          propertyId,
+          reservationId,
+          guestId: reservation.guestId,
+          folioNumber,
+          status: FolioStatus.OPEN,
+          currency: 'INR',
+        }),
+      );
+      await this.generateRoomChargesFromSnapshot(manager, folio.id, propertyId, reservation, activeSnapshot);
+      folio = await folioRepo.findOne({
+        where: { id: folio.id },
+        relations: { property: true, guest: true },
+      });
+    }
+
+    const existing = await chargeRepo.findOne({
+      where: {
+        folioId: folio!.id,
+        type: input.type,
+        description: input.description,
+        status: FolioChargeStatus.POSTED,
+      },
+    });
+    if (existing) return; // idempotent / retry-safe
+
+    const placeOfSupply = this.gstService.resolvePlaceOfSupply(
+      folio!.property?.state,
+      folio!.property?.stateCode,
+      folio!.guest?.state,
+    );
+    const gst = await this.gstService.computeTax(
+      {
+        propertyId,
+        chargeType: input.type,
+        taxableAmountCents: amountCents,
+        slabBasisAmount: amountCents / 100,
+        placeOfSupply,
+        chargeDate: new Date(),
+      },
+      manager,
+    );
+
+    await chargeRepo.save(
+      chargeRepo.create({
+        folioId: folio!.id,
+        type: input.type,
+        status: FolioChargeStatus.POSTED,
+        description: input.description,
+        quantity: 1,
+        unitAmount: fromCents(amountCents),
+        amount: fromCents(amountCents),
+        taxAmount: gst.totalTax,
+        hsnSac: gst.hsnSac,
+        taxSnapshot: gst.applied ? this.toStoredSnapshot(gst) : null,
+        chargedAt: new Date(),
+        createdByUserId: actorUserId ?? null,
+      }),
+    );
+    await folioRepo.update({ id: folio!.id }, { updatedAt: new Date() });
+  }
+
+
+  /**
    * Reverses a POSTED charge WITHOUT destroying history: flips the original to
    * REVERSED and inserts a REVERSAL row with negated amount/tax pointing at it.
    * Totals net to zero for the pair (calculateTotals sums all rows). Idempotent:
