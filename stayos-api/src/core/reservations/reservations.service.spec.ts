@@ -462,23 +462,24 @@ describe('ReservationsService', () => {
     it('validates using the EXPLICIT rate plan when supplied', async () => {
       reservationPricingService.resolveEffectiveRatePlanId.mockResolvedValueOnce('rp-explicit');
       await service.create(propertyId, clearDto(ReservationStatus.PENDING, 'rp-explicit'));
-      expect(reservationPricingService.resolveEffectiveRatePlanId).toHaveBeenCalledWith({ propertyId, roomTypeId, ratePlanId: 'rp-explicit' });
+      expect(reservationPricingService.resolveEffectiveRatePlanId).toHaveBeenCalledWith({ propertyId, roomTypeId, ratePlanId: 'rp-explicit' }, expect.anything());
       expect(restrictionService.assertStaySellable).toHaveBeenCalledWith(
         expect.objectContaining({ propertyId, roomTypeId, ratePlanId: 'rp-explicit', arrivalDate: '2026-07-15', departureDate: '2026-07-17' }),
+        expect.anything(),
       );
     });
 
     it('validates using the property DEFAULT rate plan when ratePlanId is omitted', async () => {
       reservationPricingService.resolveEffectiveRatePlanId.mockResolvedValueOnce('rp-default');
       await service.create(propertyId, clearDto(ReservationStatus.PENDING));
-      expect(reservationPricingService.resolveEffectiveRatePlanId).toHaveBeenCalledWith({ propertyId, roomTypeId, ratePlanId: null });
-      expect(restrictionService.assertStaySellable).toHaveBeenCalledWith(expect.objectContaining({ ratePlanId: 'rp-default' }));
+      expect(reservationPricingService.resolveEffectiveRatePlanId).toHaveBeenCalledWith({ propertyId, roomTypeId, ratePlanId: null }, expect.anything());
+      expect(restrictionService.assertStaySellable).toHaveBeenCalledWith(expect.objectContaining({ ratePlanId: 'rp-default' }), expect.anything());
     });
 
     it('falls back to roomType baseline (ratePlanId null) when no plan/default exists', async () => {
       reservationPricingService.resolveEffectiveRatePlanId.mockResolvedValueOnce(null);
       await service.create(propertyId, clearDto(ReservationStatus.PENDING));
-      expect(restrictionService.assertStaySellable).toHaveBeenCalledWith(expect.objectContaining({ ratePlanId: null }));
+      expect(restrictionService.assertStaySellable).toHaveBeenCalledWith(expect.objectContaining({ ratePlanId: null }), expect.anything());
     });
   });
 

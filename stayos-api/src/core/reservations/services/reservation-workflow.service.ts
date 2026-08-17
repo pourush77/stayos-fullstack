@@ -607,6 +607,7 @@ export class ReservationWorkflowService {
       await this.restrictionService.assertAmendmentSellable(
         { propertyId, roomTypeId: reservation.roomTypeId, ratePlanId: reservation.ratePlanId, arrivalDate: reservation.arrivalDate, departureDate: previousDepartureDate },
         { propertyId, roomTypeId: reservation.roomTypeId, ratePlanId: reservation.ratePlanId, arrivalDate: reservation.arrivalDate, departureDate: dto.departureDate },
+        manager,
       );
 
       reservation.departureDate = dto.departureDate;

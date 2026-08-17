@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { EntityManager, IsNull, Repository } from 'typeorm';
 import { GroupBookingDepositPolicyType } from '../properties/domain/group-booking-deposit-policy-type.enum';
 import { DepositPolicyInput } from './domain/normalize-deposit-policy';
 import { PropertyPolicyType } from './domain/property-policy-type.enum';
@@ -23,15 +23,17 @@ export class PolicyResolverService {
     propertyId: string,
     policyType: PropertyPolicyType,
     ratePlanId: string | null = null,
+    manager?: EntityManager,
   ): Promise<PropertyPolicyEntity | null> {
+    const repo = manager ? manager.getRepository(PropertyPolicyEntity) : this.policiesRepository;
     if (ratePlanId) {
-      const override = await this.policiesRepository.findOne({
+      const override = await repo.findOne({
         where: { propertyId, policyType, ratePlanId },
       });
       if (override) return override;
     }
 
-    return this.policiesRepository.findOne({
+    return repo.findOne({
       where: { propertyId, policyType, ratePlanId: IsNull() },
     });
   }

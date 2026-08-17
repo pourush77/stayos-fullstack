@@ -278,14 +278,14 @@ export class ReservationsService {
           propertyId,
           roomTypeId: createReservationDto.roomTypeId,
           ratePlanId,
-        });
+        }, manager);
         await this.restrictionService.assertStaySellable({
           propertyId,
           roomTypeId: createReservationDto.roomTypeId,
           ratePlanId: effectiveRatePlanId,
           arrivalDate: createReservationDto.arrivalDate,
           departureDate: createReservationDto.departureDate,
-        });
+        }, manager);
 
         const reservationRepository = manager.getRepository(ReservationEntity);
         const reservation = reservationRepository.create({
@@ -513,6 +513,7 @@ export class ReservationsService {
           await this.restrictionService.assertAmendmentSellable(
             { propertyId, roomTypeId: beforeRoomTypeId, ratePlanId: currentEffectiveRatePlanId, arrivalDate: beforeArrival, departureDate: beforeDeparture },
             { propertyId, roomTypeId: afterRoomTypeId, ratePlanId: nextEffectiveRatePlanId, arrivalDate, departureDate },
+            manager,
           );
         }
 

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { ChildPricingMode } from './domain/child-pricing-mode.enum';
 import { ChildAgeBandEntity } from './infrastructure/child-age-band.entity';
 import { GuestPricingPolicyEntity } from './infrastructure/guest-pricing-policy.entity';
@@ -51,13 +51,17 @@ export class ChildPricingService {
     nights: number,
     nightlyRoomRate: number,
     extraChildChargePerNight = 0,
+    manager?: EntityManager,
   ): Promise<ChildPricingResult> {
-    const policy = await this.getActivePolicy(propertyId);
+    const policy = await this.getActivePolicy(propertyId, manager);
     if (!policy?.ageBasedChildPricingEnabled || childAges.length === 0) {
       return { lines: [], total: 0, limitations: [] };
     }
 
-    const bands = await this.childAgeBandsRepository.find({
+    const bandsRepo = manager
+      ? manager.getRepository(ChildAgeBandEntity)
+      : this.childAgeBandsRepository;
+    const bands = await bandsRepo.find({
       where: { guestPricingPolicyId: policy.id, isActive: true },
       order: { minAge: 'ASC', displayOrder: 'ASC' },
     });
@@ -111,8 +115,14 @@ export class ChildPricingService {
     };
   }
 
-  private async getActivePolicy(propertyId: string): Promise<GuestPricingPolicyEntity | null> {
-    return this.guestPricingPoliciesRepository.findOne({
+  private async getActivePolicy(
+    propertyId: string,
+    manager?: EntityManager,
+  ): Promise<GuestPricingPolicyEntity | null> {
+    const repo = manager
+      ? manager.getRepository(GuestPricingPolicyEntity)
+      : this.guestPricingPoliciesRepository;
+    return repo.findOne({
       where: { propertyId, isActive: true },
     });
   }

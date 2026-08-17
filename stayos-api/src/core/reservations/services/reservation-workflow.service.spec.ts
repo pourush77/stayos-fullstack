@@ -561,6 +561,7 @@ describe('ReservationWorkflowService', () => {
       expect(restrictionService.assertAmendmentSellable).toHaveBeenCalledWith(
         expect.objectContaining({ departureDate: '2026-07-17' }),
         expect.objectContaining({ departureDate: '2026-07-18' }),
+        expect.anything(),
       );
     });
 

@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, QueryFailedError, Repository } from 'typeorm';
+import { DataSource, EntityManager, QueryFailedError, Repository } from 'typeorm';
 import { PropertiesService } from '../properties/properties.service';
 import { RoomTypesService } from '../room-types/room-types.service';
 import { ChildPricingMode } from './domain/child-pricing-mode.enum';
@@ -88,12 +88,19 @@ export class RatesService {
   async findDefaultApplicableRatePlan(
     propertyId: string,
     roomTypeId: string,
+    manager?: EntityManager,
   ): Promise<RatePlanEntity | null> {
-    const plan = await this.ratePlansRepository.findOne({
+    const ratePlansRepo = manager
+      ? manager.getRepository(RatePlanEntity)
+      : this.ratePlansRepository;
+    const ratePlanRoomTypesRepo = manager
+      ? manager.getRepository(RatePlanRoomTypeEntity)
+      : this.ratePlanRoomTypesRepository;
+    const plan = await ratePlansRepo.findOne({
       where: { propertyId, isDefault: true, status: RatePlanStatus.ACTIVE },
     });
     if (!plan) return null;
-    const applicable = await this.ratePlanRoomTypesRepository.findOne({
+    const applicable = await ratePlanRoomTypesRepo.findOne({
       where: { propertyId, ratePlanId: plan.id, roomTypeId },
     });
     return applicable ? plan : null;

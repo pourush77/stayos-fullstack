@@ -1,8 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { PolicyResolverService } from '../policies/policy-resolver.service';
 import { PropertyPolicyType } from '../policies/domain/property-policy-type.enum';
+import { PropertyPolicyEntity } from '../policies/infrastructure/property-policy.entity';
 import { RatePlanStatus } from './domain/rate-plan-status.enum';
 import { MealPlan } from './domain/meal-plan.enum';
 import { RatePlanEntity } from './infrastructure/rate-plan.entity';
@@ -82,11 +83,23 @@ export class RateResolverService {
     private readonly childPricingService: ChildPricingService,
   ) {}
 
-  async resolve(input: ResolveRateInput): Promise<ResolvedRate> {
+  async resolve(input: ResolveRateInput, manager?: EntityManager): Promise<ResolvedRate> {
     const nights = this.expandNights(input.arrivalDate, input.departureDate);
     const childAges = input.childAges ?? [];
 
-    const ratePlan = await this.ratePlansRepository.findOne({
+    // Reuse the caller's transaction connection for all reads when a manager is
+    // supplied (reservation create/amend), else fall back to the injected
+    // repositories. Prevents connection-pool exhaustion under concurrent
+    // creates without changing pricing semantics.
+    const ratePlansRepo = manager ? manager.getRepository(RatePlanEntity) : this.ratePlansRepository;
+    const ratePlanRoomTypesRepo = manager
+      ? manager.getRepository(RatePlanRoomTypeEntity)
+      : this.ratePlanRoomTypesRepository;
+    const dailyRatesRepo = manager
+      ? manager.getRepository(RoomTypeDailyRateEntity)
+      : this.dailyRatesRepository;
+
+    const ratePlan = await ratePlansRepo.findOne({
       where: { id: input.ratePlanId, propertyId: input.propertyId },
     });
     if (!ratePlan) {
@@ -98,7 +111,7 @@ export class RateResolverService {
       throw new BadRequestException(`Rate plan ${ratePlan.code} is not active`);
     }
 
-    const applicability = await this.ratePlanRoomTypesRepository.findOne({
+    const applicability = await ratePlanRoomTypesRepo.findOne({
       where: {
         propertyId: input.propertyId,
         ratePlanId: input.ratePlanId,
@@ -116,7 +129,7 @@ export class RateResolverService {
     const extraAdultCents = strToCents(applicability.extraAdultCharge);
     const extraChildRupees = Number(applicability.extraChildCharge ?? '0');
 
-    const overrides = await this.dailyRatesRepository.find({
+    const overrides = await dailyRatesRepo.find({
       where: {
         propertyId: input.propertyId,
         ratePlanId: input.ratePlanId,
@@ -150,6 +163,7 @@ export class RateResolverService {
         1,
         roomRateCents / 100,
         extraChildRupees,
+        manager,
       );
       classification = childResult.lines;
       childResult.limitations.forEach((l) => limitations.add(l));
@@ -186,7 +200,7 @@ export class RateResolverService {
       });
     }
 
-    const policies = await this.resolvePolicies(input.propertyId, input.ratePlanId);
+    const policies = await this.resolvePolicies(input.propertyId, input.ratePlanId, manager);
 
     const realExtraAdults = Math.max(0, input.adults - baseOccupancy);
     const adultPricedChildren = classification.filter((l) => l.isAdultPriced).length;
@@ -271,6 +285,7 @@ export class RateResolverService {
   private async resolvePolicies(
     propertyId: string,
     ratePlanId: string,
+    manager?: EntityManager,
   ): Promise<Record<string, unknown>> {
     const types: PropertyPolicyType[] = [
       PropertyPolicyType.CANCELLATION,
@@ -280,9 +295,13 @@ export class RateResolverService {
       PropertyPolicyType.EARLY_CHECK_IN,
       PropertyPolicyType.LATE_CHECKOUT,
     ];
-    const resolved = await Promise.all(
-      types.map((t) => this.policyResolver.resolve(propertyId, t, ratePlanId)),
-    );
+    // Sequential (not Promise.all): when a transaction manager is supplied all
+    // reads share ONE connection, which cannot run queries concurrently. Six
+    // lightweight lookups — negligible cost, and behaviour is identical.
+    const resolved: Array<PropertyPolicyEntity | null> = [];
+    for (const t of types) {
+      resolved.push(await this.policyResolver.resolve(propertyId, t, ratePlanId, manager));
+    }
     const out: Record<string, unknown> = {};
     types.forEach((t, i) => {
       const p = resolved[i];

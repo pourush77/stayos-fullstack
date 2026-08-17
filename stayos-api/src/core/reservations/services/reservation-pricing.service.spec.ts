@@ -36,7 +36,7 @@ describe('ReservationPricingService', () => {
   it('prices with an explicit rate plan (PRICED snapshot)', async () => {
     const { service, rateResolver } = build();
     const r = await service.buildCommercialSnapshot({ ...base, ratePlanId: 'rp-1' });
-    expect(rateResolver.resolve).toHaveBeenCalledWith(expect.objectContaining({ ratePlanId: 'rp-1' }));
+    expect(rateResolver.resolve).toHaveBeenCalledWith(expect.objectContaining({ ratePlanId: 'rp-1' }), undefined);
     expect(r.ratePlanId).toBe('rp-1');
     expect(r.rateSnapshot).toMatchObject({ pricingStatus: 'PRICED', ratePlan: { code: 'BAR' }, totals: { grandTotal: '10000.00' } });
   });
@@ -44,7 +44,7 @@ describe('ReservationPricingService', () => {
   it('falls back to the property default plan when ratePlanId omitted', async () => {
     const { service, rateResolver } = build({ defaultPlan: { id: 'rp-default' } });
     const r = await service.buildCommercialSnapshot({ ...base, ratePlanId: null });
-    expect(rateResolver.resolve).toHaveBeenCalledWith(expect.objectContaining({ ratePlanId: 'rp-default' }));
+    expect(rateResolver.resolve).toHaveBeenCalledWith(expect.objectContaining({ ratePlanId: 'rp-default' }), undefined);
     expect(r.ratePlanId).toBe('rp-default');
   });
 

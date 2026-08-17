@@ -1,6 +1,6 @@
 import { BadRequestException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, IsNull, Repository } from 'typeorm';
+import { Between, EntityManager, IsNull, Repository } from 'typeorm';
 import { ApiErrorCode } from '../../common/errors/api-error-code.enum';
 import { expandStayNights } from '../inventory/domain/inventory-nights';
 import { RatePlanEntity } from './infrastructure/rate-plan.entity';
@@ -63,12 +63,13 @@ export class RestrictionService {
     private readonly ratePlansRepository: Repository<RatePlanEntity>,
   ) {}
 
-  async evaluateStay(query: StayRestrictionQuery): Promise<{ sellable: boolean; violations: RestrictionViolation[] }> {
+  async evaluateStay(query: StayRestrictionQuery, manager?: EntityManager): Promise<{ sellable: boolean; violations: RestrictionViolation[] }> {
     const nights = expandStayNights(query.arrivalDate, query.departureDate); // [arrival .. departure-1]
     const los = nights.length;
 
     // Window [arrival .. departure] inclusive (departure date needed for CTD).
-    const rows = await this.restrictionsRepository.find({
+    const repo = manager ? manager.getRepository(RateRestrictionEntity) : this.restrictionsRepository;
+    const rows = await repo.find({
       where: {
         propertyId: query.propertyId,
         roomTypeId: query.roomTypeId,
@@ -120,8 +121,8 @@ export class RestrictionService {
    * is not sellable. Provided for the (later, 1C-c2/c3) reservation write paths;
    * NOT wired into the reservation lifecycle in this slice.
    */
-  async assertStaySellable(query: StayRestrictionQuery): Promise<void> {
-    const { sellable, violations } = await this.evaluateStay(query);
+  async assertStaySellable(query: StayRestrictionQuery, manager?: EntityManager): Promise<void> {
+    const { sellable, violations } = await this.evaluateStay(query, manager);
     if (!sellable) this.raise(violations);
   }
 
@@ -135,12 +136,13 @@ export class RestrictionService {
   async evaluateAmendment(
     current: StayRestrictionQuery,
     next: StayRestrictionQuery,
+    manager?: EntityManager,
   ): Promise<{ sellable: boolean; violations: RestrictionViolation[] }> {
     const scopeChanged =
       current.roomTypeId !== next.roomTypeId ||
       (current.ratePlanId ?? null) !== (next.ratePlanId ?? null);
     if (scopeChanged) {
-      return this.evaluateStay(next);
+      return this.evaluateStay(next, manager);
     }
 
     const nextNights = expandStayNights(next.arrivalDate, next.departureDate);
@@ -148,7 +150,8 @@ export class RestrictionService {
     const addedNights = nextNights.filter((n) => !currentNights.has(n));
     const los = nextNights.length;
 
-    const rows = await this.restrictionsRepository.find({
+    const repo = manager ? manager.getRepository(RateRestrictionEntity) : this.restrictionsRepository;
+    const rows = await repo.find({
       where: { propertyId: next.propertyId, roomTypeId: next.roomTypeId, date: Between(next.arrivalDate, next.departureDate) },
     });
     const byDate = this.effectiveByDate(rows, next.ratePlanId ?? null);
@@ -176,8 +179,8 @@ export class RestrictionService {
     return { sellable: violations.length === 0, violations };
   }
 
-  async assertAmendmentSellable(current: StayRestrictionQuery, next: StayRestrictionQuery): Promise<void> {
-    const { sellable, violations } = await this.evaluateAmendment(current, next);
+  async assertAmendmentSellable(current: StayRestrictionQuery, next: StayRestrictionQuery, manager?: EntityManager): Promise<void> {
+    const { sellable, violations } = await this.evaluateAmendment(current, next, manager);
     if (!sellable) this.raise(violations);
   }
 

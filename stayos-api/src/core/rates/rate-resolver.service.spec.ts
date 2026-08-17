@@ -94,7 +94,7 @@ describe('RateResolverService', () => {
       },
     });
     const r = await service.resolve({ ...baseInput, childAges: [6] });
-    expect(childPricingService.resolveChildPricing).toHaveBeenCalledWith(propertyId, [6], 1, 5000, 0);
+    expect(childPricingService.resolveChildPricing).toHaveBeenCalledWith(propertyId, [6], 1, 5000, 0, undefined);
     expect(r.totals.child).toBe('1000.00'); // 500 * 2 nights
     expect(r.childPricing.limitations).toContain('x');
   });
@@ -130,7 +130,7 @@ describe('RateResolverService', () => {
       },
     });
     const r = await service.resolve({ ...baseInput, adults: 2, childAges: [5] });
-    expect(childPricingService.resolveChildPricing).toHaveBeenCalledWith(propertyId, [5], 1, 5000, 700);
+    expect(childPricingService.resolveChildPricing).toHaveBeenCalledWith(propertyId, [5], 1, 5000, 700, undefined);
     expect(r.totals.child).toBe('1400.00'); // 700 x 2 nights
     expect(r.totals.extraAdult).toBe('0.00');
     expect(r.childPricing.lines[0]).toMatchObject({ age: 5, source: 'RATE_PLAN_EXTRA_CHILD', amount: '1400.00' });

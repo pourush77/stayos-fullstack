@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { EntityManager } from 'typeorm';
 import { RateResolverService } from '../../rates/rate-resolver.service';
 import { RatesService } from '../../rates/rates.service';
 
@@ -43,21 +44,22 @@ export class ReservationPricingService {
     propertyId: string;
     roomTypeId: string;
     ratePlanId: string | null;
-  }): Promise<string | null> {
+  }, manager?: EntityManager): Promise<string | null> {
     if (input.ratePlanId) return input.ratePlanId;
     const defaultPlan = await this.ratesService.findDefaultApplicableRatePlan(
       input.propertyId,
       input.roomTypeId,
+      manager,
     );
     return defaultPlan?.id ?? null;
   }
 
-  async buildCommercialSnapshot(input: CommercialInput): Promise<CommercialResult> {
+  async buildCommercialSnapshot(input: CommercialInput, manager?: EntityManager): Promise<CommercialResult> {
     const ratePlanId = await this.resolveEffectiveRatePlanId({
       propertyId: input.propertyId,
       roomTypeId: input.roomTypeId,
       ratePlanId: input.ratePlanId,
-    });
+    }, manager);
 
     if (!ratePlanId) {
       return {
@@ -81,7 +83,7 @@ export class ReservationPricingService {
       departureDate: input.departureDate,
       adults: input.adults,
       childAges: input.childAges,
-    });
+    }, manager);
 
     return {
       ratePlanId,

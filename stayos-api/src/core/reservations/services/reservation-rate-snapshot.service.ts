@@ -65,7 +65,7 @@ export class ReservationRateSnapshotService {
       departureDate: key.departureDate,
       adults: key.adults,
       childAges: key.childAges ?? undefined,
-    });
+    }, manager);
 
     const repository = manager.getRepository(ReservationRateSnapshotEntity);
     await repository.save(
@@ -120,7 +120,7 @@ export class ReservationRateSnapshotService {
       departureDate: key.departureDate,
       adults: key.adults,
       childAges: key.childAges ?? undefined,
-    });
+    }, manager);
 
     const newVersion = (active?.version ?? 0) + 1;
 
