@@ -158,7 +158,7 @@ describe('ReservationsService', () => {
       return { changed: true, version: v };
     }),
   };
-  let dataSource: { transaction: jest.Mock };
+  let dataSource: { transaction: jest.Mock; query: jest.Mock };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -186,9 +186,14 @@ describe('ReservationsService', () => {
 
     // Fake transaction: runs the callback with a manager whose getRepository
     // returns the mocked reservations repository (mirrors real behaviour).
-    const fakeManager = { getRepository: jest.fn().mockReturnValue(reservationsRepository) };
+    // dataSource.query() mocks the atomic per-property reservation-code counter
+    // (allocated in its own auto-committed statement before the transaction).
+    const fakeManager = {
+      getRepository: jest.fn().mockReturnValue(reservationsRepository),
+    };
     dataSource = {
       transaction: jest.fn(async (cb: (m: unknown) => unknown) => cb(fakeManager)),
+      query: jest.fn().mockResolvedValue([{ last_value: 1 }]),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -398,10 +403,9 @@ describe('ReservationsService', () => {
 
     it('converges concurrent duplicates to one reservation when the unique index rejects the loser', async () => {
       const winner = existingExt();
-      // pre-check: none yet; code-uniqueness: unique; then recovery + re-fetch: winner.
+      // pre-check: none yet; then recovery + re-fetch after the unique violation: winner.
       reservationsRepository.findOne
         ?.mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(null)
         .mockResolvedValue(winner);
       dataSource.transaction.mockImplementationOnce(async () => {
         throw new QueryFailedError(

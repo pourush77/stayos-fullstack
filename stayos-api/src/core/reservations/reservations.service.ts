@@ -254,10 +254,18 @@ export class ReservationsService {
       children: createReservationDto.children ?? 0,
     });
 
-    const reservationCode = await this.generateReservationCode(propertyId);
     const status = createReservationDto.status ?? ReservationStatus.CONFIRMED;
     const willReserve = inventoryDeltaForTransition(null, status) === InventoryDelta.RESERVE;
     const ratePlanId: string | null = createReservationDto.ratePlanId ?? null;
+
+    // Collision-safe reservation code allocated via an atomic per-property
+    // counter in its OWN auto-committed statement (before the main transaction)
+    // so the counter row lock is held for ~1ms instead of the whole create —
+    // the counter is never a serialization bottleneck. Concurrent creates each
+    // receive a distinct value. A rolled-back create may leave a gap in the
+    // sequence, which is acceptable (the old count()+1 scheme also gapped on
+    // deletes) and never produces a duplicate.
+    const reservationCode = await this.nextReservationCode(propertyId);
 
     try {
       return await this.dataSource.transaction(async (manager) => {
@@ -531,40 +539,30 @@ export class ReservationsService {
     }
   }
 
-  private async generateReservationCode(propertyId: string): Promise<string> {
+  /**
+   * Collision-safe, per-property reservation code allocator. Runs an atomic
+   * upsert-increment on `reservation_code_counters` (one row per property) in
+   * its OWN auto-committed statement: concurrent callers serialize on the
+   * counter row only for that single statement and each receives a distinct
+   * value. Preserves the human-readable format `HS{YYMMDD}-{NNNNN}`
+   * (per-property running sequence, creation-date prefix). A create that later
+   * rolls back may leave a gap — acceptable, and never a duplicate.
+   */
+  private async nextReservationCode(propertyId: string): Promise<string> {
+    const rows: Array<{ last_value: string | number }> = await this.dataSource.query(
+      `INSERT INTO reservation_code_counters (property_id, last_value)
+       VALUES ($1, 1)
+       ON CONFLICT (property_id)
+       DO UPDATE SET last_value = reservation_code_counters.last_value + 1, updated_at = now()
+       RETURNING last_value`,
+      [propertyId],
+    );
+    const sequence = String(rows[0].last_value).padStart(5, '0');
     const now = new Date();
     const yy = String(now.getFullYear()).slice(2);
     const mm = String(now.getMonth() + 1).padStart(2, '0');
     const dd = String(now.getDate()).padStart(2, '0');
-
-    const dateCode = `${yy}${mm}${dd}`;
-    const existingReservationCount = await this.reservationsRepository.count({
-      where: { propertyId },
-    });
-
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      const sequence = String(existingReservationCount + attempt + 1).padStart(5, '0');
-      const code = `HS${dateCode}-${sequence}`;
-
-      const existing = await this.reservationsRepository.findOne({
-        where: { propertyId, reservationCode: code },
-      });
-
-      if (!existing) return code;
-    }
-
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const fallbackSequence = String(Date.now() + attempt).slice(-5);
-      const code = `HS${dateCode}-${fallbackSequence}`;
-
-      const existing = await this.reservationsRepository.findOne({
-        where: { propertyId, reservationCode: code },
-      });
-
-      if (!existing) return code;
-    }
-
-    throw new ConflictException('Unable to generate a unique reservation code');
+    return `HS${yy}${mm}${dd}-${sequence}`;
   }
 
   private async validateReferences(
