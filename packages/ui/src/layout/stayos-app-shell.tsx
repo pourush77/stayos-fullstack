@@ -43,8 +43,6 @@ import {
   LogOut,
   Menu as MenuIcon,
   MessageSquare,
-  PanelLeftClose,
-  PanelLeftOpen,
   Sun,
   UserRound,
   X,
@@ -538,9 +536,11 @@ function PropertySelector({
 function NavigationList({
   collapsed = false,
   navigationItems = primaryNavigation,
+  onNavigate,
 }: {
   collapsed?: boolean;
   navigationItems?: typeof primaryNavigation;
+  onNavigate?: () => void;
 }) {
   const pathname = usePathname();
   const primaryItems = navigationItems.slice(0, 6);
@@ -562,6 +562,7 @@ function NavigationList({
         key={item.label}
         component={Link}
         href={item.href}
+        onClick={onNavigate}
         data-testid={`sidebar-nav-${item.label.toLowerCase().replaceAll(' ', '-')}`}
         style={{
           position: 'relative',
@@ -789,6 +790,7 @@ function Sidebar({
   collapsed,
   navigationItems,
   onLockSession,
+  onNavigate,
   onSignOut,
   onToggleCollapse,
   propertyMeta,
@@ -798,6 +800,7 @@ function Sidebar({
   collapsed: boolean;
   navigationItems?: typeof primaryNavigation;
   onLockSession?: () => void;
+  onNavigate?: () => void;
   onSignOut?: () => void;
   onToggleCollapse: () => void;
   propertyMeta?: ActiveProperty;
@@ -824,7 +827,11 @@ function Sidebar({
         />
 
         <ScrollArea flex={1} type="hover" scrollbarSize={5} style={{ minHeight: 0 }}>
-          <NavigationList collapsed={collapsed} navigationItems={navigationItems} />
+          <NavigationList
+            collapsed={collapsed}
+            navigationItems={navigationItems}
+            onNavigate={onNavigate}
+          />
         </ScrollArea>
 
         <UserProfile
@@ -835,27 +842,45 @@ function Sidebar({
         />
       </Stack>
 
-      <ActionIcon
-        variant="filled"
-        color="gray"
-        onClick={onToggleCollapse}
-        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        size={36}
-        style={{
-          position: 'absolute',
-          top: 20,
-          right: -18,
-          width: 36,
-          height: 36,
-          borderRadius: 18,
-          background: '#ffffff',
-          border: '1px solid rgba(15, 23, 42, 0.08)',
-          boxShadow: '0 8px 20px rgba(15, 23, 42, 0.08)',
-          zIndex: 1,
-        }}
-      >
-        {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
-      </ActionIcon>
+      <Tooltip label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} position="right" withArrow>
+        <ActionIcon
+          variant="default"
+          onClick={onToggleCollapse}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          size={36}
+          style={{
+            position: 'absolute',
+            top: 20,
+            right: -18,
+            width: 36,
+            height: 36,
+            borderRadius: '50%',
+            background: '#ffffff',
+            color: '#475569',
+            border: '1px solid #e2e8f0',
+            boxShadow: '0 4px 12px rgba(15, 23, 42, 0.10)',
+            zIndex: 10,
+            transition:
+              'color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
+          }}
+          onMouseEnter={(event) => {
+            event.currentTarget.style.color = '#7c3aed';
+            event.currentTarget.style.borderColor = '#c4b5fd';
+            event.currentTarget.style.transform = 'scale(1.05)';
+          }}
+          onMouseLeave={(event) => {
+            event.currentTarget.style.color = '#475569';
+            event.currentTarget.style.borderColor = '#e2e8f0';
+            event.currentTarget.style.transform = 'scale(1)';
+          }}
+        >
+          {collapsed ? (
+            <ChevronsRight size={17} strokeWidth={2.25} />
+          ) : (
+            <ChevronsLeft size={17} strokeWidth={2.25} />
+          )}
+        </ActionIcon>
+      </Tooltip>
     </Box>
   );
 }
@@ -2424,6 +2449,7 @@ function MobileDrawer({
         collapsed={false}
         navigationItems={navigationItems}
         onLockSession={onLockSession}
+        onNavigate={onClose}
         onSignOut={onSignOut}
         onToggleCollapse={onClose}
         propertyMeta={propertyMeta}
@@ -2498,6 +2524,11 @@ function ProtectedStayOSAppShell({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [utilityPanelOpen, setUtilityPanelOpen] = useState(false);
   const pathname = usePathname();
+
+  useEffect(() => {
+    closeMobileMenu();
+  }, [pathname, closeMobileMenu]);
+
   const activeProperty = useActiveProperty(!propertyNameProp && !user?.propertyName);
   const propertyName = propertyNameProp ?? user?.propertyName ?? activeProperty.name;
   const propertyMeta =
@@ -2533,6 +2564,7 @@ function ProtectedStayOSAppShell({
             collapsed={sidebarCollapsed}
             navigationItems={navigationItems}
             onLockSession={onLockSession}
+            onNavigate={() => setSidebarCollapsed(true)}
             onSignOut={onSignOut}
             onToggleCollapse={() => setSidebarCollapsed((value) => !value)}
             propertyMeta={propertyMeta}

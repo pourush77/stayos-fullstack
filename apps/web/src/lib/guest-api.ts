@@ -16,9 +16,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
 
   const payload = (await response.json().catch(() => undefined)) as
-    | ApiResponse<T>
-    | { message?: unknown }
-    | undefined;
+    ApiResponse<T> | { message?: unknown } | undefined;
 
   if (!response.ok) {
     const message =
@@ -28,6 +26,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       typeof payload.message === 'string'
         ? payload.message
         : `Guest API request failed: ${response.status} ${response.statusText}`;
+
     throw new Error(message);
   }
 
@@ -46,6 +45,7 @@ function unwrapResponse<T>(response: ApiResponse<T>): T {
 
 export type GuestPropertyDto = Record<string, unknown>;
 export type GuestDto = Record<string, unknown>;
+
 export type GuestPayloadDto = {
   alternatePhone?: string;
   bedPreference?: string;
@@ -66,6 +66,45 @@ export type GuestPayloadDto = {
   vipStatus?: boolean;
 };
 
+export type PropertyPolicyType =
+  | 'INDIVIDUAL_DEPOSIT'
+  | 'GROUP_DEPOSIT'
+  | 'CANCELLATION'
+  | 'NO_SHOW'
+  | 'EARLY_CHECK_IN'
+  | 'LATE_CHECKOUT';
+
+export type DepositPolicyMode = 'NONE' | 'PERCENTAGE' | 'FIXED_AMOUNT';
+
+export type PolicyChargeMode = 'NONE' | 'PERCENTAGE' | 'FIXED_AMOUNT' | 'FIRST_NIGHT';
+
+export type PropertyPolicyDto = {
+  id: string;
+  propertyId: string;
+  ratePlanId: string | null;
+  policyType: PropertyPolicyType;
+  isActive: boolean;
+  depositMode: DepositPolicyMode | null;
+  depositValue: number | null;
+  chargeMode: PolicyChargeMode | null;
+  chargeValue: number | null;
+  cancellationCutoffHours: number | null;
+  graceMinutes: number | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type UpsertPropertyPolicyPayload = {
+  isActive?: boolean;
+  ratePlanId?: string;
+  depositMode?: DepositPolicyMode;
+  depositValue?: number;
+  chargeMode?: PolicyChargeMode;
+  chargeValue?: number;
+  cancellationCutoffHours?: number;
+  graceMinutes?: number;
+};
+
 export function getProperties(signal?: AbortSignal) {
   return request<GuestPropertyDto[]>('/properties', { signal });
 }
@@ -82,9 +121,41 @@ export function updateProperty(
   });
 }
 
+export function getPropertyPolicies(propertyId: string, signal?: AbortSignal) {
+  return request<PropertyPolicyDto[]>(`/properties/${propertyId}/policies`, {
+    signal,
+  });
+}
+
+export function getPropertyPolicy(
+  propertyId: string,
+  policyType: PropertyPolicyType,
+  signal?: AbortSignal,
+) {
+  return request<PropertyPolicyDto | null>(`/properties/${propertyId}/policies/${policyType}`, {
+    signal,
+  });
+}
+
+export function upsertPropertyPolicy(
+  propertyId: string,
+  policyType: PropertyPolicyType,
+  payload: UpsertPropertyPolicyPayload,
+  signal?: AbortSignal,
+) {
+  return request<PropertyPolicyDto>(`/properties/${propertyId}/policies/${policyType}`, {
+    body: JSON.stringify(payload),
+    method: 'PUT',
+    signal,
+  });
+}
+
 export function getPropertyGuests(propertyId: string, signal?: AbortSignal, search?: string) {
   const query = search?.trim() ? `?search=${encodeURIComponent(search.trim())}` : '';
-  return request<GuestDto[]>(`/properties/${propertyId}/guests${query}`, { signal });
+
+  return request<GuestDto[]>(`/properties/${propertyId}/guests${query}`, {
+    signal,
+  });
 }
 
 export function getPropertyGuest(propertyId: string, guestId: string, signal?: AbortSignal) {

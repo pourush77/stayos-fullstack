@@ -6,6 +6,7 @@ import {
   BadgeIndianRupee,
   Building2,
   ChevronRight,
+  ClipboardCheck,
   ContactRound,
   KeyRound,
   ListChecks,
@@ -30,6 +31,7 @@ type SettingsTile = {
 
 function hasPermission(permissions: string[] | undefined, permission: string | undefined) {
   if (!permission) return true;
+
   return Boolean(permissions?.includes(permission) || permissions?.includes('*'));
 }
 
@@ -61,13 +63,16 @@ function SettingsTileCard({ tile }: { tile: SettingsTile }) {
           <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={44}>
             {tile.icon}
           </ThemeIcon>
+
           <Box>
             <Text c="#101828" fw={800} size="md">
               {tile.title}
             </Text>
+
             <Text c="#64748b" size="sm" mt={4}>
               {tile.description}
             </Text>
+
             {tile.disabled && tile.disabledLabel ? (
               <Text c="#94a3b8" size="xs" mt={6} fw={700}>
                 {tile.disabledLabel}
@@ -75,12 +80,14 @@ function SettingsTileCard({ tile }: { tile: SettingsTile }) {
             ) : null}
           </Box>
         </Group>
+
         {!tile.disabled ? <ChevronRight size={18} color="#94a3b8" /> : null}
       </Group>
     </Card>
   );
 
   if (tile.disabled) return content;
+
   return (
     <Link href={tile.href} style={{ textDecoration: 'none' }}>
       {content}
@@ -128,15 +135,23 @@ export default function SettingsHomePage() {
     {
       key: 'taxes',
       title: 'Taxes & Charges',
-      description: 'Configure property-level tax used by booking and folio charges.',
+      description: 'Set GST rules for room charges and other hotel services.',
       icon: <ReceiptText size={22} />,
       href: '/settings/taxes',
       permission: 'settings.view',
     },
     {
+      key: 'policies',
+      title: 'Stay Policies',
+      description: 'Set deposits, cancellation, no-show, early check-in and late checkout rules.',
+      icon: <ClipboardCheck size={22} />,
+      href: '/settings/policies',
+      permission: 'settings.view',
+    },
+    {
       key: 'property',
       title: 'Property',
-      description: 'Property profile, address, check-in and group booking policies.',
+      description: 'Hotel profile, address, standard check-in and check-out timings.',
       icon: <Building2 size={22} />,
       href: '/settings/property',
       permission: 'settings.view',
@@ -178,8 +193,10 @@ export default function SettingsHomePage() {
         <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 750 }}>
           Settings
         </Title>
+
         <Text c="#64748b" mt={4} style={{ fontSize: 14 }}>
-          Configure your StayOS workspace, staff access and integrations.
+          Configure how your property works, what staff can access and the rules StayOS should
+          follow.
         </Text>
       </Box>
 

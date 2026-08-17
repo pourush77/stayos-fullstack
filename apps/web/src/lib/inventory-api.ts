@@ -38,13 +38,18 @@ async function patch<T>(path: string, signal?: AbortSignal): Promise<T> {
     signal,
   });
 
-  const payload = (await response.json().catch(() => undefined)) as ApiResponse<T> | { message?: unknown; error?: unknown } | undefined;
+  const payload = (await response.json().catch(() => undefined)) as
+    ApiResponse<T> | { message?: unknown; error?: unknown } | undefined;
 
   if (!response.ok) {
     const message =
-      payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string'
+      payload &&
+      typeof payload === 'object' &&
+      'message' in payload &&
+      typeof payload.message === 'string'
         ? payload.message
         : `Inventory API request failed: ${response.status} ${response.statusText}`;
+
     throw new Error(message);
   }
 
@@ -62,13 +67,18 @@ async function patchJson<T>(path: string, body: unknown, signal?: AbortSignal): 
     signal,
   });
 
-  const payload = (await response.json().catch(() => undefined)) as ApiResponse<T> | { message?: unknown; error?: unknown } | undefined;
+  const payload = (await response.json().catch(() => undefined)) as
+    ApiResponse<T> | { message?: unknown; error?: unknown } | undefined;
 
   if (!response.ok) {
     const message =
-      payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string'
+      payload &&
+      typeof payload === 'object' &&
+      'message' in payload &&
+      typeof payload.message === 'string'
         ? payload.message
         : `Inventory API request failed: ${response.status} ${response.statusText}`;
+
     throw new Error(message);
   }
 
@@ -78,6 +88,7 @@ async function patchJson<T>(path: string, body: unknown, signal?: AbortSignal): 
 async function put<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
   const headers = authHeaders();
   headers.set('Content-Type', 'application/json');
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     body: JSON.stringify(body),
     headers,
@@ -85,13 +96,18 @@ async function put<T>(path: string, body: unknown, signal?: AbortSignal): Promis
     signal,
   });
 
-  const payload = (await response.json().catch(() => undefined)) as ApiResponse<T> | { message?: unknown; error?: unknown } | undefined;
+  const payload = (await response.json().catch(() => undefined)) as
+    ApiResponse<T> | { message?: unknown; error?: unknown } | undefined;
 
   if (!response.ok) {
     const message =
-      payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string'
+      payload &&
+      typeof payload === 'object' &&
+      'message' in payload &&
+      typeof payload.message === 'string'
         ? payload.message
         : `Inventory API request failed: ${response.status} ${response.statusText}`;
+
     throw new Error(message);
   }
 
@@ -110,9 +126,26 @@ function unwrapResponse<T>(response: ApiResponse<T>): T {
 
 export type InventoryPropertyDto = Record<string, unknown>;
 export type InventoryFloorDto = Record<string, unknown>;
-export type InventoryRoomTypeDto = Record<string, unknown>;
 export type InventoryRoomDto = Record<string, unknown>;
 export type InventoryAmenityDto = Record<string, unknown>;
+
+export type InventoryRoomTypeDto = {
+  id: string;
+  propertyId: string;
+  code: string;
+  name: string;
+  description: string | null;
+  baseOccupancy: number;
+  maxOccupancy: number;
+  maxAdults: number;
+  maxChildren: number;
+  bedType: string | null;
+  sizeSqFt: number | null;
+  status: 'ACTIVE' | 'INACTIVE';
+  amenities: InventoryAmenityDto[];
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type UpdateRoomTypeOccupancyPayload = {
   baseOccupancy: number;
@@ -141,8 +174,17 @@ export function getPropertyAmenities(propertyId: string, signal?: AbortSignal) {
   return get<InventoryAmenityDto[]>(`/properties/${propertyId}/amenities`, signal);
 }
 
-export function setRoomTypeAmenities(propertyId: string, roomTypeId: string, amenityIds: string[], signal?: AbortSignal) {
-  return put<InventoryRoomTypeDto>(`/properties/${propertyId}/room-types/${roomTypeId}/amenities`, { amenityIds }, signal);
+export function setRoomTypeAmenities(
+  propertyId: string,
+  roomTypeId: string,
+  amenityIds: string[],
+  signal?: AbortSignal,
+) {
+  return put<InventoryRoomTypeDto>(
+    `/properties/${propertyId}/room-types/${roomTypeId}/amenities`,
+    { amenityIds },
+    signal,
+  );
 }
 
 export function updateRoomTypeOccupancy(
@@ -151,7 +193,11 @@ export function updateRoomTypeOccupancy(
   payload: UpdateRoomTypeOccupancyPayload,
   signal?: AbortSignal,
 ) {
-  return patchJson<InventoryRoomTypeDto>(`/properties/${propertyId}/room-types/${roomTypeId}`, payload, signal);
+  return patchJson<InventoryRoomTypeDto>(
+    `/properties/${propertyId}/room-types/${roomTypeId}`,
+    payload,
+    signal,
+  );
 }
 
 export function markRoomReady(propertyId: string, roomId: string, signal?: AbortSignal) {
@@ -170,7 +216,10 @@ export function markRoomCleaning(propertyId: string, roomId: string, signal?: Ab
 }
 
 export function markRoomInspection(propertyId: string, roomId: string, signal?: AbortSignal) {
-  return patch<InventoryRoomDto>(`/properties/${propertyId}/rooms/${roomId}/mark-inspection`, signal);
+  return patch<InventoryRoomDto>(
+    `/properties/${propertyId}/rooms/${roomId}/mark-inspection`,
+    signal,
+  );
 }
 
 export function blockRoom(propertyId: string, roomId: string, signal?: AbortSignal) {
@@ -178,7 +227,10 @@ export function blockRoom(propertyId: string, roomId: string, signal?: AbortSign
 }
 
 export function markRoomOutOfService(propertyId: string, roomId: string, signal?: AbortSignal) {
-  return patch<InventoryRoomDto>(`/properties/${propertyId}/rooms/${roomId}/out-of-service`, signal);
+  return patch<InventoryRoomDto>(
+    `/properties/${propertyId}/rooms/${roomId}/out-of-service`,
+    signal,
+  );
 }
 
 export function markRoomOutOfOrder(propertyId: string, roomId: string, signal?: AbortSignal) {

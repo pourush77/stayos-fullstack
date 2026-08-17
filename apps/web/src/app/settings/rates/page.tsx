@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Badge,
@@ -10,24 +9,54 @@ import {
   Divider,
   Group,
   Loader,
+  Modal,
   NumberInput,
+  Paper,
   Select,
   SimpleGrid,
   Stack,
   Switch,
+  Tabs,
+  Text,
+  Textarea,
   TextInput,
   ThemeIcon,
+  Title,
 } from '@mantine/core';
-import { BadgeIndianRupee, Baby, Plus, Save, Sparkles, Trash2 } from 'lucide-react';
+import {
+  BadgeIndianRupee,
+  Baby,
+  BedDouble,
+  CheckCircle2,
+  Pencil,
+  Plus,
+  Save,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
+import { showToast } from '@stayos/ui';
 import { useAuth } from '../../../features/auth/auth-context';
 import {
+  createRatePlan,
   getGuestPricingPolicy,
+  getRatePlanRoomTypes,
+  getRatePlans,
+  removeRatePlanRoomType,
+  updateRatePlan,
   upsertGuestPricingPolicy,
+  upsertRatePlanRoomType,
   type ChildAgeBandDto,
   type ChildPricingMode,
+  type CreateRatePlanPayload,
+  type MealPlan,
+  type RatePlanDto,
+  type RatePlanRoomTypeDto,
+  type RatePlanStatus,
   type UpsertGuestPricingPolicyPayload,
 } from '../../../features/rates/api/rates-api';
+import { getPropertyRoomTypes, type InventoryRoomTypeDto } from '../../../lib/inventory-api';
 
 type ChildAgeBand = {
   id: string;
@@ -39,11 +68,42 @@ type ChildAgeBand = {
   percentage?: string;
 };
 
+type RatePlanForm = {
+  code: string;
+  name: string;
+  description: string;
+  isDefault: boolean;
+  status: RatePlanStatus;
+  mealPlan: MealPlan;
+  refundable: boolean;
+};
+
+type RoomPricingDraft = {
+  baseOccupancy: number | string;
+  baseRate: number | string;
+  extraAdultCharge: number | string;
+  extraChildCharge: number | string;
+};
+
+const cardStyle = {
+  background: '#ffffff',
+  border: '1px solid rgba(226, 232, 240, 0.9)',
+  boxShadow: '0 8px 24px rgba(15, 23, 42, 0.035)',
+} as const;
+
 const pricingModeOptions = [
   { value: 'FREE', label: 'Free' },
   { value: 'FIXED_PER_NIGHT', label: 'Fixed amount per night' },
   { value: 'PERCENT_OF_ROOM_RATE', label: '% of room rate' },
+  { value: 'RATE_PLAN_EXTRA_CHILD', label: 'Use rate-plan extra child price' },
   { value: 'ADULT_PRICING', label: 'Use adult pricing' },
+];
+
+const mealPlanOptions = [
+  { value: 'ROOM_ONLY', label: 'Room only' },
+  { value: 'BREAKFAST', label: 'Breakfast included' },
+  { value: 'HALF_BOARD', label: 'Half board' },
+  { value: 'FULL_BOARD', label: 'Full board' },
 ];
 
 const initialBands: ChildAgeBand[] = [
@@ -59,8 +119,7 @@ const initialBands: ChildAgeBand[] = [
     label: 'Child',
     minAge: 6,
     maxAge: 11,
-    pricingMode: 'FIXED_PER_NIGHT',
-    fixedAmount: '800.00',
+    pricingMode: 'RATE_PLAN_EXTRA_CHILD',
   },
   {
     id: 'older-child',
@@ -71,63 +130,34 @@ const initialBands: ChildAgeBand[] = [
   },
 ];
 
-const cardStyle = {
-  background: '#ffffff',
-  border: '1px solid rgba(226, 232, 240, 0.9)',
-  boxShadow: '0 8px 24px rgba(15, 23, 42, 0.035)',
-} as const;
+function hasPermission(permissions: string[] | undefined, permission: string) {
+  return Boolean(permissions?.includes(permission) || permissions?.includes('*'));
+}
 
-const pageTitleStyle = {
-  margin: 0,
-  fontSize: 30,
-  lineHeight: 1.2,
-  fontWeight: 750,
-  color: '#101828',
-} as const;
-
-const sectionTitleStyle = {
-  margin: 0,
-  fontSize: 15,
-  lineHeight: 1.4,
-  fontWeight: 800,
-  color: '#101828',
-} as const;
-
-const bodyStyle = {
-  margin: 0,
-  fontSize: 14,
-  lineHeight: 1.5,
-  color: '#64748b',
-} as const;
-
-const helperStyle = {
-  margin: 0,
-  fontSize: 12,
-  lineHeight: 1.45,
-  color: '#667085',
-} as const;
-
-const mutedStyle = {
-  margin: 0,
-  fontSize: 12,
-  lineHeight: 1.45,
-  color: '#94a3b8',
-} as const;
+function emptyRatePlanForm(): RatePlanForm {
+  return {
+    code: '',
+    name: '',
+    description: '',
+    isDefault: false,
+    status: 'ACTIVE',
+    mealPlan: 'ROOM_ONLY',
+    refundable: true,
+  };
+}
 
 function pricingSummary(band: ChildAgeBand) {
   switch (band.pricingMode) {
     case 'FREE':
       return 'Free';
-
     case 'FIXED_PER_NIGHT':
       return `₹${band.fixedAmount ?? '0'} / child / night`;
-
     case 'PERCENT_OF_ROOM_RATE':
       return `${band.percentage ?? '0'}% of room rate`;
-
+    case 'RATE_PLAN_EXTRA_CHILD':
+      return 'Use rate-plan extra child price';
     case 'ADULT_PRICING':
       return 'Use adult pricing';
-
     default:
       return '';
   }
@@ -145,102 +175,411 @@ function mapApiBand(band: ChildAgeBandDto): ChildAgeBand {
   };
 }
 
+function money(value: string | number | null | undefined) {
+  const parsed = Number(value ?? 0);
+
+  return new Intl.NumberFormat('en-IN', {
+    currency: 'INR',
+    maximumFractionDigits: 0,
+    style: 'currency',
+  }).format(Number.isFinite(parsed) ? parsed : 0);
+}
+
+function decimal(value: string | number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed.toFixed(2) : '0.00';
+}
+
+function ratePlanSummary(plan: RatePlanDto) {
+  const meal =
+    mealPlanOptions.find((option) => option.value === plan.mealPlan)?.label ?? plan.mealPlan;
+
+  return `${meal} · ${plan.refundable ? 'Refundable' : 'Non-refundable'}`;
+}
+
 export default function RatesSettingsPage() {
   const auth = useAuth();
+  const propertyId = auth.user?.propertyId ?? '';
+  const canManage = hasPermission(auth.user?.permissions, 'settings.manage');
 
-  const propertyId = auth.user?.propertyId;
+  const [activeTab, setActiveTab] = useState<string | null>('plans');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const [plans, setPlans] = useState<RatePlanDto[]>([]);
+  const [roomTypes, setRoomTypes] = useState<InventoryRoomTypeDto[]>([]);
+  const [selectedPlanId, setSelectedPlanId] = useState('');
+  const [planPricing, setPlanPricing] = useState<RatePlanRoomTypeDto[]>([]);
+  const [pricingLoading, setPricingLoading] = useState(false);
+  const [pricingDrafts, setPricingDrafts] = useState<Record<string, RoomPricingDraft>>({});
+  const [savingRoomTypeId, setSavingRoomTypeId] = useState<string | null>(null);
+
+  const [planEditorOpened, setPlanEditorOpened] = useState(false);
+  const [editingPlan, setEditingPlan] = useState<RatePlanDto | null>(null);
+  const [planForm, setPlanForm] = useState<RatePlanForm>(emptyRatePlanForm);
+  const [savingPlan, setSavingPlan] = useState(false);
 
   const [ageBasedPricingEnabled, setAgeBasedPricingEnabled] = useState(true);
   const [maximumChildAge, setMaximumChildAge] = useState(17);
   const [bands, setBands] = useState<ChildAgeBand[]>(initialBands);
+  const [savingGuestPricing, setSavingGuestPricing] = useState(false);
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string>();
-  const [successMessage, setSuccessMessage] = useState<string>();
+  const selectedPlan = plans.find((plan) => plan.id === selectedPlanId) ?? null;
 
   useEffect(() => {
+    if (!propertyId) {
+      setLoading(false);
+      setError('No property is assigned to the current user.');
+      return;
+    }
+
     const controller = new AbortController();
 
-    async function loadPolicy() {
-      if (!propertyId) {
-        setLoading(false);
-        setError('No property is assigned to the current user.');
-        return;
-      }
-
+    async function load() {
       try {
         setLoading(true);
-        setError(undefined);
+        setError('');
 
-        const response = await getGuestPricingPolicy(propertyId, controller.signal);
+        const [ratePlans, propertyRoomTypes, guestPricing] = await Promise.all([
+          getRatePlans(propertyId, controller.signal),
+          getPropertyRoomTypes(propertyId, controller.signal),
+          getGuestPricingPolicy(propertyId, controller.signal),
+        ]);
 
-        if (!response) {
-          setAgeBasedPricingEnabled(true);
-          setMaximumChildAge(17);
-          setBands(initialBands);
-          return;
+        if (controller.signal.aborted) return;
+
+        setPlans(ratePlans);
+        setRoomTypes(propertyRoomTypes.filter((roomType) => roomType.status === 'ACTIVE'));
+
+        const defaultPlan =
+          ratePlans.find((plan) => plan.isDefault && plan.status === 'ACTIVE') ??
+          ratePlans.find((plan) => plan.status === 'ACTIVE') ??
+          ratePlans[0];
+
+        setSelectedPlanId(defaultPlan?.id ?? '');
+
+        if (guestPricing) {
+          setAgeBasedPricingEnabled(guestPricing.policy.ageBasedChildPricingEnabled);
+          setMaximumChildAge(guestPricing.policy.maximumChildAge);
+          setBands(
+            guestPricing.childAgeBands
+              .slice()
+              .sort((a, b) => a.displayOrder - b.displayOrder)
+              .map(mapApiBand),
+          );
         }
-
-        setAgeBasedPricingEnabled(response.policy.ageBasedChildPricingEnabled);
-
-        setMaximumChildAge(response.policy.maximumChildAge);
-
-        setBands(
-          response.childAgeBands
-            .slice()
-            .sort((a, b) => a.displayOrder - b.displayOrder)
-            .map(mapApiBand),
-        );
       } catch (loadError) {
         if (loadError instanceof DOMException && loadError.name === 'AbortError') {
           return;
         }
 
-        setError(
-          loadError instanceof Error ? loadError.message : 'Unable to load guest pricing policy.',
-        );
+        setError(loadError instanceof Error ? loadError.message : 'Unable to load rate settings.');
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
 
-    void loadPolicy();
+    void load();
 
-    return () => {
-      controller.abort();
-    };
+    return () => controller.abort();
   }, [propertyId]);
+
+  useEffect(() => {
+    if (!propertyId || !selectedPlanId) {
+      setPlanPricing([]);
+      setPricingDrafts({});
+      return;
+    }
+
+    const controller = new AbortController();
+
+    async function loadPricing() {
+      try {
+        setPricingLoading(true);
+
+        const pricing = await getRatePlanRoomTypes(propertyId, selectedPlanId, controller.signal);
+
+        if (controller.signal.aborted) return;
+
+        setPlanPricing(pricing);
+
+        const drafts: Record<string, RoomPricingDraft> = {};
+
+        for (const roomType of roomTypes) {
+          const current = pricing.find((item) => item.roomTypeId === roomType.id);
+
+          drafts[roomType.id] = current
+            ? {
+                baseOccupancy: current.baseOccupancy,
+                baseRate: Number(current.baseRate),
+                extraAdultCharge: Number(current.extraAdultCharge),
+                extraChildCharge: Number(current.extraChildCharge),
+              }
+            : {
+                baseOccupancy: roomType.baseOccupancy,
+                baseRate: '',
+                extraAdultCharge: 0,
+                extraChildCharge: 0,
+              };
+        }
+
+        setPricingDrafts(drafts);
+      } catch (loadError) {
+        if (loadError instanceof DOMException && loadError.name === 'AbortError') {
+          return;
+        }
+
+        showToast({
+          color: 'red',
+          title: 'Could not load room pricing',
+          message: loadError instanceof Error ? loadError.message : 'Please try again.',
+        });
+      } finally {
+        if (!controller.signal.aborted) setPricingLoading(false);
+      }
+    }
+
+    void loadPricing();
+
+    return () => controller.abort();
+  }, [propertyId, selectedPlanId, roomTypes]);
 
   const sortedBands = useMemo(() => [...bands].sort((a, b) => a.minAge - b.minAge), [bands]);
 
+  const planFormError = useMemo(() => {
+    if (!planForm.name.trim()) return 'Enter a rate plan name.';
+
+    if (!editingPlan && !/^[A-Z0-9_-]+$/.test(planForm.code.trim())) {
+      return 'Code must use uppercase letters, numbers, - or _.';
+    }
+
+    return '';
+  }, [editingPlan, planForm.code, planForm.name]);
+
+  function openCreatePlan() {
+    setEditingPlan(null);
+    setPlanForm(emptyRatePlanForm());
+    setPlanEditorOpened(true);
+  }
+
+  function openEditPlan(plan: RatePlanDto) {
+    setEditingPlan(plan);
+    setPlanForm({
+      code: plan.code,
+      name: plan.name,
+      description: plan.description ?? '',
+      isDefault: plan.isDefault,
+      status: plan.status,
+      mealPlan: plan.mealPlan,
+      refundable: plan.refundable,
+    });
+    setPlanEditorOpened(true);
+  }
+
+  function closePlanEditor() {
+    if (savingPlan) return;
+    setPlanEditorOpened(false);
+  }
+
+  async function savePlan() {
+    if (!propertyId || planFormError || !canManage) return;
+
+    setSavingPlan(true);
+
+    try {
+      if (editingPlan) {
+        const updated = await updateRatePlan(propertyId, editingPlan.id, {
+          name: planForm.name.trim(),
+          description: planForm.description.trim() || null,
+          isDefault: planForm.isDefault,
+          status: planForm.status,
+          mealPlan: planForm.mealPlan,
+          refundable: planForm.refundable,
+        });
+
+        setPlans((current) => current.map((plan) => (plan.id === updated.id ? updated : plan)));
+
+        showToast({
+          color: 'green',
+          title: 'Rate plan saved',
+          message: `${updated.name} is ready to use with its configured room prices.`,
+        });
+      } else {
+        const payload: CreateRatePlanPayload = {
+          code: planForm.code.trim(),
+          name: planForm.name.trim(),
+          description: planForm.description.trim() || null,
+          isDefault: planForm.isDefault,
+          status: planForm.status,
+          mealPlan: planForm.mealPlan,
+          refundable: planForm.refundable,
+        };
+
+        const created = await createRatePlan(propertyId, payload);
+
+        setPlans((current) => [...current, created]);
+        setSelectedPlanId(created.id);
+
+        showToast({
+          color: 'green',
+          title: 'Rate plan created',
+          message: 'Next, add prices for the room types this plan should sell.',
+        });
+      }
+
+      setPlanEditorOpened(false);
+    } catch (saveError) {
+      showToast({
+        color: 'red',
+        title: 'Could not save rate plan',
+        message:
+          saveError instanceof Error
+            ? saveError.message
+            : 'Please check the details and try again.',
+      });
+    } finally {
+      setSavingPlan(false);
+    }
+  }
+
+  function setPricingDraft(roomTypeId: string, changes: Partial<RoomPricingDraft>) {
+    setPricingDrafts((current) => ({
+      ...current,
+      [roomTypeId]: {
+        ...(current[roomTypeId] ?? {
+          baseOccupancy: 1,
+          baseRate: '',
+          extraAdultCharge: 0,
+          extraChildCharge: 0,
+        }),
+        ...changes,
+      },
+    }));
+  }
+
+  async function saveRoomPricing(roomType: InventoryRoomTypeDto) {
+    if (!propertyId || !selectedPlanId || !canManage) return;
+
+    const draft = pricingDrafts[roomType.id];
+
+    if (!draft) return;
+
+    const baseOccupancy = Number(draft.baseOccupancy);
+    const baseRate = Number(draft.baseRate);
+    const extraAdultCharge = Number(draft.extraAdultCharge || 0);
+    const extraChildCharge = Number(draft.extraChildCharge || 0);
+
+    if (
+      !Number.isInteger(baseOccupancy) ||
+      baseOccupancy < 1 ||
+      baseOccupancy > roomType.maxOccupancy
+    ) {
+      showToast({
+        color: 'red',
+        title: 'Check base occupancy',
+        message: `Enter a whole number from 1 to ${roomType.maxOccupancy} for ${roomType.name}.`,
+      });
+      return;
+    }
+
+    if (
+      !Number.isFinite(baseRate) ||
+      baseRate < 0 ||
+      !Number.isFinite(extraAdultCharge) ||
+      extraAdultCharge < 0 ||
+      !Number.isFinite(extraChildCharge) ||
+      extraChildCharge < 0
+    ) {
+      showToast({
+        color: 'red',
+        title: 'Check pricing',
+        message: 'Room prices and extra-person charges cannot be negative.',
+      });
+      return;
+    }
+
+    setSavingRoomTypeId(roomType.id);
+
+    try {
+      const updated = await upsertRatePlanRoomType(propertyId, selectedPlanId, {
+        roomTypeId: roomType.id,
+        baseOccupancy,
+        baseRate: decimal(baseRate),
+        extraAdultCharge: decimal(extraAdultCharge),
+        extraChildCharge: decimal(extraChildCharge),
+      });
+
+      setPlanPricing((current) => {
+        const exists = current.some((item) => item.roomTypeId === roomType.id);
+
+        return exists
+          ? current.map((item) => (item.roomTypeId === roomType.id ? updated : item))
+          : [...current, updated];
+      });
+
+      showToast({
+        color: 'green',
+        title: `${roomType.name} pricing saved`,
+        message: `${selectedPlan?.name ?? 'This rate plan'} can now price this room type.`,
+      });
+    } catch (saveError) {
+      showToast({
+        color: 'red',
+        title: 'Could not save room pricing',
+        message: saveError instanceof Error ? saveError.message : 'Please try again.',
+      });
+    } finally {
+      setSavingRoomTypeId(null);
+    }
+  }
+
+  async function removeRoomPricing(roomType: InventoryRoomTypeDto) {
+    if (!propertyId || !selectedPlanId || !canManage) return;
+
+    setSavingRoomTypeId(roomType.id);
+
+    try {
+      await removeRatePlanRoomType(propertyId, selectedPlanId, roomType.id);
+
+      setPlanPricing((current) => current.filter((item) => item.roomTypeId !== roomType.id));
+
+      setPricingDraft(roomType.id, {
+        baseOccupancy: roomType.baseOccupancy,
+        baseRate: '',
+        extraAdultCharge: 0,
+        extraChildCharge: 0,
+      });
+
+      showToast({
+        color: 'green',
+        title: `${roomType.name} removed`,
+        message: 'This rate plan will no longer sell that room type.',
+      });
+    } catch (removeError) {
+      showToast({
+        color: 'red',
+        title: 'Could not remove room pricing',
+        message: removeError instanceof Error ? removeError.message : 'Please try again.',
+      });
+    } finally {
+      setSavingRoomTypeId(null);
+    }
+  }
+
   function updateBand(id: string, changes: Partial<ChildAgeBand>) {
     setBands((currentBands) =>
-      currentBands.map((band) =>
-        band.id === id
-          ? {
-              ...band,
-              ...changes,
-            }
-          : band,
-      ),
+      currentBands.map((band) => (band.id === id ? { ...band, ...changes } : band)),
     );
-
-    setSuccessMessage(undefined);
   }
 
   function handlePricingModeChange(id: string, value: string | null) {
-    if (!value) {
-      return;
-    }
+    if (!value) return;
 
     const pricingMode = value as ChildPricingMode;
 
     setBands((currentBands) =>
       currentBands.map((band) => {
-        if (band.id !== id) {
-          return band;
-        }
+        if (band.id !== id) return band;
 
         return {
           ...band,
@@ -250,41 +589,34 @@ export default function RatesSettingsPage() {
         };
       }),
     );
-
-    setSuccessMessage(undefined);
   }
 
   function addAgeBand() {
     const lastBand = sortedBands[sortedBands.length - 1];
-
     const minAge = lastBand ? lastBand.maxAge + 1 : 0;
 
-    const newBand: ChildAgeBand = {
-      id: `new-${Date.now()}`,
-      label: 'New age band',
-      minAge,
-      maxAge: Math.max(minAge, maximumChildAge),
-      pricingMode: 'ADULT_PRICING',
-    };
-
-    setBands((currentBands) => [...currentBands, newBand]);
-    setSuccessMessage(undefined);
+    setBands((currentBands) => [
+      ...currentBands,
+      {
+        id: `new-${Date.now()}`,
+        label: 'New age band',
+        minAge,
+        maxAge: Math.max(minAge, maximumChildAge),
+        pricingMode: 'RATE_PLAN_EXTRA_CHILD',
+      },
+    ]);
   }
 
   function removeAgeBand(id: string) {
     setBands((currentBands) => currentBands.filter((band) => band.id !== id));
-
-    setSuccessMessage(undefined);
   }
 
-  function validateBeforeSave(): string | undefined {
+  function validateGuestPricing() {
     if (!Number.isInteger(maximumChildAge) || maximumChildAge < 0) {
       return 'Maximum child age must be a whole non-negative number.';
     }
 
-    if (!ageBasedPricingEnabled) {
-      return undefined;
-    }
+    if (!ageBasedPricingEnabled) return '';
 
     if (sortedBands.length === 0) {
       return 'Add at least one child age rule.';
@@ -297,103 +629,84 @@ export default function RatesSettingsPage() {
     for (let index = 0; index < sortedBands.length; index += 1) {
       const band = sortedBands[index];
 
-      if (!band.label.trim()) {
-        return 'Every child age rule must have a label.';
-      }
-
+      if (!band.label.trim()) return 'Every child age rule needs a label.';
       if (!Number.isInteger(band.minAge) || !Number.isInteger(band.maxAge)) {
         return 'Child ages must be whole numbers.';
       }
-
-      if (band.minAge < 0 || band.maxAge < 0) {
-        return 'Child ages cannot be negative.';
+      if (band.minAge < 0 || band.maxAge < band.minAge) {
+        return `Check the age range for "${band.label}".`;
       }
-
-      if (band.maxAge < band.minAge) {
-        return `The "${band.label}" age range is invalid.`;
-      }
-
       if (band.maxAge > maximumChildAge) {
         return `"${band.label}" exceeds the maximum child age.`;
       }
 
       if (index > 0) {
-        const previousBand = sortedBands[index - 1];
+        const previous = sortedBands[index - 1];
 
-        if (band.minAge !== previousBand.maxAge + 1) {
+        if (band.minAge !== previous.maxAge + 1) {
           return 'Child age rules must be continuous without gaps or overlaps.';
         }
       }
 
       if (band.pricingMode === 'FIXED_PER_NIGHT' && !band.fixedAmount?.trim()) {
-        return `"${band.label}" requires a fixed amount.`;
+        return `"${band.label}" needs a fixed amount.`;
       }
 
       if (band.pricingMode === 'PERCENT_OF_ROOM_RATE' && !band.percentage?.trim()) {
-        return `"${band.label}" requires a percentage.`;
+        return `"${band.label}" needs a percentage.`;
       }
     }
 
-    const lastBand = sortedBands[sortedBands.length - 1];
-
-    if (lastBand.maxAge !== maximumChildAge) {
+    if (sortedBands[sortedBands.length - 1].maxAge !== maximumChildAge) {
       return `Child age rules must cover every age through ${maximumChildAge}.`;
     }
 
-    return undefined;
+    return '';
   }
 
-  async function handleSave() {
-    if (!propertyId) {
-      setError('No property is assigned to the current user.');
-      return;
-    }
+  async function saveGuestPricing() {
+    if (!propertyId || !canManage) return;
 
-    const validationError = validateBeforeSave();
+    const validationError = validateGuestPricing();
 
     if (validationError) {
-      setError(validationError);
-      setSuccessMessage(undefined);
+      showToast({
+        color: 'red',
+        title: 'Check child pricing',
+        message: validationError,
+      });
       return;
     }
 
+    const payload: UpsertGuestPricingPolicyPayload = {
+      ageBasedChildPricingEnabled: ageBasedPricingEnabled,
+      maximumChildAge,
+      isActive: true,
+      childAgeBands: ageBasedPricingEnabled
+        ? sortedBands.map((band, index) => ({
+            label: band.label.trim(),
+            minAge: band.minAge,
+            maxAge: band.maxAge,
+            pricingMode: band.pricingMode,
+            ...(band.pricingMode === 'FIXED_PER_NIGHT'
+              ? { fixedAmount: band.fixedAmount ?? '0.00' }
+              : {}),
+            ...(band.pricingMode === 'PERCENT_OF_ROOM_RATE'
+              ? { percentage: band.percentage ?? '0' }
+              : {}),
+            displayOrder: index,
+            isActive: true,
+          }))
+        : [],
+    };
+
+    setSavingGuestPricing(true);
+
     try {
-      setSaving(true);
-      setError(undefined);
-      setSuccessMessage(undefined);
-
-      const payload: UpsertGuestPricingPolicyPayload = {
-        ageBasedChildPricingEnabled: ageBasedPricingEnabled,
-        maximumChildAge,
-        isActive: true,
-        childAgeBands: ageBasedPricingEnabled
-          ? sortedBands.map((band, index) => ({
-              label: band.label.trim(),
-              minAge: band.minAge,
-              maxAge: band.maxAge,
-              pricingMode: band.pricingMode,
-              ...(band.pricingMode === 'FIXED_PER_NIGHT'
-                ? {
-                    fixedAmount: band.fixedAmount ?? '0.00',
-                  }
-                : {}),
-              ...(band.pricingMode === 'PERCENT_OF_ROOM_RATE'
-                ? {
-                    percentage: band.percentage ?? '0',
-                  }
-                : {}),
-              displayOrder: index,
-              isActive: true,
-            }))
-          : [],
-      };
-
       const response = await upsertGuestPricingPolicy(propertyId, payload);
 
       setAgeBasedPricingEnabled(response.policy.ageBasedChildPricingEnabled);
-
       setMaximumChildAge(response.policy.maximumChildAge);
-
       setBands(
         response.childAgeBands
           .slice()
@@ -401,13 +714,19 @@ export default function RatesSettingsPage() {
           .map(mapApiBand),
       );
 
-      setSuccessMessage('Guest pricing policy saved successfully.');
+      showToast({
+        color: 'green',
+        title: 'Guest pricing saved',
+        message: 'StayOS will use these child-age rules when a booking is priced.',
+      });
     } catch (saveError) {
-      setError(
-        saveError instanceof Error ? saveError.message : 'Unable to save guest pricing policy.',
-      );
+      showToast({
+        color: 'red',
+        title: 'Could not save guest pricing',
+        message: saveError instanceof Error ? saveError.message : 'Please try again.',
+      });
     } finally {
-      setSaving(false);
+      setSavingGuestPricing(false);
     }
   }
 
@@ -415,434 +734,768 @@ export default function RatesSettingsPage() {
     return (
       <Stack align="center" justify="center" gap="md" style={{ minHeight: 320 }}>
         <Loader size="md" />
-
-        <p style={bodyStyle}>Loading guest pricing policy...</p>
+        <Text c="#64748b">Loading rates and guest pricing...</Text>
       </Stack>
     );
   }
 
   return (
-    <Stack gap={spacing[4]} data-testid="rates-settings-page">
-      <Group justify="space-between" align="flex-start">
-        <Box>
-          <Group gap={10}>
-            <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={42}>
-              <BadgeIndianRupee size={21} />
-            </ThemeIcon>
-
-            <Box>
-              <h1 style={pageTitleStyle}>Rates & Guest Pricing</h1>
-
-              <p
-                style={{
-                  ...bodyStyle,
-                  marginTop: 4,
-                }}
-              >
-                Configure how StayOS prices children and guest occupancy.
-              </p>
-            </Box>
-          </Group>
-        </Box>
-
-        <Button
-          leftSection={<Save size={16} />}
-          radius={radius.md}
-          loading={saving}
-          disabled={!propertyId}
-          onClick={() => void handleSave()}
-        >
-          Save changes
-        </Button>
-      </Group>
-
-      {error ? (
-        <Alert
-          color="red"
-          title="Unable to complete the request"
-          withCloseButton
-          onClose={() => setError(undefined)}
-        >
-          {error}
-        </Alert>
-      ) : null}
-
-      {successMessage ? (
-        <Alert
-          color="green"
-          title="Saved"
-          withCloseButton
-          onClose={() => setSuccessMessage(undefined)}
-        >
-          {successMessage}
-        </Alert>
-      ) : null}
-
-      <Card radius={radius.lg} p={24} style={cardStyle}>
-        <Group justify="space-between" align="center">
-          <Group gap={12}>
-            <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={40}>
-              <Baby size={20} />
-            </ThemeIcon>
-
-            <Box>
-              <h2 style={sectionTitleStyle}>Child pricing</h2>
-
-              <p
-                style={{
-                  ...bodyStyle,
-                  marginTop: 2,
-                }}
-              >
-                Apply different pricing based on the child&apos;s age.
-              </p>
-            </Box>
-          </Group>
-
-          <Switch
-            checked={ageBasedPricingEnabled}
-            onChange={(event) => {
-              setAgeBasedPricingEnabled(event.currentTarget.checked);
-              setSuccessMessage(undefined);
-            }}
-            size="md"
-            label="Age-based pricing"
-          />
-        </Group>
-
-        <Divider my={22} />
-
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+    <>
+      <Stack gap={spacing[4]} data-testid="rates-settings-page">
+        <Group justify="space-between" align="flex-start">
           <Box>
-            <p
-              style={{
-                margin: 0,
-                fontSize: 14,
-                lineHeight: 1.4,
-                fontWeight: 700,
-                color: '#344054',
-              }}
-            >
-              Maximum child age
-            </p>
+            <Group gap={10}>
+              <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={42}>
+                <BadgeIndianRupee size={21} />
+              </ThemeIcon>
 
-            <p
-              style={{
-                ...helperStyle,
-                marginTop: 3,
-                marginBottom: 8,
-              }}
-            >
-              Guests above this age are treated as adults.
-            </p>
+              <Box>
+                <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 750 }}>
+                  Rates & Guest Pricing
+                </Title>
 
-            <NumberInput
-              value={maximumChildAge}
-              onChange={(value) => {
-                if (typeof value === 'number') {
-                  setMaximumChildAge(value);
-                  setSuccessMessage(undefined);
-                }
-              }}
-              min={0}
-              max={25}
-              allowDecimal={false}
-              suffix=" years"
-              radius={radius.md}
-            />
-          </Box>
-
-          <Card
-            radius={radius.md}
-            p={16}
-            style={{
-              background: '#f8fafc',
-              border: '1px solid #e2e8f0',
-            }}
-          >
-            <Group gap={8}>
-              <Sparkles size={16} color="#64748b" />
-
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: 14,
-                  fontWeight: 700,
-                  color: '#344054',
-                }}
-              >
-                How StayOS will use this
-              </p>
+                <Text c="#64748b" mt={4} size="sm">
+                  Set the room prices StayOS sells and how guest occupancy changes the price.
+                </Text>
+              </Box>
             </Group>
-
-            <p
-              style={{
-                ...bodyStyle,
-                marginTop: 8,
-              }}
-            >
-              When children are added to a booking, StayOS will ask for their ages and automatically
-              apply the matching pricing rule.
-            </p>
-          </Card>
-        </SimpleGrid>
-      </Card>
-
-      <Card radius={radius.lg} p={24} style={cardStyle}>
-        <Group justify="space-between" mb={18}>
-          <Box>
-            <h2 style={sectionTitleStyle}>Child age rules</h2>
-
-            <p
-              style={{
-                ...bodyStyle,
-                marginTop: 3,
-              }}
-            >
-              Keep age ranges continuous so every child age has exactly one rule.
-            </p>
           </Box>
-
-          <Button
-            variant="light"
-            leftSection={<Plus size={15} />}
-            radius={radius.md}
-            disabled={!ageBasedPricingEnabled}
-            onClick={addAgeBand}
-          >
-            Add age band
-          </Button>
         </Group>
 
-        {!ageBasedPricingEnabled ? (
-          <Alert color="blue" title="Age-based pricing is disabled">
-            Child age rules will not be used. Enable age-based pricing to configure child pricing
-            bands.
+        {error ? (
+          <Alert color="red" variant="light">
+            {error}
           </Alert>
         ) : null}
 
-        {ageBasedPricingEnabled && bands.length === 0 ? (
-          <Alert color="yellow" title="No child age rules">
-            Add age bands covering ages 0 through {maximumChildAge}.
-          </Alert>
-        ) : null}
+        <Tabs value={activeTab} onChange={setActiveTab}>
+          <Tabs.List>
+            <Tabs.Tab value="plans" leftSection={<BedDouble size={15} />}>
+              Rate plans
+            </Tabs.Tab>
+            <Tabs.Tab value="guests" leftSection={<Baby size={15} />}>
+              Guest & child pricing
+            </Tabs.Tab>
+          </Tabs.List>
 
-        {ageBasedPricingEnabled ? (
-          <Stack gap={12}>
-            {bands.map((band) => (
-              <Card
-                key={band.id}
-                radius={radius.md}
-                p={18}
-                style={{
-                  background: '#ffffff',
-                  border: '1px solid #e2e8f0',
-                }}
-              >
-                <Group justify="space-between" align="flex-start" mb={14}>
-                  <Box>
-                    <Group gap={8}>
-                      <p
+          <Tabs.Panel value="plans" pt={spacing[4]}>
+            <Stack gap={spacing[4]}>
+              <Group justify="space-between" align="flex-end">
+                <Box>
+                  <Text c="#101828" fw={850} size="lg">
+                    Rate plans
+                  </Text>
+                  <Text c="#64748b" size="sm" mt={3}>
+                    Create sellable plans such as BAR, breakfast-inclusive or non-refundable rates.
+                  </Text>
+                </Box>
+
+                {canManage ? (
+                  <Button
+                    color="stayosBrand"
+                    leftSection={<Plus size={16} />}
+                    onClick={openCreatePlan}
+                  >
+                    Add rate plan
+                  </Button>
+                ) : null}
+              </Group>
+
+              {plans.length === 0 ? (
+                <Paper radius={radius.lg} p={28} style={cardStyle}>
+                  <Stack align="center" ta="center" gap={10}>
+                    <ThemeIcon color="stayosBrand" size={48} radius="xl" variant="light">
+                      <BedDouble size={22} />
+                    </ThemeIcon>
+
+                    <Text c="#101828" fw={800}>
+                      No rate plans yet
+                    </Text>
+
+                    <Text c="#64748b" size="sm" maw={520}>
+                      Create a default plan, then add a base room price for every room type you want
+                      to sell.
+                    </Text>
+
+                    {canManage ? (
+                      <Button onClick={openCreatePlan}>Create first rate plan</Button>
+                    ) : null}
+                  </Stack>
+                </Paper>
+              ) : (
+                <>
+                  <SimpleGrid cols={{ base: 1, md: 2, xl: 3 }}>
+                    {plans.map((plan) => (
+                      <Card
+                        key={plan.id}
+                        radius={radius.lg}
+                        p={18}
                         style={{
-                          margin: 0,
-                          fontSize: 14,
-                          lineHeight: 1.4,
-                          fontWeight: 800,
-                          color: '#101828',
+                          ...cardStyle,
+                          borderColor:
+                            selectedPlanId === plan.id ? '#c4b5fd' : 'rgba(226, 232, 240, 0.9)',
                         }}
                       >
-                        Age {band.minAge}–{band.maxAge}
-                      </p>
+                        <Stack gap={12}>
+                          <Group justify="space-between" align="flex-start">
+                            <Box>
+                              <Group gap={7}>
+                                <Text c="#101828" fw={850}>
+                                  {plan.name}
+                                </Text>
 
-                      <Badge variant="light" color="gray">
-                        {pricingSummary(band)}
-                      </Badge>
+                                {plan.isDefault ? (
+                                  <Badge color="violet" variant="light">
+                                    Default
+                                  </Badge>
+                                ) : null}
+
+                                <Badge
+                                  color={plan.status === 'ACTIVE' ? 'green' : 'gray'}
+                                  variant="light"
+                                >
+                                  {plan.status === 'ACTIVE' ? 'Active' : 'Inactive'}
+                                </Badge>
+                              </Group>
+
+                              <Text c="#7c3aed" size="xs" fw={800} mt={4}>
+                                {plan.code}
+                              </Text>
+                            </Box>
+
+                            {canManage ? (
+                              <Button
+                                size="compact-sm"
+                                variant="subtle"
+                                color="gray"
+                                leftSection={<Pencil size={14} />}
+                                onClick={() => openEditPlan(plan)}
+                              >
+                                Edit
+                              </Button>
+                            ) : null}
+                          </Group>
+
+                          <Text c="#64748b" size="sm">
+                            {ratePlanSummary(plan)}
+                          </Text>
+
+                          {plan.description ? (
+                            <Text c="#94a3b8" size="xs" lineClamp={2}>
+                              {plan.description}
+                            </Text>
+                          ) : null}
+
+                          <Button
+                            variant={selectedPlanId === plan.id ? 'light' : 'subtle'}
+                            onClick={() => setSelectedPlanId(plan.id)}
+                          >
+                            {selectedPlanId === plan.id
+                              ? 'Pricing shown below'
+                              : 'Manage room pricing'}
+                          </Button>
+                        </Stack>
+                      </Card>
+                    ))}
+                  </SimpleGrid>
+
+                  {selectedPlan ? (
+                    <Card radius={radius.lg} p={20} style={cardStyle}>
+                      <Stack gap={spacing[4]}>
+                        <Group justify="space-between" align="flex-start">
+                          <Box>
+                            <Group gap={8}>
+                              <Text c="#101828" fw={850} size="lg">
+                                Room pricing · {selectedPlan.name}
+                              </Text>
+
+                              {selectedPlan.isDefault ? (
+                                <Badge color="violet" variant="light">
+                                  Default plan
+                                </Badge>
+                              ) : null}
+                            </Group>
+
+                            <Text c="#64748b" size="sm" mt={4}>
+                              The base rate covers the base occupancy. Extra adult and child charges
+                              apply above it.
+                            </Text>
+                          </Box>
+                        </Group>
+
+                        <Alert color="blue" variant="light">
+                          Save each room type separately. A room type without pricing is not sold
+                          through this rate plan.
+                        </Alert>
+
+                        {pricingLoading ? (
+                          <Group justify="center" py={24}>
+                            <Loader size="sm" />
+                            <Text c="#64748b" size="sm">
+                              Loading room pricing...
+                            </Text>
+                          </Group>
+                        ) : roomTypes.length === 0 ? (
+                          <Alert color="yellow">
+                            No active room types are available. Create room types before adding
+                            rate-plan pricing.
+                          </Alert>
+                        ) : (
+                          <Stack gap={12}>
+                            {roomTypes.map((roomType) => {
+                              const current = planPricing.find(
+                                (item) => item.roomTypeId === roomType.id,
+                              );
+                              const draft = pricingDrafts[roomType.id];
+
+                              if (!draft) return null;
+
+                              return (
+                                <Card
+                                  key={roomType.id}
+                                  radius={radius.md}
+                                  p={16}
+                                  style={{
+                                    background: '#fbfcfe',
+                                    border: '1px solid #e2e8f0',
+                                  }}
+                                >
+                                  <Stack gap={14}>
+                                    <Group justify="space-between" align="flex-start">
+                                      <Box>
+                                        <Group gap={8}>
+                                          <Text c="#101828" fw={800}>
+                                            {roomType.name}
+                                          </Text>
+
+                                          <Badge variant="light" color="gray">
+                                            {roomType.code}
+                                          </Badge>
+
+                                          <Badge
+                                            variant="light"
+                                            color={current ? 'green' : 'yellow'}
+                                          >
+                                            {current ? 'Priced' : 'Not priced'}
+                                          </Badge>
+                                        </Group>
+
+                                        <Text c="#64748b" size="xs" mt={4}>
+                                          Normal occupancy {roomType.baseOccupancy} · Max{' '}
+                                          {roomType.maxOccupancy} guests
+                                        </Text>
+                                      </Box>
+
+                                      {current && canManage ? (
+                                        <Button
+                                          color="red"
+                                          variant="subtle"
+                                          size="compact-sm"
+                                          leftSection={<Trash2 size={14} />}
+                                          loading={savingRoomTypeId === roomType.id}
+                                          onClick={() => void removeRoomPricing(roomType)}
+                                        >
+                                          Remove
+                                        </Button>
+                                      ) : null}
+                                    </Group>
+
+                                    <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
+                                      <NumberInput
+                                        label="Base occupancy"
+                                        description="Guests included in the base rate."
+                                        min={1}
+                                        max={roomType.maxOccupancy}
+                                        allowDecimal={false}
+                                        disabled={!canManage}
+                                        value={draft.baseOccupancy}
+                                        onChange={(value) =>
+                                          setPricingDraft(roomType.id, {
+                                            baseOccupancy: value,
+                                          })
+                                        }
+                                      />
+
+                                      <NumberInput
+                                        label="Base rate"
+                                        description="Per room / night."
+                                        min={0}
+                                        prefix="₹ "
+                                        thousandSeparator=","
+                                        disabled={!canManage}
+                                        value={draft.baseRate}
+                                        onChange={(value) =>
+                                          setPricingDraft(roomType.id, {
+                                            baseRate: value,
+                                          })
+                                        }
+                                      />
+
+                                      <NumberInput
+                                        label="Extra adult"
+                                        description="Per extra adult / night."
+                                        min={0}
+                                        prefix="₹ "
+                                        thousandSeparator=","
+                                        disabled={!canManage}
+                                        value={draft.extraAdultCharge}
+                                        onChange={(value) =>
+                                          setPricingDraft(roomType.id, {
+                                            extraAdultCharge: value,
+                                          })
+                                        }
+                                      />
+
+                                      <NumberInput
+                                        label="Extra child"
+                                        description="Rate-plan child amount / night."
+                                        min={0}
+                                        prefix="₹ "
+                                        thousandSeparator=","
+                                        disabled={!canManage}
+                                        value={draft.extraChildCharge}
+                                        onChange={(value) =>
+                                          setPricingDraft(roomType.id, {
+                                            extraChildCharge: value,
+                                          })
+                                        }
+                                      />
+                                    </SimpleGrid>
+
+                                    <Group justify="space-between" align="center">
+                                      <Text c="#64748b" size="xs">
+                                        {current
+                                          ? `Current base rate ${money(
+                                              current.baseRate,
+                                            )} for ${current.baseOccupancy} guest${
+                                              current.baseOccupancy === 1 ? '' : 's'
+                                            }.`
+                                          : 'Enter a base rate, then save to make this room type available on the plan.'}
+                                      </Text>
+
+                                      {canManage ? (
+                                        <Button
+                                          color="stayosBrand"
+                                          leftSection={<Save size={14} />}
+                                          loading={savingRoomTypeId === roomType.id}
+                                          onClick={() => void saveRoomPricing(roomType)}
+                                        >
+                                          {current ? 'Save pricing' : 'Add pricing'}
+                                        </Button>
+                                      ) : null}
+                                    </Group>
+                                  </Stack>
+                                </Card>
+                              );
+                            })}
+                          </Stack>
+                        )}
+                      </Stack>
+                    </Card>
+                  ) : null}
+                </>
+              )}
+            </Stack>
+          </Tabs.Panel>
+
+          <Tabs.Panel value="guests" pt={spacing[4]}>
+            <Stack gap={spacing[4]}>
+              <Card radius={radius.lg} p={24} style={cardStyle}>
+                <Group justify="space-between" align="center">
+                  <Group gap={12}>
+                    <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={40}>
+                      <Baby size={20} />
+                    </ThemeIcon>
+
+                    <Box>
+                      <Text c="#101828" fw={850}>
+                        Child pricing
+                      </Text>
+
+                      <Text c="#64748b" size="sm" mt={2}>
+                        Apply different pricing based on the child&apos;s age.
+                      </Text>
+                    </Box>
+                  </Group>
+
+                  <Switch
+                    checked={ageBasedPricingEnabled}
+                    disabled={!canManage}
+                    onChange={(event) => {
+                      const checked = event.currentTarget.checked;
+                      setAgeBasedPricingEnabled(checked);
+                    }}
+                    size="md"
+                    label="Age-based pricing"
+                  />
+                </Group>
+
+                <Divider my={22} />
+
+                <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                  <Box>
+                    <Text c="#344054" fw={700} size="sm">
+                      Maximum child age
+                    </Text>
+
+                    <Text c="#667085" size="xs" mt={3} mb={8}>
+                      Guests above this age are treated as adults.
+                    </Text>
+
+                    <NumberInput
+                      value={maximumChildAge}
+                      disabled={!canManage}
+                      onChange={(value) => {
+                        if (typeof value === 'number') {
+                          setMaximumChildAge(value);
+                        }
+                      }}
+                      min={0}
+                      max={25}
+                      allowDecimal={false}
+                      suffix=" years"
+                    />
+                  </Box>
+
+                  <Card
+                    radius={radius.md}
+                    p={16}
+                    style={{
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                    }}
+                  >
+                    <Group gap={8}>
+                      <Sparkles size={16} color="#64748b" />
+                      <Text c="#344054" fw={700} size="sm">
+                        Easy option
+                      </Text>
                     </Group>
 
-                    <p
-                      style={{
-                        ...mutedStyle,
-                        marginTop: 4,
-                      }}
-                    >
-                      Applied automatically during booking
-                    </p>
+                    <Text c="#64748b" size="sm" mt={8}>
+                      Choose “Use rate-plan extra child price” when each rate plan should control
+                      the child amount. This keeps BAR, breakfast and promotional plans flexible.
+                    </Text>
+                  </Card>
+                </SimpleGrid>
+              </Card>
+
+              <Card radius={radius.lg} p={24} style={cardStyle}>
+                <Group justify="space-between" mb={18}>
+                  <Box>
+                    <Text c="#101828" fw={850}>
+                      Child age rules
+                    </Text>
+                    <Text c="#64748b" size="sm" mt={3}>
+                      Keep age ranges continuous so every child age has exactly one rule.
+                    </Text>
                   </Box>
 
                   <Button
-                    variant="subtle"
-                    color="red"
-                    size="compact-sm"
-                    leftSection={<Trash2 size={14} />}
-                    onClick={() => removeAgeBand(band.id)}
+                    variant="light"
+                    leftSection={<Plus size={15} />}
+                    disabled={!canManage || !ageBasedPricingEnabled}
+                    onClick={addAgeBand}
                   >
-                    Remove
+                    Add age band
                   </Button>
                 </Group>
 
-                <SimpleGrid
-                  cols={{
-                    base: 1,
-                    sm: 2,
-                    lg: 4,
-                  }}
-                  spacing={spacing[3]}
-                >
-                  <TextInput
-                    label="Label"
-                    value={band.label}
-                    onChange={(event) =>
-                      updateBand(band.id, {
-                        label: event.currentTarget.value,
-                      })
-                    }
-                    radius={radius.md}
-                  />
+                {!ageBasedPricingEnabled ? (
+                  <Alert color="blue">Child age rules are currently disabled.</Alert>
+                ) : (
+                  <Stack gap={12}>
+                    {bands.map((band) => (
+                      <Card
+                        key={band.id}
+                        radius={radius.md}
+                        p={18}
+                        style={{
+                          background: '#ffffff',
+                          border: '1px solid #e2e8f0',
+                        }}
+                      >
+                        <Stack gap={14}>
+                          <Group justify="space-between" align="flex-start">
+                            <Box>
+                              <Group gap={8}>
+                                <Text c="#101828" fw={800} size="sm">
+                                  Age {band.minAge}–{band.maxAge}
+                                </Text>
+                                <Badge variant="light" color="gray">
+                                  {pricingSummary(band)}
+                                </Badge>
+                              </Group>
+                              <Text c="#94a3b8" size="xs" mt={4}>
+                                Applied automatically during booking
+                              </Text>
+                            </Box>
 
-                  <NumberInput
-                    label="From age"
-                    value={band.minAge}
-                    min={0}
-                    allowDecimal={false}
-                    onChange={(value) => {
-                      if (typeof value === 'number') {
-                        updateBand(band.id, {
-                          minAge: value,
-                        });
-                      }
-                    }}
-                    radius={radius.md}
-                  />
+                            <Button
+                              variant="subtle"
+                              color="red"
+                              size="compact-sm"
+                              disabled={!canManage}
+                              leftSection={<Trash2 size={14} />}
+                              onClick={() => removeAgeBand(band.id)}
+                            >
+                              Remove
+                            </Button>
+                          </Group>
 
-                  <NumberInput
-                    label="To age"
-                    value={band.maxAge}
-                    min={0}
-                    allowDecimal={false}
-                    onChange={(value) => {
-                      if (typeof value === 'number') {
-                        updateBand(band.id, {
-                          maxAge: value,
-                        });
-                      }
-                    }}
-                    radius={radius.md}
-                  />
+                          <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing={spacing[3]}>
+                            <TextInput
+                              label="Label"
+                              disabled={!canManage}
+                              value={band.label}
+                              onChange={(event) => {
+                                const value = event.currentTarget.value;
+                                updateBand(band.id, { label: value });
+                              }}
+                            />
 
-                  <Select
-                    label="Pricing"
-                    value={band.pricingMode}
-                    data={pricingModeOptions}
-                    allowDeselect={false}
-                    onChange={(value) => handlePricingModeChange(band.id, value)}
-                    radius={radius.md}
-                  />
-                </SimpleGrid>
+                            <NumberInput
+                              label="From age"
+                              value={band.minAge}
+                              disabled={!canManage}
+                              min={0}
+                              allowDecimal={false}
+                              onChange={(value) => {
+                                if (typeof value === 'number') {
+                                  updateBand(band.id, { minAge: value });
+                                }
+                              }}
+                            />
 
-                {band.pricingMode === 'FIXED_PER_NIGHT' ? (
-                  <Box mt={14} maw={260}>
-                    <TextInput
-                      label="Amount per child / night"
-                      value={band.fixedAmount ?? ''}
-                      onChange={(event) =>
-                        updateBand(band.id, {
-                          fixedAmount: event.currentTarget.value,
-                        })
-                      }
-                      leftSection={
-                        <span
-                          style={{
-                            fontSize: 14,
-                            color: '#475467',
-                          }}
-                        >
-                          ₹
-                        </span>
-                      }
-                      radius={radius.md}
-                    />
-                  </Box>
-                ) : null}
+                            <NumberInput
+                              label="To age"
+                              value={band.maxAge}
+                              disabled={!canManage}
+                              min={0}
+                              allowDecimal={false}
+                              onChange={(value) => {
+                                if (typeof value === 'number') {
+                                  updateBand(band.id, { maxAge: value });
+                                }
+                              }}
+                            />
 
-                {band.pricingMode === 'PERCENT_OF_ROOM_RATE' ? (
-                  <Box mt={14} maw={260}>
-                    <TextInput
-                      label="% of room rate"
-                      value={band.percentage ?? ''}
-                      onChange={(event) =>
-                        updateBand(band.id, {
-                          percentage: event.currentTarget.value,
-                        })
-                      }
-                      rightSection={
-                        <span
-                          style={{
-                            fontSize: 14,
-                            color: '#475467',
-                          }}
-                        >
-                          %
-                        </span>
-                      }
-                      radius={radius.md}
-                    />
-                  </Box>
-                ) : null}
+                            <Select
+                              label="Pricing"
+                              value={band.pricingMode}
+                              disabled={!canManage}
+                              data={pricingModeOptions}
+                              allowDeselect={false}
+                              onChange={(value) => handlePricingModeChange(band.id, value)}
+                            />
+                          </SimpleGrid>
+
+                          {band.pricingMode === 'FIXED_PER_NIGHT' ? (
+                            <NumberInput
+                              maw={280}
+                              label="Amount per child / night"
+                              min={0}
+                              prefix="₹ "
+                              thousandSeparator=","
+                              disabled={!canManage}
+                              value={Number(band.fixedAmount ?? 0)}
+                              onChange={(value) =>
+                                updateBand(band.id, {
+                                  fixedAmount: decimal(typeof value === 'number' ? value : 0),
+                                })
+                              }
+                            />
+                          ) : null}
+
+                          {band.pricingMode === 'PERCENT_OF_ROOM_RATE' ? (
+                            <NumberInput
+                              maw={280}
+                              label="% of room rate"
+                              min={0}
+                              max={100}
+                              suffix=" %"
+                              disabled={!canManage}
+                              value={Number(band.percentage ?? 0)}
+                              onChange={(value) =>
+                                updateBand(band.id, {
+                                  percentage: String(typeof value === 'number' ? value : 0),
+                                })
+                              }
+                            />
+                          ) : null}
+                        </Stack>
+                      </Card>
+                    ))}
+                  </Stack>
+                )}
+
+                <Group justify="flex-end" mt={20}>
+                  <Button
+                    color="stayosBrand"
+                    leftSection={<CheckCircle2 size={15} />}
+                    disabled={!canManage}
+                    loading={savingGuestPricing}
+                    onClick={() => void saveGuestPricing()}
+                  >
+                    Save guest pricing
+                  </Button>
+                </Group>
               </Card>
-            ))}
-          </Stack>
-        ) : null}
-      </Card>
+            </Stack>
+          </Tabs.Panel>
+        </Tabs>
+      </Stack>
 
-      <Card
+      <Modal
+        centered
+        opened={planEditorOpened}
+        onClose={closePlanEditor}
         radius={radius.lg}
-        p={20}
-        style={{
-          background: '#f8fafc',
-          border: '1px solid #e2e8f0',
-        }}
+        size="lg"
+        title={
+          <Box>
+            <Text c="#101828" fw={850} size="lg">
+              {editingPlan ? 'Edit rate plan' : 'Add rate plan'}
+            </Text>
+            <Text c="#64748b" size="sm" mt={2}>
+              Set the commercial rules first. Room prices are configured after the plan is saved.
+            </Text>
+          </Box>
+        }
       >
-        <h2 style={sectionTitleStyle}>Current pricing example</h2>
+        <Stack gap={spacing[4]}>
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            <TextInput
+              autoFocus
+              label="Plan name"
+              placeholder="Best Available Rate"
+              disabled={savingPlan}
+              value={planForm.name}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setPlanForm((current) => ({ ...current, name: value }));
+              }}
+            />
 
-        <p
-          style={{
-            ...bodyStyle,
-            marginTop: 5,
-          }}
-        >
-          StayOS will automatically select the pricing rule based on the child&apos;s age during
-          booking.
-        </p>
+            <TextInput
+              label="Code"
+              placeholder="BAR"
+              description={
+                editingPlan
+                  ? 'The code cannot be changed after creation.'
+                  : 'Short uppercase code used internally.'
+              }
+              disabled={savingPlan || Boolean(editingPlan)}
+              value={planForm.code}
+              onChange={(event) => {
+                const value = event.currentTarget.value.toUpperCase();
+                setPlanForm((current) => ({ ...current, code: value }));
+              }}
+            />
+          </SimpleGrid>
 
-        {ageBasedPricingEnabled ? (
-          <Group mt={12} gap={10}>
-            {sortedBands.map((band) => (
-              <Badge
-                key={`example-${band.id}`}
-                variant="light"
-                color={
-                  band.pricingMode === 'FREE'
-                    ? 'green'
-                    : band.pricingMode === 'FIXED_PER_NIGHT'
-                      ? 'blue'
-                      : 'gray'
-                }
-              >
-                Age {band.minAge}–{band.maxAge} · {pricingSummary(band)}
-              </Badge>
-            ))}
-          </Group>
-        ) : (
-          <p
-            style={{
-              ...bodyStyle,
-              marginTop: 12,
+          <Textarea
+            label="Description"
+            placeholder="Flexible everyday rate"
+            disabled={savingPlan}
+            minRows={2}
+            value={planForm.description}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setPlanForm((current) => ({
+                ...current,
+                description: value,
+              }));
             }}
-          >
-            Age-based child pricing is currently disabled.
-          </p>
-        )}
-      </Card>
-    </Stack>
+          />
+
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            <Select
+              label="Meal plan"
+              disabled={savingPlan}
+              data={mealPlanOptions}
+              value={planForm.mealPlan}
+              onChange={(value) =>
+                setPlanForm((current) => ({
+                  ...current,
+                  mealPlan: (value ?? 'ROOM_ONLY') as MealPlan,
+                }))
+              }
+            />
+
+            <Select
+              label="Status"
+              disabled={savingPlan}
+              data={[
+                { value: 'ACTIVE', label: 'Active' },
+                { value: 'INACTIVE', label: 'Inactive' },
+              ]}
+              value={planForm.status}
+              onChange={(value) =>
+                setPlanForm((current) => ({
+                  ...current,
+                  status: (value ?? 'ACTIVE') as RatePlanStatus,
+                }))
+              }
+            />
+          </SimpleGrid>
+
+          <Switch
+            checked={planForm.refundable}
+            disabled={savingPlan}
+            label="Refundable"
+            description="Turn this off for a non-refundable rate plan."
+            onChange={(event) => {
+              const checked = event.currentTarget.checked;
+              setPlanForm((current) => ({
+                ...current,
+                refundable: checked,
+              }));
+            }}
+          />
+
+          <Switch
+            checked={planForm.isDefault}
+            disabled={savingPlan}
+            label="Default rate plan"
+            description="StayOS uses the default active plan when a booking does not explicitly choose another plan."
+            onChange={(event) => {
+              const checked = event.currentTarget.checked;
+              setPlanForm((current) => ({
+                ...current,
+                isDefault: checked,
+              }));
+            }}
+          />
+
+          {planFormError ? (
+            <Alert color="red" variant="light">
+              {planFormError}
+            </Alert>
+          ) : (
+            <Alert color="blue" variant="light">
+              After saving, StayOS will guide you to add a base price for each room type this plan
+              should sell.
+            </Alert>
+          )}
+
+          <Group justify="flex-end">
+            <Button color="gray" variant="subtle" disabled={savingPlan} onClick={closePlanEditor}>
+              Cancel
+            </Button>
+
+            <Button
+              color="stayosBrand"
+              leftSection={<Save size={15} />}
+              disabled={Boolean(planFormError)}
+              loading={savingPlan}
+              onClick={() => void savePlan()}
+            >
+              {editingPlan ? 'Save changes' : 'Create rate plan'}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+    </>
   );
 }

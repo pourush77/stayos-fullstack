@@ -27,6 +27,7 @@
     "seed:hillston-uat": "ts-node -r tsconfig-paths/register scripts/bootstrap-hillston-uat.ts",
     "staging:reset:preview": "ts-node -r dotenv/config scripts/reset-hillston-staging.ts",
     "staging:reset": "ts-node -r dotenv/config scripts/reset-hillston-staging.ts --apply",
+    "staging:seed": "ts-node -r tsconfig-paths/register -r dotenv/config scripts/seed-hillston-staging.ts",
     "sync:dev": "npm run migration:run && npm run bootstrap:hillston && npm run verify:hillston",
     "test": "jest --runInBand"
   },
