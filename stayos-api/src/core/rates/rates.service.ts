@@ -9,6 +9,7 @@ import { DataSource, QueryFailedError, Repository } from 'typeorm';
 import { PropertiesService } from '../properties/properties.service';
 import { RoomTypesService } from '../room-types/room-types.service';
 import { ChildPricingMode } from './domain/child-pricing-mode.enum';
+import { RatePlanStatus } from './domain/rate-plan-status.enum';
 import { ChildAgeBandInput } from './dto/child-age-band.input';
 import { CreateDailyRateInput } from './dto/create-daily-rate.input';
 import {
@@ -82,6 +83,20 @@ export class RatesService {
     } catch (error) {
       this.handleRatePlanPersistenceError(error);
     }
+  }
+
+  async findDefaultApplicableRatePlan(
+    propertyId: string,
+    roomTypeId: string,
+  ): Promise<RatePlanEntity | null> {
+    const plan = await this.ratePlansRepository.findOne({
+      where: { propertyId, isDefault: true, status: RatePlanStatus.ACTIVE },
+    });
+    if (!plan) return null;
+    const applicable = await this.ratePlanRoomTypesRepository.findOne({
+      where: { propertyId, ratePlanId: plan.id, roomTypeId },
+    });
+    return applicable ? plan : null;
   }
 
   async updateRatePlan(

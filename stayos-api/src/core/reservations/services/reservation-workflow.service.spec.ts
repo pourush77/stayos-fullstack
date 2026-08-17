@@ -112,6 +112,8 @@ const reservationEntity = (overrides: Partial<ReservationEntity> = {}): Reservat
   roomId: null,
   room: null,
   inventoryReserved: true,
+  ratePlanId: null,
+  rateSnapshot: null,
   source: ReservationSource.DIRECT,
   status: ReservationStatus.CONFIRMED,
   paymentStatus: ReservationPaymentStatus.PAYMENT_DUE,
@@ -231,6 +233,11 @@ describe('ReservationWorkflowService', () => {
         resolveGroupDepositInput: jest.fn().mockResolvedValue({ type: 'NONE', value: 0 }),
       } as never,
       availabilityService as never,
+      {
+        buildCommercialSnapshot: jest
+          .fn()
+          .mockResolvedValue({ ratePlanId: null, rateSnapshot: { version: 1, pricingStatus: 'UNPRICED' } }),
+      } as never,
     );
   });
 

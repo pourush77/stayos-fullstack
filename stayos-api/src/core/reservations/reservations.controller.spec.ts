@@ -28,6 +28,8 @@ const reservationEntity: ReservationEntity = {
   roomId: null,
   room: null,
   inventoryReserved: true,
+  ratePlanId: null,
+  rateSnapshot: null,
   source: ReservationSource.DIRECT,
   status: ReservationStatus.CONFIRMED,
   paymentStatus: ReservationPaymentStatus.PAYMENT_DUE,

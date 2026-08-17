@@ -26,6 +26,7 @@ import { ReservationEntity } from './infrastructure/reservation.entity';
 import { RoomOperationalStatus } from '../rooms/domain/room-operational-status.enum';
 import { ChildPricingService } from '../rates/child-pricing.service';
 import { AvailabilityService } from '../inventory/availability.service';
+import { ReservationPricingService } from './services/reservation-pricing.service';
 import { expandStayNights } from '../inventory/domain/inventory-nights';
 import {
   InventoryDelta,
@@ -75,6 +76,7 @@ export class ReservationsService {
     private readonly childPricingService: ChildPricingService,
     private readonly dataSource: DataSource,
     private readonly availabilityService: AvailabilityService,
+    private readonly reservationPricingService: ReservationPricingService,
   ) {}
 
   async findAll(propertyId: string, query: PaginationQueryDto): Promise<PaginatedReservations> {
@@ -226,6 +228,25 @@ export class ReservationsService {
     const status = createReservationDto.status ?? ReservationStatus.CONFIRMED;
     const willReserve = inventoryDeltaForTransition(null, status) === InventoryDelta.RESERVE;
 
+    // Commercial commit rule: snapshot pricing only when creating directly into
+    // the committed CONFIRMED state. PENDING stays unsnapshotted until confirm,
+    // even though it consumes inventory (pricing-commit != inventory-consume).
+    let ratePlanId: string | null = createReservationDto.ratePlanId ?? null;
+    let rateSnapshot: Record<string, unknown> | null = null;
+    if (status === ReservationStatus.CONFIRMED) {
+      const commercial = await this.reservationPricingService.buildCommercialSnapshot({
+        propertyId,
+        ratePlanId,
+        roomTypeId: createReservationDto.roomTypeId,
+        arrivalDate: createReservationDto.arrivalDate,
+        departureDate: createReservationDto.departureDate,
+        adults: createReservationDto.adults,
+        childAges: createReservationDto.childAges,
+      });
+      ratePlanId = commercial.ratePlanId;
+      rateSnapshot = commercial.rateSnapshot;
+    }
+
     try {
       return await this.dataSource.transaction(async (manager) => {
         const reservationRepository = manager.getRepository(ReservationEntity);
@@ -235,6 +256,8 @@ export class ReservationsService {
           reservationCode,
           status,
           inventoryReserved: willReserve,
+          ratePlanId,
+          rateSnapshot,
         });
 
         const saved = await reservationRepository.save(reservation);

@@ -21,6 +21,7 @@ import { ReservationsController } from './reservations.controller';
 import { ReservationsService } from './reservations.service';
 import { CheckInService } from './services/check-in.service';
 import { ReservationWorkflowService } from './services/reservation-workflow.service';
+import { ReservationPricingService } from './services/reservation-pricing.service';
 import { StaysController } from './stays.controller';
 
 @Module({
@@ -50,6 +51,7 @@ import { StaysController } from './stays.controller';
   providers: [
     ReservationsService,
     ReservationWorkflowService,
+    ReservationPricingService,
     CheckInService,
     MobileCaptureService,
     DocumentStorageService,

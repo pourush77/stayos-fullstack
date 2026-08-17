@@ -1,0 +1,36 @@
+{
+  "summary": "Phase 1C-b (centralized Rate Plans + immutable commercial snapshot) verified end-to-end over live HTTP against http://localhost:3001/api/v1 as admin@stayos.local. 27 pytest cases across 2 new files: rate plan CRUD + validation (mealPlan enum, code regex, duplicate code 409, single-default 409), applicability upsert/list/delete + money-string validation, daily-rate override CRUD, PRICED snapshot math (5000x2 + 1500x1x2 = 13000.00), policies resolution, DAILY_OVERRIDE vs BASE_RATE per night (11500.00), default-plan fallback when ratePlanId omitted, UNPRICED + NO_APPLICABLE_RATE_PLAN with no fabricated totals, PENDING deferral -> confirm freeze, snapshot immutability (across re-reads, reservation PATCH, cancel), and transactional rollback for inapplicable/INACTIVE/unknown rate plans (reservation count unchanged). ALL 27 PASS. No inventory/concurrency suites were run.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /properties/:propertyId/rates/rate-plans/:id/room-types + snapshot", "issue": "extraChildCharge is accepted/persisted on rate-plan applicability but is NEVER used by rate-resolver.service.ts (child charges are delegated entirely to ChildPricingService / property guest-pricing policy). With extraChildCharge='700.00', childAges=[7] and NO property guest-pricing policy configured (GET /rates/guest-pricing-policy returns data:null), snapshot totals.child = '0.00'. Either wire extraChildCharge into resolution or drop/deprecate the field so operators are not misled."},
+      {"endpoint": "PATCH /properties/:propertyId/reservations/:reservationId", "issue": "Occupancy/date edits after CONFIRMED do NOT re-price and (correctly per 1C-b immutability) leave the snapshot untouched, so the snapshot can go stale: reservation.adults changed 2 -> 3 while rateSnapshot.occupancy.adults stayed 2 and extraAdult stayed 0.00. Acceptable for 1C-b, but a re-price/snapshot-version path (or blocking commercial-impacting edits) is needed before billing consumes the snapshot."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_rate_plans_snapshot_1cb.py",
+    "/app/backend/tests/test_snapshot_mutation_probe.py",
+    "/app/test_reports/pytest/pytest_1cb.xml"
+  ],
+  "action_items": [
+    "Decide on extraChildCharge: wire into RateResolverService or remove from UpsertRatePlanRoomTypeDto (currently a silently ignored money field).",
+    "Plan a re-pricing / snapshot-version strategy for post-confirmation occupancy or date changes (snapshot currently becomes stale by design)."
+  ],
+  "critical_code_review_comments": [
+    "rate-resolver.service.ts uses Number()/Math.round for money via strToCents; safe for the 2-dp regex-validated inputs but any future >2dp or exponent-format input would silently round - keep DTO regex as the single guard.",
+    "ReservationPricingService UNPRICED branch correctly omits totals (verified: no '0.00' grandTotal fabricated).",
+    "reservations.mapper.ts intentionally hides ratePlanId/rateSnapshot; verified GET /reservations/:id has no rateSnapshot key while GET /stays/:id exposes it - consumers must be documented, otherwise UI will look for it on the wrong endpoint."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_rate_plans_snapshot_1cb.py",
+    "/app/backend/tests/test_snapshot_mutation_probe.py"
+  ],
+  "success_rate": {"backend": "100% (27/27)", "frontend": "not tested (backend-only scope)"},
+  "seed_data_creation": "Created QA rate plans (codes QACRUD*/QAAPP*/QADR*/QAPRICED*/QAOVR*/QADEF*/QAPEND*/QAROLL*/QAINACT*/QAPROBE*) with DLX applicability, a daily-rate override on 2027-04-06, and far-future reservations (2027-04-01..2027-06-03) - all created reservations were cancelled at the end of the run. NOTE two demo-data mutations made to satisfy required scenarios: (1) any pre-existing rate-plan applicability rows for room type STE were deleted so the UNPRICED case could be exercised; (2) the property's existing default rate plan was demoted (isDefault=false) before creating the QADEF default plan, so the current property default is now a QA-created plan. Re-run bootstrap:demo if pristine demo rates are needed.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@stayos.local / Password123! (API base http://localhost:3001/api/v1; external preview URL 502s because ingress expects 8001)",
+  "context_for_next_testing_agent": "Reusable suite: /app/backend/tests/test_rate_plans_snapshot_1cb.py (idempotent - unique time-based plan codes, demotes existing default plan, strips STE applicability, cancels its reservations in test_zz_cleanup). Snapshot night entries use keys date/source/roomRate/extraAdultCharge/childCharge/nightTotal (NOT stayDate/amount). rateSnapshot.policies is an OBJECT keyed by policyType with {policy, source, isActive}. Login returns HTTP 201. Demo property has no guest-pricing policy so child totals resolve to 0.00. Do not re-run inventory/concurrency suites (see iteration_11).",
+  "rca_of_the_issue": "No product defects found. Two test-side corrections were needed: (a) login returns 201 not 200; (b) night entries key on 'date'/'roomRate'. The child-charge 0.00 observation roots in rate-resolver.service.ts delegating all child pricing to ChildPricingService (property age bands), bypassing the rate-plan extraChildCharge column; with no property guest-pricing policy seeded, resolveChildPricing returns total 0."
+}

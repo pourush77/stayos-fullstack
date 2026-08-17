@@ -19,6 +19,7 @@ import { ReservationEntity } from './infrastructure/reservation.entity';
 import { ReservationsService } from './reservations.service';
 import { ChildPricingService } from '../rates/child-pricing.service';
 import { AvailabilityService } from '../inventory/availability.service';
+import { ReservationPricingService } from './services/reservation-pricing.service';
 
 type MockRepository<T extends object = object> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -105,6 +106,8 @@ const reservationEntity: ReservationEntity = {
   roomId: null,
   room: null,
   inventoryReserved: true,
+  ratePlanId: null,
+  rateSnapshot: null,
   source: ReservationSource.DIRECT,
   status: ReservationStatus.CONFIRMED,
   paymentStatus: ReservationPaymentStatus.PAYMENT_DUE,
@@ -125,6 +128,7 @@ describe('ReservationsService', () => {
   const propertiesService = { findOne: jest.fn() };
   const childPricingService = { validateReservationChildAges: jest.fn() };
   const availabilityService = { reserve: jest.fn(), restore: jest.fn(), applyDelta: jest.fn(), read: jest.fn() };
+  const reservationPricingService = { buildCommercialSnapshot: jest.fn() };
   let dataSource: { transaction: jest.Mock };
 
   beforeEach(async () => {
@@ -146,6 +150,10 @@ describe('ReservationsService', () => {
     childPricingService.validateReservationChildAges.mockResolvedValue(undefined);
     availabilityService.reserve.mockResolvedValue([]);
     availabilityService.applyDelta.mockResolvedValue(undefined);
+    reservationPricingService.buildCommercialSnapshot.mockResolvedValue({
+      ratePlanId: null,
+      rateSnapshot: { version: 1, pricingStatus: 'UNPRICED', reason: 'NO_APPLICABLE_RATE_PLAN' },
+    });
 
     // Fake transaction: runs the callback with a manager whose getRepository
     // returns the mocked reservations repository (mirrors real behaviour).
@@ -167,6 +175,7 @@ describe('ReservationsService', () => {
         { provide: ChildPricingService, useValue: childPricingService },
         { provide: DataSource, useValue: dataSource },
         { provide: AvailabilityService, useValue: availabilityService },
+        { provide: ReservationPricingService, useValue: reservationPricingService },
       ],
     }).compile();
 
@@ -262,6 +271,47 @@ describe('ReservationsService', () => {
     // the rejection propagates out of dataSource.transaction, rolling everything back.
     expect(dataSource.transaction).toHaveBeenCalledTimes(1);
     expect(availabilityService.reserve).toHaveBeenCalledTimes(1);
+  });
+
+  it('snapshots pricing on direct CONFIRMED create', async () => {
+    reservationsRepository.create?.mockImplementation((input) => input);
+    reservationsRepository.save?.mockImplementation(async (input) => input);
+    reservationPricingService.buildCommercialSnapshot.mockResolvedValueOnce({
+      ratePlanId: 'rp-1',
+      rateSnapshot: { version: 1, pricingStatus: 'PRICED', totals: { grandTotal: '10000.00' } },
+    });
+
+    const created = await service.create(propertyId, {
+      guestId,
+      arrivalDate: '2026-07-15',
+      departureDate: '2026-07-17',
+      adults: 2,
+      roomTypeId,
+      status: ReservationStatus.CONFIRMED,
+    });
+
+    expect(reservationPricingService.buildCommercialSnapshot).toHaveBeenCalledTimes(1);
+    expect(created).toMatchObject({
+      ratePlanId: 'rp-1',
+      rateSnapshot: { pricingStatus: 'PRICED' },
+    });
+  });
+
+  it('does NOT snapshot pricing on PENDING create (unsnapshotted until confirm)', async () => {
+    reservationsRepository.create?.mockImplementation((input) => input);
+    reservationsRepository.save?.mockImplementation(async (input) => input);
+
+    const created = await service.create(propertyId, {
+      guestId,
+      arrivalDate: '2026-07-15',
+      departureDate: '2026-07-17',
+      adults: 2,
+      roomTypeId,
+      status: ReservationStatus.PENDING,
+    });
+
+    expect(reservationPricingService.buildCommercialSnapshot).not.toHaveBeenCalled();
+    expect(created.rateSnapshot).toBeNull();
   });
 
   it('persists child ages when children are selected', async () => {

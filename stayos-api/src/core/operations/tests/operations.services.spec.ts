@@ -70,6 +70,8 @@ const reservation = (overrides: Partial<ReservationEntity> = {}): ReservationEnt
   roomId,
   room: undefined as never,
   inventoryReserved: true,
+  ratePlanId: null,
+  rateSnapshot: null,
   source: ReservationSource.DIRECT,
   status: ReservationStatus.CHECKED_IN,
   paymentStatus: ReservationPaymentStatus.PAID,

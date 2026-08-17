@@ -57,6 +57,11 @@ export class CreateReservationDto {
   @IsUUID()
   roomId?: string;
 
+  @ApiPropertyOptional({ format: 'uuid', description: 'Rate plan; falls back to property default if omitted' })
+  @IsOptional()
+  @IsUUID()
+  ratePlanId?: string;
+
   @ApiPropertyOptional({ enum: ReservationSource, default: ReservationSource.DIRECT })
   @IsOptional()
   @IsEnum(ReservationSource)

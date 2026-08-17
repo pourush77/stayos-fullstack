@@ -83,6 +83,13 @@ export class ReservationEntity {
   @Column({ type: 'boolean', name: 'inventory_reserved', default: false })
   inventoryReserved!: boolean;
 
+  @Column({ type: 'uuid', name: 'rate_plan_id', nullable: true })
+  ratePlanId!: string | null;
+
+  /** Immutable commercial snapshot frozen at commit (CONFIRMED). See ReservationPricingService. */
+  @Column({ type: 'jsonb', name: 'rate_snapshot', nullable: true })
+  rateSnapshot!: Record<string, unknown> | null;
+
   @ManyToOne(() => RoomEntity, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'room_id' })
   room!: RoomEntity | null;

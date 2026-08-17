@@ -31,6 +31,7 @@ import {
 } from '../domain/reservation-inventory';
 import { diffEntitlements } from '../domain/reservation-inventory-transition';
 import { AvailabilityService } from '../../inventory/availability.service';
+import { ReservationPricingService } from './reservation-pricing.service';
 import { expandStayNights } from '../../inventory/domain/inventory-nights';
 
 const activeAssignmentStatuses = [
@@ -51,6 +52,7 @@ export class ReservationWorkflowService {
     private readonly taxService: TaxService,
     private readonly policyResolver: PolicyResolverService,
     private readonly availabilityService: AvailabilityService,
+    private readonly reservationPricingService: ReservationPricingService,
   ) {}
 
   async confirm(
@@ -67,6 +69,22 @@ export class ReservationWorkflowService {
 
       reservation.status = ReservationStatus.CONFIRMED;
       await this.applyPolicyTaxSnapshot(reservation);
+
+      // Freeze the commercial snapshot at confirm if not already frozen.
+      if (!reservation.rateSnapshot) {
+        const commercial = await this.reservationPricingService.buildCommercialSnapshot({
+          propertyId,
+          ratePlanId: reservation.ratePlanId,
+          roomTypeId: reservation.roomTypeId,
+          arrivalDate: reservation.arrivalDate,
+          departureDate: reservation.departureDate,
+          adults: reservation.adults,
+          childAges: reservation.childAges ?? [],
+        });
+        reservation.ratePlanId = commercial.ratePlanId;
+        reservation.rateSnapshot = commercial.rateSnapshot;
+      }
+
       const updated = await reservationRepository.save(reservation);
 
       await this.createLifecycleEvents(manager, {
