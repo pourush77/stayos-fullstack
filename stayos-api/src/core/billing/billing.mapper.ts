@@ -1,6 +1,7 @@
 import { FolioEntity } from './infrastructure/folio.entity';
 import { FolioChargeEntity } from './infrastructure/folio-charge.entity';
 import { FolioPaymentEntity } from './infrastructure/folio-payment.entity';
+import { FolioPaymentStatus } from './domain/folio-payment-status.enum';
 import { toCents, fromCents } from './domain/money';
 import {
   FolioChargeResponseDto,
@@ -35,14 +36,21 @@ export function calculateTotals(
     }
   }
   const totalCents = subtotalCents + taxCents;
+  // Cents-safe net captured: PAYMENT rows are positive, REFUND rows negative.
   const paidCents = payments.reduce((sum, payment) => sum + toCents(payment.amount), 0);
   const balanceCents = totalCents - paidCents;
+  let paymentStatus: FolioPaymentStatus;
+  if (balanceCents < 0) paymentStatus = FolioPaymentStatus.OVERPAID;
+  else if (balanceCents === 0) paymentStatus = FolioPaymentStatus.PAID;
+  else paymentStatus = paidCents > 0 ? FolioPaymentStatus.PARTIAL : FolioPaymentStatus.DUE;
   return {
     subtotal: fromCents(subtotalCents),
     tax: fromCents(taxCents),
     total: fromCents(totalCents),
     paid: fromCents(paidCents),
     balance: fromCents(balanceCents),
+    creditBalance: fromCents(balanceCents < 0 ? -balanceCents : 0),
+    paymentStatus,
     taxBreakdown: {
       cgst: fromCents(cgstCents),
       sgst: fromCents(sgstCents),
@@ -78,9 +86,12 @@ function toPaymentDto(payment: FolioPaymentEntity): FolioPaymentResponseDto {
     id: payment.id,
     folioId: payment.folioId,
     method: payment.method,
+    type: payment.type,
+    reversalOfPaymentId: payment.reversalOfPaymentId ?? null,
     amount: payment.amount,
     reference: payment.reference,
     notes: payment.notes,
+    idempotencyKey: payment.idempotencyKey ?? null,
     receivedAt: payment.receivedAt,
     receivedByUserId: payment.receivedByUserId,
     createdAt: payment.createdAt,

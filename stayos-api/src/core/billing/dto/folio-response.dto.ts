@@ -2,6 +2,8 @@ import { ApiProperty } from '@nestjs/swagger';
 import { FolioChargeType } from '../domain/folio-charge-type.enum';
 import { FolioChargeStatus } from '../domain/folio-charge-status.enum';
 import { FolioPaymentMethod } from '../domain/folio-payment-method.enum';
+import { FolioPaymentType } from '../domain/folio-payment-type.enum';
+import { FolioPaymentStatus } from '../domain/folio-payment-status.enum';
 import { FolioStatus } from '../domain/folio-status.enum';
 import { TaxSnapshot } from '../../rates/domain/gst.types';
 
@@ -29,9 +31,12 @@ export class FolioPaymentResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty({ nullable: true }) folioId!: string | null;
   @ApiProperty({ enum: FolioPaymentMethod }) method!: FolioPaymentMethod;
-  @ApiProperty() amount!: string;
+  @ApiProperty({ enum: FolioPaymentType }) type!: FolioPaymentType;
+  @ApiProperty({ nullable: true }) reversalOfPaymentId!: string | null;
+  @ApiProperty({ description: 'Signed amount; REFUND rows are negative' }) amount!: string;
   @ApiProperty({ nullable: true }) reference!: string | null;
   @ApiProperty({ nullable: true }) notes!: string | null;
+  @ApiProperty({ nullable: true }) idempotencyKey!: string | null;
   @ApiProperty() receivedAt!: Date;
   @ApiProperty({ nullable: true }) receivedByUserId!: string | null;
   @ApiProperty() createdAt!: Date;
@@ -48,7 +53,9 @@ export class FolioTotalsDto {
   @ApiProperty() tax!: string;
   @ApiProperty() total!: string;
   @ApiProperty() paid!: string;
-  @ApiProperty() balance!: string;
+  @ApiProperty({ description: 'Positive = amount due; negative = credit/overpayment' }) balance!: string;
+  @ApiProperty({ description: 'Unrefunded credit when the folio is overpaid (>= 0)' }) creditBalance!: string;
+  @ApiProperty({ enum: FolioPaymentStatus }) paymentStatus!: FolioPaymentStatus;
   @ApiProperty({ type: FolioTaxBreakdownDto }) taxBreakdown!: FolioTaxBreakdownDto;
 }
 

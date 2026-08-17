@@ -26,6 +26,7 @@ import { ReceiptPdfService } from './receipt-pdf.service';
 import { CreateFolioChargeDto } from './dto/create-folio-charge.dto';
 import { VoidFolioChargeDto } from './dto/void-folio-charge.dto';
 import { CreateFolioPaymentDto } from './dto/create-folio-payment.dto';
+import { CreateFolioRefundDto } from './dto/create-folio-refund.dto';
 import { FolioResponseDto } from './dto/folio-response.dto';
 import { FolioStatus } from './domain/folio-status.enum';
 import { FolioPaymentMethod } from './domain/folio-payment-method.enum';
@@ -149,6 +150,24 @@ export class BillingController {
     @Req() req: AuthRequest,
   ): Promise<FolioResponseDto> {
     const folio = await this.billingService.addPayment(
+      propertyId,
+      folioId,
+      dto,
+      req.user?.id ?? null,
+    );
+    return BillingMapper.toResponse(folio);
+  }
+
+  @Post('folios/:folioId/refunds')
+  @RequirePermissions(Permissions.BillingManage)
+  @ApiStandardOkResponse(FolioResponseDto)
+  async addRefund(
+    @Param('propertyId', new ParseUUIDPipe()) propertyId: string,
+    @Param('folioId', new ParseUUIDPipe()) folioId: string,
+    @Body() dto: CreateFolioRefundDto,
+    @Req() req: AuthRequest,
+  ): Promise<FolioResponseDto> {
+    const folio = await this.billingService.addRefund(
       propertyId,
       folioId,
       dto,

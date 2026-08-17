@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { FolioEntity } from './folio.entity';
 import { FolioPaymentMethod } from '../domain/folio-payment-method.enum';
+import { FolioPaymentType } from '../domain/folio-payment-type.enum';
 import { GroupMasterFolioEntity } from '../../operations/infrastructure/group-master-folio.entity';
 
 @Entity({ name: 'folio_payments' })
@@ -41,6 +42,18 @@ export class FolioPaymentEntity {
 
   @Column({ type: 'enum', enum: FolioPaymentMethod })
   method!: FolioPaymentMethod;
+
+  // Ledger direction. REFUND rows store a NEGATIVE amount and link to the
+  // original via reversalOfPaymentId. Append-only: originals are never edited.
+  @Column({ type: 'varchar', length: 20, default: FolioPaymentType.PAYMENT })
+  type!: FolioPaymentType;
+
+  @Column({ type: 'uuid', name: 'reversal_of_payment_id', nullable: true })
+  reversalOfPaymentId!: string | null;
+
+  // Idempotency key (unique per folio) so a retried request cannot duplicate money.
+  @Column({ type: 'varchar', length: 120, name: 'idempotency_key', nullable: true })
+  idempotencyKey!: string | null;
 
   @Column({ type: 'numeric', precision: 12, scale: 2 })
   amount!: string;

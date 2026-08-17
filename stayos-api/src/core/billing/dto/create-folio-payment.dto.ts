@@ -26,4 +26,10 @@ export class CreateFolioPaymentDto {
   @IsOptional()
   @IsISO8601()
   receivedAt?: string;
+
+  @ApiProperty({ required: false, maxLength: 120, description: 'Idempotency key to make a retried payment safe' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  idempotencyKey?: string;
 }

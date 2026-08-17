@@ -17,8 +17,10 @@ import { FolioPaymentEntity } from './infrastructure/folio-payment.entity';
 import { FolioEntity } from './infrastructure/folio.entity';
 import { FolioStatus } from './domain/folio-status.enum';
 import { FolioPaymentMethod } from './domain/folio-payment-method.enum';
+import { FolioPaymentType } from './domain/folio-payment-type.enum';
 import { CreateFolioChargeDto } from './dto/create-folio-charge.dto';
 import { CreateFolioPaymentDto } from './dto/create-folio-payment.dto';
+import { CreateFolioRefundDto } from './dto/create-folio-refund.dto';
 import { calculateTotals } from './billing.mapper';
 import { toCents, fromCents } from './domain/money';
 import { FolioChargeStatus } from './domain/folio-charge-status.enum';
@@ -461,63 +463,218 @@ export class BillingService {
     dto: CreateFolioPaymentDto,
     actorUserId?: string | null,
   ): Promise<FolioEntity> {
-    const folio = await this.getFolio(propertyId, folioId);
-    if (folio.status === FolioStatus.VOID) {
-      throw new BadRequestException('Cannot record payments on a voided folio');
-    }
-    const amount = parseFloat(dto.amount);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      throw new BadRequestException('Payment amount must be positive');
-    }
+    await this.propertiesService.findOne(propertyId);
+    const amountCents = this.parsePositiveCents(dto.amount, 'Payment amount');
     const receivedAt = dto.receivedAt ? new Date(dto.receivedAt) : new Date();
 
-    const payment = this.paymentsRepository.create({
-      folioId,
-      method: dto.method,
-      amount: amount.toFixed(2),
-      reference: dto.reference ?? null,
-      notes: dto.notes ?? null,
-      receivedAt,
-      receivedByUserId: actorUserId ?? null,
-    });
-    await this.paymentsRepository.save(payment);
+    // Transaction + row lock serializes concurrent payments on the same folio
+    // and keeps the derived balance/status consistent. No nested transaction.
+    return this.dataSource.transaction(async (manager) => {
+      const folio = await this.lockFolio(manager, propertyId, folioId);
+      if (folio.status !== FolioStatus.OPEN) {
+        throw new BadRequestException(`Cannot record payments on a ${folio.status.toLowerCase()} folio`);
+      }
+      const paymentsRepo = manager.getRepository(FolioPaymentEntity);
 
-    // Update reservation payment status based on totals
-    const updatedFolio = await this.getFolio(propertyId, folioId);
-    const totals = calculateTotals(updatedFolio.charges, updatedFolio.payments);
+      if (dto.idempotencyKey) {
+        const existing = await paymentsRepo.findOne({
+          where: { folioId, idempotencyKey: dto.idempotencyKey },
+        });
+        if (existing) return this.getFolioOnManager(manager, propertyId, folioId);
+      }
+
+      // Overpayment is allowed and explicit: it produces a credit (negative)
+      // balance surfaced in totals; it is never silently discarded and blocks
+      // settlement until refunded.
+      const payment = paymentsRepo.create({
+        folioId,
+        type: FolioPaymentType.PAYMENT,
+        method: dto.method,
+        amount: fromCents(amountCents),
+        reference: dto.reference ?? null,
+        notes: dto.notes ?? null,
+        idempotencyKey: dto.idempotencyKey ?? null,
+        receivedAt,
+        receivedByUserId: actorUserId ?? null,
+      });
+      try {
+        await paymentsRepo.save(payment);
+      } catch (error) {
+        if (this.isUniqueViolation(error)) {
+          return this.getFolioOnManager(manager, propertyId, folioId);
+        }
+        throw error;
+      }
+
+      await this.refreshReservationPaymentStatus(manager, propertyId, folio.reservationId);
+      return this.getFolioOnManager(manager, propertyId, folioId);
+    });
+  }
+
+  async addRefund(
+    propertyId: string,
+    folioId: string,
+    dto: CreateFolioRefundDto,
+    actorUserId?: string | null,
+  ): Promise<FolioEntity> {
+    await this.propertiesService.findOne(propertyId);
+    const amountCents = this.parsePositiveCents(dto.amount, 'Refund amount');
+    const receivedAt = dto.receivedAt ? new Date(dto.receivedAt) : new Date();
+
+    return this.dataSource.transaction(async (manager) => {
+      const folio = await this.lockFolio(manager, propertyId, folioId);
+      if (folio.status !== FolioStatus.OPEN) {
+        throw new BadRequestException(`Cannot record refunds on a ${folio.status.toLowerCase()} folio`);
+      }
+      const paymentsRepo = manager.getRepository(FolioPaymentEntity);
+
+      if (dto.idempotencyKey) {
+        const existing = await paymentsRepo.findOne({
+          where: { folioId, idempotencyKey: dto.idempotencyKey },
+        });
+        if (existing) return this.getFolioOnManager(manager, propertyId, folioId);
+      }
+
+      const original = await paymentsRepo.findOne({
+        where: { id: dto.originalPaymentId, folioId },
+      });
+      if (!original || original.type !== FolioPaymentType.PAYMENT) {
+        throw new NotFoundException('Original payment was not found on this folio');
+      }
+
+      // Cap: a refund cannot exceed the original payment less what has already
+      // been refunded against it (also prevents double refunds).
+      const priorRefunds = await paymentsRepo.find({
+        where: { folioId, reversalOfPaymentId: original.id },
+      });
+      const originalCents = toCents(original.amount);
+      const alreadyRefundedCents = priorRefunds.reduce((s, r) => s + Math.abs(toCents(r.amount)), 0);
+      const remainingCents = originalCents - alreadyRefundedCents;
+      if (amountCents > remainingCents) {
+        throw new BadRequestException(
+          `Refund exceeds refundable amount for this payment (remaining ${fromCents(remainingCents)})`,
+        );
+      }
+
+      const refund = paymentsRepo.create({
+        folioId,
+        type: FolioPaymentType.REFUND,
+        method: dto.method ?? original.method,
+        amount: fromCents(-amountCents),
+        reversalOfPaymentId: original.id,
+        reference: dto.reference ?? null,
+        notes: dto.notes ?? null,
+        idempotencyKey: dto.idempotencyKey ?? null,
+        receivedAt,
+        receivedByUserId: actorUserId ?? null,
+      });
+      try {
+        await paymentsRepo.save(refund);
+      } catch (error) {
+        if (this.isUniqueViolation(error)) {
+          return this.getFolioOnManager(manager, propertyId, folioId);
+        }
+        throw error;
+      }
+
+      await this.refreshReservationPaymentStatus(manager, propertyId, folio.reservationId);
+      return this.getFolioOnManager(manager, propertyId, folioId);
+    });
+  }
+
+  async settleFolio(propertyId: string, folioId: string): Promise<FolioEntity> {
+    await this.propertiesService.findOne(propertyId);
+    return this.dataSource.transaction(async (manager) => {
+      const folio = await this.lockFolio(manager, propertyId, folioId);
+      if (folio.status === FolioStatus.SETTLED) return this.getFolioOnManager(manager, propertyId, folioId);
+      if (folio.status === FolioStatus.VOID) {
+        throw new BadRequestException('Voided folios cannot be settled');
+      }
+      const totals = await this.computeTotalsOnManager(manager, folioId);
+      const balanceCents = toCents(totals.balance);
+      // Settlement requires an EXACTLY zero balance.
+      if (balanceCents > 0) {
+        throw new BadRequestException(`Folio has an outstanding balance of ${totals.balance}`);
+      }
+      if (balanceCents < 0) {
+        throw new BadRequestException(
+          `Folio has an unrefunded credit balance of ${totals.creditBalance}. Refund the excess before settlement.`,
+        );
+      }
+      await manager.getRepository(FolioEntity).update(
+        { id: folioId },
+        { status: FolioStatus.SETTLED, settledAt: new Date() },
+      );
+      await manager.getRepository(ReservationEntity).update(
+        { id: folio.reservationId, propertyId },
+        { paymentStatus: ReservationPaymentStatus.PAID },
+      );
+      return this.getFolioOnManager(manager, propertyId, folioId);
+    });
+  }
+
+  /** Locks the bare folio row FOR UPDATE (no relations, to avoid outer-join lock errors). */
+  private async lockFolio(
+    manager: EntityManager,
+    propertyId: string,
+    folioId: string,
+  ): Promise<FolioEntity> {
+    const folio = await manager.getRepository(FolioEntity).findOne({
+      where: { id: folioId, propertyId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!folio) throw new NotFoundException(`Folio ${folioId} was not found`);
+    return folio;
+  }
+
+  private async getFolioOnManager(
+    manager: EntityManager,
+    propertyId: string,
+    folioId: string,
+  ): Promise<FolioEntity> {
+    const folio = await manager.getRepository(FolioEntity).findOne({
+      where: { id: folioId, propertyId },
+      relations: { property: true, guest: true, reservation: { room: true }, charges: true, payments: true },
+    });
+    if (!folio) throw new NotFoundException(`Folio ${folioId} was not found`);
+    return folio;
+  }
+
+  private async computeTotalsOnManager(manager: EntityManager, folioId: string) {
+    const [charges, payments] = await Promise.all([
+      manager.getRepository(FolioChargeEntity).find({ where: { folioId } }),
+      manager.getRepository(FolioPaymentEntity).find({ where: { folioId } }),
+    ]);
+    return calculateTotals(charges, payments);
+  }
+
+  private async refreshReservationPaymentStatus(
+    manager: EntityManager,
+    propertyId: string,
+    reservationId: string,
+  ): Promise<void> {
+    const totals = await this.computeTotalsOnManager(
+      manager,
+      (await manager.getRepository(FolioEntity).findOne({ where: { reservationId, propertyId } }))!.id,
+    );
     const balanceCents = toCents(totals.balance);
     const paidCents = toCents(totals.paid);
     let paymentStatus: ReservationPaymentStatus = ReservationPaymentStatus.PAYMENT_DUE;
     if (balanceCents <= 0 && paidCents > 0) paymentStatus = ReservationPaymentStatus.PAID;
     else if (paidCents > 0) paymentStatus = ReservationPaymentStatus.PARTIALLY_PAID;
-    await this.reservationsRepository.update(
-      { id: updatedFolio.reservationId, propertyId },
-      { paymentStatus },
-    );
-
-    return this.getFolio(propertyId, folioId);
+    await manager.getRepository(ReservationEntity).update({ id: reservationId, propertyId }, { paymentStatus });
   }
 
-  async settleFolio(propertyId: string, folioId: string): Promise<FolioEntity> {
-    const folio = await this.getFolio(propertyId, folioId);
-    if (folio.status === FolioStatus.SETTLED) return folio;
-    if (folio.status === FolioStatus.VOID) {
-      throw new BadRequestException('Voided folios cannot be settled');
+  private parsePositiveCents(value: string, label: string): number {
+    const amount = parseFloat(value);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException(`${label} must be positive`);
     }
-    const totals = calculateTotals(folio.charges, folio.payments);
-    const balanceCents = toCents(totals.balance);
-    if (balanceCents > 0) {
-      throw new BadRequestException(`Folio has an outstanding balance of ${totals.balance}`);
-    }
-    await this.foliosRepository.update(
-      { id: folioId },
-      { status: FolioStatus.SETTLED, settledAt: new Date() },
-    );
-    await this.reservationsRepository.update(
-      { id: folio.reservationId, propertyId },
-      { paymentStatus: ReservationPaymentStatus.PAID },
-    );
-    return this.getFolio(propertyId, folioId);
+    return Math.round(amount * 100);
+  }
+
+  private isUniqueViolation(error: unknown): boolean {
+    return (error as { code?: string })?.code === '23505';
   }
 
   private calculateNights(arrival: string, departure: string): number {

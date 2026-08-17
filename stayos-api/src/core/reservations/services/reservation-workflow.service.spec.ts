@@ -269,6 +269,7 @@ describe('ReservationWorkflowService', () => {
       rateSnapshotService as never,
       billingService as never,
       restrictionService as never,
+      { finalizeInvoiceOnManager: jest.fn().mockResolvedValue(undefined) } as never,
     );
   });
 

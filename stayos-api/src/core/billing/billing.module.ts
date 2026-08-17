@@ -11,6 +11,10 @@ import { ReceiptPdfService } from './receipt-pdf.service';
 import { FolioChargeEntity } from './infrastructure/folio-charge.entity';
 import { FolioPaymentEntity } from './infrastructure/folio-payment.entity';
 import { FolioEntity } from './infrastructure/folio.entity';
+import { InvoiceEntity } from './infrastructure/invoice.entity';
+import { InvoiceController } from './invoice.controller';
+import { InvoiceService } from './invoice.service';
+import { PropertyBillingConfigEntity } from '../billing-config/infrastructure/property-billing-config.entity';
 
 @Module({
   imports: [
@@ -20,12 +24,14 @@ import { FolioEntity } from './infrastructure/folio.entity';
       FolioPaymentEntity,
       ReservationEntity,
       ReservationRateSnapshotEntity,
+      InvoiceEntity,
+      PropertyBillingConfigEntity,
     ]),
     PropertiesModule,
     RatesModule,
   ],
-  controllers: [BillingController],
-  providers: [BillingService, RazorpayService, ReceiptPdfService],
-  exports: [BillingService],
+  controllers: [BillingController, InvoiceController],
+  providers: [BillingService, RazorpayService, ReceiptPdfService, InvoiceService],
+  exports: [BillingService, InvoiceService],
 })
 export class BillingModule {}

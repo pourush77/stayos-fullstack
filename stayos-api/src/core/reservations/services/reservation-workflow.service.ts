@@ -8,10 +8,13 @@ import { RoomTypeEntity } from '../../room-types/infrastructure/room-type.entity
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
 import { calculateTotals } from '../../billing/billing.mapper';
+import { toCents } from '../../billing/domain/money';
 import { BillingService } from '../../billing/billing.service';
+import { InvoiceService } from '../../billing/invoice.service';
 import { FolioChargeType } from '../../billing/domain/folio-charge-type.enum';
 import { FolioStatus } from '../../billing/domain/folio-status.enum';
 import { FolioChargeEntity } from '../../billing/infrastructure/folio-charge.entity';
+import { FolioChargeStatus } from '../../billing/domain/folio-charge-status.enum';
 import { FolioEntity } from '../../billing/infrastructure/folio.entity';
 import { TaxService } from '../../rates/tax.service';
 import { AssignRoomDto } from '../dto/assign-room.dto';
@@ -60,6 +63,7 @@ export class ReservationWorkflowService {
     private readonly reservationRateSnapshotService: ReservationRateSnapshotService,
     private readonly billingService: BillingService,
     private readonly restrictionService: RestrictionService,
+    private readonly invoiceService: InvoiceService,
   ) {}
 
   async confirm(
@@ -522,6 +526,7 @@ export class ReservationWorkflowService {
       this.ensureRoomBelongsToProperty(room, propertyId);
       await this.ensureFolioSettledForCheckout(manager, reservation);
       await this.settleFolioForCheckout(manager, reservation);
+      await this.finalizeInvoiceForCheckout(manager, reservation);
 
       // Capture the entitlement BEFORE the status flips to the non-consuming
       // CHECKED_OUT so it releases exactly the nights the stay held.
@@ -1045,11 +1050,18 @@ export class ReservationWorkflowService {
     if (!folio) return;
 
     const totals = calculateTotals(folio.charges ?? [], folio.payments ?? []);
-    const balance = Number(totals.balance);
-    if (balance > 0.01) {
+    const balanceCents = toCents(totals.balance);
+    // Checkout requires an EXACTLY zero folio balance.
+    if (balanceCents > 0) {
       throw this.badRequest(
         ApiErrorCode.VALIDATION_ERROR,
         `Folio has an outstanding balance of ${totals.balance}. Collect payment before checkout.`,
+      );
+    }
+    if (balanceCents < 0) {
+      throw this.badRequest(
+        ApiErrorCode.VALIDATION_ERROR,
+        `Folio has an unrefunded credit balance of ${totals.creditBalance}. Refund the excess before checkout.`,
       );
     }
   }
@@ -1066,14 +1078,43 @@ export class ReservationWorkflowService {
     if (!folio || folio.status !== FolioStatus.OPEN) return;
 
     const totals = calculateTotals(folio.charges ?? [], folio.payments ?? []);
-    const balance = Number(totals.balance);
-    const paid = Number(totals.paid);
-    if (balance <= 0.01 && paid > 0) {
+    const balanceCents = toCents(totals.balance);
+    const paidCents = toCents(totals.paid);
+    // Only settle a folio whose balance is EXACTLY zero (the checkout gate
+    // above already rejects outstanding or credit balances).
+    if (balanceCents === 0 && paidCents > 0) {
       await folioRepository.update(
         { id: folio.id },
         { status: FolioStatus.SETTLED, settledAt: new Date(), updatedAt: new Date() },
       );
     }
+  }
+
+  /**
+   * Consumes the just-settled billing state to finalize the immutable tax
+   * invoice within the SAME checkout transaction (no nested txn, idempotent).
+   * Never recalculates money — the invoice is built from the frozen ledger. A
+   * folio that is not settled or has no charges is simply skipped.
+   */
+  private async finalizeInvoiceForCheckout(
+    manager: EntityManager,
+    reservation: ReservationEntity,
+  ): Promise<void> {
+    const folio = await manager.getRepository(FolioEntity).findOne({
+      where: { propertyId: reservation.propertyId, reservationId: reservation.id },
+    });
+    if (!folio || folio.status !== FolioStatus.SETTLED) return;
+    const postedCharges = await manager
+      .getRepository(FolioChargeEntity)
+      .count({ where: { folioId: folio.id, status: FolioChargeStatus.POSTED } });
+    if (postedCharges === 0) return;
+    await this.invoiceService.finalizeInvoiceOnManager(
+      manager,
+      reservation.propertyId,
+      folio.id,
+      null,
+      null,
+    );
   }
 
   private calculateNights(arrivalDate: string, departureDate: string): number {
