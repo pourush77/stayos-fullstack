@@ -4,18 +4,22 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsArray,
   IsString,
   IsUUID,
   Length,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import { ReservationPaymentStatus } from '../domain/reservation-payment-status.enum';
 import { ReservationSource } from '../domain/reservation-source.enum';
 import { ReservationStatus } from '../domain/reservation-status.enum';
 
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
+const normalizeProvider = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim().toUpperCase() : value;
 
 export class CreateReservationDto {
   @ApiProperty({ format: 'uuid' })
@@ -66,6 +70,39 @@ export class CreateReservationDto {
   @IsOptional()
   @IsEnum(ReservationSource)
   source?: ReservationSource;
+
+  @ApiPropertyOptional({
+    maxLength: 64,
+    description:
+      'Normalized channel/provider identifier (e.g. BOOKING_COM). REQUIRED when externalReservationId is supplied. Set-once (immutable after create).',
+  })
+  @ValidateIf((o) => o.externalReservationId !== undefined && o.externalReservationId !== null)
+  @Transform(normalizeProvider)
+  @IsString()
+  @IsNotEmpty()
+  @Length(1, 64)
+  @IsOptional()
+  sourceProvider?: string;
+
+  @ApiPropertyOptional({
+    maxLength: 128,
+    description: 'External OTA/channel reservation ID. Set-once (immutable after create); drives idempotent dedup.',
+  })
+  @Transform(trim)
+  @IsOptional()
+  @IsString()
+  @Length(1, 128)
+  externalReservationId?: string;
+
+  @ApiPropertyOptional({
+    maxLength: 128,
+    description: 'External confirmation number. Nullable now; write-once completion in 1C-d3.',
+  })
+  @Transform(trim)
+  @IsOptional()
+  @IsString()
+  @Length(1, 128)
+  externalConfirmationId?: string;
 
   @ApiPropertyOptional({ enum: ReservationStatus, default: ReservationStatus.CONFIRMED })
   @IsOptional()

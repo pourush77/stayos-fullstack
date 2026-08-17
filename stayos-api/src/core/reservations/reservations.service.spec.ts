@@ -316,6 +316,108 @@ describe('ReservationsService', () => {
     expect(availabilityService.reserve).not.toHaveBeenCalled();
   });
 
+  describe('external identity idempotency (1C-d2)', () => {
+    const extDto = (over: Partial<Record<string, unknown>> = {}) => ({
+      guestId,
+      arrivalDate: '2026-07-15',
+      departureDate: '2026-07-17',
+      adults: 2,
+      roomTypeId,
+      status: ReservationStatus.CONFIRMED,
+      sourceProvider: 'BOOKING_COM',
+      externalReservationId: 'EXT-1',
+      source: ReservationSource.CHANNEL,
+      ...over,
+    });
+    const existingExt = () => ({
+      ...reservationEntity,
+      source: ReservationSource.CHANNEL,
+      sourceProvider: 'BOOKING_COM',
+      externalReservationId: 'EXT-1',
+      arrivalDate: '2026-07-15',
+      departureDate: '2026-07-17',
+      adults: 2,
+      children: 0,
+      childAges: null,
+      ratePlanId: null,
+    });
+
+    beforeEach(() => {
+      reservationsRepository.create?.mockImplementation((input) => input);
+      reservationsRepository.save?.mockImplementation(async (input) => input);
+    });
+
+    it('creates normally when no prior external identity exists, scoping the lookup by property+provider+externalReservationId', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(null);
+      await service.create(propertyId, extDto() as never);
+      expect(reservationsRepository.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { propertyId, sourceProvider: 'BOOKING_COM', externalReservationId: 'EXT-1' },
+        }),
+      );
+      expect(reservationsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceProvider: 'BOOKING_COM', externalReservationId: 'EXT-1' }),
+      );
+      expect(availabilityService.reserve).toHaveBeenCalledTimes(1);
+    });
+
+    it('normalizes a lower-case provider before lookup and persistence', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(null);
+      await service.create(propertyId, extDto({ sourceProvider: ' booking_com ' }) as never);
+      expect(reservationsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceProvider: 'BOOKING_COM' }),
+      );
+    });
+
+    it('requires sourceProvider when externalReservationId is supplied', async () => {
+      await expect(
+        service.create(propertyId, extDto({ sourceProvider: undefined }) as never),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('returns the existing reservation on an equivalent retry with NO create/inventory/snapshot side effects', async () => {
+      const existing = existingExt();
+      reservationsRepository.findOne?.mockResolvedValue(existing);
+      const result = await service.create(propertyId, extDto({ sourceProvider: 'booking_com' }) as never);
+      expect(result).toBe(existing);
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(reservationsRepository.create).not.toHaveBeenCalled();
+      expect(availabilityService.reserve).not.toHaveBeenCalled();
+      expect(reservationRateSnapshotService.recordInitialVersion).not.toHaveBeenCalled();
+    });
+
+    it('rejects a conflicting retry (same external identity, different material data) with 409 EXTERNAL_RESERVATION_CONFLICT', async () => {
+      reservationsRepository.findOne?.mockResolvedValue({ ...existingExt(), departureDate: '2026-07-20' });
+      const err = await service.create(propertyId, extDto() as never).catch((e) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(err.getResponse()).toMatchObject({ code: 'EXTERNAL_RESERVATION_CONFLICT' });
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(reservationsRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('converges concurrent duplicates to one reservation when the unique index rejects the loser', async () => {
+      const winner = existingExt();
+      // pre-check: none yet; code-uniqueness: unique; then recovery + re-fetch: winner.
+      reservationsRepository.findOne
+        ?.mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue(winner);
+      dataSource.transaction.mockImplementationOnce(async () => {
+        throw new QueryFailedError(
+          'INSERT',
+          [],
+          { code: '23505', constraint: 'UQ_reservations_external_identity' } as never,
+        );
+      });
+
+      const result = await service.create(propertyId, extDto() as never);
+      expect(result).toBe(winner);
+      expect(availabilityService.reserve).not.toHaveBeenCalled();
+    });
+  });
+
+
   describe('restriction validation on create (1C-c2)', () => {
     const clearDto = (status: ReservationStatus, ratePlanId?: string) => ({
       guestId, arrivalDate: '2026-07-15', departureDate: '2026-07-17', adults: 2, roomTypeId, ratePlanId, status,

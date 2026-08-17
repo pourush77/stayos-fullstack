@@ -20,6 +20,10 @@ import { CFormStatus } from '../domain/c-form-status.enum';
 
 @Entity({ name: 'reservations' })
 @Index('UQ_reservations_property_code', ['propertyId', 'reservationCode'], { unique: true })
+@Index('UQ_reservations_external_identity', ['propertyId', 'sourceProvider', 'externalReservationId'], {
+  unique: true,
+  where: '"external_reservation_id" IS NOT NULL',
+})
 @Index('IDX_reservations_property_id', ['propertyId'])
 @Index('IDX_reservations_guest_id', ['guestId'])
 @Index('IDX_reservations_room_type_id', ['roomTypeId'])
@@ -104,6 +108,26 @@ export class ReservationEntity {
     default: ReservationSource.DIRECT,
   })
   source!: ReservationSource;
+
+  /**
+   * External booking identity (1C-d2). Provenance from an OTA/channel/phone
+   * integration. `sourceProvider` is a normalized (trimmed, upper-cased)
+   * varchar (e.g. BOOKING_COM, EXPEDIA, MMT) — NOT an enum, to avoid churn
+   * while channel integrations are out of scope. All three are set-once at
+   * create (immutable via the normal PATCH path). The partial unique index
+   * UQ_reservations_external_identity (property_id, source_provider,
+   * external_reservation_id WHERE external_reservation_id IS NOT NULL) is the
+   * final protection against duplicate channel bookings on retry — scoped per
+   * property + provider, never globally.
+   */
+  @Column({ type: 'varchar', length: 64, name: 'source_provider', nullable: true })
+  sourceProvider?: string | null;
+
+  @Column({ type: 'varchar', length: 128, name: 'external_reservation_id', nullable: true })
+  externalReservationId?: string | null;
+
+  @Column({ type: 'varchar', length: 128, name: 'external_confirmation_id', nullable: true })
+  externalConfirmationId?: string | null;
 
   @Column({
     type: 'enum',

@@ -38,6 +38,7 @@ import {
   diffEntitlements,
 } from './domain/reservation-inventory-transition';
 import { reservationConsumesInventory } from './domain/reservation-inventory';
+import { ApiErrorCode } from '../../common/errors/api-error-code.enum';
 
 export interface PaginatedReservations {
   data: ReservationEntity[];
@@ -209,6 +210,29 @@ export class ReservationsService {
   ): Promise<ReservationEntity> {
     await this.propertiesService.findOne(propertyId);
 
+    // --- Idempotent external-identity fast path (1C-d2) ---
+    // If this create carries an OTA/channel identity, a prior row with the same
+    // (property, provider, externalReservationId) means this is a retry: an
+    // equivalent payload returns the existing reservation (NO side effects), a
+    // conflicting payload is rejected 409. Provider is required when an external
+    // id is present (also enforced at the DTO level; guarded here defensively).
+    const externalProvider = this.normalizeProvider(createReservationDto.sourceProvider);
+    if (createReservationDto.externalReservationId) {
+      if (!externalProvider) {
+        throw new BadRequestException(
+          'sourceProvider is required when externalReservationId is supplied',
+        );
+      }
+      const existing = await this.findByExternalIdentity(
+        propertyId,
+        externalProvider,
+        createReservationDto.externalReservationId,
+      );
+      if (existing) {
+        return this.resolveIdempotentRetry(existing, createReservationDto, externalProvider);
+      }
+    }
+
     await this.validateDateRange(
       createReservationDto.arrivalDate,
       createReservationDto.departureDate,
@@ -305,6 +329,27 @@ export class ReservationsService {
         return saved;
       });
     } catch (error) {
+      // Concurrency convergence: a simultaneous request may have won the
+      // external identity. The loser's INSERT then fails on a unique index —
+      // either the external-identity index directly, OR the reservation_code
+      // index (concurrent creates can compute the same code). In BOTH cases the
+      // loser's transaction has fully rolled back (no reservation/inventory/
+      // snapshot). Recover the winner by external identity and resolve
+      // idempotently instead of surfacing a raw duplicate-key error.
+      if (
+        this.isUniqueViolation(error) &&
+        externalProvider &&
+        createReservationDto.externalReservationId
+      ) {
+        const winner = await this.findByExternalIdentity(
+          propertyId,
+          externalProvider,
+          createReservationDto.externalReservationId,
+        );
+        if (winner) {
+          return this.resolveIdempotentRetry(winner, createReservationDto, externalProvider);
+        }
+      }
       this.handlePersistenceError(error);
     }
   }
@@ -661,6 +706,9 @@ export class ReservationsService {
     return {
       ...fields,
       source: dto.source ?? ReservationSource.FRONT_DESK,
+      sourceProvider: this.normalizeProvider(dto.sourceProvider),
+      externalReservationId: dto.externalReservationId ?? null,
+      externalConfirmationId: dto.externalConfirmationId ?? null,
       children: dto.children ?? 0,
       childAges: dto.children && dto.children > 0 ? (dto.childAges ?? null) : null,
       roomId: dto.roomId ?? null,
@@ -724,6 +772,87 @@ export class ReservationsService {
       changes.push(ReservationRateSnapshotTrigger.OCCUPANCY_CHANGE);
     }
     return changes.length === 1 ? changes[0] : ReservationRateSnapshotTrigger.AMENDMENT;
+  }
+
+  private normalizeProvider(value?: string | null): string | null {
+    return typeof value === 'string' && value.trim() ? value.trim().toUpperCase() : null;
+  }
+
+  /**
+   * Loads the single reservation holding a given external identity within a
+   * property (guaranteed at most one by the partial unique index). Returned
+   * with relations so idempotent-retry responses match the normal create shape.
+   */
+  private async findByExternalIdentity(
+    propertyId: string,
+    provider: string,
+    externalReservationId: string,
+  ): Promise<ReservationEntity | null> {
+    return this.reservationsRepository.findOne({
+      where: { propertyId, sourceProvider: provider, externalReservationId },
+      relations: { guest: true, roomType: true, room: true },
+    });
+  }
+
+  /**
+   * Material booking contract equivalence for idempotent external retries.
+   * Compares ONLY the fields that define the external booking (roomType, dates,
+   * guest, occupancy, source, provider, and ratePlan WHEN the retry supplies
+   * it). Operational fields (roomId, notes, specialRequests, paymentStatus,
+   * externalConfirmationId) are intentionally excluded — a retry differing only
+   * on those is still the same booking.
+   */
+  private materialReservationEquivalent(
+    existing: ReservationEntity,
+    dto: CreateReservationDto,
+    provider: string | null,
+  ): boolean {
+    const childAges = (ages?: number[] | null) =>
+      [...(ages ?? [])].sort((a, b) => a - b).join(',');
+    const ratePlanMatches =
+      dto.ratePlanId === undefined
+        ? true
+        : (existing.ratePlanId ?? null) === (dto.ratePlanId ?? null);
+    return (
+      existing.roomTypeId === dto.roomTypeId &&
+      existing.arrivalDate === dto.arrivalDate &&
+      existing.departureDate === dto.departureDate &&
+      existing.guestId === dto.guestId &&
+      existing.adults === dto.adults &&
+      existing.children === (dto.children ?? 0) &&
+      childAges(existing.childAges) === childAges(dto.childAges) &&
+      existing.source === (dto.source ?? ReservationSource.FRONT_DESK) &&
+      (existing.sourceProvider ?? null) === (provider ?? null) &&
+      ratePlanMatches
+    );
+  }
+
+  /**
+   * Idempotent-retry resolution: an equivalent payload returns the existing
+   * reservation (NO new reservation/inventory/snapshot/event side effects); a
+   * conflicting payload for the same external identity is rejected with 409
+   * EXTERNAL_RESERVATION_CONFLICT. A second reservation is never created.
+   */
+  private async resolveIdempotentRetry(
+    existing: ReservationEntity,
+    dto: CreateReservationDto,
+    provider: string | null,
+  ): Promise<ReservationEntity> {
+    if (this.materialReservationEquivalent(existing, dto, provider)) {
+      return this.findOne(existing.propertyId, existing.id);
+    }
+    throw new ConflictException({
+      code: ApiErrorCode.EXTERNAL_RESERVATION_CONFLICT,
+      message:
+        'A reservation with this external identity already exists with different booking details',
+    });
+  }
+
+  private isUniqueViolation(error: unknown): boolean {
+    return (
+      error instanceof QueryFailedError &&
+      (error.driverError as { code?: string }).code === '23505'
+    );
   }
 
   private handlePersistenceError(error: unknown): never {

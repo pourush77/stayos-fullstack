@@ -40,6 +40,15 @@ export class ReservationResponseDto {
   @ApiProperty({ enum: ReservationSource })
   source!: ReservationSource;
 
+  @ApiPropertyOptional({ description: 'Normalized channel/provider identifier' })
+  sourceProvider?: string | null;
+
+  @ApiPropertyOptional({ description: 'External OTA/channel reservation ID' })
+  externalReservationId?: string | null;
+
+  @ApiPropertyOptional({ description: 'External confirmation number' })
+  externalConfirmationId?: string | null;
+
   @ApiProperty({ enum: ReservationStatus })
   status!: ReservationStatus;
 
