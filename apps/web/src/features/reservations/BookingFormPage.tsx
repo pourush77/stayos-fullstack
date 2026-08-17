@@ -12,6 +12,7 @@ import {
   Card,
   Collapse,
   Group,
+  Loader,
   NumberInput,
   Paper,
   Select,
@@ -48,9 +49,7 @@ import { friendlyGuestError } from '../../lib/guest-hooks';
 import { getAvailableRooms } from '../../lib/operations-api';
 import {
   getGuestPricingPolicy,
-  getPropertyTaxConfig,
   type GuestPricingPolicyResponse,
-  type PropertyTaxConfigDto,
 } from '../rates/api/rates-api';
 import { nationalityOptions } from '../guests/constants/nationalities';
 import { BookingForm } from './components/BookingForm';
@@ -63,7 +62,7 @@ import type {
   RoomTypeOption,
 } from './types/booking.types';
 import { mapGuestOption } from './utils/booking-mappers';
-import { calculateBookingPricingPreview } from './utils/child-pricing-preview';
+import { useReservationQuote } from './hooks/useReservationQuote';
 import { roomCapacityLabel, roomCapacityMessage } from './utils/room-capacity';
 
 const cardStyle = {
@@ -397,8 +396,6 @@ function QuickBookingForm({
     null,
   );
   const [guestPricingPolicyLoadFailed, setGuestPricingPolicyLoadFailed] = useState(false);
-  const [taxConfig, setTaxConfig] = useState<PropertyTaxConfigDto | null>(null);
-  const [taxConfigLoadFailed, setTaxConfigLoadFailed] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [notes, setNotes] = useState('');
@@ -428,24 +425,37 @@ function QuickBookingForm({
   const selectedRoomCapacityError = selectedRoomType
     ? roomCapacityMessage(selectedRoomType, adults, children)
     : undefined;
-  const pricingPreview = useMemo(
-    () =>
-      calculateBookingPricingPreview({
-        childAges,
-        nights,
-        nightlyRoomRate: selectedRoomType?.baseRate ?? 0,
-        policyResponse: guestPricingPolicy,
-        taxEnabled: taxConfig?.isActive ?? true,
-        taxPercentage: Number(taxConfig?.percentage ?? 12),
-      }),
-    [childAges, guestPricingPolicy, nights, selectedRoomType?.baseRate, taxConfig],
-  );
-  const { childSubtotal, roomSubtotal, subtotal, taxAmount, total } = pricingPreview;
-  const taxLabel = taxConfig?.isActive
-    ? `${taxConfig.name || 'Tax'} ${Number(taxConfig.percentage).toLocaleString('en-IN', {
-        maximumFractionDigits: 2,
-      })}%`
-    : '';
+  const childAgesReady =
+    children === 0 ||
+    (childAges.length === children && childAges.every((age) => Number.isInteger(age) && age >= 0));
+  const {
+    quote,
+    isLoading: quoteLoading,
+    error: quoteError,
+  } = useReservationQuote({
+    propertyId,
+    arrivalDate,
+    departureDate,
+    adults,
+    children,
+    childAges,
+    roomTypeId,
+    enabled: nights > 0 && Boolean(roomTypeId) && childAgesReady,
+  });
+  const money = (value?: string) => Number(value ?? '0');
+  const quotePriced = quote?.pricingStatus === 'PRICED';
+  const quoteBlocker = quote?.blocker ?? null;
+  const roomSubtotal = quote ? money(quote.roomCharges) + money(quote.extraAdultCharges) : 0;
+  const childSubtotal = quote ? money(quote.childCharges) : 0;
+  const subtotal = quote ? money(quote.taxableSubtotal) : 0;
+  const taxAmount = quote ? money(quote.tax.totalTax) : 0;
+  const total = quote ? money(quote.grandTotal) : 0;
+  const perNightRoomRate = quote && quote.nights > 0 ? money(quote.roomCharges) / quote.nights : 0;
+  const depositSuggestion = quote ? money(quote.deposit.suggestedAmount) : 0;
+  const taxLabel =
+    quote && quote.tax.applied
+      ? `GST ${Number(quote.tax.totalRate).toLocaleString('en-IN', { maximumFractionDigits: 2 })}%`
+      : 'GST';
   const guestComplete = Boolean(guestId);
   const datesComplete = nights > 0;
   const roomComplete = Boolean(roomTypeId);
@@ -468,8 +478,6 @@ function QuickBookingForm({
     if (!propertyId) {
       setGuestPricingPolicy(null);
       setGuestPricingPolicyLoadFailed(false);
-      setTaxConfig(null);
-      setTaxConfigLoadFailed(false);
       return;
     }
 
@@ -482,15 +490,6 @@ function QuickBookingForm({
       .catch(() => {
         setGuestPricingPolicy(null);
         setGuestPricingPolicyLoadFailed(true);
-      });
-    void getPropertyTaxConfig(propertyId, controller.signal)
-      .then((config) => {
-        setTaxConfig(config);
-        setTaxConfigLoadFailed(false);
-      })
-      .catch(() => {
-        setTaxConfig(null);
-        setTaxConfigLoadFailed(true);
       });
 
     return () => controller.abort();
@@ -676,6 +675,7 @@ function QuickBookingForm({
       notes,
       paymentStatus,
       roomTypeId,
+      ratePlanId: quote?.ratePlan?.id,
       source,
       specialRequests,
       deposit:
@@ -1023,7 +1023,7 @@ function QuickBookingForm({
                             {roomType.label}
                           </Text>
                           <Text c="#64748b" size="xs">
-                            {formatCurrency(roomType.baseRate)} / night
+                            {roomCapacityLabel(roomType)}
                           </Text>
                         </Stack>
                       </Group>
@@ -1123,7 +1123,7 @@ function QuickBookingForm({
                   const label = resolveChildAgeLabel(
                     age,
                     guestPricingPolicy,
-                    selectedRoomType?.baseRate ?? 0,
+                    perNightRoomRate,
                   );
                   return (
                     <div key={index}>
@@ -1189,54 +1189,86 @@ function QuickBookingForm({
                     adult{adults === 1 ? '' : 's'}
                     {children ? ` · ${children} child${children === 1 ? '' : 'ren'}` : ''}
                   </Text>
-                  <Stack gap={4}>
-                    <Group justify="space-between">
+                  {quoteLoading && !quote ? (
+                    <Group gap={8} data-testid="booking-quote-loading">
+                      <Loader size="xs" color="stayosBrand" />
                       <Text c="#64748b" size="sm">
-                        Room charges
-                      </Text>
-                      <Text fw={800}>{formatCurrency(roomSubtotal)}</Text>
-                    </Group>
-                    {childSubtotal > 0 ? (
-                      <>
-                        <Group justify="space-between">
-                          <span style={{ color: '#64748b', fontSize: 14 }}>Child charges</span>
-                          <span style={{ color: '#101828', fontSize: 14, fontWeight: 800 }}>
-                            {formatCurrency(childSubtotal)}
-                          </span>
-                        </Group>
-                        <Group justify="space-between">
-                          <span style={{ color: '#64748b', fontSize: 14 }}>Subtotal</span>
-                          <span style={{ color: '#101828', fontSize: 14, fontWeight: 800 }}>
-                            {formatCurrency(subtotal)}
-                          </span>
-                        </Group>
-                      </>
-                    ) : null}
-                    {taxConfig?.isActive !== false ? (
-                      <Group justify="space-between">
-                        <span style={{ color: '#64748b', fontSize: 14 }}>{taxLabel || 'Tax'}</span>
-                        <span style={{ color: '#101828', fontSize: 14, fontWeight: 800 }}>
-                          {formatCurrency(taxAmount)}
-                        </span>
-                      </Group>
-                    ) : null}
-                    <Group
-                      justify="space-between"
-                      pt={8}
-                      style={{ borderTop: '1px solid #e2e8f0' }}
-                    >
-                      <Text c="#101828" fw={900} size="sm">
-                        Total payable
-                      </Text>
-                      <Text fw={900} size="xl">
-                        {formatCurrency(total)}
+                        Getting the live price…
                       </Text>
                     </Group>
-                  </Stack>
-                  {taxConfigLoadFailed ? (
-                    <small style={{ color: '#b45309', display: 'block' }}>
-                      Tax configuration could not be loaded for this preview.
+                  ) : quoteError ? (
+                    <small style={{ color: '#dc2626', display: 'block' }} data-testid="booking-quote-error">
+                      {quoteError}
                     </small>
+                  ) : quote && !quotePriced ? (
+                    <small style={{ color: '#b45309', display: 'block' }} data-testid="booking-quote-blocker">
+                      {quoteBlocker ?? 'This stay cannot be priced yet.'}
+                    </small>
+                  ) : quote ? (
+                    <Stack gap={4} data-testid="booking-quote-breakdown" style={{ opacity: quoteLoading ? 0.6 : 1 }}>
+                      <Group justify="space-between">
+                        <Text c="#64748b" size="sm">
+                          Room charges
+                        </Text>
+                        <Text fw={800} data-testid="booking-quote-room">
+                          {formatCurrency(roomSubtotal)}
+                        </Text>
+                      </Group>
+                      {childSubtotal > 0 ? (
+                        <>
+                          <Group justify="space-between">
+                            <span style={{ color: '#64748b', fontSize: 14 }}>Child charges</span>
+                            <span style={{ color: '#101828', fontSize: 14, fontWeight: 800 }}>
+                              {formatCurrency(childSubtotal)}
+                            </span>
+                          </Group>
+                          <Group justify="space-between">
+                            <span style={{ color: '#64748b', fontSize: 14 }}>Subtotal</span>
+                            <span style={{ color: '#101828', fontSize: 14, fontWeight: 800 }}>
+                              {formatCurrency(subtotal)}
+                            </span>
+                          </Group>
+                        </>
+                      ) : null}
+                      {quote.tax.applied ? (
+                        <Group justify="space-between">
+                          <span style={{ color: '#64748b', fontSize: 14 }}>{taxLabel}</span>
+                          <span style={{ color: '#101828', fontSize: 14, fontWeight: 800 }}>
+                            {formatCurrency(taxAmount)}
+                          </span>
+                        </Group>
+                      ) : null}
+                      <Group
+                        justify="space-between"
+                        pt={8}
+                        style={{ borderTop: '1px solid #e2e8f0' }}
+                      >
+                        <Text c="#101828" fw={900} size="sm">
+                          Total payable
+                        </Text>
+                        <Text fw={900} size="xl" data-testid="booking-quote-total">
+                          {formatCurrency(total)}
+                        </Text>
+                      </Group>
+                      {quote.deposit.required ? (
+                        <Group justify="space-between" pt={4}>
+                          <span style={{ color: '#64748b', fontSize: 13 }}>
+                            Suggested deposit ({quote.deposit.policyType === 'PERCENTAGE'
+                              ? `${quote.deposit.policyValue}%`
+                              : 'fixed'})
+                          </span>
+                          <span
+                            style={{ color: '#6536b5', fontSize: 13, fontWeight: 800 }}
+                            data-testid="booking-quote-deposit"
+                          >
+                            {formatCurrency(depositSuggestion)}
+                          </span>
+                        </Group>
+                      ) : null}
+                      <Text c="#94a3b8" size="xs">
+                        Rate plan {quote.ratePlan?.code ?? '—'} · prices from live hotel settings
+                      </Text>
+                    </Stack>
                   ) : null}
                 </Stack>
               </Paper>
@@ -1394,19 +1426,22 @@ function QuickBookingForm({
               ) : null}
               <Button
                 color="stayosBrand"
+                data-testid="booking-submit-button"
                 disabled={
                   !guestId ||
                   !datesComplete ||
                   !roomComplete ||
                   childAgesInvalid ||
-                  Boolean(selectedRoomCapacityError)
+                  Boolean(selectedRoomCapacityError) ||
+                  quoteLoading ||
+                  !quotePriced
                 }
                 fullWidth
                 loading={isSubmitting}
                 onClick={() => void submit()}
                 size="lg"
               >
-                Create Booking →
+                {quoteLoading ? 'Pricing…' : 'Create Booking →'}
               </Button>
               <Text c="#64748b" size="xs" ta="center">
                 Booking confirmed. You can assign a room next.

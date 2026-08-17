@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -19,6 +19,7 @@ import {
   ApiStandardOkResponse,
 } from '../../common/decorators/api-standard-response.decorator';
 import { CreateReservationDto } from './dto/create-reservation.dto';
+import { QuoteReservationDto } from './dto/quote-reservation.dto';
 import { ListReservationsQueryDto } from './dto/list-reservations-query.dto';
 import { AssignRoomDto } from './dto/assign-room.dto';
 import { CheckInWorkspaceResponseDto } from './dto/check-in-workspace-response.dto';
@@ -33,6 +34,7 @@ import { UpdateIdentityVerificationDto } from './dto/update-identity-verificatio
 import { UpdateReservationDto } from './dto/update-reservation.dto';
 import { ReservationsMapper } from './reservations.mapper';
 import { ReservationsService } from './reservations.service';
+import { ReservationQuoteService } from './services/reservation-quote.service';
 import { CheckInService } from './services/check-in.service';
 import { ReservationWorkflowService } from './services/reservation-workflow.service';
 
@@ -49,6 +51,7 @@ export class ReservationsController {
     private readonly reservationsService: ReservationsService,
     private readonly reservationWorkflowService: ReservationWorkflowService,
     private readonly checkInService: CheckInService,
+    private readonly reservationQuoteService: ReservationQuoteService,
   ) {}
 
   @Get()
@@ -84,6 +87,23 @@ export class ReservationsController {
     const reservation = await this.reservationsService.findOne(propertyId, id);
 
     return ReservationsMapper.toResponse(reservation);
+  }
+
+  @Post('quote')
+  @HttpCode(200)
+  @RequirePermissions(Permissions.BookingsView)
+  @ApiOperation({
+    summary: 'Price a reservation (read-only quote)',
+    description:
+      'Runs the same pricing path a create would persist: resolves the effective/default rate plan, prices via the rate resolver, applies GST via the tax-rules engine and resolves the INDIVIDUAL_DEPOSIT policy. Enforces room-type occupancy. Performs no writes.',
+  })
+  @ApiBadRequestResponse({ description: 'Invalid quote payload, dates or occupancy' })
+  @ApiNotFoundResponse({ description: 'Property or room type not found' })
+  async quote(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Body() quoteReservationDto: QuoteReservationDto,
+  ) {
+    return this.reservationQuoteService.quote(propertyId, quoteReservationDto);
   }
 
   @Post()

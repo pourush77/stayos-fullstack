@@ -439,3 +439,14 @@ Principle: restrictions gate newly-introduced/re-scoped sale entitlement, NOT al
 - Preserved inventory/roomId separation, READY check-in, checkout->NEEDS_CLEANING, exact-zero checkout, policy resolution, GST. No new policy types/engine/schema.
 - Verified: Jest 67/67; live /tmp/verify_lifecycle.py 14/14; zero inventory violations, zero residue.
 - PHASE 1E MINIMUM BACKEND FOR FRONTEND: COMPLETE. Deferred to frontend/after-P1: arrival/departure/housekeeping queues (data already available), auto early/late enforcement, no-show auto-charge, housekeeping task workflow.
+
+---
+## F1 — Individual Booking pricing integration (2026-08-17)
+**Root cause:** `/reservations/new` computed price locally (fallback rate ₹3,500/₹6,500, GST `?? 12%`) via `calculateBookingPricingPreview`; create used the backend rate snapshot → preview diverged from created reservation.
+**Fix:** Added read-only backend quote endpoint `POST /properties/:propertyId/reservations/quote` (`ReservationQuoteService`) reusing the SAME path create persists (`ReservationPricingService`→`RateResolverService`) + `GstService` (tax_rules) + `PolicyResolverService` (INDIVIDUAL_DEPOSIT) + room-type occupancy enforcement. No DB writes. Frontend booking form + AvailabilityPage now consume the quote (debounced, loading/blocked states); removed all local rate/child/GST math and fabricated fallbacks.
+**Verified:** Jest 7/7 (`reservation-quote.service.spec`); live E2E on real API — A DLX ₹5,900, B STE ₹7,900 (BAR default), GST 12% from tax_rules (CGST/SGST), C DLX 2+2 rejected, D STE 2+2 allowed; quote==created snapshot grandTotal (₹5,900); 3 quotes = 0 writes; inventory +1 on create / −1 on cancel; zero residue. Backend + web tsc/lint clean.
+**QA config:** seeded idempotently via `stayos-api/scripts/seed-qa-config.ts` (BAR 5900/7900, GST ROOM 12% test rule, 6 stay policies, child bands 0-5 FREE/6-11 extra/12-17 adult).
+
+### Local run notes (this session)
+- Postgres 15 reused from `/app/postgres_data` on :5432 (had to recreate ephemeral dirs pg_notify/pg_logical/snapshots etc after resume).
+- Nest API run manually: `cd /app/stayos-api && PORT=3002 npx nest start` → http://localhost:3002/api/v1 (`.env` created). Frontend deps installed (root `npm i`).

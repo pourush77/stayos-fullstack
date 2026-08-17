@@ -80,10 +80,12 @@ export function mapGuestOption(dto: GuestDto): GuestOption {
 
 export function mapRoomTypeOption(dto: InventoryRoomTypeDto): RoomTypeOption {
   const label = getString(dto, ['name', 'displayName', 'title', 'code'], 'Room Type');
-  const fallbackRate = label.toLowerCase().includes('suite') ? 6500 : label.toLowerCase().includes('deluxe') ? 3500 : 2800;
   const maxOccupancy = getNumber(dto, ['maxOccupancy', 'capacity', 'maxGuests', 'occupancy'], label.toLowerCase().includes('suite') ? 4 : 3);
   return {
-    baseRate: getNumber(dto, ['baseRate', 'base_rate', 'rate', 'nightlyRate', 'price'], fallbackRate),
+    // Rate is NOT carried on the room-type record. Authoritative pricing comes
+    // from the backend reservation quote endpoint. baseRate is retained only as
+    // a neutral 0 for legacy consumers and must never be shown as a price.
+    baseRate: getNumber(dto, ['baseRate', 'base_rate', 'rate', 'nightlyRate', 'price'], 0),
     capacity: maxOccupancy,
     id: getString(dto, ['id', '_id', 'uuid', 'roomTypeId'], label.toLowerCase().replace(/[^a-z0-9]+/g, '-')),
     label,
@@ -173,6 +175,7 @@ export function formValuesToPayload(values: BookingFormValues) {
     guestId: values.guestId,
     notes: values.notes.trim() || undefined,
     paymentStatus: values.paymentStatus,
+    ratePlanId: values.ratePlanId || undefined,
     roomTypeId: values.roomTypeId,
     source: values.source,
     specialRequests: values.specialRequests.trim() || 'None',

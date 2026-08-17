@@ -49,6 +49,7 @@ export type BookingFormValues = {
   notes: string;
   paymentStatus: BookingPaymentStatus;
   roomTypeId: string;
+  ratePlanId?: string;
   source: BookingSource;
   specialRequests: string;
   deposit?: {

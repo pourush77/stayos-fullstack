@@ -128,6 +128,72 @@ export function updatePropertyReservation(
   });
 }
 
+export type ReservationQuoteInput = {
+  arrivalDate: string;
+  departureDate: string;
+  adults: number;
+  children?: number;
+  childAges?: number[];
+  roomTypeId: string;
+  ratePlanId?: string;
+};
+
+export type ReservationQuoteTaxComponent = { name: string; rate: string; amount: string };
+
+export type ReservationQuoteDto = {
+  pricingStatus: 'PRICED' | 'UNPRICED';
+  currency: 'INR';
+  ratePlan: { id: string; code: string } | null;
+  roomType: {
+    id: string;
+    code: string;
+    name: string;
+    baseOccupancy: number;
+    maxOccupancy: number;
+    maxAdults: number;
+    maxChildren: number;
+  };
+  occupancy: Record<string, unknown>;
+  nights: number;
+  roomCharges: string;
+  extraAdultCharges: string;
+  childCharges: string;
+  taxableSubtotal: string;
+  tax: {
+    applied: boolean;
+    hsnSac: string | null;
+    placeOfSupply: string;
+    totalRate: string;
+    totalTax: string;
+    components: ReservationQuoteTaxComponent[];
+    taxRuleId: string | null;
+  };
+  grandTotal: string;
+  deposit: {
+    policyType: string;
+    policyValue: number;
+    required: boolean;
+    suggestedAmount: string;
+    basis: string;
+  };
+  childPricing: { lines: unknown[]; limitations: string[] };
+  policies: Record<string, unknown>;
+  blocker: string | null;
+};
+
+/** Backend-authoritative pricing quote for the individual booking flow. */
+export function quoteReservation(
+  propertyId: string,
+  payload: ReservationQuoteInput,
+  signal?: AbortSignal,
+) {
+  return request<ReservationQuoteDto>(`/properties/${propertyId}/reservations/quote`, {
+    body: JSON.stringify(payload),
+    method: 'POST',
+    signal,
+  });
+}
+
 export function cancelReservation(propertyId: string, reservationId: string, signal?: AbortSignal) {
   // Backend currently supports cancellation through the standard reservation update endpoint.
   // Keeping this helper preserves the semantic API used by the booking hooks without

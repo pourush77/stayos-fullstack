@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Alert, Badge, Box, Button, Card, Group, NumberInput, Paper, Stack, Text, Title } from '@mantine/core';
@@ -10,6 +10,7 @@ import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
 import { getPropertyRoomTypes } from '../../lib/inventory-api';
 import { getAvailableRooms } from '../../lib/operations-api';
+import { quoteReservation, type ReservationQuoteDto } from '../../lib/reservation-api';
 import { getProperties } from '../../lib/guest-api';
 import { mapRoomTypeOption } from './utils/booking-mappers';
 import type { RoomTypeOption } from './types/booking.types';
@@ -51,8 +52,10 @@ export function AvailabilityPage() {
   const router = useRouter();
   const backend = useBackendStatus();
   const [propertyId, setPropertyId] = useState('');
+  const [propertyName, setPropertyName] = useState('this hotel');
   const [roomTypes, setRoomTypes] = useState<RoomTypeOption[]>([]);
   const [availability, setAvailability] = useState<Record<string, number>>({});
+  const [quotes, setQuotes] = useState<Record<string, ReservationQuoteDto | null>>({});
   const [dateRange, setDateRange] = useState<[Date | null, Date | null]>(() => {
     const start = today();
     const end = new Date(start.getTime() + 86_400_000);
@@ -76,6 +79,13 @@ export function AvailabilityPage() {
         const id = typeof active?.id === 'string' ? active.id : '';
         if (!id) throw new Error('No active property.');
         setPropertyId(id);
+        const name =
+          typeof active?.name === 'string'
+            ? active.name
+            : typeof active?.displayName === 'string'
+              ? active.displayName
+              : 'this hotel';
+        setPropertyName(name);
         const rts = await getPropertyRoomTypes(id, controller.signal);
         setRoomTypes(rts.map(mapRoomTypeOption));
       } catch {
@@ -112,7 +122,37 @@ export function AvailabilityPage() {
     return () => controller.abort();
   }, [propertyId, arrivalDate, departureDate, adults, children]);
 
-  const propertyName = useMemo(() => 'The Oberoi Grand', []);
+  // Backend-authoritative quote per room type — the same pricing the booking
+  // form and created reservation use. No local rate math.
+  useEffect(() => {
+    if (!propertyId || nights <= 0 || roomTypes.length === 0) {
+      setQuotes({});
+      return;
+    }
+    const controller = new AbortController();
+    let cancelled = false;
+    void Promise.all(
+      roomTypes.map(async (roomType) => {
+        try {
+          const quote = await quoteReservation(
+            propertyId,
+            { arrivalDate, departureDate, adults, children, roomTypeId: roomType.id },
+            controller.signal,
+          );
+          return [roomType.id, quote] as const;
+        } catch {
+          return [roomType.id, null] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled || controller.signal.aborted) return;
+      setQuotes(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [propertyId, arrivalDate, departureDate, adults, children, roomTypes]);
 
   if (!backend.isOnline && backend.status === 'SERVER_STARTING') return <ServerStarting onAction={() => void backend.retry()} onCheckStatus={() => void backend.checkHealth()} />;
   if (!backend.isOnline && backend.status !== 'CONNECTING') return <BackendUnavailable onAction={() => void backend.retry()} onCheckStatus={() => void backend.checkHealth()} />;
@@ -129,8 +169,14 @@ export function AvailabilityPage() {
   };
 
   const copyQuote = async (roomType: RoomTypeOption) => {
-    const total = roomType.baseRate * nights;
-    const message = `Hi! Here's your quote for ${propertyName}:\n${roomType.label} - ${formatShortDate(arrivalDate)} to ${formatShortDate(departureDate)} (${nights} night${nights === 1 ? '' : 's'})\n${formatCurrency(roomType.baseRate)}/night - Total ${formatCurrency(total)}\nReply YES to hold this rate.`;
+    const quote = quotes[roomType.id];
+    if (!quote || quote.pricingStatus !== 'PRICED') {
+      showToast({ color: 'red', title: 'No live rate', message: 'This room type has no price for these dates yet.' });
+      return;
+    }
+    const perNight = quote.nights > 0 ? Number(quote.roomCharges) / quote.nights : 0;
+    const total = Number(quote.grandTotal);
+    const message = `Hi! Here's your quote for ${propertyName}:\n${roomType.label} - ${formatShortDate(arrivalDate)} to ${formatShortDate(departureDate)} (${nights} night${nights === 1 ? '' : 's'})\n${formatCurrency(perNight)}/night - Total ${formatCurrency(total)} incl. GST\nReply YES to hold this rate.`;
     try {
       await navigator.clipboard.writeText(message);
       showToast({ color: 'green', title: 'Quote copied', message: 'Paste it into WhatsApp or SMS.' });
@@ -210,7 +256,11 @@ export function AvailabilityPage() {
           {roomTypes.map((roomType) => {
             const available = availability[roomType.id] ?? 0;
             const soldOut = nights > 0 && available === 0 && !isLoading;
-            const total = roomType.baseRate * nights;
+            const quote = quotes[roomType.id];
+            const priced = quote?.pricingStatus === 'PRICED';
+            const perNight = priced && quote.nights > 0 ? Number(quote.roomCharges) / quote.nights : 0;
+            const total = priced ? Number(quote.grandTotal) : 0;
+            const rateReady = nights > 0 && Boolean(quote);
             return (
               <Card
                 key={roomType.id}
@@ -249,8 +299,13 @@ export function AvailabilityPage() {
                         ) : null}
                       </Group>
                       <Text c="#64748b" size="sm">
-                        {formatCurrency(roomType.baseRate)} / night
-                        {nights > 0 ? ` - Total ${formatCurrency(total)} for ${nights} night${nights === 1 ? '' : 's'}` : ''}
+                        {nights === 0
+                          ? 'Pick dates to see the live rate'
+                          : !rateReady
+                            ? 'Pricing…'
+                            : priced
+                              ? `${formatCurrency(perNight)} / night - Total ${formatCurrency(total)} incl. GST for ${nights} night${nights === 1 ? '' : 's'}`
+                              : 'Rate on request for this occupancy'}
                       </Text>
                     </Stack>
                   </Group>
@@ -262,7 +317,7 @@ export function AvailabilityPage() {
                       leftSection={<Copy size={14} />}
                       size="sm"
                       onClick={() => void copyQuote(roomType)}
-                      disabled={nights === 0}
+                      disabled={nights === 0 || !priced}
                       data-testid={`availability-quote-${roomType.id}`}
                     >
                       Copy quote

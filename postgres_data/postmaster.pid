@@ -1,8 +1,8 @@
-3745
+5633
 /app/postgres_data
-1786940208
+1786992324
 5432
-/tmp
+/var/run/postgresql
 localhost
-   131496         5
+   393757         6
 ready   

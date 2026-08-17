@@ -24,6 +24,7 @@ import { ReservationsService } from './reservations.service';
 import { CheckInService } from './services/check-in.service';
 import { ReservationWorkflowService } from './services/reservation-workflow.service';
 import { ReservationPricingService } from './services/reservation-pricing.service';
+import { ReservationQuoteService } from './services/reservation-quote.service';
 import { ReservationRateSnapshotService } from './services/reservation-rate-snapshot.service';
 import { StaysController } from './stays.controller';
 
@@ -57,6 +58,7 @@ import { StaysController } from './stays.controller';
     ReservationsService,
     ReservationWorkflowService,
     ReservationPricingService,
+    ReservationQuoteService,
     ReservationRateSnapshotService,
     CheckInService,
     MobileCaptureService,

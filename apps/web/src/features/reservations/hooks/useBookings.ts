@@ -170,7 +170,7 @@ export function useBookings({
             isLoading: false,
             roomTypes: [
               {
-                baseRate: 3500,
+                baseRate: 0,
                 capacity: 3,
                 id: 'deluxe',
                 label: 'Deluxe',
@@ -179,7 +179,7 @@ export function useBookings({
                 maxOccupancy: 3,
               },
               {
-                baseRate: 6500,
+                baseRate: 0,
                 capacity: 4,
                 id: 'suite',
                 label: 'Suite',
@@ -347,7 +347,7 @@ export function useBookingDetails({
             isLoading: false,
             roomTypes: [
               {
-                baseRate: 3500,
+                baseRate: 0,
                 capacity: 3,
                 id: 'deluxe',
                 label: 'Deluxe',
@@ -356,7 +356,7 @@ export function useBookingDetails({
                 maxOccupancy: 3,
               },
               {
-                baseRate: 6500,
+                baseRate: 0,
                 capacity: 4,
                 id: 'suite',
                 label: 'Suite',

@@ -37,3 +37,9 @@ sudo supervisorctl restart stayos_api
 ```
 
 > NOTE: In this environment the StayOS API runs on port 3001 (http://localhost:3001/api/v1), not 8001.
+
+## F1 session (2026-08-17)
+- Postgres reused from `/app/postgres_data` on `localhost:5432` (recreate ephemeral dirs after pod resume: `pg_notify pg_stat_tmp pg_serial pg_snapshots pg_logical/snapshots pg_logical/mappings` then start with `sudo -u postgres /usr/lib/postgresql/15/bin/pg_ctl -D /app/postgres_data start`).
+- Nest API (this session) runs on **:3002** → `http://localhost:3002/api/v1` (`stayos-api/.env` PORT=3002). Login: `admin@stayos.local` / `Password123!` (token at `data.accessToken`).
+- Property Hillston Resort (HILLSTON_IND) id: `9d0680c0-89b0-41d5-ae06-b08cd7bedeae`.
+- QA baseline config seeded via `cd /app/stayos-api && npx ts-node -r tsconfig-paths/register -r dotenv/config scripts/seed-qa-config.ts` (idempotent).
