@@ -25,8 +25,8 @@ All demo users share the password **`Password123!`**.
 - Frontend Next.js: `localhost:3000` (supervisor: `frontend`)
 
 ## URLs
-- Frontend: `https://group-booking-fix-1.preview.emergentagent.com`
-- API: `https://group-booking-fix-1.preview.emergentagent.com/api/v1`
+- Frontend: `https://pms-integration-fix.preview.emergentagent.com`
+- API: `https://pms-integration-fix.preview.emergentagent.com/api/v1`
 
 ## Recovering after a DB reset
 ```bash
