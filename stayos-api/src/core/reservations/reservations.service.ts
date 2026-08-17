@@ -9,7 +9,6 @@ import { In, LessThan, MoreThan, Not, QueryFailedError, Repository, DataSource }
 import {
   createPaginationMeta,
   PaginationMeta,
-  PaginationQueryDto,
   paginateQuery,
 } from '../../common/dto/pagination.dto';
 import { ActivityEventEntity } from '../activity/infrastructure/activity-event.entity';
@@ -18,6 +17,7 @@ import { PropertiesService } from '../properties/properties.service';
 import { RoomTypeEntity } from '../room-types/infrastructure/room-type.entity';
 import { RoomEntity } from '../rooms/infrastructure/room.entity';
 import { CreateReservationDto } from './dto/create-reservation.dto';
+import { ListReservationsQueryDto } from './dto/list-reservations-query.dto';
 import { UpdateReservationDto } from './dto/update-reservation.dto';
 import { ReservationPaymentStatus } from './domain/reservation-payment-status.enum';
 import { ReservationStatus } from './domain/reservation-status.enum';
@@ -86,7 +86,7 @@ export class ReservationsService {
     private readonly restrictionService: RestrictionService,
   ) {}
 
-  async findAll(propertyId: string, query: PaginationQueryDto): Promise<PaginatedReservations> {
+  async findAll(propertyId: string, query: ListReservationsQueryDto): Promise<PaginatedReservations> {
     await this.propertiesService.findOne(propertyId);
 
     const sortColumn = this.resolveSortColumn(query.sortBy);
@@ -111,6 +111,18 @@ export class ReservationsService {
         ].join(' OR ')})`,
         { search: `%${query.search}%` },
       );
+    }
+
+    // Property-scoped provenance filters (1C-d3). Read-only — no inventory/
+    // pricing/restriction side effects. sourceProvider is normalized (uppercase)
+    // by the DTO to match the stored value. Legacy source values still filter.
+    if (query.source) {
+      qb.andWhere('reservation.source = :source', { source: query.source });
+    }
+    if (query.sourceProvider) {
+      qb.andWhere('reservation.sourceProvider = :sourceProvider', {
+        sourceProvider: query.sourceProvider,
+      });
     }
 
     if (!pagination) {
@@ -369,6 +381,14 @@ export class ReservationsService {
   ): Promise<ReservationEntity> {
     const reservation = await this.findOne(propertyId, id);
 
+    // Write-once externalConfirmationId (1C-d3). Resolved BEFORE any work so a
+    // change/clear attempt fails fast with a controlled domain error and no
+    // side effects. `undefined` => leave untouched.
+    const confirmationToAttach = this.resolveExternalConfirmationWriteOnce(
+      reservation,
+      updateReservationDto,
+    );
+
     const arrivalDate = updateReservationDto.arrivalDate ?? reservation.arrivalDate;
     const departureDate = updateReservationDto.departureDate ?? reservation.departureDate;
     const children = updateReservationDto.children ?? reservation.children;
@@ -486,6 +506,13 @@ export class ReservationsService {
         updatedReservation.roomType = references.roomType;
         updatedReservation.room = references.room;
         updatedReservation.roomId = references.room ? references.room.id : null;
+
+        // Attach the write-once external confirmation number (only when
+        // transitioning from NULL -> value; validated above). Operational
+        // metadata: never triggers restriction/pricing/snapshot/inventory.
+        if (confirmationToAttach !== undefined) {
+          updatedReservation.externalConfirmationId = confirmationToAttach;
+        }
 
         await reservationRepository.save(updatedReservation);
 
@@ -716,11 +743,46 @@ export class ReservationsService {
     };
   }
 
+  /**
+   * Write-once resolution for externalConfirmationId. Returns the value to
+   * ATTACH (string) when transitioning NULL -> value, or `undefined` when there
+   * is nothing to change (field absent, or an idempotent no-op). Throws a
+   * controlled 409 EXTERNAL_CONFIRMATION_IMMUTABLE on any attempt to CHANGE or
+   * CLEAR an already-set value. Never makes source/provider/externalReservationId
+   * editable — this only governs externalConfirmationId.
+   */
+  private resolveExternalConfirmationWriteOnce(
+    reservation: ReservationEntity,
+    dto: UpdateReservationDto,
+  ): string | undefined {
+    if (!('externalConfirmationId' in dto)) return undefined;
+
+    const incoming = dto.externalConfirmationId ?? null;
+    const existing = reservation.externalConfirmationId ?? null;
+
+    if (existing !== null) {
+      // Already set: only the identical value is tolerated (idempotent retry).
+      if (incoming !== existing) {
+        throw new ConflictException({
+          code: ApiErrorCode.EXTERNAL_CONFIRMATION_IMMUTABLE,
+          message: 'externalConfirmationId is write-once and cannot be changed or cleared once set',
+        });
+      }
+      return undefined;
+    }
+
+    // Currently NULL: attach a value; NULL -> NULL is a no-op.
+    return incoming ?? undefined;
+  }
+
   private toUpdatePersistenceFields(dto: UpdateReservationDto): Partial<ReservationEntity> {
     const fields = { ...dto } as UpdateReservationDto & {
       reservationCode?: string;
     };
     delete fields.reservationCode;
+    // externalConfirmationId is write-once and handled explicitly in update();
+    // never let it flow through the generic merge.
+    delete fields.externalConfirmationId;
 
     const persistenceFields: Partial<ReservationEntity> = { ...fields };
 

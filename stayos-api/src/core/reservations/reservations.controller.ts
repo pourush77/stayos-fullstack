@@ -19,6 +19,7 @@ import {
   ApiStandardOkResponse,
 } from '../../common/decorators/api-standard-response.decorator';
 import { CreateReservationDto } from './dto/create-reservation.dto';
+import { ListReservationsQueryDto } from './dto/list-reservations-query.dto';
 import { AssignRoomDto } from './dto/assign-room.dto';
 import { CheckInWorkspaceResponseDto } from './dto/check-in-workspace-response.dto';
 import { ExtendReservationDto } from './dto/extend-reservation.dto';
@@ -58,7 +59,7 @@ export class ReservationsController {
   @ApiNotFoundResponse({ description: 'Property not found' })
   async findAll(
     @Param('propertyId', ParseUUIDPipe) propertyId: string,
-    @Query() query: PaginationQueryDto,
+    @Query() query: ListReservationsQueryDto,
   ): Promise<ReservationListResponse> {
     const result = await this.reservationsService.findAll(propertyId, query);
 

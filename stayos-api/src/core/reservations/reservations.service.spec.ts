@@ -795,6 +795,58 @@ describe('ReservationsService', () => {
     expect(reservationRateSnapshotService.amend).not.toHaveBeenCalled();
   });
 
+  describe('externalConfirmationId write-once (1C-d3)', () => {
+    const baseRes = (over = {}) => ({
+      ...reservationEntity,
+      status: ReservationStatus.CONFIRMED,
+      arrivalDate: '2026-07-10',
+      departureDate: '2026-07-12',
+      ...over,
+    });
+
+    beforeEach(() => {
+      reservationsRepository.merge?.mockImplementation((r, u) => ({ ...r, ...u }));
+      reservationsRepository.save?.mockImplementation(async (r) => r);
+    });
+
+    it('attaches externalConfirmationId when currently NULL (operational, no restriction/amend)', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(baseRes({ externalConfirmationId: null }));
+      await service.update(propertyId, reservationId, { externalConfirmationId: 'CONF-1' });
+      expect(reservationsRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ externalConfirmationId: 'CONF-1' }),
+      );
+      expect(restrictionService.assertAmendmentSellable).not.toHaveBeenCalled();
+      expect(reservationRateSnapshotService.amend).not.toHaveBeenCalled();
+    });
+
+    it('accepts an idempotent retry with the SAME confirmation value (no error)', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(baseRes({ externalConfirmationId: 'CONF-1' }));
+      await expect(
+        service.update(propertyId, reservationId, { externalConfirmationId: 'CONF-1' }),
+      ).resolves.toBeDefined();
+    });
+
+    it('rejects CHANGING an already-set confirmation value with 409 EXTERNAL_CONFIRMATION_IMMUTABLE', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(baseRes({ externalConfirmationId: 'CONF-1' }));
+      const err = await service
+        .update(propertyId, reservationId, { externalConfirmationId: 'CONF-2' })
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(err.getResponse()).toMatchObject({ code: 'EXTERNAL_CONFIRMATION_IMMUTABLE' });
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects CLEARING an already-set confirmation value (null) with 409', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(baseRes({ externalConfirmationId: 'CONF-1' }));
+      const err = await service
+        .update(propertyId, reservationId, { externalConfirmationId: null } as never)
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+  });
+
+
 
 
   it('gets a reservation by id within the property', async () => {
