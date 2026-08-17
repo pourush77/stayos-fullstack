@@ -1000,6 +1000,15 @@ export class ReservationWorkflowService {
     manager: EntityManager,
     reservation: ReservationEntity,
   ): Promise<void> {
+    // Accounting-integrity guard: a stay extension always re-prices into a new
+    // snapshot version. Block it when the folio is settled (billing can no
+    // longer reconcile it). Runs BEFORE amend so the extension rolls back
+    // together with a controlled 409.
+    await this.billingService.assertCommercialAmendmentAllowedOnManager(
+      manager,
+      reservation.propertyId,
+      reservation.id,
+    );
     const amendResult = await this.reservationRateSnapshotService.amend(
       manager,
       reservation,

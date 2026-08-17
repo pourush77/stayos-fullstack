@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -124,6 +125,7 @@ export class BillingService {
     propertyId: string,
     reservation: ReservationEntity,
     activeSnapshot: ReservationRateSnapshotEntity | null,
+    actorUserId?: string | null,
   ): Promise<void> {
     if (!activeSnapshot) return;
     const snap = (activeSnapshot.snapshot ?? {}) as {
@@ -155,6 +157,7 @@ export class BillingService {
         amount: fromCents(grandTotalCents),
         taxAmount: roomTax.taxAmount,
         chargedAt: new Date(),
+        createdByUserId: actorUserId ?? null,
       }),
     );
   }
@@ -250,8 +253,36 @@ export class BillingService {
       );
       await repo.update({ id: original.id }, { status: FolioChargeStatus.REVERSED });
     }
-    await this.generateRoomChargesFromSnapshot(manager, existingFolio.id, propertyId, reservation, active);
+    await this.generateRoomChargesFromSnapshot(manager, existingFolio.id, propertyId, reservation, active, actorUserId);
     await folioRepo.update({ id: existingFolio.id }, { updatedAt: new Date() });
+  }
+
+  /**
+   * Guard: a commercial amendment that WOULD create a new pricing snapshot must
+   * not proceed against a financially closed (SETTLED) folio, because billing
+   * can no longer reconcile it — reconcileRoomChargesOnManager only touches OPEN
+   * folios, so the settled folio would silently drift onto a stale snapshot
+   * version. We hard-block with a controlled domain 409 instead of reopening or
+   * mutating settled history. VOID folios and OPEN folios do not block; a
+   * reservation with no folio is always allowed. Centralized + manager-aware so
+   * a future authorized reopen / credit-note workflow (Phase 1D-d/1F) can relax
+   * this single rule without touching every amendment call site.
+   */
+  async assertCommercialAmendmentAllowedOnManager(
+    manager: EntityManager,
+    propertyId: string,
+    reservationId: string,
+  ): Promise<void> {
+    const folio = await manager
+      .getRepository(FolioEntity)
+      .findOne({ where: { reservationId, propertyId } });
+    if (folio && folio.status === FolioStatus.SETTLED) {
+      throw new ConflictException({
+        code: 'FOLIO_SETTLED_AMENDMENT_BLOCKED',
+        message:
+          'Cannot amend commercial terms while the folio is settled. Reopen the folio or issue a credit note first.',
+      });
+    }
   }
 
   async addCharge(

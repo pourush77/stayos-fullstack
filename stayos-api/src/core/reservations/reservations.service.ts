@@ -552,6 +552,10 @@ export class ReservationsService {
         // A commercial no-op creates no version. Runs in THIS transaction so
         // pricing + inventory + reservation commit/roll back together.
         if (commercialChanged && reservation.rateSnapshotVersion != null) {
+          // Accounting-integrity guard: block a new pricing snapshot when the
+          // folio is settled (billing can no longer reconcile it). Runs BEFORE
+          // amend so the whole amendment rolls back with a controlled 409.
+          await this.billingService.assertCommercialAmendmentAllowedOnManager(manager, propertyId, id);
           const amendResult = await this.reservationRateSnapshotService.amend(
             manager,
             updatedReservation,

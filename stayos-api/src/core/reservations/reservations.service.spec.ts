@@ -141,6 +141,7 @@ describe('ReservationsService', () => {
   };
   const billingService = {
     reconcileRoomChargesOnManager: jest.fn().mockResolvedValue(undefined),
+    assertCommercialAmendmentAllowedOnManager: jest.fn().mockResolvedValue(undefined),
   };
   const reservationRateSnapshotService = {
     computeCommercialHash: jest.fn(
@@ -760,6 +761,13 @@ describe('ReservationsService', () => {
     // commercial amendment created a new ACTIVE snapshot version -> the OPEN
     // folio's snapshot-driven ROOM charges are auto-reconciled in the same txn.
     expect(billingService.reconcileRoomChargesOnManager).toHaveBeenCalledTimes(1);
+    // settled-folio accounting-integrity guard runs before the amend.
+    expect(billingService.assertCommercialAmendmentAllowedOnManager).toHaveBeenCalledTimes(1);
+    expect(billingService.assertCommercialAmendmentAllowedOnManager).toHaveBeenCalledWith(
+      expect.anything(),
+      propertyId,
+      reservationId,
+    );
     expect(billingService.reconcileRoomChargesOnManager).toHaveBeenCalledWith(
       expect.anything(),
       propertyId,
@@ -769,11 +777,14 @@ describe('ReservationsService', () => {
     // operational-only edit -> no restriction validation
     restrictionService.assertAmendmentSellable.mockClear();
     billingService.reconcileRoomChargesOnManager.mockClear();
+    billingService.assertCommercialAmendmentAllowedOnManager.mockClear();
     reservationsRepository.findOne?.mockResolvedValue(res);
     await service.update(propertyId, reservationId, { notes: 'front desk note' });
     expect(restrictionService.assertAmendmentSellable).not.toHaveBeenCalled();
     // operational no-op -> no folio reconciliation triggered.
     expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
+    // operational-only edit does not create a snapshot -> settled-folio guard skipped.
+    expect(billingService.assertCommercialAmendmentAllowedOnManager).not.toHaveBeenCalled();
   });
 
   it('propagates a RESTRICTION_VIOLATION from a commercial amendment (rollback, no amend)', async () => {
@@ -790,6 +801,24 @@ describe('ReservationsService', () => {
     expect(err.getStatus()).toBe(422);
     expect(reservationRateSnapshotService.amend).not.toHaveBeenCalled();
     // restriction gate fails before amend -> no folio reconciliation.
+    expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
+  });
+
+  it('blocks a commercial amendment with a controlled 409 when the folio is settled (no amend, no reconcile)', async () => {
+    const res = { ...reservationEntity, arrivalDate: '2026-07-10', departureDate: '2026-07-12', status: ReservationStatus.CONFIRMED, rateSnapshotVersion: 1 };
+    reservationsRepository.findOne?.mockResolvedValue(res);
+    reservationsRepository.merge?.mockImplementation((r, u) => ({ ...r, ...u }));
+    reservationsRepository.save?.mockImplementation(async (r) => r);
+    billingService.assertCommercialAmendmentAllowedOnManager.mockRejectedValueOnce(
+      new ConflictException({ code: 'FOLIO_SETTLED_AMENDMENT_BLOCKED', message: 'settled' }),
+    );
+
+    const err = await service.update(propertyId, reservationId, { departureDate: '2026-07-14' }).catch((e) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(err.getStatus()).toBe(409);
+    expect(err.getResponse().code).toBe('FOLIO_SETTLED_AMENDMENT_BLOCKED');
+    // guard fails before amend -> neither snapshot version nor folio changes.
+    expect(reservationRateSnapshotService.amend).not.toHaveBeenCalled();
     expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
   });
 

@@ -1,4 +1,4 @@
-import { BadRequestException, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { ActivityEventEntity } from '../../activity/infrastructure/activity-event.entity';
 import { AuditEventEntity } from '../../audit/infrastructure/audit-event.entity';
@@ -153,6 +153,7 @@ describe('ReservationWorkflowService', () => {
   };
   let billingService: {
     reconcileRoomChargesOnManager: jest.Mock;
+    assertCommercialAmendmentAllowedOnManager: jest.Mock;
   };
 
   beforeEach(() => {
@@ -162,6 +163,7 @@ describe('ReservationWorkflowService', () => {
     };
     billingService = {
       reconcileRoomChargesOnManager: jest.fn().mockResolvedValue(undefined),
+      assertCommercialAmendmentAllowedOnManager: jest.fn().mockResolvedValue(undefined),
     };
     reservationsRepository = {
       findOne: jest.fn().mockResolvedValue(reservationEntity()),
@@ -574,6 +576,29 @@ describe('ReservationWorkflowService', () => {
       await service.extendStay(propertyId, reservationId, { departureDate: '2026-07-18' });
 
       expect(rateSnapshotService.amend).toHaveBeenCalledTimes(1);
+      expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
+    });
+
+    it('blocks the extension with a controlled 409 when the folio is settled (no amend, no reconcile)', async () => {
+      billingService.assertCommercialAmendmentAllowedOnManager.mockRejectedValueOnce(
+        new ConflictException({ code: 'FOLIO_SETTLED_AMENDMENT_BLOCKED', message: 'settled' }),
+      );
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ roomId, status: ReservationStatus.CHECKED_IN }),
+      );
+      roomsRepository.findOne?.mockResolvedValue(
+        roomEntity({ operationalStatus: RoomOperationalStatus.OCCUPIED }),
+      );
+
+      const err = await service
+        .extendStay(propertyId, reservationId, { departureDate: '2026-07-18' })
+        .catch((e) => e);
+
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(err.getStatus()).toBe(409);
+      expect(err.getResponse().code).toBe('FOLIO_SETTLED_AMENDMENT_BLOCKED');
+      // guard runs before amend -> neither snapshot version nor folio changes.
+      expect(rateSnapshotService.amend).not.toHaveBeenCalled();
       expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
     });
 
