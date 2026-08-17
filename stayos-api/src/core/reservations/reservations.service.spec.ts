@@ -249,6 +249,36 @@ describe('ReservationsService', () => {
     );
   });
 
+  it('defaults source to FRONT_DESK when omitted and accepts a canonical CHANNEL source', async () => {
+    reservationsRepository.create?.mockImplementation((input) => input);
+    reservationsRepository.save?.mockImplementation(async (input) => input);
+
+    await service.create(propertyId, {
+      guestId,
+      arrivalDate: '2026-07-15',
+      departureDate: '2026-07-17',
+      adults: 2,
+      roomTypeId,
+    });
+    expect(reservationsRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ source: ReservationSource.FRONT_DESK }),
+    );
+
+    reservationsRepository.create?.mockClear();
+    await service.create(propertyId, {
+      guestId,
+      arrivalDate: '2026-07-15',
+      departureDate: '2026-07-17',
+      adults: 2,
+      roomTypeId,
+      source: ReservationSource.CHANNEL,
+    });
+    expect(reservationsRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ source: ReservationSource.CHANNEL }),
+    );
+  });
+
+
   it('reserves exactly one inventory unit per stay night when creating a consuming reservation', async () => {
     reservationsRepository.create?.mockImplementation((input) => input);
     reservationsRepository.save?.mockImplementation(async (input) => input);

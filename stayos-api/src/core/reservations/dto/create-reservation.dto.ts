@@ -62,7 +62,7 @@ export class CreateReservationDto {
   @IsUUID()
   ratePlanId?: string;
 
-  @ApiPropertyOptional({ enum: ReservationSource, default: ReservationSource.DIRECT })
+  @ApiPropertyOptional({ enum: ReservationSource, default: ReservationSource.FRONT_DESK })
   @IsOptional()
   @IsEnum(ReservationSource)
   source?: ReservationSource;

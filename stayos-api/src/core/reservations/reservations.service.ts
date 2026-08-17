@@ -21,6 +21,7 @@ import { CreateReservationDto } from './dto/create-reservation.dto';
 import { UpdateReservationDto } from './dto/update-reservation.dto';
 import { ReservationPaymentStatus } from './domain/reservation-payment-status.enum';
 import { ReservationStatus } from './domain/reservation-status.enum';
+import { ReservationSource } from './domain/reservation-source.enum';
 import { GuestDocumentEntity } from './check-in-capture/guest-document.entity';
 import { ReservationEntity } from './infrastructure/reservation.entity';
 import { RoomOperationalStatus } from '../rooms/domain/room-operational-status.enum';
@@ -659,6 +660,7 @@ export class ReservationsService {
 
     return {
       ...fields,
+      source: dto.source ?? ReservationSource.FRONT_DESK,
       children: dto.children ?? 0,
       childAges: dto.children && dto.children > 0 ? (dto.childAges ?? null) : null,
       roomId: dto.roomId ?? null,
