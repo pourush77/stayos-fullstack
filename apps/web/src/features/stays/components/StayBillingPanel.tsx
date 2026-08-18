@@ -10,6 +10,7 @@ import type { Folio } from '../../billing/types/billing.types';
 type Props = {
   canView: boolean;
   canManage: boolean;
+  canRefund: boolean;
   propertyId: string;
   reservationId: string;
   reloadSignal?: number;
@@ -19,6 +20,7 @@ type Props = {
 export function StayBillingPanel({
   canView,
   canManage,
+  canRefund,
   propertyId,
   reloadSignal,
   reservationId,
@@ -88,6 +90,7 @@ export function StayBillingPanel({
         folio={folio}
         propertyId={propertyId}
         canManage={canManage}
+        canRefund={canRefund}
         onFolioChanged={(next) => {
           setFolio(next);
           onFolioChanged?.(next);

@@ -436,6 +436,7 @@ function OperationalSections({
   billingReloadSignal,
   canManageBilling,
   canViewBilling,
+  canRefundBilling,
   billingSectionRef,
   guestServicesRef,
   focusedRequestId,
@@ -452,6 +453,7 @@ function OperationalSections({
   billingReloadSignal: number;
   canManageBilling: boolean;
   canViewBilling: boolean;
+  canRefundBilling: boolean;
   billingSectionRef: RefObject<HTMLDivElement | null>;
   guestServicesRef: RefObject<HTMLDivElement | null>;
   focusedRequestId?: string | null;
@@ -688,6 +690,7 @@ function OperationalSections({
           {billingReservationId && billingPropertyId ? (
             <StayBillingPanel
               canManage={canManageBilling}
+              canRefund={canRefundBilling}
               canView={canViewBilling}
               propertyId={billingPropertyId}
               reloadSignal={billingReloadSignal}
@@ -1197,6 +1200,7 @@ export default function StayWorkspace() {
   const permissions = auth.user?.permissions ?? [];
   const canViewBilling = permissions.includes('billing.view') || permissions.includes('*');
   const canManageBilling = permissions.includes('billing.manage') || permissions.includes('*');
+  const canRefundBilling = permissions.includes('billing.refund') || permissions.includes('*');
   const enabled =
     backend.isOnline ||
     (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
@@ -1532,6 +1536,7 @@ export default function StayWorkspace() {
         onMoveRoom={() => void openMoveRoom()}
         onRequestTransition={changeRequestStatus}
         requests={guestRequests}
+        canRefundBilling={canRefundBilling}
         stay={stay}
       />
 

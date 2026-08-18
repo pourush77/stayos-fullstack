@@ -66,7 +66,13 @@ export class BillingService {
     await this.propertiesService.findOne(propertyId);
     const folio = await this.foliosRepository.findOne({
       where: { id: folioId, propertyId },
-      relations: { property: true, guest: true, reservation: { room: true }, charges: true, payments: true },
+      relations: {
+        property: true,
+        guest: true,
+        reservation: { room: true },
+        charges: true,
+        payments: true,
+      },
     });
     if (!folio) throw new NotFoundException(`Folio ${folioId} was not found`);
     return folio;
@@ -101,14 +107,22 @@ export class BillingService {
           currency: 'INR',
         }),
       );
-      await this.generateRoomChargesFromSnapshot(manager, created.id, propertyId, reservation, activeSnapshot);
+      await this.generateRoomChargesFromSnapshot(
+        manager,
+        created.id,
+        propertyId,
+        reservation,
+        activeSnapshot,
+      );
       return created;
     });
 
     return this.getFolio(propertyId, folio.id);
   }
 
-  private async loadActiveSnapshot(reservationId: string): Promise<ReservationRateSnapshotEntity | null> {
+  private async loadActiveSnapshot(
+    reservationId: string,
+  ): Promise<ReservationRateSnapshotEntity | null> {
     return this.snapshotsRepository.findOne({
       where: { reservationId, status: ReservationRateSnapshotStatus.ACTIVE },
     });
@@ -141,9 +155,10 @@ export class BillingService {
     const grandTotalCents = toCents(snap.totals?.grandTotal);
     if (grandTotalCents <= 0) return;
 
-    const nights = Array.isArray(snap.nights) && snap.nights.length > 0
-      ? snap.nights.length
-      : this.calculateNights(reservation.arrivalDate, reservation.departureDate);
+    const nights =
+      Array.isArray(snap.nights) && snap.nights.length > 0
+        ? snap.nights.length
+        : this.calculateNights(reservation.arrivalDate, reservation.departureDate);
     const unitCents = nights > 0 ? Math.round(grandTotalCents / nights) : grandTotalCents;
     // GST on accommodation: place of supply is legally the hotel's location, so
     // ROOM is ALWAYS intra-state (CGST + SGST). The per-night rate drives the
@@ -224,9 +239,13 @@ export class BillingService {
     reservationId: string,
     actorUserId?: string | null,
   ): Promise<FolioEntity> {
-    const reservation = await this.reservationsRepository.findOne({ where: { id: reservationId, propertyId } });
+    const reservation = await this.reservationsRepository.findOne({
+      where: { id: reservationId, propertyId },
+    });
     if (!reservation) throw new NotFoundException(`Reservation ${reservationId} was not found`);
-    const existingFolio = await this.foliosRepository.findOne({ where: { reservationId, propertyId } });
+    const existingFolio = await this.foliosRepository.findOne({
+      where: { reservationId, propertyId },
+    });
     if (!existingFolio) throw new NotFoundException('No folio exists for this reservation');
     const folio = await this.getFolio(propertyId, existingFolio.id);
     if (folio.status !== FolioStatus.OPEN) {
@@ -271,14 +290,22 @@ export class BillingService {
     const active = await manager.getRepository(ReservationRateSnapshotEntity).findOne({
       where: { reservationId, status: ReservationRateSnapshotStatus.ACTIVE },
     });
-    if (!active || (active.snapshot as { pricingStatus?: string })?.pricingStatus !== 'PRICED') return;
+    if (!active || (active.snapshot as { pricingStatus?: string })?.pricingStatus !== 'PRICED')
+      return;
 
     const repo = manager.getRepository(FolioChargeEntity);
     const livePosted = await repo.find({
-      where: { folioId: existingFolio.id, type: FolioChargeType.ROOM, status: FolioChargeStatus.POSTED },
+      where: {
+        folioId: existingFolio.id,
+        type: FolioChargeType.ROOM,
+        status: FolioChargeStatus.POSTED,
+      },
     });
     const snapshotDriven = livePosted.filter((c) => c.rateSnapshotId != null);
-    if (snapshotDriven.length > 0 && snapshotDriven.every((c) => c.rateSnapshotVersion === active.version)) {
+    if (
+      snapshotDriven.length > 0 &&
+      snapshotDriven.every((c) => c.rateSnapshotVersion === active.version)
+    ) {
       return; // idempotent: already at ACTIVE version
     }
 
@@ -304,7 +331,14 @@ export class BillingService {
       );
       await repo.update({ id: original.id }, { status: FolioChargeStatus.REVERSED });
     }
-    await this.generateRoomChargesFromSnapshot(manager, existingFolio.id, propertyId, reservation, active, actorUserId);
+    await this.generateRoomChargesFromSnapshot(
+      manager,
+      existingFolio.id,
+      propertyId,
+      reservation,
+      active,
+      actorUserId,
+    );
     await folioRepo.update({ id: existingFolio.id }, { updatedAt: new Date() });
   }
 
@@ -450,7 +484,13 @@ export class BillingService {
           currency: 'INR',
         }),
       );
-      await this.generateRoomChargesFromSnapshot(manager, folio.id, propertyId, reservation, activeSnapshot);
+      await this.generateRoomChargesFromSnapshot(
+        manager,
+        folio.id,
+        propertyId,
+        reservation,
+        activeSnapshot,
+      );
       folio = await folioRepo.findOne({
         where: { id: folio.id },
         relations: { property: true, guest: true },
@@ -503,7 +543,6 @@ export class BillingService {
     await folioRepo.update({ id: folio!.id }, { updatedAt: new Date() });
   }
 
-
   /**
    * Reverses a POSTED charge WITHOUT destroying history: flips the original to
    * REVERSED and inserts a REVERSAL row with negated amount/tax pointing at it.
@@ -539,7 +578,10 @@ export class BillingService {
           type: original.type,
           status: FolioChargeStatus.REVERSAL,
           reversalOfChargeId: original.id,
-          description: `Reversal: ${original.description}${reason ? ` (${reason})` : ''}`.slice(0, 160),
+          description: `Reversal: ${original.description}${reason ? ` (${reason})` : ''}`.slice(
+            0,
+            160,
+          ),
           quantity: original.quantity,
           unitAmount: (-toCents(original.unitAmount) / 100).toFixed(2),
           amount: (-toCents(original.amount) / 100).toFixed(2),
@@ -566,25 +608,50 @@ export class BillingService {
     const amountCents = this.parsePositiveCents(dto.amount, 'Payment amount');
     const receivedAt = dto.receivedAt ? new Date(dto.receivedAt) : new Date();
 
-    // Transaction + row lock serializes concurrent payments on the same folio
-    // and keeps the derived balance/status consistent. No nested transaction.
+    // Transaction + row lock serializes concurrent payments on the same folio.
+    // This is important because the outstanding balance must be checked against
+    // the latest committed financial state before accepting another payment.
     return this.dataSource.transaction(async (manager) => {
       const folio = await this.lockFolio(manager, propertyId, folioId);
+
       if (folio.status !== FolioStatus.OPEN) {
-        throw new BadRequestException(`Cannot record payments on a ${folio.status.toLowerCase()} folio`);
+        throw new BadRequestException(
+          `Cannot record payments on a ${folio.status.toLowerCase()} folio`,
+        );
       }
+
       const paymentsRepo = manager.getRepository(FolioPaymentEntity);
 
+      // Preserve idempotency semantics before validating the current balance.
+      // A retry of an already-successful request must return the existing result
+      // rather than fail because that original payment reduced the balance.
       if (dto.idempotencyKey) {
         const existing = await paymentsRepo.findOne({
           where: { folioId, idempotencyKey: dto.idempotencyKey },
         });
-        if (existing) return this.getFolioOnManager(manager, propertyId, folioId);
+
+        if (existing) {
+          return this.getFolioOnManager(manager, propertyId, folioId);
+        }
       }
 
-      // Overpayment is allowed and explicit: it produces a credit (negative)
-      // balance surfaced in totals; it is never silently discarded and blocks
-      // settlement until refunded.
+      // StayOS does not currently support guest-credit / overpayment balances.
+      // Validate against the live balance while holding the folio row lock so
+      // concurrent payment attempts cannot both consume the same outstanding
+      // amount.
+      const totals = await this.computeTotalsOnManager(manager, folioId);
+      const outstandingCents = toCents(totals.balance);
+
+      if (outstandingCents <= 0) {
+        throw new BadRequestException('This folio has no outstanding balance');
+      }
+
+      if (amountCents > outstandingCents) {
+        throw new BadRequestException(
+          `Payment amount cannot exceed the outstanding balance of ${fromCents(outstandingCents)}`,
+        );
+      }
+
       const payment = paymentsRepo.create({
         folioId,
         type: FolioPaymentType.PAYMENT,
@@ -596,16 +663,19 @@ export class BillingService {
         receivedAt,
         receivedByUserId: actorUserId ?? null,
       });
+
       try {
         await paymentsRepo.save(payment);
       } catch (error) {
         if (this.isUniqueViolation(error)) {
           return this.getFolioOnManager(manager, propertyId, folioId);
         }
+
         throw error;
       }
 
       await this.refreshReservationPaymentStatus(manager, propertyId, folio.reservationId);
+
       return this.getFolioOnManager(manager, propertyId, folioId);
     });
   }
@@ -623,7 +693,9 @@ export class BillingService {
     return this.dataSource.transaction(async (manager) => {
       const folio = await this.lockFolio(manager, propertyId, folioId);
       if (folio.status !== FolioStatus.OPEN) {
-        throw new BadRequestException(`Cannot record refunds on a ${folio.status.toLowerCase()} folio`);
+        throw new BadRequestException(
+          `Cannot record refunds on a ${folio.status.toLowerCase()} folio`,
+        );
       }
       const paymentsRepo = manager.getRepository(FolioPaymentEntity);
 
@@ -647,7 +719,10 @@ export class BillingService {
         where: { folioId, reversalOfPaymentId: original.id },
       });
       const originalCents = toCents(original.amount);
-      const alreadyRefundedCents = priorRefunds.reduce((s, r) => s + Math.abs(toCents(r.amount)), 0);
+      const alreadyRefundedCents = priorRefunds.reduce(
+        (s, r) => s + Math.abs(toCents(r.amount)),
+        0,
+      );
       const remainingCents = originalCents - alreadyRefundedCents;
       if (amountCents > remainingCents) {
         throw new BadRequestException(
@@ -685,7 +760,8 @@ export class BillingService {
     await this.propertiesService.findOne(propertyId);
     return this.dataSource.transaction(async (manager) => {
       const folio = await this.lockFolio(manager, propertyId, folioId);
-      if (folio.status === FolioStatus.SETTLED) return this.getFolioOnManager(manager, propertyId, folioId);
+      if (folio.status === FolioStatus.SETTLED)
+        return this.getFolioOnManager(manager, propertyId, folioId);
       if (folio.status === FolioStatus.VOID) {
         throw new BadRequestException('Voided folios cannot be settled');
       }
@@ -700,14 +776,15 @@ export class BillingService {
           `Folio has an unrefunded credit balance of ${totals.creditBalance}. Refund the excess before settlement.`,
         );
       }
-      await manager.getRepository(FolioEntity).update(
-        { id: folioId },
-        { status: FolioStatus.SETTLED, settledAt: new Date() },
-      );
-      await manager.getRepository(ReservationEntity).update(
-        { id: folio.reservationId, propertyId },
-        { paymentStatus: ReservationPaymentStatus.PAID },
-      );
+      await manager
+        .getRepository(FolioEntity)
+        .update({ id: folioId }, { status: FolioStatus.SETTLED, settledAt: new Date() });
+      await manager
+        .getRepository(ReservationEntity)
+        .update(
+          { id: folio.reservationId, propertyId },
+          { paymentStatus: ReservationPaymentStatus.PAID },
+        );
       return this.getFolioOnManager(manager, propertyId, folioId);
     });
   }
@@ -733,10 +810,22 @@ export class BillingService {
   ): Promise<FolioEntity> {
     const folio = await manager.getRepository(FolioEntity).findOne({
       where: { id: folioId, propertyId },
-      relations: { property: true, guest: true, reservation: { room: true }, charges: true, payments: true },
+      relations: {
+        property: true,
+        guest: true,
+        reservation: { room: true },
+        charges: true,
+        payments: true,
+      },
     });
     if (!folio) throw new NotFoundException(`Folio ${folioId} was not found`);
     return folio;
+  }
+
+  async getFolioTotals(propertyId: string, folioId: string) {
+    const folio = await this.getFolio(propertyId, folioId);
+
+    return calculateTotals(folio.charges ?? [], folio.payments ?? []);
   }
 
   private async computeTotalsOnManager(manager: EntityManager, folioId: string) {
@@ -754,14 +843,17 @@ export class BillingService {
   ): Promise<void> {
     const totals = await this.computeTotalsOnManager(
       manager,
-      (await manager.getRepository(FolioEntity).findOne({ where: { reservationId, propertyId } }))!.id,
+      (await manager.getRepository(FolioEntity).findOne({ where: { reservationId, propertyId } }))!
+        .id,
     );
     const balanceCents = toCents(totals.balance);
     const paidCents = toCents(totals.paid);
     let paymentStatus: ReservationPaymentStatus = ReservationPaymentStatus.PAYMENT_DUE;
     if (balanceCents <= 0 && paidCents > 0) paymentStatus = ReservationPaymentStatus.PAID;
     else if (paidCents > 0) paymentStatus = ReservationPaymentStatus.PARTIALLY_PAID;
-    await manager.getRepository(ReservationEntity).update({ id: reservationId, propertyId }, { paymentStatus });
+    await manager
+      .getRepository(ReservationEntity)
+      .update({ id: reservationId, propertyId }, { paymentStatus });
   }
 
   private parsePositiveCents(value: string, label: string): number {
@@ -780,10 +872,7 @@ export class BillingService {
     const arr = new Date(arrival);
     const dep = new Date(departure);
     if (Number.isNaN(arr.getTime()) || Number.isNaN(dep.getTime())) return 0;
-    return Math.max(
-      0,
-      Math.round((dep.getTime() - arr.getTime()) / (1000 * 60 * 60 * 24)),
-    );
+    return Math.max(0, Math.round((dep.getTime() - arr.getTime()) / (1000 * 60 * 60 * 24)));
   }
 
   private async nextFolioNumber(propertyId: string): Promise<string> {

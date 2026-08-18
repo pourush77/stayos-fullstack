@@ -7,11 +7,16 @@ import type {
   FolioStatus,
 } from '../types/billing.types';
 
-type ApiResponse<T> = { data?: T; message?: string; success?: boolean };
+type ApiResponse<T> = {
+  data?: T;
+  message?: string;
+  success?: boolean;
+};
 
 export class BillingApiError extends Error {
   status: number;
   code?: string;
+
   constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = 'BillingApiError';
@@ -19,6 +24,16 @@ export class BillingApiError extends Error {
     this.code = code;
   }
 }
+
+export type CreateRefundPayload = {
+  originalPaymentId: string;
+  amount: string;
+  method?: CreatePaymentPayload['method'];
+  reference?: string;
+  notes?: string;
+  receivedAt?: string;
+  idempotencyKey?: string;
+};
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -29,6 +44,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       ...init.headers,
     },
   });
+
   const body = (await response.json().catch(() => undefined)) as ApiResponse<T> | undefined;
 
   if (!response.ok) {
@@ -36,10 +52,22 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       body?.message ??
       (body && (body as { error?: { message?: string } }).error?.message) ??
       `Billing request failed: ${response.status}`;
+
     const code =
-      body && (body as { code?: string; error?: { code?: string } }).code
+      body &&
+      (
+        body as {
+          code?: string;
+          error?: { code?: string };
+        }
+      ).code
         ? (body as { code?: string }).code
-        : (body as { error?: { code?: string } })?.error?.code;
+        : (
+            body as {
+              error?: { code?: string };
+            }
+          )?.error?.code;
+
     throw new BillingApiError(String(message), response.status, code);
   }
 
@@ -58,7 +86,10 @@ export function listFolios(
   signal?: AbortSignal,
 ): Promise<Folio[]> {
   const query = filters?.status ? `?status=${encodeURIComponent(filters.status)}` : '';
-  return request<Folio[]>(`/properties/${propertyId}/folios${query}`, { signal });
+
+  return request<Folio[]>(`/properties/${propertyId}/folios${query}`, {
+    signal,
+  });
 }
 
 export function getFolio(
@@ -66,7 +97,9 @@ export function getFolio(
   folioId: string,
   signal?: AbortSignal,
 ): Promise<Folio> {
-  return request<Folio>(`/properties/${propertyId}/folios/${folioId}`, { signal });
+  return request<Folio>(`/properties/${propertyId}/folios/${folioId}`, {
+    signal,
+  });
 }
 
 export function getFolioForReservation(
@@ -101,25 +134,55 @@ export function addPayment(
   });
 }
 
+export function addRefund(
+  propertyId: string,
+  folioId: string,
+  payload: CreateRefundPayload,
+): Promise<Folio> {
+  return request<Folio>(`/properties/${propertyId}/folios/${folioId}/refunds`, {
+    method: 'POST',
+    body: JSON.stringify(cleanPayload(payload as Record<string, unknown>)),
+  });
+}
+
 export function settleFolio(propertyId: string, folioId: string): Promise<Folio> {
   return request<Folio>(`/properties/${propertyId}/folios/${folioId}/settle`, {
     method: 'POST',
   });
 }
 
-export function getRazorpayConfig(propertyId: string, folioId: string): Promise<{ configured: boolean }> {
-  return request<{ configured: boolean }>(`/properties/${propertyId}/folios/${folioId}/razorpay/config`);
+export function getRazorpayConfig(
+  propertyId: string,
+  folioId: string,
+): Promise<{ configured: boolean }> {
+  return request<{ configured: boolean }>(
+    `/properties/${propertyId}/folios/${folioId}/razorpay/config`,
+  );
 }
 
 export function createRazorpayOrder(
   propertyId: string,
   folioId: string,
-  payload: { amount: string; reservationId?: string; guestName?: string },
-): Promise<{ orderId: string; keyId: string; amount: number; currency: string }> {
-  return request<{ orderId: string; keyId: string; amount: number; currency: string }>(
-    `/properties/${propertyId}/folios/${folioId}/razorpay/order`,
-    { method: 'POST', body: JSON.stringify(payload) },
-  );
+  payload: {
+    amount: string;
+    reservationId?: string;
+    guestName?: string;
+  },
+): Promise<{
+  orderId: string;
+  keyId: string;
+  amount: number;
+  currency: string;
+}> {
+  return request<{
+    orderId: string;
+    keyId: string;
+    amount: number;
+    currency: string;
+  }>(`/properties/${propertyId}/folios/${folioId}/razorpay/order`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 export function verifyRazorpayPayment(
@@ -138,7 +201,11 @@ export function verifyRazorpayPayment(
   });
 }
 
-export function getPaymentReceiptUrl(propertyId: string, folioId: string, paymentId: string): string {
+export function getPaymentReceiptUrl(
+  propertyId: string,
+  folioId: string,
+  paymentId: string,
+): string {
   return `${API_BASE_URL}/properties/${propertyId}/folios/${folioId}/payments/${paymentId}/receipt.pdf`;
 }
 
@@ -150,7 +217,9 @@ export function getBillingOverview(
   propertyId: string,
   signal?: AbortSignal,
 ): Promise<BillingOverview> {
-  return request<BillingOverview>(`/properties/${propertyId}/billing/overview`, { signal });
+  return request<BillingOverview>(`/properties/${propertyId}/billing/overview`, {
+    signal,
+  });
 }
 
 export function friendlyBillingError(error: unknown): string {
@@ -158,15 +227,26 @@ export function friendlyBillingError(error: unknown): string {
     if (error.status === 403 || error.code === 'FORBIDDEN') {
       return 'You do not have permission to manage billing.';
     }
-    if (error.status === 400) return error.message;
-    if (error.status === 404) return 'Folio or reservation not found.';
+
+    if (error.status === 400) {
+      return error.message;
+    }
+
+    if (error.status === 404) {
+      return 'Folio or reservation not found.';
+    }
   }
+
   return 'Unable to complete billing request. Please try again.';
 }
 
 export function formatCurrency(amount: string | number, currency = 'INR'): string {
   const value = typeof amount === 'number' ? amount : Number(amount);
-  if (!Number.isFinite(value)) return '-';
+
+  if (!Number.isFinite(value)) {
+    return '-';
+  }
+
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency,

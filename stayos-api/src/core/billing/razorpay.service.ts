@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Razorpay from 'razorpay';
 import { createHmac, timingSafeEqual } from 'crypto';
@@ -16,7 +22,9 @@ export class RazorpayService {
     if (this.keyId && this.keySecret) {
       this.client = new Razorpay({ key_id: this.keyId, key_secret: this.keySecret });
     } else {
-      this.logger.warn('Razorpay keys not configured — /razorpay endpoints will return 501 until RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are set in stayos-api/.env');
+      this.logger.warn(
+        'Razorpay keys not configured — /razorpay endpoints will return 501 until RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are set in stayos-api/.env',
+      );
     }
   }
 
@@ -28,7 +36,8 @@ export class RazorpayService {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException({
         code: 'RAZORPAY_NOT_CONFIGURED',
-        message: 'Online payments are not enabled. Please collect payment via cash, card or UPI at reception, or ask your admin to configure Razorpay.',
+        message:
+          'Online payments are not enabled. Please collect payment via cash, card or UPI at reception, or ask your admin to configure Razorpay.',
       });
     }
   }
@@ -61,6 +70,57 @@ export class RazorpayService {
     return { orderId: order.id, keyId: this.keyId!, amount: amountPaise, currency: 'INR' };
   }
 
+  async getVerifiedPayment(params: {
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+  }): Promise<{
+    amount: string;
+    amountPaise: number;
+    currency: string;
+    status: string;
+  }> {
+    this.ensureConfigured();
+
+    const payment = await this.client!.payments.fetch(params.razorpay_payment_id);
+
+    if (payment.order_id !== params.razorpay_order_id) {
+      throw new BadRequestException({
+        code: 'RAZORPAY_ORDER_MISMATCH',
+        message: 'Razorpay payment does not belong to the supplied order.',
+      });
+    }
+
+    if (payment.currency !== 'INR') {
+      throw new BadRequestException({
+        code: 'RAZORPAY_CURRENCY_MISMATCH',
+        message: 'Razorpay payment currency must be INR.',
+      });
+    }
+
+    if (payment.status !== 'captured') {
+      throw new BadRequestException({
+        code: 'RAZORPAY_PAYMENT_NOT_CAPTURED',
+        message: 'Razorpay payment has not been captured.',
+      });
+    }
+
+    const amountPaise = Number(payment.amount);
+
+    if (!Number.isInteger(amountPaise) || amountPaise <= 0) {
+      throw new BadRequestException({
+        code: 'RAZORPAY_PAYMENT_AMOUNT_INVALID',
+        message: 'Razorpay returned an invalid payment amount.',
+      });
+    }
+
+    return {
+      amount: (amountPaise / 100).toFixed(2),
+      amountPaise,
+      currency: payment.currency,
+      status: payment.status,
+    };
+  }
+
   verifySignature(params: {
     razorpay_order_id: string;
     razorpay_payment_id: string;
@@ -72,7 +132,10 @@ export class RazorpayService {
     const a = Buffer.from(expected, 'hex');
     const b = Buffer.from(params.razorpay_signature, 'hex');
     if (a.length !== b.length || !timingSafeEqual(a, b)) {
-      throw new UnauthorizedException({ code: 'RAZORPAY_SIGNATURE_INVALID', message: 'Signature verification failed.' });
+      throw new UnauthorizedException({
+        code: 'RAZORPAY_SIGNATURE_INVALID',
+        message: 'Signature verification failed.',
+      });
     }
   }
 }

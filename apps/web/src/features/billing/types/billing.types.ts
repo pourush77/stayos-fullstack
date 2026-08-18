@@ -1,22 +1,11 @@
 export type FolioStatus = 'OPEN' | 'SETTLED' | 'VOID';
 
 export type FolioChargeType =
-  | 'ROOM'
-  | 'FOOD_AND_BEVERAGE'
-  | 'MINIBAR'
-  | 'LAUNDRY'
-  | 'SPA'
-  | 'TAX'
-  | 'DISCOUNT'
-  | 'MISC';
+  'ROOM' | 'FOOD_AND_BEVERAGE' | 'MINIBAR' | 'LAUNDRY' | 'SPA' | 'TAX' | 'DISCOUNT' | 'MISC';
 
-export type FolioPaymentMethod =
-  | 'CASH'
-  | 'CARD'
-  | 'UPI'
-  | 'BANK_TRANSFER'
-  | 'WALLET'
-  | 'OTHER';
+export type FolioPaymentMethod = 'CASH' | 'CARD' | 'UPI' | 'BANK_TRANSFER' | 'WALLET' | 'OTHER';
+
+export type FolioPaymentType = 'PAYMENT' | 'REFUND';
 
 export type FolioCharge = {
   id: string;
@@ -36,7 +25,24 @@ export type FolioPayment = {
   id: string;
   folioId: string;
   method: FolioPaymentMethod;
+
+  /**
+   * PAYMENT rows contain a positive amount.
+   * REFUND rows contain a negative amount.
+   */
   amount: string;
+
+  /**
+   * Ledger direction.
+   */
+  type: FolioPaymentType;
+
+  /**
+   * For REFUND rows, points to the original PAYMENT.
+   * Null for normal payment rows.
+   */
+  reversalOfPaymentId: string | null;
+
   reference: string | null;
   notes: string | null;
   receivedAt: string;

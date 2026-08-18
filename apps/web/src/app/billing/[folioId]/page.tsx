@@ -109,6 +109,8 @@ export default function FolioDetailPage() {
   const canView = hasPermission(auth.user?.permissions, 'billing.view');
   const canManage = hasPermission(auth.user?.permissions, 'billing.manage');
 
+  const canRefund = hasPermission(auth.user?.permissions, 'billing.refund');
+
   const [folio, setFolio] = useState<Folio | undefined>();
   const [isLoading, setIsLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -253,6 +255,7 @@ export default function FolioDetailPage() {
           folio={folio}
           propertyId={propertyId}
           canManage={canManage}
+          canRefund={canRefund}
           onFolioChanged={setFolio}
         />
       ) : null}

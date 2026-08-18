@@ -9,6 +9,7 @@ import {
   Query,
   Req,
   Res,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
@@ -347,8 +348,25 @@ export class BillingController {
     @Param('folioId', new ParseUUIDPipe()) folioId: string,
     @Body() dto: { amount: string; reservationId?: string; guestName?: string },
   ) {
-    // Validate folio exists + belongs to property (uses existing service which throws NotFound).
-    await this.billingService.getFolio(propertyId, folioId);
+    const totals = await this.billingService.getFolioTotals(propertyId, folioId);
+
+    const requestedAmount = Number(dto.amount);
+    const outstandingBalance = Number(totals.balance);
+
+    if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+      throw new BadRequestException('Payment amount must be greater than 0');
+    }
+
+    if (outstandingBalance <= 0) {
+      throw new BadRequestException('This folio has no outstanding balance');
+    }
+
+    if (requestedAmount > outstandingBalance) {
+      throw new BadRequestException(
+        `Payment amount cannot exceed the outstanding balance of ${totals.balance}`,
+      );
+    }
+
     return this.razorpayService.createOrder({
       amount: dto.amount,
       folioId,
@@ -368,7 +386,6 @@ export class BillingController {
       razorpay_order_id: string;
       razorpay_payment_id: string;
       razorpay_signature: string;
-      amount: string;
     },
     @Req() req: AuthRequest,
   ): Promise<FolioResponseDto> {
@@ -377,18 +394,25 @@ export class BillingController {
       razorpay_payment_id: dto.razorpay_payment_id,
       razorpay_signature: dto.razorpay_signature,
     });
-    // Record the payment against the folio via the existing service.
+
+    const verifiedPayment = await this.razorpayService.getVerifiedPayment({
+      razorpay_order_id: dto.razorpay_order_id,
+      razorpay_payment_id: dto.razorpay_payment_id,
+    });
+
     const folio = await this.billingService.addPayment(
       propertyId,
       folioId,
       {
-        amount: dto.amount,
+        amount: verifiedPayment.amount,
         method: FolioPaymentMethod.CARD,
         reference: dto.razorpay_payment_id,
         notes: `Razorpay order ${dto.razorpay_order_id}`,
+        idempotencyKey: `razorpay:${dto.razorpay_payment_id}`,
       } as CreateFolioPaymentDto,
       req.user?.id ?? null,
     );
+
     return BillingMapper.toResponse(folio);
   }
 }
