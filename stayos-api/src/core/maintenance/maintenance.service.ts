@@ -193,6 +193,12 @@ export class MaintenanceService {
   ): Promise<MaintenanceTicketResponseDto> {
     const ticket = await this.findTicket(propertyId, ticketId, false);
 
+    if (ticket.status === MaintenanceTicketStatus.RESOLVED) {
+      // Idempotent: a retried resolve must not re-run the room sync and knock a
+      // room that housekeeping has already progressed back to NEEDS_CLEANING.
+      return this.findOne(propertyId, ticketId);
+    }
+
     if (ticket.status === MaintenanceTicketStatus.CANCELLED) {
       throw new BadRequestException({
         code: 'INVALID_STATE',
@@ -219,6 +225,11 @@ export class MaintenanceService {
 
   async cancel(propertyId: string, ticketId: string): Promise<MaintenanceTicketResponseDto> {
     const ticket = await this.findTicket(propertyId, ticketId, false);
+
+    if (ticket.status === MaintenanceTicketStatus.CANCELLED) {
+      // Idempotent: a retried cancel must not re-run the room sync.
+      return this.findOne(propertyId, ticketId);
+    }
 
     if (ticket.status === MaintenanceTicketStatus.RESOLVED) {
       throw new BadRequestException({

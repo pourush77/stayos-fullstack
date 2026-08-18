@@ -188,7 +188,7 @@ describe('MaintenanceService', () => {
     });
     ticketsRepository.findOne
       ?.mockResolvedValueOnce(
-        ticketEntity({ status: MaintenanceTicketStatus.RESOLVED, makesRoomUnavailable: true }),
+        ticketEntity({ status: MaintenanceTicketStatus.IN_PROGRESS, makesRoomUnavailable: true }),
       )
       .mockResolvedValueOnce(null);
 
@@ -199,6 +199,21 @@ describe('MaintenanceService', () => {
       roomId,
       'Replaced fixture.',
     );
+  });
+
+  it('is idempotent: re-resolving an already-resolved ticket does not re-sync the room', async () => {
+    ticketsRepository.findOne
+      ?.mockResolvedValueOnce(
+        ticketEntity({ status: MaintenanceTicketStatus.RESOLVED, makesRoomUnavailable: true }),
+      )
+      .mockResolvedValueOnce(
+        ticketEntity({ status: MaintenanceTicketStatus.RESOLVED, makesRoomUnavailable: true }),
+      );
+
+    await service.resolve(propertyId, ticketId, { resolutionNote: 'again' });
+
+    expect(roomsService.returnToHousekeeping).not.toHaveBeenCalled();
+    expect(roomsRepository.save).not.toHaveBeenCalled();
   });
 
   it('keeps a room in maintenance while another blocking ticket remains active', async () => {
