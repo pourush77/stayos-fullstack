@@ -6,6 +6,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { PermissionsGuard } from './guards/permissions.guard';
+import { PropertyAccessGuard } from './guards/property-access.guard';
 import { UserSessionEntity } from './infrastructure/user-session.entity';
 import { UserEntity } from './infrastructure/user.entity';
 import { JwtStrategy } from './jwt.strategy';
@@ -22,8 +23,24 @@ import { UsersController } from './users.controller';
     JwtStrategy,
     PasswordService,
     RefreshTokenService,
-    { provide: APP_GUARD, useClass: JwtAuthGuard },
-    { provide: APP_GUARD, useClass: PermissionsGuard },
+
+    // 1. Authenticate the request and populate request.currentUser.
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+
+    // 2. Enforce property isolation for routes containing :propertyId.
+    {
+      provide: APP_GUARD,
+      useClass: PropertyAccessGuard,
+    },
+
+    // 3. Enforce endpoint-level permissions.
+    {
+      provide: APP_GUARD,
+      useClass: PermissionsGuard,
+    },
   ],
   exports: [AuthService],
 })
