@@ -23,3 +23,7 @@ credentials.json
 *.pem
 *.key
 .credentials
+
+# Local database backups
+backups/
+*.dump
