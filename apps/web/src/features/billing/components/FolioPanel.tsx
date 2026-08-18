@@ -277,6 +277,7 @@ function PaymentModal({
     amount: string;
     reference?: string;
     notes?: string;
+    idempotencyKey?: string;
   }) => Promise<void>;
   opened: boolean;
   submitting: boolean;
@@ -291,6 +292,7 @@ function PaymentModal({
   const [error, setError] = useState<string | undefined>();
   const [razorpayEnabled, setRazorpayEnabled] = useState(false);
   const [isRazorpaying, setIsRazorpaying] = useState(false);
+  const [idempotencyKey, setIdempotencyKey] = useState('');
 
   useEffect(() => {
     if (opened) {
@@ -299,6 +301,12 @@ function PaymentModal({
       setReference('');
       setNotes('');
       setError(undefined);
+      // Stable per-intent key so a double-click / retry can't post duplicate money.
+      setIdempotencyKey(
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `pay-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      );
       // check Razorpay config
       getRazorpayConfig(propertyId, folioId)
         .then((cfg) => setRazorpayEnabled(Boolean(cfg?.configured)))
@@ -388,6 +396,7 @@ function PaymentModal({
             amount: amount.toFixed(2),
             reference: reference.trim() || undefined,
             notes: notes.trim() || undefined,
+            idempotencyKey: idempotencyKey || undefined,
           });
         }}
       >
@@ -512,7 +521,11 @@ export function FolioPanel({
   const balance = useMemo(() => Number(current.totals.balance), [current.totals.balance]);
   const isSettled = current.status === 'SETTLED';
   const isVoid = current.status === 'VOID';
-  const canGenerateFinalBill = !isVoid && balance <= 0.01 && current.payments.length > 0;
+  const isOverpaid = balance < -0.01;
+  const isExactZero = Math.abs(balance) <= 0.01;
+  // Settlement requires an EXACT zero balance (backend blocks credit); mirror that
+  // in the UI so an overpaid folio cannot attempt to settle.
+  const canGenerateFinalBill = !isVoid && isExactZero && current.payments.length > 0;
 
   const handleAddCharge = async (payload: {
     type: FolioChargeType;
@@ -668,10 +681,17 @@ export function FolioPanel({
             </Box>
             <Box>
               <Text c="#64748b" size="xs" fw={700} tt="uppercase">
-                Balance
+                {isOverpaid ? 'Credit (Overpaid)' : 'Balance'}
               </Text>
-              <Text c={balance > 0 ? '#c92a2a' : '#0f8f4b'} fw={800} size="lg">
-                {formatCurrency(current.totals.balance)}
+              <Text
+                c={balance > 0.01 ? '#c92a2a' : isOverpaid ? '#6536b5' : '#0f8f4b'}
+                fw={800}
+                size="lg"
+                data-testid="folio-balance"
+              >
+                {isOverpaid
+                  ? `${formatCurrency(Math.abs(balance))} credit`
+                  : formatCurrency(current.totals.balance)}
               </Text>
             </Box>
           </Group>
@@ -760,7 +780,7 @@ export function FolioPanel({
             <Button
               color="green"
               data-testid="folio-settle"
-              disabled={balance > 0.01 || isSettled}
+              disabled={!isExactZero || isSettled}
               leftSection={<Wallet size={16} />}
               onClick={() => void handleSettle()}
               loading={submitting}

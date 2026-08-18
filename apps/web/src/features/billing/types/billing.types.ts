@@ -113,4 +113,5 @@ export type CreatePaymentPayload = {
   reference?: string;
   notes?: string;
   receivedAt?: string;
+  idempotencyKey?: string;
 };
