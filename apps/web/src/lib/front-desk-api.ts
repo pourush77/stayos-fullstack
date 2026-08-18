@@ -2,11 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../features/auth/auth-context';
-import {
-  getProperties,
-  getPropertyReservations,
-  type ReservationDto,
-} from './reservation-api';
+import { getProperties, getPropertyReservations, type ReservationDto } from './reservation-api';
 import { getPropertyGuests, type GuestDto } from './guest-api';
 import { getPropertyRooms, type InventoryRoomDto } from './inventory-api';
 
@@ -23,13 +19,7 @@ export type FrontDeskSummary = {
 export type FrontDeskTask = {
   id: string;
   priority: FrontDeskTaskPriority;
-  category:
-    | 'Arrival'
-    | 'Room Ready'
-    | 'VIP'
-    | 'Maintenance'
-    | 'ID Verification'
-    | 'Checkout';
+  category: 'Arrival' | 'Room Ready' | 'VIP' | 'Maintenance' | 'ID Verification' | 'Checkout';
   title: string;
   subtitle: string;
   message: string;
@@ -124,20 +114,39 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
-function todayKey() {
-  return dateKey(new Date());
+function zonedDateKey(date: Date, timeZone: string) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+
+  const lookup: Record<string, string> = {};
+  for (const part of formatter.formatToParts(date)) {
+    if (part.type !== 'literal') {
+      lookup[part.type] = part.value;
+    }
+  }
+
+  return `${lookup.year}-${lookup.month}-${lookup.day}`;
 }
 
-function dateKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
-    date.getDate(),
-  ).padStart(2, '0')}`;
+function todayKey(timeZone: string) {
+  return zonedDateKey(new Date(), timeZone);
 }
 
-function normalizeDate(value: string) {
+function normalizeDate(value: string, timeZone: string) {
   if (!value) return '';
+
+  // Reservation stay dates are date-only domain values. Preserve them exactly
+  // instead of letting the browser timezone shift YYYY-MM-DD through Date parsing.
+  const dateOnlyMatch = /^\d{4}-\d{2}-\d{2}/.exec(value);
+  if (dateOnlyMatch) return dateOnlyMatch[0];
+
   const parsed = new Date(value);
-  if (!Number.isNaN(parsed.getTime())) return dateKey(parsed);
+  if (!Number.isNaN(parsed.getTime())) return zonedDateKey(parsed, timeZone);
+
   return value.slice(0, 10);
 }
 
@@ -167,20 +176,32 @@ function createLookup<T extends Record<string, unknown>>(items: T[]) {
   return new Map(items.map((item) => [getId(item), item] as const).filter(([id]) => id));
 }
 
-function mapReservation(dto: ReservationDto, guests: Map<string, GuestDto>): ReservationView {
-  const guestRecord = getRecord(dto, ['guest', 'guestProfile']) ?? guests.get(getString(dto, ['guestId']));
+function mapReservation(
+  dto: ReservationDto,
+  guests: Map<string, GuestDto>,
+  timeZone: string,
+): ReservationView {
+  const guestRecord =
+    getRecord(dto, ['guest', 'guestProfile']) ?? guests.get(getString(dto, ['guestId']));
   const roomRecord = getRecord(dto, ['room']);
   const roomNumber = getString(roomRecord, ['roomNumber', 'number', 'displayName']);
   const roomId = getString(dto, ['roomId'], getId(roomRecord ?? {}));
-  const arrivalDate = normalizeDate(getString(dto, ['arrivalDate', 'checkInDate', 'startDate']));
-  const departureDate = normalizeDate(getString(dto, ['departureDate', 'checkOutDate', 'endDate']));
+  const arrivalDate = normalizeDate(
+    getString(dto, ['arrivalDate', 'checkInDate', 'startDate']),
+    timeZone,
+  );
+  const departureDate = normalizeDate(
+    getString(dto, ['departureDate', 'checkOutDate', 'endDate']),
+    timeZone,
+  );
   return {
     backendId: getString(dto, ['id', '_id', 'uuid']),
     id: getString(dto, ['reservationCode', 'code', 'bookingCode', 'id', '_id'], 'Reservation'),
     arrivalDate,
     departureDate,
     guestName: guestName(guestRecord),
-    isVip: getBoolean(dto, ['isVip', 'vip']) || getBoolean(guestRecord, ['isVip', 'vip', 'vipStatus']),
+    isVip:
+      getBoolean(dto, ['isVip', 'vip']) || getBoolean(guestRecord, ['isVip', 'vip', 'vipStatus']),
     roomAssigned: Boolean(roomNumber || roomId),
     roomLabel: roomNumber ? `Room ${roomNumber}` : 'Room not assigned',
     status: getString(dto, ['status'], 'CONFIRMED'),
@@ -191,12 +212,21 @@ function mapRoom(dto: InventoryRoomDto): RoomView {
   return {
     id: getId(dto),
     number: getString(dto, ['roomNumber', 'number', 'displayName'], 'Room'),
-    status: normalizeStatus(getString(dto, ['operationalStatus', 'operational_status', 'status'], 'READY')),
+    status: normalizeStatus(
+      getString(dto, ['operationalStatus', 'operational_status', 'status'], 'READY'),
+    ),
   };
 }
 
 function isRoomCleaning(status: string) {
-  return ['DIRTY', 'NEEDS_CLEANING', 'CLEANING', 'CHECKOUT_DIRTY', 'WAITING_GUEST', 'INSPECTION'].includes(status);
+  return [
+    'DIRTY',
+    'NEEDS_CLEANING',
+    'CLEANING',
+    'CHECKOUT_DIRTY',
+    'WAITING_GUEST',
+    'INSPECTION',
+  ].includes(status);
 }
 
 function isRoomReady(status: string) {
@@ -211,9 +241,15 @@ function isRoomMaintenance(status: string) {
   return ['MAINTENANCE', 'OUT_OF_ORDER', 'OUT_OF_SERVICE', 'BLOCKED', 'REPAIR'].includes(status);
 }
 
-function buildSummary(reservations: ReservationView[], rooms: RoomView[]): FrontDeskSummary {
-  const today = todayKey();
-  const reservationGuestsInHouse = reservations.filter((reservation) => isInHouseStatus(reservation.status)).length;
+function buildSummary(
+  reservations: ReservationView[],
+  rooms: RoomView[],
+  timeZone: string,
+): FrontDeskSummary {
+  const today = todayKey(timeZone);
+  const reservationGuestsInHouse = reservations.filter((reservation) =>
+    isInHouseStatus(reservation.status),
+  ).length;
   const occupiedRooms = rooms.filter((room) => isRoomOccupied(room.status)).length;
 
   return {
@@ -228,18 +264,22 @@ function buildSummary(reservations: ReservationView[], rooms: RoomView[]): Front
   };
 }
 
-function minutesUntil(dateKeyValue: string) {
-  if (dateKeyValue !== todayKey()) return undefined;
+function minutesUntil(dateKeyValue: string, timeZone: string) {
+  if (dateKeyValue !== todayKey(timeZone)) return undefined;
   return 18;
 }
 
-function buildTasks(reservations: ReservationView[], rooms: RoomView[]): FrontDeskTask[] {
-  const today = todayKey();
+function buildTasks(
+  reservations: ReservationView[],
+  rooms: RoomView[],
+  timeZone: string,
+): FrontDeskTask[] {
+  const today = todayKey(timeZone);
   const tasks: FrontDeskTask[] = [];
 
   reservations.forEach((reservation) => {
     const isArrivalToday = reservation.arrivalDate === today && isArrivalStatus(reservation.status);
-    const urgency = minutesUntil(reservation.arrivalDate);
+    const urgency = minutesUntil(reservation.arrivalDate, timeZone);
 
     if (isArrivalToday && !reservation.roomAssigned) {
       tasks.push({
@@ -320,25 +360,28 @@ function buildTasks(reservations: ReservationView[], rooms: RoomView[]): FrontDe
 async function getCurrentProperty(
   signal?: AbortSignal,
   preferredPropertyId?: string,
-) {
-  if (preferredPropertyId) return preferredPropertyId;
-
+): Promise<{ propertyId: string; timeZone: string }> {
   const properties = await getProperties(signal);
-  const activeProperty = properties.find((property) => isActiveProperty(property));
-  const propertyId = activeProperty ? getId(activeProperty) : '';
+  const property =
+    (preferredPropertyId
+      ? properties.find((item) => getId(item) === preferredPropertyId)
+      : undefined) ?? properties.find((item) => isActiveProperty(item));
 
-  if (!activeProperty || !propertyId) {
+  const propertyId = property ? getId(property) : '';
+  const timeZone = property ? getString(property, ['timezone'], 'UTC') : 'UTC';
+
+  if (!property || !propertyId) {
     throw new Error('No active property returned from properties API.');
   }
 
-  return propertyId;
+  return { propertyId, timeZone };
 }
 
 async function loadFrontDesk(
   signal?: AbortSignal,
   preferredPropertyId?: string,
 ): Promise<Omit<FrontDeskState, 'isLoading' | 'error'> & { error?: string }> {
-  const propertyId = await getCurrentProperty(signal, preferredPropertyId);
+  const { propertyId, timeZone } = await getCurrentProperty(signal, preferredPropertyId);
   const [reservationResult, roomResult, guestResult] = await Promise.all([
     getPropertyReservations(propertyId, signal).then(
       (reservations): LoadResult<ReservationDto[]> => ({ data: reservations }),
@@ -376,7 +419,7 @@ async function loadFrontDesk(
   ]);
   const guests = createLookup(guestResult.data);
   const reservations = reservationResult.data.map((reservation) =>
-    mapReservation(reservation, guests),
+    mapReservation(reservation, guests, timeZone),
   );
   const rooms = roomResult.data.map(mapRoom);
   const dataErrors = [reservationResult.error, roomResult.error, guestResult.error].filter(Boolean);
@@ -384,8 +427,8 @@ async function loadFrontDesk(
   return {
     error: dataErrors.length > 0 ? dataErrors.join(' ') : undefined,
     propertyId,
-    summary: buildSummary(reservations, rooms),
-    tasks: buildTasks(reservations, rooms),
+    summary: buildSummary(reservations, rooms, timeZone),
+    tasks: buildTasks(reservations, rooms, timeZone),
   };
 }
 
@@ -397,22 +440,30 @@ export function useFrontDeskData(): FrontDeskState & { refreshFrontDesk: () => P
     tasks: [],
   });
 
-  const refreshFrontDesk = useCallback(async (signal?: AbortSignal) => {
-    setState((current) => ({ ...current, error: undefined, isLoading: current.tasks.length === 0 }));
-
-    try {
-      const data = await loadFrontDesk(signal, auth.user?.propertyId);
-      setState({ ...data, isLoading: false });
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') return;
-      console.error('Front Desk dashboard API failed', error);
+  const refreshFrontDesk = useCallback(
+    async (signal?: AbortSignal) => {
       setState((current) => ({
         ...current,
-        error: error instanceof Error ? error.message : 'Front Desk data is temporarily unavailable.',
-        isLoading: false,
+        error: undefined,
+        isLoading: current.tasks.length === 0,
       }));
-    }
-  }, [auth.user?.propertyId]);
+
+      try {
+        const data = await loadFrontDesk(signal, auth.user?.propertyId);
+        setState({ ...data, isLoading: false });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        console.error('Front Desk dashboard API failed', error);
+        setState((current) => ({
+          ...current,
+          error:
+            error instanceof Error ? error.message : 'Front Desk data is temporarily unavailable.',
+          isLoading: false,
+        }));
+      }
+    },
+    [auth.user?.propertyId],
+  );
 
   useEffect(() => {
     const controller = new AbortController();

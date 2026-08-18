@@ -121,7 +121,9 @@ const room = (overrides: Partial<RoomEntity> = {}): RoomEntity => ({
   ...overrides,
 });
 
-const identity = (overrides: Partial<GuestIdentityDocumentEntity> = {}): GuestIdentityDocumentEntity => ({
+const identity = (
+  overrides: Partial<GuestIdentityDocumentEntity> = {},
+): GuestIdentityDocumentEntity => ({
   id: '1075c8fa-f36e-4f40-a3ef-2e9dbb1f0679',
   propertyId,
   property: undefined as never,
@@ -180,9 +182,15 @@ describe('CheckInService', () => {
       transaction: jest.fn((callback) => callback(manager)),
     } as unknown as DataSource;
 
-    service = new CheckInService(dataSource, {
-      resolve: jest.fn().mockResolvedValue(null),
-    } as never);
+    service = new CheckInService(
+      dataSource,
+      {
+        resolve: jest.fn().mockResolvedValue(null),
+      } as never,
+      {
+        resolveForProperty: jest.fn().mockReturnValue('2026-08-18'),
+      } as never,
+    );
   });
 
   it('maps workspace DTO with masked identity only', () => {
@@ -212,7 +220,11 @@ describe('CheckInService', () => {
 
   it('requires passport and visa fields for foreign guest registration completion', () => {
     const workspace = service.toWorkspace({
-      reservation: reservation({ isForeignNational: true, cFormRequired: true, cFormStatus: CFormStatus.PENDING }),
+      reservation: reservation({
+        isForeignNational: true,
+        cFormRequired: true,
+        cFormStatus: CFormStatus.PENDING,
+      }),
       guest: guest({ nationality: 'French', country: 'France' }),
       room: room(),
       identity: identity({ idType: IdentityDocumentType.PASSPORT }),
@@ -237,7 +249,9 @@ describe('CheckInService', () => {
       { actorId: '2075c8fa-f36e-4f40-a3ef-2e9dbb1f0679' },
     );
 
-    expect(identityRepository.save).toHaveBeenCalledWith(expect.objectContaining({ idNumberMasked: '********9012' }));
+    expect(identityRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ idNumberMasked: '********9012' }),
+    );
     expect(workspace.identity.verified).toBe(true);
   });
 
@@ -266,7 +280,9 @@ describe('CheckInService', () => {
       paymentMethod: 'CARD',
     });
 
-    expect(reservationsRepository.save).toHaveBeenCalledWith(expect.objectContaining({ paymentReviewed: true }));
+    expect(reservationsRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentReviewed: true }),
+    );
     expect(workspace.finalChecklist.paymentReviewed).toBe(true);
   });
 

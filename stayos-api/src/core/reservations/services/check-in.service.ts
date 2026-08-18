@@ -30,14 +30,7 @@ import { PolicyResolverService } from '../../policies/policy-resolver.service';
 import { PropertyPolicyType } from '../../policies/domain/property-policy-type.enum';
 import { PolicyChargeMode } from '../../policies/domain/policy-charge-mode.enum';
 import { normalizePolicyCharge } from '../../policies/domain/normalize-policy-charge';
-
-function currentDateKey(date = new Date()): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-
-  return `${year}-${month}-${day}`;
-}
+import { BusinessDateService } from '../../properties/services/business-date.service';
 
 interface ActorContext {
   actorId?: string | null;
@@ -58,6 +51,7 @@ export class CheckInService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly policyResolver: PolicyResolverService,
+    private readonly businessDateService: BusinessDateService,
   ) {}
 
   /**
@@ -85,11 +79,19 @@ export class CheckInService {
       PropertyPolicyType.LATE_CHECKOUT,
       parts.reservation.ratePlanId ?? null,
     );
-    if (!policy || !policy.isActive || !policy.chargeMode || policy.chargeMode === PolicyChargeMode.NONE) {
+    if (
+      !policy ||
+      !policy.isActive ||
+      !policy.chargeMode ||
+      policy.chargeMode === PolicyChargeMode.NONE
+    ) {
       return null;
     }
     const normalized = normalizePolicyCharge(
-      { mode: policy.chargeMode, value: policy.chargeValue != null ? Number(policy.chargeValue) : null },
+      {
+        mode: policy.chargeMode,
+        value: policy.chargeValue != null ? Number(policy.chargeValue) : null,
+      },
       { allowFirstNight: true },
     );
     if (normalized.mode === PolicyChargeMode.NONE) return null;
@@ -124,11 +126,19 @@ export class CheckInService {
       PropertyPolicyType.EARLY_CHECK_IN,
       parts.reservation.ratePlanId ?? null,
     );
-    if (!policy || !policy.isActive || !policy.chargeMode || policy.chargeMode === PolicyChargeMode.NONE) {
+    if (
+      !policy ||
+      !policy.isActive ||
+      !policy.chargeMode ||
+      policy.chargeMode === PolicyChargeMode.NONE
+    ) {
       return null;
     }
     const normalized = normalizePolicyCharge(
-      { mode: policy.chargeMode, value: policy.chargeValue != null ? Number(policy.chargeValue) : null },
+      {
+        mode: policy.chargeMode,
+        value: policy.chargeValue != null ? Number(policy.chargeValue) : null,
+      },
       { allowFirstNight: true },
     );
     if (normalized.mode === PolicyChargeMode.NONE) return null;
@@ -240,7 +250,11 @@ export class CheckInService {
         nextState: this.registrationState(reservation, guest),
       });
 
-      return this.withLifecycleFees(this.toWorkspace({ ...parts, reservation, guest }), { ...parts, reservation, guest });
+      return this.withLifecycleFees(this.toWorkspace({ ...parts, reservation, guest }), {
+        ...parts,
+        reservation,
+        guest,
+      });
     });
   }
 
@@ -291,7 +305,10 @@ export class CheckInService {
         nextState: this.identityState(savedIdentity),
       });
 
-      return this.withLifecycleFees(this.toWorkspace({ ...parts, identity: savedIdentity }), { ...parts, identity: savedIdentity });
+      return this.withLifecycleFees(this.toWorkspace({ ...parts, identity: savedIdentity }), {
+        ...parts,
+        identity: savedIdentity,
+      });
     });
   }
 
@@ -326,7 +343,10 @@ export class CheckInService {
         },
       });
 
-      return this.withLifecycleFees(this.toWorkspace({ ...parts, reservation }), { ...parts, reservation });
+      return this.withLifecycleFees(this.toWorkspace({ ...parts, reservation }), {
+        ...parts,
+        reservation,
+      });
     });
   }
 
@@ -498,23 +518,39 @@ export class CheckInService {
 
   private getBlockers(parts: WorkspaceParts): string[] {
     const blockers: string[] = [];
-    const today = currentDateKey();
+    const property = parts.property;
+
+    // Arrival eligibility should follow the property's operational business date.
+    // If property data is unexpectedly unavailable, fall back to UTC rather than
+    // the server's local timezone.
+    const today = property
+      ? this.businessDateService.resolveForProperty(property)
+      : this.propertyLocalDate(new Date(), 'UTC');
 
     if (parts.reservation.status === 'CHECKED_IN') {
       blockers.push(ApiErrorCode.CHECKIN_ALREADY_CHECKED_IN);
     }
+
     if (parts.reservation.arrivalDate > today) {
       blockers.push(ApiErrorCode.CHECKIN_BEFORE_ARRIVAL_DATE);
     }
+
     if (!this.isGuestRegistrationComplete(parts.reservation, parts.guest)) {
       blockers.push(ApiErrorCode.CHECKIN_GUEST_REGISTRATION_INCOMPLETE);
     }
-    if (!parts.identity?.verified) blockers.push(ApiErrorCode.CHECKIN_IDENTITY_NOT_VERIFIED);
-    if (!(parts.reservation.paymentReviewed ?? false))
+
+    if (!parts.identity?.verified) {
+      blockers.push(ApiErrorCode.CHECKIN_IDENTITY_NOT_VERIFIED);
+    }
+
+    if (!(parts.reservation.paymentReviewed ?? false)) {
       blockers.push(ApiErrorCode.CHECKIN_PAYMENT_NOT_REVIEWED);
+    }
+
     if (!parts.room || parts.room.operationalStatus !== RoomOperationalStatus.READY) {
       blockers.push(ApiErrorCode.CHECKIN_ROOM_NOT_READY);
     }
+
     if (
       parts.room &&
       [
@@ -526,6 +562,7 @@ export class CheckInService {
     ) {
       blockers.push(ApiErrorCode.CHECKIN_ROOM_UNAVAILABLE);
     }
+
     return blockers;
   }
 
@@ -579,9 +616,13 @@ export class CheckInService {
   } {
     const checkInTime = parts.property?.checkInTime ?? null;
     const checkOutTime = parts.property?.checkOutTime ?? null;
-    const today = currentDateKey();
+    const timeZone = parts.property?.timezone ?? 'UTC';
     const now = new Date();
-    const nowTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:00`;
+
+    // Early/late lifecycle rules are wall-clock rules and therefore must use
+    // the property's local date/time, never the server's local timezone.
+    const today = this.propertyLocalDate(now, timeZone);
+    const nowTime = this.propertyLocalTime(now, timeZone);
 
     const earlyCheckIn =
       parts.reservation.status !== 'CHECKED_IN' &&
@@ -602,6 +643,43 @@ export class CheckInService {
       lateCheckout,
       roomAssigned: parts.reservation.roomId != null,
     };
+  }
+
+  private propertyLocalDate(instant: Date, timeZone: string): string {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+
+    const lookup: Record<string, string> = {};
+    for (const part of formatter.formatToParts(instant)) {
+      if (part.type !== 'literal') {
+        lookup[part.type] = part.value;
+      }
+    }
+
+    return `${lookup.year}-${lookup.month}-${lookup.day}`;
+  }
+
+  private propertyLocalTime(instant: Date, timeZone: string): string {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    });
+
+    const lookup: Record<string, string> = {};
+    for (const part of formatter.formatToParts(instant)) {
+      if (part.type !== 'literal') {
+        lookup[part.type] = part.value;
+      }
+    }
+
+    return `${lookup.hour}:${lookup.minute}:${lookup.second}`;
   }
 
   private applyFullName(guest: GuestEntity, fullName: string): void {
