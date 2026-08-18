@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { LoggerModule } from 'nestjs-pino';
 import { CoreConfigModule } from './core/config/config.module';
 import { DatabaseModule } from './database/database.module';
@@ -35,6 +36,9 @@ import { GlobalSearchModule } from './core/global-search/global-search.module';
       envFilePath: ['.env'],
       validate: validateEnvironment,
     }),
+
+    ScheduleModule.forRoot(),
+
     LoggerModule.forRoot({
       pinoHttp: {
         level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
@@ -50,6 +54,7 @@ import { GlobalSearchModule } from './core/global-search/global-search.module';
               },
       },
     }),
+
     CoreConfigModule,
     DatabaseModule,
     AuthModule,
