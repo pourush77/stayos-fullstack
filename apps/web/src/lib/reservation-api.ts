@@ -286,12 +286,14 @@ export function unassignRoomFromReservation(
 export function checkInReservation(
   propertyId: string,
   reservationId: string,
+  options: { earlyCheckIn?: boolean } = {},
   signal?: AbortSignal,
 ) {
   return request<ReservationWorkflowResponseDto>(
     `/properties/${propertyId}/reservations/${reservationId}/check-in`,
     {
       method: 'PATCH',
+      body: JSON.stringify({ earlyCheckIn: options.earlyCheckIn ?? false }),
       signal,
     },
   );
@@ -426,6 +428,14 @@ export type CheckInWorkspaceDto = {
     canCheckIn: boolean;
     blockers: string[];
     missingRegistrationFields?: string[];
+  };
+  operational: {
+    standardCheckInTime: string | null;
+    standardCheckOutTime: string | null;
+    earlyCheckIn: boolean;
+    lateCheckout: boolean;
+    roomAssigned: boolean;
+    earlyCheckInFee?: { chargeMode: string; chargeValue: number; amount: string } | null;
   };
 };
 

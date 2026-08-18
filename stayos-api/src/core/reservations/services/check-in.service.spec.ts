@@ -180,7 +180,9 @@ describe('CheckInService', () => {
       transaction: jest.fn((callback) => callback(manager)),
     } as unknown as DataSource;
 
-    service = new CheckInService(dataSource);
+    service = new CheckInService(dataSource, {
+      resolve: jest.fn().mockResolvedValue(null),
+    } as never);
   });
 
   it('maps workspace DTO with masked identity only', () => {

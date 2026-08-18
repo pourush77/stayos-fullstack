@@ -172,6 +172,11 @@ export class CheckInOperationalContextDto {
   lateCheckout!: boolean;
   @ApiProperty({ description: 'True when a physical room is assigned to the reservation' })
   roomAssigned!: boolean;
+  @ApiPropertyOptional({
+    description:
+      'Backend-resolved EARLY_CHECK_IN policy fee. Present only when an early-check-in fee applies; posted only on explicit staff approval.',
+  })
+  earlyCheckInFee?: { chargeMode: string; chargeValue: number; amount: string } | null;
 }
 
 export class CheckInWorkspaceResponseDto {

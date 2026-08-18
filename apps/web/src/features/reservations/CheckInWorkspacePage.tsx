@@ -217,6 +217,29 @@ const BLOCKER_MESSAGES: Record<string, string> = {
   CHECKIN_ALREADY_CHECKED_IN: 'This guest is already checked in.',
 };
 
+const ROOM_STATUS_LABELS: Record<string, string> = {
+  READY: 'Ready',
+  OCCUPIED: 'Occupied',
+  NEEDS_CLEANING: 'Needs cleaning',
+  INSPECTION: 'Awaiting inspection',
+  OUT_OF_SERVICE: 'Out of service',
+  OUT_OF_ORDER: 'Out of order',
+  MAINTENANCE: 'Under maintenance',
+};
+
+function humanizeRoomStatus(status: string | null | undefined): string {
+  if (!status) return 'Not assigned';
+  return ROOM_STATUS_LABELS[status] ?? status.replace(/_/g, ' ').toLowerCase();
+}
+
+function humanizeRoomWarning(warning: string): string {
+  // Backend warnings like "Room is NEEDS_CLEANING" -> "Room needs cleaning".
+  const match = warning.match(/^Room is (.+)$/);
+  if (match) return `Room ${humanizeRoomStatus(match[1].trim()).toLowerCase()}`;
+  return warning;
+}
+
+
 function StepCard({
   icon,
   title,
@@ -444,6 +467,7 @@ export function CheckInWorkspacePage() {
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
   const [nationality, setNationality] = useState<string>('INDIAN');
+  const [earlyApproved, setEarlyApproved] = useState(false);
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [addressLine1, setAddressLine1] = useState('');
   const [city, setCity] = useState('');
@@ -1027,7 +1051,9 @@ export function CheckInWorkspacePage() {
           // Non-blocking - actual money collection happens in the Stay Workspace.
         }
       }
-      await checkInReservation(propertyId, workspace.booking.reservationId);
+      await checkInReservation(propertyId, workspace.booking.reservationId, {
+        earlyCheckIn: Boolean(workspace.operational?.earlyCheckIn && earlyApproved),
+      });
       showToast({
         autoClose: 9000,
         color: 'green',
@@ -1986,14 +2012,14 @@ export function CheckInWorkspacePage() {
                 <Stack gap={8}>
                   <Text size="sm">
                     <b>Room {room.roomNumber ?? 'Unassigned'}</b> - {room.roomType ?? '-'} - Status:{' '}
-                    <b>{room.operationalStatus ?? 'N/A'}</b>
+                    <b>{humanizeRoomStatus(room.operationalStatus)}</b>
                   </Text>
                   {room.warnings.length > 0 ? (
                     <Alert color="orange" variant="light" icon={<AlertTriangle size={16} />}>
                       <Stack gap={4}>
                         {room.warnings.map((warning, i) => (
                           <Text key={i} size="sm">
-                            {warning}
+                            {humanizeRoomWarning(warning)}
                           </Text>
                         ))}
                       </Stack>
@@ -2019,6 +2045,47 @@ export function CheckInWorkspacePage() {
                     >
                       Open rooms board
                     </Button>
+                  ) : null}
+                  {workspace.operational?.earlyCheckIn && c.roomReady ? (
+                    <Alert
+                      color="blue"
+                      variant="light"
+                      icon={<AlertTriangle size={16} />}
+                      data-testid="early-checkin-notice"
+                    >
+                      <Stack gap={6}>
+                        <Text size="sm" fw={700}>
+                          Early arrival - before standard check-in{' '}
+                          {workspace.operational.standardCheckInTime?.slice(0, 5) ?? '14:00'}
+                        </Text>
+                        {workspace.operational.earlyCheckInFee ? (
+                          <>
+                            <Text size="sm" c="#334155">
+                              Early check-in fee:{' '}
+                              <b data-testid="early-checkin-fee">
+                                ₹
+                                {Number(
+                                  workspace.operational.earlyCheckInFee.amount,
+                                ).toLocaleString('en-IN')}
+                              </b>{' '}
+                              (from property policy). It is only charged if you approve it.
+                            </Text>
+                            <Checkbox
+                              checked={earlyApproved}
+                              onChange={(e) => setEarlyApproved(e.currentTarget.checked)}
+                              data-testid="early-checkin-approve"
+                              label={`Approve early check-in fee (₹${Number(
+                                workspace.operational.earlyCheckInFee.amount,
+                              ).toLocaleString('en-IN')})`}
+                            />
+                          </>
+                        ) : (
+                          <Text size="sm" c="#334155">
+                            No early check-in fee is configured. You can check the guest in now.
+                          </Text>
+                        )}
+                      </Stack>
+                    </Alert>
                   ) : null}
                 </Stack>
               </StepCard>

@@ -24,6 +24,12 @@ import { UpdateIdentityVerificationDto } from '../dto/update-identity-verificati
 import { GuestIdentityDocumentEntity } from '../infrastructure/guest-identity-document.entity';
 import { ReservationEntity } from '../infrastructure/reservation.entity';
 import { GuestDocumentEntity } from '../check-in-capture/guest-document.entity';
+import { FolioChargeType } from '../../billing/domain/folio-charge-type.enum';
+import { FolioChargeStatus } from '../../billing/domain/folio-charge-status.enum';
+import { PolicyResolverService } from '../../policies/policy-resolver.service';
+import { PropertyPolicyType } from '../../policies/domain/property-policy-type.enum';
+import { PolicyChargeMode } from '../../policies/domain/policy-charge-mode.enum';
+import { normalizePolicyCharge } from '../../policies/domain/normalize-policy-charge';
 
 function currentDateKey(date = new Date()): string {
   const year = date.getFullYear();
@@ -49,14 +55,68 @@ interface WorkspaceParts {
 
 @Injectable()
 export class CheckInService {
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly policyResolver: PolicyResolverService,
+  ) {}
+
+  /**
+   * Attaches the backend-resolved EARLY_CHECK_IN fee to the workspace so the
+   * UI can display the exact policy amount (never hardcoded). Read-only; posting
+   * still happens only on explicit staff approval at check-in.
+   */
+  private async withEarlyCheckInFee(
+    workspace: CheckInWorkspaceResponseDto,
+    parts: WorkspaceParts,
+  ): Promise<CheckInWorkspaceResponseDto> {
+    workspace.operational.earlyCheckInFee = await this.resolveEarlyCheckInFee(parts);
+    return workspace;
+  }
+
+  private async resolveEarlyCheckInFee(
+    parts: WorkspaceParts,
+  ): Promise<{ chargeMode: string; chargeValue: number; amount: string } | null> {
+    if (!parts.reservation || parts.reservation.status === 'CHECKED_IN') return null;
+    const policy = await this.policyResolver.resolve(
+      parts.reservation.propertyId,
+      PropertyPolicyType.EARLY_CHECK_IN,
+      parts.reservation.ratePlanId ?? null,
+    );
+    if (!policy || !policy.isActive || !policy.chargeMode || policy.chargeMode === PolicyChargeMode.NONE) {
+      return null;
+    }
+    const normalized = normalizePolicyCharge(
+      { mode: policy.chargeMode, value: policy.chargeValue != null ? Number(policy.chargeValue) : null },
+      { allowFirstNight: true },
+    );
+    if (normalized.mode === PolicyChargeMode.NONE) return null;
+
+    let amountCents = 0;
+    if (normalized.mode === PolicyChargeMode.FIXED_AMOUNT) {
+      amountCents = Math.round(normalized.value * 100);
+    } else {
+      const roomCharge = (parts.folio?.charges ?? []).find(
+        (c) => c.type === FolioChargeType.ROOM && c.status === FolioChargeStatus.POSTED,
+      );
+      const baseCents = roomCharge ? Math.round(parseFloat(roomCharge.unitAmount) * 100) : 0;
+      amountCents =
+        normalized.mode === PolicyChargeMode.PERCENTAGE
+          ? Math.round((baseCents * normalized.value) / 100)
+          : baseCents;
+    }
+    return {
+      chargeMode: normalized.mode,
+      chargeValue: normalized.value,
+      amount: (amountCents / 100).toFixed(2),
+    };
+  }
 
   async getWorkspace(
     propertyId: string,
     reservationId: string,
   ): Promise<CheckInWorkspaceResponseDto> {
     const parts = await this.loadWorkspaceParts(propertyId, reservationId);
-    return this.toWorkspace(parts);
+    return this.withEarlyCheckInFee(this.toWorkspace(parts), parts);
   }
 
   async updateGuestRegistration(
@@ -138,7 +198,7 @@ export class CheckInService {
         nextState: this.registrationState(reservation, guest),
       });
 
-      return this.toWorkspace({ ...parts, reservation, guest });
+      return this.withEarlyCheckInFee(this.toWorkspace({ ...parts, reservation, guest }), { ...parts, reservation, guest });
     });
   }
 
@@ -189,7 +249,7 @@ export class CheckInService {
         nextState: this.identityState(savedIdentity),
       });
 
-      return this.toWorkspace({ ...parts, identity: savedIdentity });
+      return this.withEarlyCheckInFee(this.toWorkspace({ ...parts, identity: savedIdentity }), { ...parts, identity: savedIdentity });
     });
   }
 
@@ -224,7 +284,7 @@ export class CheckInService {
         },
       });
 
-      return this.toWorkspace({ ...parts, reservation });
+      return this.withEarlyCheckInFee(this.toWorkspace({ ...parts, reservation }), { ...parts, reservation });
     });
   }
 
