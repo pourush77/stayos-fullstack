@@ -65,12 +65,54 @@ export class CheckInService {
    * UI can display the exact policy amount (never hardcoded). Read-only; posting
    * still happens only on explicit staff approval at check-in.
    */
-  private async withEarlyCheckInFee(
+  private async withLifecycleFees(
     workspace: CheckInWorkspaceResponseDto,
     parts: WorkspaceParts,
   ): Promise<CheckInWorkspaceResponseDto> {
     workspace.operational.earlyCheckInFee = await this.resolveEarlyCheckInFee(parts);
+    workspace.operational.lateCheckoutFee = workspace.operational.lateCheckout
+      ? await this.resolveLateCheckoutFee(parts)
+      : null;
     return workspace;
+  }
+
+  private async resolveLateCheckoutFee(
+    parts: WorkspaceParts,
+  ): Promise<{ chargeMode: string; chargeValue: number; amount: string } | null> {
+    if (!parts.reservation || parts.reservation.status !== 'CHECKED_IN') return null;
+    const policy = await this.policyResolver.resolve(
+      parts.reservation.propertyId,
+      PropertyPolicyType.LATE_CHECKOUT,
+      parts.reservation.ratePlanId ?? null,
+    );
+    if (!policy || !policy.isActive || !policy.chargeMode || policy.chargeMode === PolicyChargeMode.NONE) {
+      return null;
+    }
+    const normalized = normalizePolicyCharge(
+      { mode: policy.chargeMode, value: policy.chargeValue != null ? Number(policy.chargeValue) : null },
+      { allowFirstNight: true },
+    );
+    if (normalized.mode === PolicyChargeMode.NONE) return null;
+
+    let amountCents = 0;
+    if (normalized.mode === PolicyChargeMode.FIXED_AMOUNT) {
+      amountCents = Math.round(normalized.value * 100);
+    } else {
+      const roomCharge = (parts.folio?.charges ?? []).find(
+        (c) => c.type === FolioChargeType.ROOM && c.status === FolioChargeStatus.POSTED,
+      );
+      const baseCents = roomCharge ? Math.round(parseFloat(roomCharge.unitAmount) * 100) : 0;
+      amountCents =
+        normalized.mode === PolicyChargeMode.PERCENTAGE
+          ? Math.round((baseCents * normalized.value) / 100)
+          : baseCents;
+    }
+    if (amountCents <= 0) return null;
+    return {
+      chargeMode: normalized.mode,
+      chargeValue: normalized.value,
+      amount: (amountCents / 100).toFixed(2),
+    };
   }
 
   private async resolveEarlyCheckInFee(
@@ -116,7 +158,7 @@ export class CheckInService {
     reservationId: string,
   ): Promise<CheckInWorkspaceResponseDto> {
     const parts = await this.loadWorkspaceParts(propertyId, reservationId);
-    return this.withEarlyCheckInFee(this.toWorkspace(parts), parts);
+    return this.withLifecycleFees(this.toWorkspace(parts), parts);
   }
 
   async updateGuestRegistration(
@@ -198,7 +240,7 @@ export class CheckInService {
         nextState: this.registrationState(reservation, guest),
       });
 
-      return this.withEarlyCheckInFee(this.toWorkspace({ ...parts, reservation, guest }), { ...parts, reservation, guest });
+      return this.withLifecycleFees(this.toWorkspace({ ...parts, reservation, guest }), { ...parts, reservation, guest });
     });
   }
 
@@ -249,7 +291,7 @@ export class CheckInService {
         nextState: this.identityState(savedIdentity),
       });
 
-      return this.withEarlyCheckInFee(this.toWorkspace({ ...parts, identity: savedIdentity }), { ...parts, identity: savedIdentity });
+      return this.withLifecycleFees(this.toWorkspace({ ...parts, identity: savedIdentity }), { ...parts, identity: savedIdentity });
     });
   }
 
@@ -284,7 +326,7 @@ export class CheckInService {
         },
       });
 
-      return this.withEarlyCheckInFee(this.toWorkspace({ ...parts, reservation }), { ...parts, reservation });
+      return this.withLifecycleFees(this.toWorkspace({ ...parts, reservation }), { ...parts, reservation });
     });
   }
 

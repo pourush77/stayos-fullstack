@@ -177,6 +177,11 @@ export class CheckInOperationalContextDto {
       'Backend-resolved EARLY_CHECK_IN policy fee. Present only when an early-check-in fee applies; posted only on explicit staff approval.',
   })
   earlyCheckInFee?: { chargeMode: string; chargeValue: number; amount: string } | null;
+  @ApiPropertyOptional({
+    description:
+      'Backend-resolved LATE_CHECKOUT policy fee. Present only when a late-checkout fee applies; posted only on explicit staff approval at check-out.',
+  })
+  lateCheckoutFee?: { chargeMode: string; chargeValue: number; amount: string } | null;
 }
 
 export class CheckInWorkspaceResponseDto {

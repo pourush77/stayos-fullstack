@@ -302,12 +302,14 @@ export function checkInReservation(
 export function checkOutReservation(
   propertyId: string,
   reservationId: string,
+  options: { lateCheckout?: boolean } = {},
   signal?: AbortSignal,
 ) {
   return request<ReservationWorkflowResponseDto>(
     `/properties/${propertyId}/reservations/${reservationId}/check-out`,
     {
       method: 'PATCH',
+      body: JSON.stringify({ lateCheckout: options.lateCheckout ?? false }),
       signal,
     },
   );
@@ -436,6 +438,7 @@ export type CheckInWorkspaceDto = {
     lateCheckout: boolean;
     roomAssigned: boolean;
     earlyCheckInFee?: { chargeMode: string; chargeValue: number; amount: string } | null;
+    lateCheckoutFee?: { chargeMode: string; chargeValue: number; amount: string } | null;
   };
 };
 

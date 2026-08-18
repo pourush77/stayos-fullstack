@@ -267,7 +267,7 @@ export function useBookingDetails({
   cancelBooking: () => Promise<void>;
   confirmBooking: () => Promise<void>;
   checkInBooking: () => Promise<void>;
-  checkOutBooking: () => Promise<void>;
+  checkOutBooking: (options?: { lateCheckout?: boolean }) => Promise<void>;
   getRooms: () => Promise<AvailableRoomOption[]>;
   refreshBooking: () => Promise<void>;
   updateBooking: (values: BookingFormValues) => Promise<Booking>;
@@ -447,10 +447,10 @@ export function useBookingDetails({
     await loadBooking();
   }, [bookingId, loadBooking, state.propertyId]);
 
-  const checkOutBooking = useCallback(async () => {
+  const checkOutBooking = useCallback(async (options: { lateCheckout?: boolean } = {}) => {
     if (!bookingId) throw new Error('Booking missing.');
     const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
-    await checkOutReservation(propertyId, bookingId);
+    await checkOutReservation(propertyId, bookingId, { lateCheckout: options.lateCheckout ?? false });
     await loadBooking();
   }, [bookingId, loadBooking, state.propertyId]);
 

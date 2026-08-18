@@ -890,10 +890,10 @@ export default function BookingDetailPage() {
     }
   };
 
-  const checkOutBooking = async () => {
+  const checkOutBooking = async (options: { lateCheckout?: boolean } = {}) => {
     setIsActing(true);
     try {
-      await bookingState.checkOutBooking();
+      await bookingState.checkOutBooking({ lateCheckout: options.lateCheckout ?? false });
       showToast({
         autoClose: 9000,
         color: 'green',
@@ -907,6 +907,7 @@ export default function BookingDetailPage() {
         title: 'Unable to check out',
         message: friendlyBookingError(error),
       });
+      throw error;
     } finally {
       setIsActing(false);
     }

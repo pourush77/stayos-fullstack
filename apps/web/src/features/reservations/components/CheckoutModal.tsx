@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Alert, Badge, Button, Divider, Group, Loader, Modal, NumberInput, Paper, Select, Stack, Table, Text, TextInput, ThemeIcon } from '@mantine/core';
-import { AlertTriangle, CheckCircle2, CreditCard, Download, Mail, MessageCircle, Receipt, Smartphone } from 'lucide-react';
+import { Alert, Badge, Button, Checkbox, Divider, Group, Loader, Modal, NumberInput, Paper, Select, Stack, Table, Text, TextInput, ThemeIcon } from '@mantine/core';
+import { AlertTriangle, CheckCircle2, Clock, CreditCard, Download, Mail, MessageCircle, Receipt, Smartphone } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { API_BASE_URL } from '../../../lib/api-base';
 import { showToast } from '@stayos/ui';
+import { getCheckInWorkspace } from '../../../lib/reservation-api';
 import { addPayment, createRazorpayOrder, getFolioForReservation, getPaymentReceiptUrl, getRazorpayConfig, verifyRazorpayPayment } from '../../billing/api/billing-api';
 import type { Folio, FolioPaymentMethod } from '../../billing/types/billing.types';
 
@@ -48,7 +49,7 @@ export type CheckoutModalProps = {
   propertyId: string;
   reservationId: string;
   guestName: string;
-  onConfirmCheckout: () => Promise<void>;
+  onConfirmCheckout: (options?: { lateCheckout?: boolean }) => Promise<void>;
   mode?: 'checkin-payment' | 'checkout';
   onPaymentUpdated?: () => void;
 };
@@ -74,6 +75,10 @@ export function CheckoutModal({
   const [paymentMethod, setPaymentMethod] = useState<FolioPaymentMethod>('CASH');
   const [paymentReference, setPaymentReference] = useState('');
   const [razorpayEnabled, setRazorpayEnabled] = useState(false);
+  const [lateCheckout, setLateCheckout] = useState(false);
+  const [lateCheckoutFee, setLateCheckoutFee] = useState<{ amount: string } | null>(null);
+  const [lateApproved, setLateApproved] = useState(false);
+  const [standardCheckOutTime, setStandardCheckOutTime] = useState<string | null>(null);
 
   useEffect(() => {
     if (!opened || !folio?.id) return;
@@ -109,6 +114,35 @@ export function CheckoutModal({
       });
     return () => controller.abort();
   }, [opened, propertyId, reservationId]);
+
+  useEffect(() => {
+    if (!opened || mode !== 'checkout') return;
+    setLateApproved(false);
+    const controller = new AbortController();
+    getCheckInWorkspace(propertyId, reservationId, controller.signal)
+      .then((ws) => {
+        if (controller.signal.aborted) return;
+        setLateCheckout(Boolean(ws.operational?.lateCheckout));
+        setLateCheckoutFee(ws.operational?.lateCheckoutFee ?? null);
+        setStandardCheckOutTime(ws.operational?.standardCheckOutTime ?? null);
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setLateCheckout(false);
+        setLateCheckoutFee(null);
+      });
+    return () => controller.abort();
+  }, [opened, mode, propertyId, reservationId]);
+
+  const refetchFolio = async () => {
+    try {
+      const f = await getFolioForReservation(propertyId, reservationId);
+      setFolio(f);
+      setPaymentAmount(Math.max(0, Number(f.totals.balance)));
+    } catch {
+      /* keep existing folio on refetch failure */
+    }
+  };
 
   const balance = folio ? Number(folio.totals.balance) : 0;
   const total = folio ? Number(folio.totals.total) : 0;
@@ -211,8 +245,13 @@ export function CheckoutModal({
   const finalizeCheckout = async () => {
     setIsCheckingOut(true);
     try {
-      await onConfirmCheckout();
+      await onConfirmCheckout({ lateCheckout: lateCheckout && lateApproved });
       onClose();
+    } catch {
+      // The late-checkout fee is posted (and committed) by the backend before the
+      // settlement gate. If it now leaves an outstanding balance, surface the
+      // updated folio so staff can collect it, then complete checkout again.
+      await refetchFolio();
     } finally {
       setIsCheckingOut(false);
     }
@@ -262,6 +301,34 @@ export function CheckoutModal({
               </Table.Tbody>
             </Table>
           </Paper>
+
+          {/* Late checkout — backend-detected + backend-resolved fee */}
+          {mode === 'checkout' && lateCheckout ? (
+            <Paper p={12} radius={radius.md} style={{ background: '#fff7ed', border: '1px solid #fed7aa' }} data-testid="late-checkout-panel">
+              <Group gap={8} mb={lateCheckoutFee ? 6 : 0}>
+                <ThemeIcon color="orange" variant="light" size={28}><Clock size={14} /></ThemeIcon>
+                <Text fw={800} c="#9a3412" size="sm">
+                  Late checkout{standardCheckOutTime ? ` (standard ${standardCheckOutTime.slice(0, 5)})` : ''}
+                </Text>
+              </Group>
+              {lateCheckoutFee ? (
+                <Stack gap={6}>
+                  <Text size="sm" c="#7c2d12">
+                    Applicable late-checkout fee: <b>{formatCurrency(lateCheckoutFee.amount)}</b>
+                  </Text>
+                  <Checkbox
+                    color="orange"
+                    checked={lateApproved}
+                    onChange={(e) => setLateApproved(e.currentTarget.checked)}
+                    data-testid="late-checkout-approve"
+                    label={`Approve and apply late-checkout fee (${formatCurrency(lateCheckoutFee.amount)})`}
+                  />
+                </Stack>
+              ) : (
+                <Text size="sm" c="#7c2d12">No late-checkout fee configured for this stay.</Text>
+              )}
+            </Paper>
+          ) : null}
 
           {/* Receipt actions (visible after a successful payment) */}
           {lastPaymentId && folio ? (
@@ -376,7 +443,7 @@ export function CheckoutModal({
                 onClick={() => void finalizeCheckout()}
                 data-testid="checkout-confirm"
               >
-                Complete checkout
+                {lateCheckout && lateApproved && !hasBalance ? 'Apply late fee & checkout' : 'Complete checkout'}
               </Button>
             </Group>
           )}
