@@ -20,6 +20,9 @@ export const Permissions = {
 
   BillingView: 'billing.view',
   BillingManage: 'billing.manage',
+  BillingVoid: 'billing.void',
+  BillingRefund: 'billing.refund',
+  BillingSettle: 'billing.settle',
 
   HousekeepingView: 'housekeeping.view',
   HousekeepingManage: 'housekeeping.manage',

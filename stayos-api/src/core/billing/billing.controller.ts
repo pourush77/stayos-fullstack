@@ -119,9 +119,8 @@ export class BillingController {
     return BillingMapper.toResponse(folio);
   }
 
-
   @Post('folios/:folioId/charges/:chargeId/void')
-  @RequirePermissions(Permissions.BillingManage)
+  @RequirePermissions(Permissions.BillingVoid)
   @ApiStandardOkResponse(FolioResponseDto)
   async voidCharge(
     @Param('propertyId', new ParseUUIDPipe()) propertyId: string,
@@ -159,7 +158,7 @@ export class BillingController {
   }
 
   @Post('folios/:folioId/refunds')
-  @RequirePermissions(Permissions.BillingManage)
+  @RequirePermissions(Permissions.BillingRefund)
   @ApiStandardOkResponse(FolioResponseDto)
   async addRefund(
     @Param('propertyId', new ParseUUIDPipe()) propertyId: string,
@@ -177,7 +176,7 @@ export class BillingController {
   }
 
   @Post('folios/:folioId/settle')
-  @RequirePermissions(Permissions.BillingManage)
+  @RequirePermissions(Permissions.BillingSettle)
   @ApiStandardOkResponse(FolioResponseDto)
   async settle(
     @Param('propertyId', new ParseUUIDPipe()) propertyId: string,
@@ -225,17 +224,30 @@ export class BillingController {
             property?.state,
             property?.postalCode,
             property?.country,
-          ].filter(Boolean).join(', '),
+          ]
+            .filter(Boolean)
+            .join(', '),
         },
-        guestName: guest?.displayName ?? [guest?.firstName, guest?.lastName].filter(Boolean).join(' ') ?? 'Guest',
+        guestName:
+          guest?.displayName ??
+          [guest?.firstName, guest?.lastName].filter(Boolean).join(' ') ??
+          'Guest',
         reservationCode: reservation?.reservationCode ?? '-',
         roomNumber: reservation?.room?.roomNumber ?? undefined,
-        stay: reservation ? { arrival: reservation.arrivalDate, departure: reservation.departureDate } : undefined,
+        stay: reservation
+          ? { arrival: reservation.arrivalDate, departure: reservation.departureDate }
+          : undefined,
       });
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('[final-bill.pdf]', err instanceof Error ? err.stack : err);
-      res.status(500).json({ success: false, error: { code: 'PDF_GENERATION_FAILED', message: err instanceof Error ? err.message : 'Unknown' } });
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'PDF_GENERATION_FAILED',
+          message: err instanceof Error ? err.message : 'Unknown',
+        },
+      });
       return;
     }
     res.setHeader('Content-Type', 'application/pdf');
@@ -288,21 +300,37 @@ export class BillingController {
             property?.state,
             property?.postalCode,
             property?.country,
-          ].filter(Boolean).join(', '),
+          ]
+            .filter(Boolean)
+            .join(', '),
         },
-        guestName: guest?.displayName ?? [guest?.firstName, guest?.lastName].filter(Boolean).join(' ') ?? 'Guest',
+        guestName:
+          guest?.displayName ??
+          [guest?.firstName, guest?.lastName].filter(Boolean).join(' ') ??
+          'Guest',
         reservationCode: reservation?.reservationCode ?? '-',
         roomNumber: reservation?.room?.roomNumber ?? undefined,
-        stay: reservation ? { arrival: reservation.arrivalDate, departure: reservation.departureDate } : undefined,
+        stay: reservation
+          ? { arrival: reservation.arrivalDate, departure: reservation.departureDate }
+          : undefined,
       });
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('[receipt.pdf]', err instanceof Error ? err.stack : err);
-      res.status(500).json({ success: false, error: { code: 'PDF_GENERATION_FAILED', message: err instanceof Error ? err.message : 'Unknown' } });
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'PDF_GENERATION_FAILED',
+          message: err instanceof Error ? err.message : 'Unknown',
+        },
+      });
       return;
     }
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="receipt-${payment.id.slice(0, 8)}.pdf"`);
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="receipt-${payment.id.slice(0, 8)}.pdf"`,
+    );
     res.send(buffer);
   }
 
@@ -335,7 +363,8 @@ export class BillingController {
   async verifyRazorpayPayment(
     @Param('propertyId', new ParseUUIDPipe()) propertyId: string,
     @Param('folioId', new ParseUUIDPipe()) folioId: string,
-    @Body() dto: {
+    @Body()
+    dto: {
       razorpay_order_id: string;
       razorpay_payment_id: string;
       razorpay_signature: string;

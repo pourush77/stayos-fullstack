@@ -18,7 +18,15 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     Permissions.CheckoutManage,
     Permissions.StayView,
     Permissions.StayManage,
+
+    // Managers can perform normal billing operations and sensitive
+    // financial actions requiring elevated authority.
     Permissions.BillingView,
+    Permissions.BillingManage,
+    Permissions.BillingVoid,
+    Permissions.BillingRefund,
+    Permissions.BillingSettle,
+
     Permissions.HousekeepingView,
     Permissions.HousekeepingManage,
     Permissions.EmployeesView,
@@ -50,8 +58,12 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     Permissions.CheckoutManage,
     Permissions.StayView,
     Permissions.StayManage,
+
+    // Front Desk can perform normal guest-facing billing operations,
+    // but cannot void charges, issue refunds, or settle folios.
     Permissions.BillingView,
     Permissions.BillingManage,
+
     Permissions.HousekeepingView,
 
     // Front Desk can view maintenance information and report issues,
@@ -93,8 +105,14 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     Permissions.GuestsView,
     Permissions.BookingsView,
     Permissions.StayView,
+
+    // Accounts has full financial authority.
     Permissions.BillingView,
     Permissions.BillingManage,
+    Permissions.BillingVoid,
+    Permissions.BillingRefund,
+    Permissions.BillingSettle,
+
     Permissions.ReportsView,
   ],
 
