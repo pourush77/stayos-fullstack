@@ -107,6 +107,12 @@ function canAccessPath(pathname: string, role: string, permissions: string[] | u
     return true;
   }
 
+  // Front Desk may open a specific guest folio without gaining
+  // access to the full Billing workspace.
+  if (pathname.startsWith('/billing/') && hasPermission(permissions, 'billing.view')) {
+    return true;
+  }
+
   const rule = protectedRoutePermissions.find(
     (item) => pathname === item.path || pathname.startsWith(`${item.path}/`),
   );
