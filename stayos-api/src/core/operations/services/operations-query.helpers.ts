@@ -21,7 +21,23 @@ export const activeReservationStatuses = [
   ReservationStatus.CHECKED_IN,
 ];
 
-export const todayIsoDate = (): string => new Date().toISOString().slice(0, 10);
+export const todayIsoDate = (timeZone = 'UTC', instant = new Date()): string => {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+
+  const parts: Record<string, string> = {};
+  for (const part of formatter.formatToParts(instant)) {
+    if (part.type !== 'literal') {
+      parts[part.type] = part.value;
+    }
+  }
+
+  return `${parts.year}-${parts.month}-${parts.day}`;
+};
 
 export const findRoomsWithInventory = (
   roomsRepository: Repository<RoomEntity>,

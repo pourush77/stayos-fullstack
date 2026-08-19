@@ -232,7 +232,34 @@ function humanizeRoomStatus(status: string | null | undefined): string {
   return ROOM_STATUS_LABELS[status] ?? status.replace(/_/g, ' ').toLowerCase();
 }
 
-function humanizeRoomWarning(warning: string): string {
+function humanizeRoomWarning(
+  warning: string,
+  context?: { guestName?: string; roomNumber?: string | null; roomStatus?: string | null },
+): string {
+  const roomNumber = context?.roomNumber ? `Room ${context.roomNumber}` : 'The assigned room';
+  const guestName = context?.guestName?.trim() || 'this guest';
+  const normalizedStatus = context?.roomStatus?.trim().toUpperCase();
+
+  if (normalizedStatus === 'OCCUPIED') {
+    return `${roomNumber} is still occupied by the current guest. Complete the current guest's checkout or assign ${guestName} another ready room before continuing.`;
+  }
+
+  if (normalizedStatus === 'NEEDS_CLEANING') {
+    return `${roomNumber} needs cleaning. Ask Housekeeping to prepare it and mark it Ready before check-in.`;
+  }
+
+  if (normalizedStatus === 'INSPECTION') {
+    return `${roomNumber} is waiting for inspection. Complete the inspection and mark the room Ready before check-in.`;
+  }
+
+  if (normalizedStatus === 'MAINTENANCE') {
+    return `${roomNumber} is under maintenance. Assign ${guestName} another ready room or resolve the maintenance issue before check-in.`;
+  }
+
+  if (normalizedStatus === 'OUT_OF_ORDER' || normalizedStatus === 'OUT_OF_SERVICE') {
+    return `${roomNumber} is unavailable. Assign ${guestName} another ready room before continuing.`;
+  }
+
   // Backend warnings like "Room is NEEDS_CLEANING" -> "Room needs cleaning".
   const match = warning.match(/^Room is (.+)$/);
   if (match) return `Room ${humanizeRoomStatus(match[1].trim()).toLowerCase()}`;
@@ -1106,7 +1133,10 @@ export function CheckInWorkspacePage() {
         }
       : !c.roomReady
         ? {
-            detail: 'Room must be assigned and ready before the guest can be checked in.',
+            detail:
+              room.operationalStatus === 'OCCUPIED'
+                ? `Room ${room.roomNumber ?? ''} is still occupied. Complete the current checkout or assign another ready room.`
+                : 'Room must be assigned and ready before the guest can be checked in.',
             label: 'Resolve room readiness',
             target: 'Step 4',
           }
@@ -1239,7 +1269,9 @@ export function CheckInWorkspacePage() {
           ? 'Mark the payment plan now, or collect money from the stay workspace after check-in.'
           : canCheckInSoft
             ? 'Guest, ID and room are ready. Finish check-in to open the stay workspace.'
-            : 'Open the rooms board if the room needs assignment or readiness work.';
+            : room.operationalStatus === 'OCCUPIED'
+              ? `Room ${room.roomNumber ?? ''} is still occupied. Complete the current checkout or assign another ready room.`
+              : 'Open the rooms board if the room needs assignment or readiness work.';
   const footerActionLabel =
     activeStep === 'identity'
       ? 'Save identity'
@@ -2019,7 +2051,11 @@ export function CheckInWorkspacePage() {
                       <Stack gap={4}>
                         {room.warnings.map((warning, i) => (
                           <Text key={i} size="sm">
-                            {humanizeRoomWarning(warning)}
+                            {humanizeRoomWarning(warning, {
+                              guestName: guestDisplayName,
+                              roomNumber: room.roomNumber,
+                              roomStatus: room.operationalStatus,
+                            })}
                           </Text>
                         ))}
                       </Stack>

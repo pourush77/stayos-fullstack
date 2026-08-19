@@ -30,9 +30,12 @@ export class RoomBoardService {
   ) {}
 
   async getRoomBoard(propertyId: string): Promise<RoomBoardItemDto[]> {
-    await this.propertiesService.findOne(propertyId);
+    const property = await this.propertiesService.findOne(propertyId);
 
-    const today = todayIsoDate();
+    // Room-board date boundaries must follow the hotel's local calendar date,
+    // not UTC/server time. This keeps arrivals, in-house stays and assignments
+    // correct around midnight for the property's configured timezone.
+    const today = todayIsoDate(property.timezone ?? 'UTC');
 
     const [rooms, currentStays, assignedReservations, groupAssignments, folios] = await Promise.all(
       [
@@ -92,7 +95,8 @@ export class RoomBoardService {
             groupBookingId: visibleGroupAssignment.groupBooking.id,
             groupCode: visibleGroupAssignment.groupBooking.groupCode,
             groupName: visibleGroupAssignment.groupBooking.groupName,
-            masterFolioId: folioByGroupBookingId.get(visibleGroupAssignment.groupBooking.id)?.id ?? '',
+            masterFolioId:
+              folioByGroupBookingId.get(visibleGroupAssignment.groupBooking.id)?.id ?? '',
             masterFolioNumber:
               folioByGroupBookingId.get(visibleGroupAssignment.groupBooking.id)?.folioNumber ??
               'Master folio pending',
@@ -119,9 +123,11 @@ export class RoomBoardService {
     }
 
     if (
-      [GroupBookingStatus.RELEASED, GroupBookingStatus.CANCELLED, GroupBookingStatus.CHECKED_OUT].includes(
-        group.status,
-      )
+      [
+        GroupBookingStatus.RELEASED,
+        GroupBookingStatus.CANCELLED,
+        GroupBookingStatus.CHECKED_OUT,
+      ].includes(group.status)
     ) {
       return false;
     }
