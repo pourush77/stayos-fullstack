@@ -2489,13 +2489,69 @@ export default function RoomsPage() {
   };
 
   const reservationForRoom = useCallback(
-    (room: Room | null) =>
-      reservationsState.reservations.find(
+    (room: Room | null) => {
+      if (!room) return undefined;
+
+      const directMatch = reservationsState.reservations.find(
         (reservation) =>
-          reservation.backendId === room?.reservationId ||
-          reservation.backendId === room?.bookingId ||
-          reservation.id === room?.bookingId,
-      ),
+          reservation.backendId === room.reservationId ||
+          reservation.backendId === room.bookingId ||
+          reservation.id === room.bookingId,
+      );
+
+      if (directMatch) return directMatch;
+
+      // Some room-board payloads only expose the physical room state and omit the
+      // active reservation id. The Bookings dataset still contains the canonical
+      // checked-in reservation, so use the physical room as a safe fallback.
+      //
+      // Important: only CHECKED_IN reservations are eligible here. A future
+      // CONFIRMED reservation may already be assigned to the same room (for example
+      // when an overdue guest has not checked out yet), and must never win this lookup.
+      const normalizedRoomNumber = String(room.number).trim().toLowerCase();
+
+      return reservationsState.reservations.find((reservation) => {
+        const record = reservation as unknown as Record<string, unknown>;
+        const normalizedStatus = String(reservation.status ?? '')
+          .trim()
+          .toUpperCase()
+          .replace(/[-\s]+/g, '_');
+
+        if (normalizedStatus !== 'CHECKED_IN') return false;
+
+        const roomId =
+          typeof record.roomId === 'string'
+            ? record.roomId
+            : typeof record.assignedRoomId === 'string'
+              ? record.assignedRoomId
+              : '';
+
+        if (room.id && roomId && room.id === roomId) return true;
+
+        const roomValue =
+          record.roomNumber ?? record.assignedRoomNumber ?? record.room ?? record.assignedRoom;
+
+        if (typeof roomValue === 'string') {
+          const normalized = roomValue
+            .trim()
+            .toLowerCase()
+            .replace(/^room\s+/i, '');
+
+          return normalized === normalizedRoomNumber;
+        }
+
+        if (roomValue && typeof roomValue === 'object') {
+          const roomRecord = roomValue as Record<string, unknown>;
+          const nestedNumber = roomRecord.roomNumber ?? roomRecord.number;
+
+          if (typeof nestedNumber === 'string' || typeof nestedNumber === 'number') {
+            return String(nestedNumber).trim().toLowerCase() === normalizedRoomNumber;
+          }
+        }
+
+        return false;
+      });
+    },
     [reservationsState.reservations],
   );
 
@@ -2526,13 +2582,15 @@ export default function RoomsPage() {
   };
 
   const openStay = (room: Room) => {
-    const stayId = room.reservationId || room.bookingId;
+    const reservation = reservationForRoom(room);
+    const stayId = reservation?.backendId ?? room.reservationId ?? room.bookingId;
 
     if (!stayId) {
       showToast({
         color: 'red',
         title: 'Stay unavailable',
-        message: 'Unable to open this stay. Booking details are missing.',
+        message:
+          'Unable to match this occupied room to its checked-in reservation. Open the stay from Bookings and report this room if the issue continues.',
       });
       return;
     }
