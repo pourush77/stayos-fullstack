@@ -98,6 +98,7 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
   const [replacementRoomId, setReplacementRoomId] = useState<string | null>(null);
   const [isLoadingReplacementRooms, setIsLoadingReplacementRooms] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
   const [deleteOpened, setDeleteOpened] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -140,6 +141,7 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
   useEffect(() => {
     if (!hasValidGroupHoldId) {
       setError('Group hold link is missing a valid id.');
+      setIsLoading(false);
       return undefined;
     }
 
@@ -153,10 +155,12 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
         const id = typeof active?.id === 'string' ? active.id : '';
         setPropertyId(id);
         await load(id, controller.signal);
+        if (!controller.signal.aborted) setIsLoading(false);
       })
       .catch((err) => {
         if (controller.signal.aborted || isAbortError(err)) return;
         setError(err instanceof Error ? err.message : 'Unable to load group hold.');
+        setIsLoading(false);
       });
     return () => controller.abort();
   }, [groupHoldId, hasValidGroupHoldId, load]);
@@ -347,8 +351,20 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
 
   const copyVoucher = async () => {
     if (!hold) return;
-    await navigator.clipboard.writeText(voucherText(hold));
-    showToast({ color: 'green', message: 'Confirmation text copied.', title: 'Voucher copied' });
+    try {
+      await navigator.clipboard.writeText(voucherText(hold));
+      showToast({
+        color: 'green',
+        message: 'Confirmation text is ready to paste into WhatsApp, SMS, or email.',
+        title: 'Voucher copied',
+      });
+    } catch {
+      showToast({
+        color: 'red',
+        message: 'Clipboard access is unavailable in this browser context.',
+        title: 'Copy failed',
+      });
+    }
   };
 
   const closeDeleteModal = () => {
@@ -401,8 +417,8 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
       style={{ background: '#fbfcff', minHeight: 'calc(100vh - 180px)' }}
     >
       <Stack gap={spacing[3]} maw={1080} mx="auto">
-        <Group justify="space-between">
-          <Box>
+        <Group justify="space-between" align="flex-start" gap={spacing[2]} wrap="wrap">
+          <Box style={{ minWidth: 0 }}>
             <Title order={1} c="#101828" style={{ fontSize: 32, fontWeight: 900 }}>
               {hold?.groupCode ?? 'Group Hold'}
             </Title>
@@ -416,13 +432,38 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
             Back
           </Button>
         </Group>
-        {error ? <Alert color="red">{error}</Alert> : null}
+        {error ? (
+          <Alert color="red" variant="light" title="Could not load group hold">
+            {error}
+          </Alert>
+        ) : null}
+        {isLoading && !hold && !error ? (
+          <Card radius={radius.lg} p={20} style={panelStyle}>
+            <Text fw={850} c="#101828">
+              Loading group hold…
+            </Text>
+            <Text c="#64748b" size="sm" mt={4}>
+              Getting stay details, held inventory, room assignments, and readiness.
+            </Text>
+          </Card>
+        ) : null}
         {hold ? (
           <>
             <SimpleGrid cols={{ base: 1, md: 3 }} spacing={spacing[3]}>
               <Card radius={radius.lg} p={16} style={panelStyle}>
-                <Badge color="yellow" variant="light">
-                  {hold.status.replace('_', ' ')}
+                <Badge
+                  color={
+                    hold.status === 'CHECKED_OUT'
+                      ? 'gray'
+                      : hold.status === 'CHECKED_IN' || hold.status === 'CONFIRMED'
+                        ? 'green'
+                        : hold.status === 'CANCELLED'
+                          ? 'red'
+                          : 'yellow'
+                  }
+                  variant="light"
+                >
+                  {hold.status.replace(/_/g, ' ')}
                 </Badge>
                 <Title order={2} mt={8} c="#101828" style={{ fontSize: 18 }}>
                   Lead Contact
@@ -437,12 +478,12 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
               </Card>
               <Card radius={radius.lg} p={16} style={panelStyle}>
                 <Title order={2} c="#101828" style={{ fontSize: 18 }}>
-                  Held Inventory
+                  Room Mix
                 </Title>
                 <Stack gap={6} mt={8}>
                   {hold.roomBlocks.map((block) => (
                     <Text key={block.id}>
-                      {block.rooms} x {block.roomTypeName}
+                      {block.rooms} × {block.roomTypeName}
                     </Text>
                   ))}
                 </Stack>
@@ -462,8 +503,8 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
             </SimpleGrid>
 
             <Card radius={radius.lg} p={16} style={panelStyle}>
-              <Group justify="space-between" align="flex-start">
-                <Box>
+              <Group justify="space-between" align="flex-start" gap={spacing[2]} wrap="wrap">
+                <Box style={{ minWidth: 0 }}>
                   <Title order={2} c="#101828" style={{ fontSize: 18 }}>
                     Arrival Readiness
                   </Title>
@@ -471,7 +512,7 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
                     Use this before confirming or preparing group check-in.
                   </Text>
                 </Box>
-                <Group gap={8}>
+                <Group gap={8} wrap="wrap">
                   <Button
                     leftSection={<Copy size={14} />}
                     variant="light"
@@ -480,41 +521,48 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
                   >
                     Copy Voucher
                   </Button>
-                  <Button
-                    leftSection={<CheckCircle2 size={14} />}
-                    color="stayosBrand"
-                    loading={isSaving}
-                    onClick={() => void confirmHold()}
-                    disabled={!hold.readiness.canConfirm}
-                  >
-                    Confirm Hold
-                  </Button>
-                  <Button
-                    component={Link}
-                    href={`/reservations/group-holds/${hold.id}/check-in`}
-                    variant="light"
-                    color="green"
-                    disabled={hold.status !== 'CONFIRMED'}
-                  >
-                    Prepare Check-in
-                  </Button>
-                  <Button
-                    onClick={() => void completeCheckout()}
-                    loading={isSaving}
-                    variant="light"
-                    color="red"
-                    disabled={!checkoutAllowed}
-                  >
-                    {hold.status === 'CHECKED_OUT' ? 'Checked Out' : 'Complete Checkout'}
-                  </Button>
-                  <Button
-                    component={Link}
-                    href={`/reservations/group-holds/${hold.id}/master-folio`}
-                    variant="light"
-                    color="gray"
-                  >
-                    Open Folio
-                  </Button>
+                  {hold.status === 'ON_HOLD' ? (
+                    <Button
+                      leftSection={<CheckCircle2 size={14} />}
+                      color="stayosBrand"
+                      loading={isSaving}
+                      onClick={() => void confirmHold()}
+                      disabled={!hold.readiness.canConfirm || isSaving}
+                    >
+                      Confirm Hold
+                    </Button>
+                  ) : null}
+                  {hold.status === 'CONFIRMED' ? (
+                    <Button
+                      component={Link}
+                      href={`/reservations/group-holds/${hold.id}/check-in`}
+                      variant="light"
+                      color="green"
+                    >
+                      Prepare Check-in
+                    </Button>
+                  ) : null}
+                  {hold.status === 'CHECKED_IN' ? (
+                    <Button
+                      onClick={() => void completeCheckout()}
+                      loading={isSaving}
+                      variant="light"
+                      color="red"
+                      disabled={!checkoutAllowed || isSaving}
+                    >
+                      Complete Checkout
+                    </Button>
+                  ) : null}
+                  {hold.status === 'CHECKED_IN' || hold.status === 'CHECKED_OUT' ? (
+                    <Button
+                      component={Link}
+                      href={`/reservations/group-holds/${hold.id}/master-folio`}
+                      variant="light"
+                      color="gray"
+                    >
+                      Open Folio
+                    </Button>
+                  ) : null}
                   {hold.status === 'ON_HOLD' ? (
                     <Button variant="light" color="red" onClick={() => setDeleteOpened(true)}>
                       Delete Group
@@ -522,10 +570,17 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
                   ) : null}
                 </Group>
               </Group>
+              {hold.status === 'CHECKED_IN' && !checkoutAllowed ? (
+                <Alert color="yellow" variant="light" mt={spacing[3]}>
+                  {Number(masterFolio?.checkoutSummary.balanceDue ?? 0) > 0.01
+                    ? 'Checkout is blocked until the master folio balance is settled.'
+                    : 'Checkout is not ready yet. Open the folio to review the remaining checkout requirements.'}
+                </Alert>
+              ) : null}
               <SimpleGrid cols={{ base: 1, md: 5 }} spacing={spacing[2]} mt={spacing[3]}>
                 {[
                   ['Contact', hold.readiness.contactComplete],
-                  ['Deposit Terms', hold.readiness.depositRequired],
+                  ['Deposit Policy', true],
                   ['Release Date', hold.readiness.releaseDateSet],
                   ['Rooming List', hold.readiness.roomingListStarted],
                   ['Rooms Assigned', hold.readiness.fullyAssigned],
@@ -566,15 +621,25 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
               </Group>
 
               {canEditRoomAssignments && hasUnassignedRooms ? (
-                <Group justify="space-between" align="flex-end" mt={spacing[3]}>
+                <Group
+                  justify="space-between"
+                  align="flex-end"
+                  gap={spacing[2]}
+                  wrap="wrap"
+                  mt={spacing[3]}
+                >
                   <Select
                     label="Assign room"
                     data={assignableRooms}
                     value={roomId}
                     onChange={setRoomId}
                     searchable
-                    placeholder="Choose a room"
-                    style={{ flex: 1 }}
+                    placeholder={
+                      assignableRooms.length ? 'Choose a room' : 'No assignable rooms available'
+                    }
+                    nothingFoundMessage="No assignable rooms found"
+                    disabled={!assignableRooms.length || isSaving}
+                    style={{ flex: 1, minWidth: 220 }}
                   />
                   <Button
                     leftSection={<BedDouble size={16} />}
@@ -638,36 +703,51 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
             </Card>
 
             <Card radius={radius.lg} p={16} style={panelStyle}>
-              <Title order={2} c="#101828" style={{ fontSize: 18 }}>
-                Rooming List
-              </Title>
+              <Group justify="space-between" align="flex-start" gap={spacing[2]} wrap="wrap">
+                <Box>
+                  <Title order={2} c="#101828" style={{ fontSize: 18 }}>
+                    Rooming List
+                  </Title>
+                  <Text c="#64748b" size="sm" mt={2}>
+                    Add guest or family names before group check-in.
+                  </Text>
+                </Box>
+                <Badge color={hold.roomingList.length ? 'green' : 'gray'} variant="light">
+                  {hold.roomingList.length} {hold.roomingList.length === 1 ? 'entry' : 'entries'}
+                </Badge>
+              </Group>
               <SimpleGrid cols={{ base: 1, md: 5 }} spacing={spacing[2]} mt={spacing[2]}>
                 <TextInput
                   label="Guest/family name"
                   value={guestName}
                   onChange={(event) => setGuestName(event.currentTarget.value)}
+                  disabled={!canEditRoomAssignments || isSaving}
                 />
                 <TextInput
                   label="Phone"
                   value={phone}
                   onChange={(event) => setPhone(event.currentTarget.value)}
+                  disabled={!canEditRoomAssignments || isSaving}
                 />
                 <NumberInput
                   label="Adults"
                   min={1}
                   value={adults}
                   onChange={(value) => setAdults(Number(value) || 1)}
+                  disabled={!canEditRoomAssignments || isSaving}
                 />
                 <NumberInput
                   label="Children"
                   min={0}
                   value={children}
                   onChange={(value) => setChildren(Number(value) || 0)}
+                  disabled={!canEditRoomAssignments || isSaving}
                 />
                 <TextInput
                   label="Notes"
                   value={notes}
                   onChange={(event) => setNotes(event.currentTarget.value)}
+                  disabled={!canEditRoomAssignments || isSaving}
                 />
               </SimpleGrid>
               <Button
@@ -675,31 +755,48 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
                 leftSection={<Plus size={16} />}
                 onClick={() => void addGuest()}
                 loading={isSaving}
-                disabled={!guestName.trim()}
+                disabled={!guestName.trim() || !canEditRoomAssignments || isSaving}
               >
                 Add to Rooming List
               </Button>
-              <Stack gap={8} mt={spacing[3]}>
-                {hold.roomingList.map((item) => (
-                  <Paper
-                    key={item.id}
-                    radius={radius.md}
-                    p={10}
-                    style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}
-                  >
-                    <Group justify="space-between">
-                      <Box>
-                        <Text fw={850}>{item.guestName}</Text>
-                        <Text c="#64748b" size="sm">
-                          {item.adults} adults, {item.children} children{' '}
-                          {item.phone ? `- ${item.phone}` : ''}
-                        </Text>
-                      </Box>
-                      <Users size={16} />
-                    </Group>
-                  </Paper>
-                ))}
-              </Stack>
+              {hold.roomingList.length ? (
+                <Stack gap={8} mt={spacing[3]}>
+                  {hold.roomingList.map((item) => (
+                    <Paper
+                      key={item.id}
+                      radius={radius.md}
+                      p={10}
+                      style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}
+                    >
+                      <Group justify="space-between">
+                        <Box>
+                          <Text fw={850}>{item.guestName}</Text>
+                          <Text c="#64748b" size="sm">
+                            {item.adults} adults, {item.children} children{' '}
+                            {item.phone ? `- ${item.phone}` : ''}
+                          </Text>
+                        </Box>
+                        <Users size={16} />
+                      </Group>
+                    </Paper>
+                  ))}
+                </Stack>
+              ) : (
+                <Paper
+                  radius={radius.md}
+                  p={12}
+                  mt={spacing[3]}
+                  style={{ background: '#f8fafc', border: '1px dashed #cbd5e1' }}
+                >
+                  <Text fw={800} c="#101828">
+                    No guests added yet
+                  </Text>
+                  <Text c="#64748b" size="sm">
+                    Add the lead guest, family names, or rooming-list contacts as details become
+                    available.
+                  </Text>
+                </Paper>
+              )}
             </Card>
           </>
         ) : null}
@@ -760,7 +857,7 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
             </Alert>
           ) : null}
 
-          <Group justify="flex-end">
+          <Group justify="flex-end" gap={8} wrap="wrap">
             <Button variant="subtle" color="gray" onClick={closeChangeRoom} disabled={isSaving}>
               Cancel
             </Button>
@@ -778,16 +875,15 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
 
       <Modal centered opened={deleteOpened} onClose={closeDeleteModal} title="Delete Group">
         <Stack gap={spacing[3]}>
-          <div>
-            This will permanently delete {hold?.groupCode ?? 'this group'}. This action cannot be
-            undone.
-          </div>
-          <div>
-            If the group is already confirmed, use Cancel Group instead so the booking history is
-            kept.
-          </div>
+          <Alert color="red" variant="light" title="Permanent action">
+            This permanently deletes {hold?.groupCode ?? 'this group'} and cannot be undone.
+          </Alert>
+          <Text c="#64748b" size="sm">
+            Deletion is only available while the enquiry is still on hold. Confirmed bookings should
+            remain in booking history and use the normal cancellation workflow instead.
+          </Text>
 
-          <Group justify="flex-end">
+          <Group justify="flex-end" gap={8} wrap="wrap">
             <Button variant="subtle" color="gray" onClick={closeDeleteModal} disabled={isDeleting}>
               Keep Group
             </Button>

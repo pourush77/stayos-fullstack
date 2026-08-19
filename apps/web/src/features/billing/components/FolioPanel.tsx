@@ -346,7 +346,7 @@ function PaymentModal({
   folioId: string;
   onRazorpaySuccess: (folio: Folio) => void;
 }) {
-  const [method, setMethod] = useState<FolioPaymentMethod>('CARD');
+  const [method, setMethod] = useState<FolioPaymentMethod>('CASH');
   const [amount, setAmount] = useState<number>(0);
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
@@ -357,7 +357,7 @@ function PaymentModal({
 
   useEffect(() => {
     if (opened) {
-      setMethod('CARD');
+      setMethod('CASH');
       setAmount(balanceDue > 0 ? balanceDue : 0);
       setReference('');
       setNotes('');
@@ -535,7 +535,7 @@ function PaymentModal({
             <Select
               data={paymentMethods}
               data-testid="payment-method"
-              label="Method"
+              label="Payment method"
               required
               value={method}
               onChange={(value) => setMethod((value as FolioPaymentMethod) ?? 'CASH')}
@@ -799,6 +799,8 @@ export function FolioPanel({
 
   const [billingAction, setBillingAction] = useState<BillingAction>(null);
 
+  const [settleOpen, setSettleOpen] = useState(false);
+
   const [downloadingFinalBill, setDownloadingFinalBill] = useState(false);
 
   const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
@@ -975,6 +977,7 @@ export function FolioPanel({
 
       setCurrent(next);
       onFolioChanged?.(next);
+      setSettleOpen(false);
 
       showToast({
         color: 'green',
@@ -1124,18 +1127,13 @@ export function FolioPanel({
           <Group gap={spacing[3]} align="flex-start" wrap="wrap">
             <Box>
               <Text c="#64748b" size="xs" fw={700} tt="uppercase">
-                Subtotal
+                Total
               </Text>
-              <Text c="#101828" fw={750}>
-                {formatCurrency(current.totals.subtotal)}
+              <Text c="#101828" fw={800}>
+                {formatCurrency(current.totals.total)}
               </Text>
-            </Box>
-
-            <Box>
-              <Text c="#64748b" size="xs" fw={700} tt="uppercase">
-                Tax
-              </Text>
-              <Text c="#101828" fw={750}>
+              <Text c="#94a3b8" size="xs">
+                Subtotal {formatCurrency(current.totals.subtotal)} · Tax{' '}
                 {formatCurrency(current.totals.tax)}
               </Text>
             </Box>
@@ -1168,6 +1166,20 @@ export function FolioPanel({
           </Group>
         </Group>
 
+        {!isSettled && !isVoid ? (
+          <Alert
+            mt={spacing[3]}
+            color={balance > 0.01 ? 'yellow' : isOverpaid ? 'grape' : 'green'}
+            variant="light"
+          >
+            {balance > 0.01
+              ? `${formatCurrency(balance)} remains due. Record a partial or full payment; the folio stays OPEN until it is settled.`
+              : isOverpaid
+                ? `${formatCurrency(Math.abs(balance))} guest credit remains. Review/refund the credit before settlement.`
+                : 'Balance is fully paid. Settle the folio when the guest account is ready to close.'}
+          </Alert>
+        ) : null}
+
         <Group mt={spacing[3]} gap={10} wrap="wrap">
           <Button
             variant="light"
@@ -1180,38 +1192,12 @@ export function FolioPanel({
             Final Bill
           </Button>
 
-          <Button
-            variant="light"
-            color="gray"
-            leftSection={<Mail size={16} />}
-            disabled={!canGenerateFinalBill || isBillingBusy || downloadingFinalBill}
-            onClick={() =>
-              showToast({
-                color: 'yellow',
-                title: 'Email not connected',
-                message:
-                  'Email sending will use the final bill once the invoice endpoint is available.',
-              })
-            }
-          >
-            Email Bill
+          <Button variant="light" color="gray" leftSection={<Mail size={16} />} disabled>
+            Email Bill · Coming soon
           </Button>
 
-          <Button
-            variant="light"
-            color="gray"
-            leftSection={<MessageCircle size={16} />}
-            disabled={!canGenerateFinalBill || isBillingBusy || downloadingFinalBill}
-            onClick={() =>
-              showToast({
-                color: 'yellow',
-                title: 'WhatsApp not connected',
-                message:
-                  'WhatsApp resend will use the final bill once messaging integration is available.',
-              })
-            }
-          >
-            WhatsApp
+          <Button variant="light" color="gray" leftSection={<MessageCircle size={16} />} disabled>
+            WhatsApp · Coming soon
           </Button>
         </Group>
 
@@ -1242,7 +1228,7 @@ export function FolioPanel({
               data-testid="folio-settle"
               disabled={!isExactZero || isSettled || (isBillingBusy && billingAction !== 'settle')}
               leftSection={<Wallet size={16} />}
-              onClick={() => void handleSettle()}
+              onClick={() => setSettleOpen(true)}
               loading={billingAction === 'settle'}
               variant="light"
             >
@@ -1259,9 +1245,14 @@ export function FolioPanel({
           border: '1px solid #e2e8f0',
         }}
       >
-        <Text c="#101828" fw={800} size="md" mb={8}>
-          Charges
-        </Text>
+        <Group justify="space-between" mb={8}>
+          <Text c="#101828" fw={800} size="md">
+            Charges
+          </Text>
+          <Badge color="gray" variant="light">
+            {current.charges.length}
+          </Badge>
+        </Group>
 
         {current.charges.length === 0 ? (
           <Text c="#94a3b8" size="sm">
@@ -1321,13 +1312,18 @@ export function FolioPanel({
           border: '1px solid #e2e8f0',
         }}
       >
-        <Text c="#101828" fw={800} size="md" mb={8}>
-          Payments
-        </Text>
+        <Group justify="space-between" mb={8}>
+          <Text c="#101828" fw={800} size="md">
+            Payments & refunds
+          </Text>
+          <Badge color="gray" variant="light">
+            {current.payments.length}
+          </Badge>
+        </Group>
 
         {current.payments.length === 0 ? (
           <Text c="#94a3b8" size="sm">
-            No payments recorded yet.
+            No payments or refunds recorded yet.
           </Text>
         ) : (
           <Table.ScrollContainer minWidth={760}>
@@ -1424,6 +1420,49 @@ export function FolioPanel({
         Last updated {formatDateTime(current.updatedAt)}
         {current.settledAt ? ` · Settled ${formatDateTime(current.settledAt)}` : ''}
       </Text>
+
+      <Modal
+        centered
+        opened={settleOpen}
+        onClose={() => {
+          if (billingAction !== 'settle') setSettleOpen(false);
+        }}
+        title="Settle this folio?"
+        closeOnClickOutside={billingAction !== 'settle'}
+        closeOnEscape={billingAction !== 'settle'}
+        withCloseButton={billingAction !== 'settle'}
+      >
+        <Stack gap="md">
+          <Alert color="green" variant="light">
+            Balance is {formatCurrency(current.totals.balance)}. Settling closes this guest account
+            for further normal billing actions.
+          </Alert>
+          <Box>
+            <Text fw={800}>{current.guest.displayName}</Text>
+            <Text c="#64748b" size="sm">
+              {current.folioNumber} · Reservation {current.reservation.reservationCode}
+            </Text>
+          </Box>
+          <Group justify="flex-end" gap={8}>
+            <Button
+              variant="light"
+              color="gray"
+              disabled={billingAction === 'settle'}
+              onClick={() => setSettleOpen(false)}
+            >
+              Go back
+            </Button>
+            <Button
+              color="green"
+              leftSection={<Wallet size={16} />}
+              loading={billingAction === 'settle'}
+              onClick={() => void handleSettle()}
+            >
+              Confirm settlement
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       <ChargeModal
         onClose={() => {

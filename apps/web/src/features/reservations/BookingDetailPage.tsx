@@ -197,7 +197,10 @@ function bookingActionState(booking: Booking, folio?: FolioSummary) {
 
   return {
     title: 'Confirm booking',
-    description: 'Confirm the booking, then assign a room and continue check-in.',
+    description:
+      booking.room === 'Unassigned'
+        ? 'This hold is already consuming inventory. Confirm the booking, then assign a ready room before check-in.'
+        : 'This hold is already consuming inventory. Confirm the booking before continuing to check-in.',
     paymentCopy: hasBalance
       ? `${formatCurrency(balance)} outstanding.`
       : 'No collection needed yet.',
@@ -281,6 +284,7 @@ function FrontDeskConsole({
   onAssignRoom,
   onChangeRoom,
   onCheckOut,
+  onConfirmBooking,
 }: {
   assignedRoomUnavailable: boolean;
   assignedRoomUiStatus?: string;
@@ -290,6 +294,7 @@ function FrontDeskConsole({
   onAssignRoom: () => void;
   onChangeRoom: () => void;
   onCheckOut: () => Promise<void>;
+  onConfirmBooking: () => Promise<void>;
 }) {
   if (booking.status === 'CHECKED_OUT' || booking.status === 'CANCELLED') return null;
 
@@ -363,11 +368,22 @@ function FrontDeskConsole({
           </Group>
         </Box>
         <Group gap={8}>
-          {unassigned ? (
+          {booking.status === 'PENDING' ? (
             <Button
               data-testid="booking-next-action-cta"
               color="stayosBrand"
               h={48}
+              loading={isActing}
+              onClick={() => void onConfirmBooking()}
+            >
+              Confirm Booking
+            </Button>
+          ) : unassigned ? (
+            <Button
+              data-testid="booking-next-action-cta"
+              color="stayosBrand"
+              h={48}
+              disabled={isActing}
               onClick={onAssignRoom}
             >
               Assign Room
@@ -1045,6 +1061,7 @@ export default function BookingDetailPage() {
                   variant={assignedRoomUnavailable ? 'filled' : 'light'}
                   color="stayosBrand"
                   leftSection={<MoveRight size={16} />}
+                  disabled={isActing}
                   onClick={() => setChangeOpened(true)}
                   data-testid="change-room-open"
                 >
@@ -1061,7 +1078,7 @@ export default function BookingDetailPage() {
                 Confirm Booking
               </Button>
             ) : canAssignRoom ? (
-              <Button color="stayosBrand" onClick={() => setAssignOpened(true)}>
+              <Button color="stayosBrand" disabled={isActing} onClick={() => setAssignOpened(true)}>
                 Assign Room
               </Button>
             ) : null}
@@ -1083,6 +1100,7 @@ export default function BookingDetailPage() {
                 variant="light"
                 color="stayosBrand"
                 leftSection={<Plus size={16} />}
+                disabled={isActing}
                 onClick={() => setExtendOpened(true)}
                 data-testid="extend-stay-open"
               >
@@ -1095,6 +1113,7 @@ export default function BookingDetailPage() {
                 variant="light"
                 color="stayosBrand"
                 leftSection={<MoveRight size={16} />}
+                disabled={isActing}
                 onClick={() => setMoveOpened(true)}
                 data-testid="move-room-open"
               >
@@ -1107,6 +1126,7 @@ export default function BookingDetailPage() {
                 variant="subtle"
                 color="red"
                 leftSection={<XCircle size={16} />}
+                disabled={isActing}
                 onClick={() => setCancelOpened(true)}
                 data-testid="cancel-booking-trigger"
               >
@@ -1166,6 +1186,7 @@ export default function BookingDetailPage() {
         onAssignRoom={() => setAssignOpened(true)}
         onChangeRoom={() => setChangeOpened(true)}
         onCheckOut={openCheckoutFlow}
+        onConfirmBooking={confirmBooking}
       />
 
       <SimpleGrid cols={{ base: 1, lg: 12 }} spacing={spacing[3]}>
@@ -1272,6 +1293,7 @@ export default function BookingDetailPage() {
                       variant={assignedRoomUnavailable ? 'filled' : 'light'}
                       color="stayosBrand"
                       leftSection={<MoveRight size={16} />}
+                      disabled={isActing}
                       onClick={() => setChangeOpened(true)}
                     >
                       Change Room
@@ -1401,11 +1423,11 @@ export default function BookingDetailPage() {
             <Stack gap={spacing[2]}>
               <Text size="sm" c="#334155">
                 {booking.status === 'CANCELLED'
-                  ? 'Booking cancelled. Any held room and inventory have been released.'
+                  ? 'Booking cancelled. Its inventory entitlement has been released.'
                   : booking.status === 'NO_SHOW'
-                    ? 'Marked as no-show. Inventory has been released.'
+                    ? 'Marked as no-show. Its inventory entitlement has been released.'
                     : booking.status === 'PENDING'
-                      ? 'On hold. Confirm the booking to secure it.'
+                      ? 'On hold. Inventory is reserved while this booking remains pending.'
                       : booking.room !== 'Unassigned'
                         ? 'Room assigned and booking confirmed.'
                         : 'Booking confirmed. Room assignment pending.'}
@@ -1426,14 +1448,20 @@ export default function BookingDetailPage() {
       >
         <Stack gap={spacing[4]}>
           <Text>
-            This will cancel the booking and release any assigned room. This cannot be used after
-            check-in.
+            This will cancel the booking and release its inventory entitlement. Any existing room
+            assignment is retained in reservation history for audit purposes. This cannot be used
+            after check-in.
           </Text>
           <Group justify="flex-end">
             <Button variant="subtle" color="gray" onClick={() => setCancelOpened(false)}>
               Keep Booking
             </Button>
-            <Button color="red" loading={isActing} onClick={() => void cancelBooking()} data-testid="cancel-confirm-button">
+            <Button
+              color="red"
+              loading={isActing}
+              onClick={() => void cancelBooking()}
+              data-testid="cancel-confirm-button"
+            >
               Cancel Booking
             </Button>
           </Group>

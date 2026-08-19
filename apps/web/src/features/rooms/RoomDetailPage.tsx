@@ -13,17 +13,7 @@ import {
   ThemeIcon,
   Title,
 } from '@mantine/core';
-import {
-  BedDouble,
-  Brush,
-  CalendarClock,
-  ChevronLeft,
-  ClipboardList,
-  CreditCard,
-  DoorOpen,
-  MessageSquare,
-  Wrench,
-} from 'lucide-react';
+import { AlertCircle, BedDouble, Brush, Wrench, ChevronLeft } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
@@ -41,33 +31,14 @@ type RoomDetail = {
   number: string;
   type: string;
   status: string;
-  guest: string;
-  housekeeping: string;
-  arrival: string;
-  departure: string;
-  maintenance: string;
   notes: string;
-  timeline: string[];
   amenities: string[];
 };
 
-const fallbackRoom: RoomDetail = {
-  number: '402',
-  type: 'Premium Suite',
-  status: 'Guest Staying',
-  guest: 'Ananya Rao',
-  housekeeping: 'Clean and inspected',
-  arrival: '28 Jun, 09:10 AM',
-  departure: '01 Jul, 11:00 AM',
-  maintenance: 'No active issues',
-  notes: 'Guest prefers high floor, vegetarian meals, and extra pillow.',
-  timeline: [
-    '09:10 Guest checked in',
-    '09:23 Room keys issued',
-    '11:05 Housekeeping completed',
-    '17:30 Laundry requested',
-  ],
-  amenities: ['WiFi', 'AC', 'TV'],
+type RoomDetailState = {
+  error?: string;
+  isLoading: boolean;
+  room?: RoomDetail;
 };
 
 function getString(record: Record<string, unknown> | undefined, keys: string[], fallback = '') {
@@ -95,7 +66,9 @@ function typeLookup(roomTypes: InventoryRoomTypeDto[]) {
 }
 
 function displayStatus(room: InventoryRoomDto) {
-  const status = getString(room, ['operationalStatus', 'operational_status'], 'READY').replace(/_/g, ' ').toLowerCase();
+  const status = getString(room, ['operationalStatus', 'operational_status'], 'READY')
+    .replace(/_/g, ' ')
+    .toLowerCase();
   return status.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
@@ -113,39 +86,17 @@ function mapRoomDetail(room: InventoryRoomDto, roomTypes: InventoryRoomTypeDto[]
     number: roomNumber,
     type: roomTypeName,
     status: displayStatus(room),
-    guest: 'None',
-    housekeeping: displayStatus(room),
-    arrival: 'No arrival connected',
-    departure: 'No departure connected',
-    maintenance: 'No active issues',
-    notes: getString(room, ['description'], `${roomTypeName} room loaded from Hillston inventory.`),
-    timeline: [`Room ${roomNumber} loaded from backend inventory`, `${displayStatus(room)} operational status`],
+    notes: getString(room, ['description'], 'No room notes recorded.'),
     amenities,
   };
 }
 
-function loadingRoom(roomId: string): RoomDetail {
-  return {
-    number: roomId,
-    type: 'Loading inventory',
-    status: 'Loading',
-    guest: 'Loading',
-    housekeeping: 'Loading',
-    arrival: 'Loading',
-    departure: 'Loading',
-    maintenance: 'Loading',
-    notes: 'Loading live Hillston room inventory.',
-    timeline: ['Loading live Hillston room inventory'],
-    amenities: [],
-  };
-}
-
-function useRoomDetail(roomId: string): { isFallback: boolean; isLoading: boolean; room: RoomDetail } {
-  const [state, setState] = useState({ isFallback: false, isLoading: true, room: loadingRoom(roomId) });
+function useRoomDetail(roomId: string): RoomDetailState {
+  const [state, setState] = useState<RoomDetailState>({ isLoading: true });
 
   useEffect(() => {
     const controller = new AbortController();
-    setState({ isFallback: false, isLoading: true, room: loadingRoom(roomId) });
+    setState({ isLoading: true });
 
     async function loadRoom() {
       try {
@@ -153,7 +104,7 @@ function useRoomDetail(roomId: string): { isFallback: boolean; isLoading: boolea
         const property = activeProperty(properties);
         const propertyId = getString(property, ['id']);
 
-        if (!propertyId) throw new Error('No active property returned.');
+        if (!propertyId) throw new Error('No active property is available.');
 
         const [rooms, roomTypes] = await Promise.all([
           getPropertyRooms(propertyId, controller.signal),
@@ -163,21 +114,22 @@ function useRoomDetail(roomId: string): { isFallback: boolean; isLoading: boolea
           .filter(isActiveRecord)
           .find((room) => getString(room, ['roomNumber', 'number', 'displayName']) === roomId);
 
-        if (!matchedRoom) throw new Error(`Room ${roomId} was not found.`);
+        if (!matchedRoom) throw new Error(`Room ${roomId} was not found in the active property.`);
 
         setState({
-          isFallback: false,
           isLoading: false,
           room: mapRoomDetail(matchedRoom, roomTypes.filter(isActiveRecord)),
         });
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') return;
-        setState({ isFallback: true, isLoading: false, room: fallbackRoom });
+        setState({
+          error: error instanceof Error ? error.message : 'Unable to load this room.',
+          isLoading: false,
+        });
       }
     }
 
     void loadRoom();
-
     return () => controller.abort();
   }, [roomId]);
 
@@ -186,8 +138,8 @@ function useRoomDetail(roomId: string): { isFallback: boolean; isLoading: boolea
 
 export default function RoomWorkspacePlaceholderPage() {
   const pathname = usePathname();
-  const roomId = pathname.split('/').filter(Boolean).at(-1) ?? fallbackRoom.number;
-  const { isFallback, isLoading, room } = useRoomDetail(roomId);
+  const roomId = pathname.split('/').filter(Boolean).at(-1) ?? '';
+  const { error, isLoading, room } = useRoomDetail(roomId);
 
   return (
     <Stack gap={spacing[5]}>
@@ -200,120 +152,125 @@ export default function RoomWorkspacePlaceholderPage() {
         px={0}
         w="fit-content"
       >
-        Back to Room Operations
+        Back to Rooms
       </Button>
 
-      <Card p={spacing[6]} radius={radius.lg} shadow="xs" className={styles.plainCard}>
-        <Group justify="space-between" align="flex-start" gap={spacing[5]}>
-          <Group gap={spacing[4]} align="flex-start">
-            <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={52}>
-              <BedDouble size={24} />
+      {isLoading ? (
+        <Card p={spacing[5]} radius={radius.lg} shadow="xs" className={styles.plainCard}>
+          <Text className={styles.loadingText}>Loading room details…</Text>
+          <Text mt={4} c="#64748b" size="sm">
+            Getting the latest room type, operational status, and amenities.
+          </Text>
+        </Card>
+      ) : null}
+
+      {error ? (
+        <Card p={spacing[5]} radius={radius.lg} shadow="xs" className={styles.plainCard}>
+          <Group gap={spacing[3]} align="flex-start" wrap="nowrap">
+            <ThemeIcon color="red" variant="light" radius={radius.md}>
+              <AlertCircle size={18} />
             </ThemeIcon>
             <Box>
-              <Title order={1} className={styles.roomTitle}>
-                Room {room.number}
-              </Title>
-          <Text mt={spacing[1]} className={styles.roomType}>
-            {room.type}
-          </Text>
-          {room.amenities.length > 0 ? (
-            <Group mt={spacing[3]} gap={spacing[2]}>
-              {room.amenities.map((amenity) => (
-                <Badge key={amenity} radius={radius.full} variant="light" color="gray">
-                  {amenity}
-                </Badge>
-              ))}
-            </Group>
-          ) : null}
-        </Box>
-          </Group>
-          <Badge
-            radius={radius.full}
-            variant="light"
-            color="stayosBrand"
-            classNames={{ root: styles.statusBadgeRoot }}
-          >
-            {room.status}
-          </Badge>
-        </Group>
-      </Card>
-
-      {isLoading ? (
-        <Card p={spacing[4]} radius={radius.lg} shadow="xs" className={styles.plainCard}>
-          <Text className={styles.loadingText}>
-            Loading live Hillston room inventory...
-          </Text>
-        </Card>
-      ) : null}
-
-      {isFallback ? (
-        <Card p={spacing[4]} radius={radius.lg} shadow="xs" className={styles.plainCard}>
-          <Text className={styles.fallbackText}>
-            Backend room inventory is unavailable, so this room is showing fallback data.
-          </Text>
-        </Card>
-      ) : null}
-
-      <SimpleGrid cols={{ base: 1, md: 2, xl: 3 }} spacing={spacing[4]}>
-        {[
-          ['Current Guest', room.guest, <DoorOpen size={17} />],
-          ['Housekeeping', room.housekeeping, <Brush size={17} />],
-          ['Arrival / Departure', `${room.arrival} - ${room.departure}`, <CalendarClock size={17} />],
-          ['Maintenance', room.maintenance, <Wrench size={17} />],
-          ['Room Notes', room.notes, <ClipboardList size={17} />],
-        ].map(([label, value, icon]) => (
-          <Paper key={String(label)} p={spacing[4]} radius={radius.lg} className={styles.detailPaper}>
-            <Group gap={spacing[3]} align="flex-start" wrap="nowrap">
-              <ThemeIcon color="stayosBrand" variant="light" radius={radius.md}>
-                {icon}
-              </ThemeIcon>
-              <Box>
-                <Text className={styles.detailLabel}>
-                  {label}
-                </Text>
-                <Text mt={spacing[1]} className={styles.detailValue}>
-                  {value}
-                </Text>
-              </Box>
-            </Group>
-          </Paper>
-        ))}
-      </SimpleGrid>
-
-      <SimpleGrid cols={{ base: 1, lg: 2 }} spacing={spacing[4]}>
-        <Card p={spacing[5]} radius={radius.lg} shadow="xs" className={styles.plainCard}>
-          <Title order={2} className={styles.sectionTitle}>
-            Timeline
-          </Title>
-          <Stack mt={spacing[4]} gap={spacing[3]}>
-            {room.timeline.map((item) => (
-              <Text key={item} className={styles.timelineText}>
-                {item}
+              <Text fw={800} c="#101828">
+                Room details unavailable
               </Text>
-            ))}
-          </Stack>
-        </Card>
-
-        <Card p={spacing[5]} radius={radius.lg} shadow="xs" className={styles.plainCard}>
-          <Title order={2} className={styles.sectionTitle}>
-            Quick Actions
-          </Title>
-          <Group mt={spacing[4]} gap={spacing[3]}>
-            <Button component="a" href="/guest-stay/ST1842" color="stayosBrand" leftSection={<DoorOpen size={16} />}>
-              View Stay
-            </Button>
-            <Button variant="light" color="stayosBrand" leftSection={<Brush size={16} />}>
-              Housekeeping
-            </Button>
-            <Button variant="light" color="stayosBrand" leftSection={<CreditCard size={16} />}>
-              Billing
-            </Button>
-            <Button variant="subtle" color="gray" leftSection={<MessageSquare size={16} />}>
-              Add Note
-            </Button>
+              <Text mt={4} c="#64748b" size="sm">
+                {error}
+              </Text>
+              <Button component="a" href="/rooms" mt={spacing[3]} variant="light" color="gray">
+                Return to room board
+              </Button>
+            </Box>
           </Group>
         </Card>
-      </SimpleGrid>
+      ) : null}
+
+      {room ? (
+        <>
+          <Card p={spacing[6]} radius={radius.lg} shadow="xs" className={styles.plainCard}>
+            <Group justify="space-between" align="flex-start" gap={spacing[4]} wrap="wrap">
+              <Group gap={spacing[4]} align="flex-start" wrap="nowrap">
+                <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={52}>
+                  <BedDouble size={24} />
+                </ThemeIcon>
+                <Box style={{ minWidth: 0 }}>
+                  <Title order={1} className={styles.roomTitle}>
+                    Room {room.number}
+                  </Title>
+                  <Text mt={spacing[1]} className={styles.roomType}>
+                    {room.type}
+                  </Text>
+                  {room.amenities.length ? (
+                    <Group mt={spacing[3]} gap={spacing[2]} wrap="wrap">
+                      {room.amenities.map((amenity) => (
+                        <Badge key={amenity} radius={radius.full} variant="light" color="gray">
+                          {amenity}
+                        </Badge>
+                      ))}
+                    </Group>
+                  ) : null}
+                </Box>
+              </Group>
+              <Badge radius={radius.full} variant="light" color="stayosBrand">
+                {room.status}
+              </Badge>
+            </Group>
+          </Card>
+
+          <SimpleGrid cols={{ base: 1, md: 2 }} spacing={spacing[4]}>
+            <Paper p={spacing[4]} radius={radius.lg} className={styles.detailPaper}>
+              <Text className={styles.detailLabel}>Room notes</Text>
+              <Text mt={spacing[1]} className={styles.detailValue}>
+                {room.notes}
+              </Text>
+            </Paper>
+            <Paper p={spacing[4]} radius={radius.lg} className={styles.detailPaper}>
+              <Text className={styles.detailLabel}>Operational status</Text>
+              <Text mt={spacing[1]} className={styles.detailValue}>
+                {room.status}
+              </Text>
+            </Paper>
+          </SimpleGrid>
+
+          <Card p={spacing[5]} radius={radius.lg} shadow="xs" className={styles.plainCard}>
+            <Title order={2} className={styles.sectionTitle}>
+              Room operations
+            </Title>
+            <Text mt={spacing[2]} c="#64748b" size="sm">
+              Guest stay, billing, assignment, and room-status actions are managed from the live
+              room board, where StayOS has the reservation context required to perform them safely.
+            </Text>
+            <Group mt={spacing[4]} gap={spacing[2]} wrap="wrap">
+              <Button
+                component="a"
+                href="/rooms"
+                color="stayosBrand"
+                leftSection={<BedDouble size={16} />}
+              >
+                Open room board
+              </Button>
+              <Button
+                component="a"
+                href={`/housekeeping?room=${encodeURIComponent(room.number)}`}
+                variant="light"
+                color="gray"
+                leftSection={<Brush size={16} />}
+              >
+                Housekeeping
+              </Button>
+              <Button
+                component="a"
+                href="/maintenance"
+                variant="light"
+                color="gray"
+                leftSection={<Wrench size={16} />}
+              >
+                Maintenance
+              </Button>
+            </Group>
+          </Card>
+        </>
+      ) : null}
     </Stack>
   );
 }

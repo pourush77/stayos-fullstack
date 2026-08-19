@@ -1,4 +1,15 @@
-import { Badge, Box, Button, Card, Group, Paper, SimpleGrid, Stack, Text, ThemeIcon } from '@mantine/core';
+import {
+  Badge,
+  Box,
+  Button,
+  Card,
+  Group,
+  Paper,
+  SimpleGrid,
+  Stack,
+  Text,
+  ThemeIcon,
+} from '@mantine/core';
 import { CheckCircle2, PlugZap, Snowflake, Wrench } from 'lucide-react';
 import { colors, radius, spacing, typography } from '@stayos/theme';
 import type { StayOSStatusTone } from '@stayos/ui';
@@ -30,16 +41,20 @@ function categoryIcon(category: string) {
 }
 
 export function MaintenanceTicketCard({
+  busyAction,
   canManage,
+  disabled = false,
   onAssign,
   onCancel,
   onResolve,
   ticket,
 }: {
+  busyAction?: 'assign' | 'cancel' | 'resolve';
   canManage: boolean;
-  onAssign: (ticketId: string) => void;
-  onCancel: (ticketId: string) => void;
-  onResolve: (ticketId: string) => void;
+  disabled?: boolean;
+  onAssign: (ticketId: string) => Promise<boolean> | void;
+  onCancel: (ticketId: string) => Promise<boolean> | void;
+  onResolve: (ticketId: string) => Promise<boolean> | void;
   ticket: MaintenanceTicketDto;
 }) {
   const isClosed = ['RESOLVED', 'CANCELLED'].includes(ticket.status);
@@ -59,45 +74,99 @@ export function MaintenanceTicketCard({
               {ticket.title}
             </Text>
             <Text c={colors.text.muted} mt={spacing[1]} style={typography.styles.small}>
-              {label(ticket.category)} - Reported {new Date(ticket.reportedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {label(ticket.category)} - Reported{' '}
+              {new Date(ticket.reportedAt).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
             </Text>
           </Box>
         </Group>
         <Stack align="flex-end" gap={spacing[2]}>
-          <StayOSStatusBadge tone={statusTone(ticket.status)}>{label(ticket.status)}</StayOSStatusBadge>
-          <StayOSStatusBadge tone={priorityTone(ticket.priority)}>{label(ticket.priority)}</StayOSStatusBadge>
+          <StayOSStatusBadge tone={statusTone(ticket.status)}>
+            {label(ticket.status)}
+          </StayOSStatusBadge>
+          <StayOSStatusBadge tone={priorityTone(ticket.priority)}>
+            {label(ticket.priority)}
+          </StayOSStatusBadge>
         </Stack>
       </Group>
 
       <SimpleGrid mt={spacing[5]} cols={{ base: 1, sm: 3 }} spacing={spacing[3]}>
         <Paper p={spacing[3]} radius={radius.md} bg={colors.surface.subtle}>
-          <Text c={colors.text.muted} style={typography.styles.caption}>Owner</Text>
-          <Text c={colors.text.strong} mt={spacing[1]} style={typography.styles.label}>{ticket.assignedToUserId ? 'Assigned' : 'Unassigned'}</Text>
+          <Text c={colors.text.muted} style={typography.styles.caption}>
+            Owner
+          </Text>
+          <Text c={colors.text.strong} mt={spacing[1]} style={typography.styles.label}>
+            {ticket.assignedToUserId ? 'Assigned' : 'Unassigned'}
+          </Text>
         </Paper>
         <Paper p={spacing[3]} radius={radius.md} bg={colors.surface.subtle}>
-          <Text c={colors.text.muted} style={typography.styles.caption}>Resolved</Text>
-          <Text c={colors.text.strong} mt={spacing[1]} style={typography.styles.label}>{ticket.resolvedAt ? new Date(ticket.resolvedAt).toLocaleDateString() : 'Open'}</Text>
+          <Text c={colors.text.muted} style={typography.styles.caption}>
+            Resolved
+          </Text>
+          <Text c={colors.text.strong} mt={spacing[1]} style={typography.styles.label}>
+            {ticket.resolvedAt ? new Date(ticket.resolvedAt).toLocaleDateString() : 'Open'}
+          </Text>
         </Paper>
         <Paper p={spacing[3]} radius={radius.md} bg={colors.surface.subtle}>
-          <Text c={colors.text.muted} style={typography.styles.caption}>Category</Text>
-          <Text c={colors.text.strong} mt={spacing[1]} style={typography.styles.label}>{label(ticket.category)}</Text>
+          <Text c={colors.text.muted} style={typography.styles.caption}>
+            Category
+          </Text>
+          <Text c={colors.text.strong} mt={spacing[1]} style={typography.styles.label}>
+            {label(ticket.category)}
+          </Text>
         </Paper>
       </SimpleGrid>
 
-      {ticket.description ? <Text mt={spacing[4]} c={colors.text.body} style={typography.styles.small}>{ticket.description}</Text> : null}
-      {ticket.resolutionNote ? <Text mt={spacing[3]} c={colors.text.muted} style={typography.styles.small}>Resolution: {ticket.resolutionNote}</Text> : null}
+      {ticket.description ? (
+        <Text mt={spacing[4]} c={colors.text.body} style={typography.styles.small}>
+          {ticket.description}
+        </Text>
+      ) : null}
+      {ticket.resolutionNote ? (
+        <Text mt={spacing[3]} c={colors.text.muted} style={typography.styles.small}>
+          Resolution: {ticket.resolutionNote}
+        </Text>
+      ) : null}
 
       <Group mt={spacing[5]} justify="flex-end">
         {canManage && ticket.status === 'OPEN' ? (
-          <Button color="stayosBrand" onClick={() => onAssign(ticket.id)}>Accept</Button>
+          <Button
+            color="stayosBrand"
+            disabled={disabled || Boolean(busyAction && busyAction !== 'assign')}
+            loading={busyAction === 'assign'}
+            onClick={() => void onAssign(ticket.id)}
+          >
+            Accept
+          </Button>
         ) : null}
         {canManage && ticket.status === 'IN_PROGRESS' ? (
-          <Button color="stayosBrand" onClick={() => onResolve(ticket.id)}>Resolve</Button>
+          <Button
+            color="stayosBrand"
+            disabled={disabled || Boolean(busyAction && busyAction !== 'resolve')}
+            loading={busyAction === 'resolve'}
+            onClick={() => void onResolve(ticket.id)}
+          >
+            Resolve
+          </Button>
         ) : null}
         {canManage && !isClosed ? (
-          <Button color="red" variant="light" onClick={() => onCancel(ticket.id)}>Cancel</Button>
+          <Button
+            color="red"
+            variant="light"
+            disabled={disabled || Boolean(busyAction && busyAction !== 'cancel')}
+            loading={busyAction === 'cancel'}
+            onClick={() => void onCancel(ticket.id)}
+          >
+            Cancel
+          </Button>
         ) : null}
-        {!canManage || isClosed ? <Badge color="gray" variant="light">{isClosed ? 'Closed' : 'View Only'}</Badge> : null}
+        {!canManage || isClosed ? (
+          <Badge color="gray" variant="light">
+            {isClosed ? 'Closed' : 'View Only'}
+          </Badge>
+        ) : null}
       </Group>
     </Card>
   );

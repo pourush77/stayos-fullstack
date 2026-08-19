@@ -239,7 +239,6 @@ function humanizeRoomWarning(warning: string): string {
   return warning;
 }
 
-
 function StepCard({
   icon,
   title,
@@ -717,7 +716,7 @@ export function CheckInWorkspacePage() {
   }
 
   const saveGuestRegistration = async () => {
-    if (!propertyId) return;
+    if (!propertyId || isSubmitting) return;
 
     // Do not send the form while a required value is still blank.
     // This also prevents the State selector from appearing to save when it has not
@@ -795,7 +794,7 @@ export function CheckInWorkspacePage() {
   };
 
   const saveIdentity = async () => {
-    if (!propertyId) return;
+    if (!propertyId || isSubmitting) return;
     const nextIdNumber = normalizeIdNumber(idType, idNumber);
     if (!nextIdNumber && !workspace.identity.idNumberMasked) {
       showToast({
@@ -851,7 +850,7 @@ export function CheckInWorkspacePage() {
   };
 
   const uploadIdPhoto = async (side: 'front' | 'back', file: File) => {
-    if (!propertyId) return;
+    if (!propertyId || isSubmitting) return;
     setIsSubmitting(side === 'front' ? 'id-front' : 'id-back');
     try {
       await uploadCheckInDocument(propertyId, workspace.booking.reservationId, side, file);
@@ -988,7 +987,7 @@ export function CheckInWorkspacePage() {
   };
 
   const deleteIdPhoto = async (documentId: string) => {
-    if (!propertyId) return;
+    if (!propertyId || isSubmitting) return;
     setIsSubmitting('id-delete');
     try {
       await deleteCheckInDocument(propertyId, workspace.booking.reservationId, documentId);
@@ -1007,7 +1006,7 @@ export function CheckInWorkspacePage() {
   };
 
   const savePayment = async () => {
-    if (!propertyId) return;
+    if (!propertyId || isSubmitting) return;
     setIsSubmitting('payment');
     try {
       const next = await reviewCheckInPayment(propertyId, workspace.booking.reservationId, {
@@ -1034,7 +1033,8 @@ export function CheckInWorkspacePage() {
   };
 
   const completeCheckIn = async () => {
-    if (!propertyId) return;
+    if (!propertyId || isSubmitting) return;
+
     setIsSubmitting('complete');
     try {
       // For walk-ins, receptionist wants to check-in first and collect payment later.
@@ -1270,7 +1270,7 @@ export function CheckInWorkspacePage() {
           : canCheckInSoft
             ? 'checkin-complete'
             : 'checkin-open-rooms';
-  const canRunFooterAction = !footerActionDisabled && !footerActionLoading;
+  const canRunFooterAction = !footerActionDisabled && !footerActionLoading && !isSubmitting;
   const runFooterAction = () => {
     if (activeStep === 'identity') void saveIdentity();
     else if (activeStep === 'guest') void saveGuestRegistration();
@@ -2128,8 +2128,8 @@ export function CheckInWorkspacePage() {
                 <Button
                   variant="subtle"
                   color="gray"
-                  disabled={!previousStep}
-                  onClick={() => previousStep && setActiveStep(previousStep.key)}
+                  disabled={!previousStep || Boolean(isSubmitting)}
+                  onClick={() => previousStep && !isSubmitting && setActiveStep(previousStep.key)}
                 >
                   Back
                 </Button>
@@ -2137,7 +2137,10 @@ export function CheckInWorkspacePage() {
                   <Button
                     variant="light"
                     color="stayosBrand"
-                    onClick={() => setActiveStep(nextStep.key)}
+                    disabled={Boolean(isSubmitting)}
+                    onClick={() => {
+                      if (!isSubmitting) setActiveStep(nextStep.key);
+                    }}
                   >
                     Next: {nextStep.label}
                   </Button>
@@ -2145,7 +2148,7 @@ export function CheckInWorkspacePage() {
                 <Button
                   size="md"
                   color={activeStep === 'room' && canCheckInSoft ? 'green' : 'stayosBrand'}
-                  disabled={footerActionDisabled}
+                  disabled={footerActionDisabled || Boolean(isSubmitting && !footerActionLoading)}
                   loading={footerActionLoading}
                   onClick={runFooterAction}
                   data-testid={footerActionTestId}

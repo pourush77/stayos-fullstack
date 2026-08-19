@@ -235,6 +235,14 @@
   border-left: 1px solid #e2e8f0;
 }
 
+.summaryStripItem:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 3px solid rgba(109, 93, 252, 0.2);
+  outline-offset: -3px;
+  border-radius: 10px;
+}
+
 .summaryStripIcon {
   flex: 0 0 auto;
 }
@@ -627,6 +635,7 @@
 @media (prefers-reduced-motion: reduce) {
   .quickActionCard,
   .summaryCard,
+  .summaryStripItem,
   .attentionCard {
     transition: none;
   }
@@ -790,7 +799,6 @@
   .attentionCard {
     padding: 12px;
   }
-
 }
 
 @media (max-height: 820px) and (min-width: 40.001em) {

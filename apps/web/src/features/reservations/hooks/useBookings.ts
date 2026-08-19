@@ -97,8 +97,12 @@ async function getLookups(propertyId: string, signal?: AbortSignal) {
 }
 
 export function friendlyBookingError(error: unknown) {
-  const message = error instanceof Error ? error.message.toLowerCase() : '';
-  if (message.includes('child age')) return error instanceof Error ? error.message : 'Enter child ages.';
+  const rawMessage = error instanceof Error ? error.message : '';
+  const message = rawMessage.toLowerCase();
+  if (message.includes('booking was created') && message.includes('payment was not recorded'))
+    return rawMessage;
+  if (message.includes('child age'))
+    return error instanceof Error ? error.message : 'Enter child ages.';
   if (message.includes('duplicate') || message.includes('already exists'))
     return 'A booking with this ID already exists.';
   if (message.includes('date')) return 'Departure date must be after arrival date.';
@@ -218,7 +222,10 @@ export function useBookings({
         await createPropertyReservation(propertyId, formValuesToPayload(values)),
       );
 
-      // If receptionist chose Prepay / Partial deposit, immediately record the payment against the folio.
+      // If the receptionist collected money during booking, record it against the
+      // reservation folio before reporting the create flow as successful. A silent
+      // payment failure is operationally unsafe: staff could believe cash/card/UPI
+      // was recorded when only the reservation was created.
       if (values.deposit && values.deposit.amount > 0) {
         try {
           const { getFolioForReservation, addPayment } =
@@ -229,8 +236,17 @@ export function useBookings({
             amount: String(values.deposit.amount),
           });
         } catch (paymentError) {
-          // Booking is created — surface a soft warning but don't fail the whole flow.
-          console.warn('Deposit payment could not be recorded', paymentError);
+          // The reservation already exists, so never retry reservation creation
+          // automatically. Surface a specific partial-success error so the front
+          // desk can open the reservation and record/reconcile the payment safely.
+          const detail =
+            paymentError instanceof Error && paymentError.message.trim()
+              ? ` ${paymentError.message.trim()}`
+              : '';
+          throw new Error(
+            `Booking was created, but the payment was not recorded.${detail} Open the booking and record the payment before continuing.`,
+            { cause: paymentError },
+          );
         }
       }
 
@@ -447,12 +463,17 @@ export function useBookingDetails({
     await loadBooking();
   }, [bookingId, loadBooking, state.propertyId]);
 
-  const checkOutBooking = useCallback(async (options: { lateCheckout?: boolean } = {}) => {
-    if (!bookingId) throw new Error('Booking missing.');
-    const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
-    await checkOutReservation(propertyId, bookingId, { lateCheckout: options.lateCheckout ?? false });
-    await loadBooking();
-  }, [bookingId, loadBooking, state.propertyId]);
+  const checkOutBooking = useCallback(
+    async (options: { lateCheckout?: boolean } = {}) => {
+      if (!bookingId) throw new Error('Booking missing.');
+      const propertyId = state.propertyId || (await getCurrentProperty()).propertyId;
+      await checkOutReservation(propertyId, bookingId, {
+        lateCheckout: options.lateCheckout ?? false,
+      });
+      await loadBooking();
+    },
+    [bookingId, loadBooking, state.propertyId],
+  );
 
   const getRooms = useCallback(async () => {
     const booking = state.booking;

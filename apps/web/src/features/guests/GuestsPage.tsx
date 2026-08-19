@@ -17,6 +17,7 @@ import {
   TextInput,
   ThemeIcon,
   Title,
+  Badge,
 } from '@mantine/core';
 import { AlertCircle, Edit, Plus, Search } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
@@ -53,7 +54,7 @@ function GuestsPageLoading() {
   return (
     <Stack gap={spacing[3]} aria-label="Loading guests" aria-busy="true">
       {/* Header */}
-      <Group justify="space-between" align="flex-start" gap={spacing[4]}>
+      <Group justify="space-between" align="flex-start" gap={spacing[4]} wrap="wrap">
         <Box>
           <Skeleton height={38} width={145} radius="sm" />
 
@@ -200,8 +201,8 @@ export default function GuestsPage() {
   }, [filter, guestState.guests, query]);
 
   const pageHeader = (
-    <Group justify="space-between" align="flex-start" gap={spacing[4]}>
-      <Box>
+    <Group justify="space-between" align="flex-start" gap={spacing[4]} wrap="wrap">
+      <Box style={{ minWidth: 0 }}>
         <Title
           order={1}
           c="#101828"
@@ -308,27 +309,48 @@ export default function GuestsPage() {
       ) : null}
 
       <Card radius={radius.lg} p={12} style={cardStyle}>
-        <Group gap={spacing[2]} wrap="wrap">
-          <TextInput
-            leftSection={<Search size={15} />}
-            onChange={(event) => setQuery(event.currentTarget.value)}
-            placeholder="Search name, phone, email or nationality..."
-            style={{
-              flex: 1,
-              minWidth: 280,
-            }}
-            value={query}
-          />
+        <Group justify="space-between" gap={spacing[2]} wrap="wrap">
+          <Group gap={spacing[2]} wrap="wrap" style={{ flex: 1, minWidth: 280 }}>
+            <TextInput
+              leftSection={<Search size={15} />}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              placeholder="Search name, phone, email or nationality..."
+              style={{
+                flex: 1,
+                minWidth: 280,
+              }}
+              value={query}
+            />
 
-          <Select
-            data={guestFilterOptions}
-            onChange={(value) => setFilter((value as GuestFilter | null) ?? 'all')}
-            value={filter}
-            w={{
-              base: 160,
-              md: 190,
-            }}
-          />
+            <Select
+              aria-label="Filter guests"
+              data={guestFilterOptions}
+              onChange={(value) => setFilter((value as GuestFilter | null) ?? 'all')}
+              value={filter}
+              w={{
+                base: 160,
+                md: 190,
+              }}
+            />
+          </Group>
+          <Group gap={8} wrap="nowrap">
+            <Text c="#64748b" size="xs" fw={700}>
+              {filteredGuests.length} {filteredGuests.length === 1 ? 'guest' : 'guests'}
+            </Text>
+            {query.trim() || filter !== 'all' ? (
+              <Button
+                variant="subtle"
+                color="gray"
+                size="compact-sm"
+                onClick={() => {
+                  setQuery('');
+                  setFilter('all');
+                }}
+              >
+                Clear
+              </Button>
+            ) : null}
+          </Group>
         </Group>
       </Card>
 
@@ -396,18 +418,18 @@ export default function GuestsPage() {
                             {guest.fullName}
                           </Text>
 
-                          {guest.vipStatus ? (
+                          {guest.vipStatus || guest.blacklistStatus ? (
                             <Group gap={6} mt={4}>
-                              <ThemeIcon
-                                color="yellow"
-                                variant="light"
-                                size={20}
-                                radius={radius.full}
-                              >
-                                <Text size="8px" fw={800}>
+                              {guest.vipStatus ? (
+                                <Badge color="grape" size="xs" variant="light">
                                   VIP
-                                </Text>
-                              </ThemeIcon>
+                                </Badge>
+                              ) : null}
+                              {guest.blacklistStatus ? (
+                                <Badge color="red" size="xs" variant="light">
+                                  Blacklisted
+                                </Badge>
+                              ) : null}
                             </Group>
                           ) : null}
                         </Box>
@@ -489,8 +511,19 @@ export default function GuestsPage() {
           </Title>
 
           <Text c="#64748b" mt={spacing[2]}>
-            Try another name, phone, email, nationality, or filter.
+            Try another name, phone, email, nationality, or clear the active filter.
           </Text>
+          <Button
+            mt={spacing[3]}
+            variant="light"
+            color="gray"
+            onClick={() => {
+              setQuery('');
+              setFilter('all');
+            }}
+          >
+            Clear search & filters
+          </Button>
         </Card>
       )}
     </Stack>

@@ -213,6 +213,9 @@ export default function RatesSettingsPage() {
   const [pricingLoading, setPricingLoading] = useState(false);
   const [pricingDrafts, setPricingDrafts] = useState<Record<string, RoomPricingDraft>>({});
   const [savingRoomTypeId, setSavingRoomTypeId] = useState<string | null>(null);
+  const [removePricingCandidate, setRemovePricingCandidate] = useState<InventoryRoomTypeDto | null>(
+    null,
+  );
 
   const [planEditorOpened, setPlanEditorOpened] = useState(false);
   const [editingPlan, setEditingPlan] = useState<RatePlanDto | null>(null);
@@ -742,7 +745,7 @@ export default function RatesSettingsPage() {
   return (
     <>
       <Stack gap={spacing[4]} data-testid="rates-settings-page">
-        <Group justify="space-between" align="flex-start">
+        <Group justify="space-between" align="flex-start" gap={spacing[3]} wrap="wrap">
           <Box>
             <Group gap={10}>
               <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={42}>
@@ -780,7 +783,7 @@ export default function RatesSettingsPage() {
 
           <Tabs.Panel value="plans" pt={spacing[4]}>
             <Stack gap={spacing[4]}>
-              <Group justify="space-between" align="flex-end">
+              <Group justify="space-between" align="flex-end" gap={spacing[3]} wrap="wrap">
                 <Box>
                   <Text c="#101828" fw={850} size="lg">
                     Rate plans
@@ -837,7 +840,12 @@ export default function RatesSettingsPage() {
                         }}
                       >
                         <Stack gap={12}>
-                          <Group justify="space-between" align="flex-start">
+                          <Group
+                            justify="space-between"
+                            align="flex-start"
+                            gap={spacing[2]}
+                            wrap="wrap"
+                          >
                             <Box>
                               <Group gap={7}>
                                 <Text c="#101828" fw={850}>
@@ -902,7 +910,12 @@ export default function RatesSettingsPage() {
                   {selectedPlan ? (
                     <Card radius={radius.lg} p={20} style={cardStyle}>
                       <Stack gap={spacing[4]}>
-                        <Group justify="space-between" align="flex-start">
+                        <Group
+                          justify="space-between"
+                          align="flex-start"
+                          gap={spacing[2]}
+                          wrap="wrap"
+                        >
                           <Box>
                             <Group gap={8}>
                               <Text c="#101828" fw={850} size="lg">
@@ -961,7 +974,12 @@ export default function RatesSettingsPage() {
                                   }}
                                 >
                                   <Stack gap={14}>
-                                    <Group justify="space-between" align="flex-start">
+                                    <Group
+                                      justify="space-between"
+                                      align="flex-start"
+                                      gap={spacing[2]}
+                                      wrap="wrap"
+                                    >
                                       <Box>
                                         <Group gap={8}>
                                           <Text c="#101828" fw={800}>
@@ -993,7 +1011,7 @@ export default function RatesSettingsPage() {
                                           size="compact-sm"
                                           leftSection={<Trash2 size={14} />}
                                           loading={savingRoomTypeId === roomType.id}
-                                          onClick={() => void removeRoomPricing(roomType)}
+                                          onClick={() => setRemovePricingCandidate(roomType)}
                                         >
                                           Remove
                                         </Button>
@@ -1062,7 +1080,12 @@ export default function RatesSettingsPage() {
                                       />
                                     </SimpleGrid>
 
-                                    <Group justify="space-between" align="center">
+                                    <Group
+                                      justify="space-between"
+                                      align="center"
+                                      gap={spacing[3]}
+                                      wrap="wrap"
+                                    >
                                       <Text c="#64748b" size="xs">
                                         {current
                                           ? `Current base rate ${money(
@@ -1216,7 +1239,12 @@ export default function RatesSettingsPage() {
                         }}
                       >
                         <Stack gap={14}>
-                          <Group justify="space-between" align="flex-start">
+                          <Group
+                            justify="space-between"
+                            align="flex-start"
+                            gap={spacing[2]}
+                            wrap="wrap"
+                          >
                             <Box>
                               <Group gap={8}>
                                 <Text c="#101828" fw={800} size="sm">
@@ -1345,6 +1373,62 @@ export default function RatesSettingsPage() {
           </Tabs.Panel>
         </Tabs>
       </Stack>
+
+      <Modal
+        centered
+        opened={Boolean(removePricingCandidate)}
+        onClose={() => {
+          if (!savingRoomTypeId) setRemovePricingCandidate(null);
+        }}
+        radius={radius.lg}
+        size="sm"
+        title="Remove room type from this rate plan?"
+        closeOnClickOutside={!savingRoomTypeId}
+        closeOnEscape={!savingRoomTypeId}
+        withCloseButton={!savingRoomTypeId}
+      >
+        <Stack gap={spacing[3]}>
+          <Text c="#475569" size="sm">
+            {removePricingCandidate ? (
+              <>
+                <Text component="span" inherit fw={800} c="#101828">
+                  {removePricingCandidate.name}
+                </Text>{' '}
+                will no longer be sellable through {selectedPlan?.name ?? 'this rate plan'}.
+              </>
+            ) : null}
+          </Text>
+          <Alert color="yellow" variant="light">
+            This removes the configured base and extra-guest pricing for this room type. It does not
+            delete the room type itself.
+          </Alert>
+          <Group justify="flex-end" gap={8} wrap="wrap">
+            <Button
+              variant="subtle"
+              color="gray"
+              disabled={Boolean(savingRoomTypeId)}
+              onClick={() => setRemovePricingCandidate(null)}
+            >
+              Keep pricing
+            </Button>
+            <Button
+              color="red"
+              leftSection={<Trash2 size={14} />}
+              loading={Boolean(
+                removePricingCandidate && savingRoomTypeId === removePricingCandidate.id,
+              )}
+              onClick={() => {
+                if (!removePricingCandidate) return;
+                void removeRoomPricing(removePricingCandidate).then(() =>
+                  setRemovePricingCandidate(null),
+                );
+              }}
+            >
+              Remove pricing
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       <Modal
         centered

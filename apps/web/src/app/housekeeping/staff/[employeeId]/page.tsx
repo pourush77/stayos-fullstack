@@ -16,7 +16,7 @@ import {
 } from '@mantine/core';
 import { Brush, CheckCircle2, ClipboardCheck, Sparkles } from 'lucide-react';
 import { useParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
 import { showToast } from '@stayos/ui';
 import {
@@ -27,7 +27,10 @@ import {
   getHousekeepingEmployees,
   startHousekeepingRoom,
 } from '../../../../features/housekeeping/api/housekeeping-api';
-import { createChecklist, serializeChecklist } from '../../../../features/housekeeping/utils/housekeeping-checklist';
+import {
+  createChecklist,
+  serializeChecklist,
+} from '../../../../features/housekeeping/utils/housekeeping-checklist';
 import type {
   HousekeepingChecklistItem,
   HousekeepingEmployee,
@@ -49,9 +52,11 @@ function statusLabel(status: HousekeepingRoom['status']) {
 }
 
 function StaffChecklist({
+  disabled = false,
   items,
   onToggle,
 }: {
+  disabled?: boolean;
   items: HousekeepingChecklistItem[];
   onToggle: (key: string) => void;
 }) {
@@ -64,12 +69,16 @@ function StaffChecklist({
             key={item.key}
             aria-pressed={item.completed}
             color={item.completed ? 'green' : 'gray'}
+            disabled={disabled}
             h={96}
             leftSection={<Icon size={30} />}
             onClick={() => onToggle(item.key)}
             radius={radius.lg}
             variant={item.completed ? 'filled' : 'light'}
-            styles={{ inner: { flexDirection: 'column', gap: 8 }, label: { fontSize: 16, fontWeight: 900 } }}
+            styles={{
+              inner: { flexDirection: 'column', gap: 8 },
+              label: { fontSize: 16, fontWeight: 900 },
+            }}
           >
             {item.label}
           </Button>
@@ -89,37 +98,43 @@ export default function HousekeepingStaffPage() {
   const [checklists, setChecklists] = useState<Record<string, HousekeepingChecklistItem[]>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [loadingRoomId, setLoadingRoomId] = useState<string>();
+  const roomActionBusyRef = useRef<string | null>(null);
   const [successRoom, setSuccessRoom] = useState<string>();
   const [error, setError] = useState<string>();
 
-  const load = useCallback(async (signal?: AbortSignal) => {
-    setIsLoading(true);
-    setError(undefined);
-    try {
-      const nextPropertyId = propertyId || (await getCurrentPropertyId(signal));
-      const [allRooms, employees] = await Promise.all([
-        getHousekeepingDashboard(nextPropertyId, signal),
-        getHousekeepingEmployees(nextPropertyId, signal),
-      ]);
-      setPropertyId(nextPropertyId);
-      setEmployee(employees.find((item) => item.id === employeeId));
-      setRooms(allRooms.filter((room) => room.assignedEmployeeId === employeeId));
-      setChecklists((current) => {
-        const next = { ...current };
-        allRooms.forEach((room) => {
-          if (room.assignedEmployeeId === employeeId && !next[room.id]) {
-            next[room.id] = room.checklist.some((item) => item.completed) ? room.checklist : createChecklist();
-          }
+  const load = useCallback(
+    async (signal?: AbortSignal) => {
+      setIsLoading(true);
+      setError(undefined);
+      try {
+        const nextPropertyId = propertyId || (await getCurrentPropertyId(signal));
+        const [allRooms, employees] = await Promise.all([
+          getHousekeepingDashboard(nextPropertyId, signal),
+          getHousekeepingEmployees(nextPropertyId, signal),
+        ]);
+        setPropertyId(nextPropertyId);
+        setEmployee(employees.find((item) => item.id === employeeId));
+        setRooms(allRooms.filter((room) => room.assignedEmployeeId === employeeId));
+        setChecklists((current) => {
+          const next = { ...current };
+          allRooms.forEach((room) => {
+            if (room.assignedEmployeeId === employeeId && !next[room.id]) {
+              next[room.id] = room.checklist.some((item) => item.completed)
+                ? room.checklist
+                : createChecklist();
+            }
+          });
+          return next;
         });
-        return next;
-      });
-    } catch (loadError) {
-      if (loadError instanceof DOMException && loadError.name === 'AbortError') return;
-      setError('Your rooms are temporarily unavailable.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [employeeId, propertyId]);
+      } catch (loadError) {
+        if (loadError instanceof DOMException && loadError.name === 'AbortError') return;
+        setError('Your rooms are temporarily unavailable.');
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [employeeId, propertyId],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -132,17 +147,32 @@ export default function HousekeepingStaffPage() {
     [activeRoomId, rooms],
   );
   const activeChecklist = activeRoom ? (checklists[activeRoom.id] ?? createChecklist()) : [];
-  const checklistComplete = activeChecklist.length > 0 && activeChecklist.every((item) => item.completed);
+  const checklistComplete =
+    activeChecklist.length > 0 && activeChecklist.every((item) => item.completed);
 
-  const runRoomAction = async (room: HousekeepingRoom, action: () => Promise<unknown>, success: string) => {
+  const runRoomAction = async (
+    room: HousekeepingRoom,
+    action: () => Promise<unknown>,
+    success: string,
+  ): Promise<boolean> => {
+    if (roomActionBusyRef.current) return false;
+
+    roomActionBusyRef.current = room.id;
     setLoadingRoomId(room.id);
     try {
       await action();
       showToast({ color: 'green', title: 'Done', message: success });
       await load();
+      return true;
     } catch (actionError) {
-      showToast({ color: 'red', title: 'Try again', message: friendlyHousekeepingError(actionError) });
+      showToast({
+        color: 'red',
+        title: 'Try again',
+        message: friendlyHousekeepingError(actionError),
+      });
+      return false;
     } finally {
+      roomActionBusyRef.current = null;
       setLoadingRoomId(undefined);
     }
   };
@@ -152,7 +182,11 @@ export default function HousekeepingStaffPage() {
       <Stack gap={spacing[4]} maw={520} mx="auto" w="100%">
         <Group justify="space-between" align="flex-start" wrap="nowrap">
           <Box>
-            <Title order={1} c="#101828" style={{ fontSize: 28, fontWeight: 900, lineHeight: '34px' }}>
+            <Title
+              order={1}
+              c="#101828"
+              style={{ fontSize: 28, fontWeight: 900, lineHeight: '34px' }}
+            >
               Good morning, {employee?.displayName?.split(' ')[0] ?? 'Staff'}
             </Title>
             <Text c="#64748b" mt={5} style={{ fontSize: 16, fontWeight: 700 }}>
@@ -201,6 +235,7 @@ export default function HousekeepingStaffPage() {
               </Group>
               <StaffChecklist
                 items={activeChecklist}
+                disabled={Boolean(loadingRoomId)}
                 onToggle={(key) =>
                   setChecklists((current) => ({
                     ...current,
@@ -217,21 +252,24 @@ export default function HousekeepingStaffPage() {
                 h={64}
                 leftSection={<ClipboardCheck size={22} />}
                 loading={loadingRoomId === activeRoom.id}
-                onClick={() =>
-                  void runRoomAction(
-                    activeRoom,
+                onClick={async () => {
+                  if (loadingRoomId) return;
+                  const room = activeRoom;
+                  const succeeded = await runRoomAction(
+                    room,
                     () =>
-                      completeHousekeepingRoom(propertyId, activeRoom.id, {
+                      completeHousekeepingRoom(propertyId, room.id, {
                         checklist: serializeChecklist(activeChecklist),
                         completedOnBehalf: false,
                         employeeId,
                       }),
                     'Room sent for inspection.',
-                  ).then(() => {
-                    setSuccessRoom(activeRoom.number);
+                  );
+                  if (succeeded) {
+                    setSuccessRoom(room.number);
                     setActiveRoomId(undefined);
-                  })
-                }
+                  }
+                }}
                 style={{ fontSize: 18, fontWeight: 900 }}
               >
                 Send for Inspection
@@ -258,7 +296,18 @@ export default function HousekeepingStaffPage() {
                       {room.floor}
                     </Text>
                   </Box>
-                  <Badge color={room.status === 'inspection' ? 'violet' : room.status === 'ready' ? 'green' : 'yellow'} radius={radius.full} size="lg" variant="light">
+                  <Badge
+                    color={
+                      room.status === 'inspection'
+                        ? 'violet'
+                        : room.status === 'ready'
+                          ? 'green'
+                          : 'yellow'
+                    }
+                    radius={radius.full}
+                    size="lg"
+                    variant="light"
+                  >
                     {statusLabel(room.status)}
                   </Badge>
                 </Group>
@@ -267,18 +316,22 @@ export default function HousekeepingStaffPage() {
                   h={64}
                   mt={18}
                   leftSection={<Brush size={24} />}
-                  disabled={!['dirty', 'cleaning'].includes(room.status)}
+                  disabled={Boolean(loadingRoomId) || !['dirty', 'cleaning'].includes(room.status)}
                   loading={loadingRoomId === room.id}
-                  onClick={() => {
+                  onClick={async () => {
+                    if (loadingRoomId) return;
                     if (room.status === 'cleaning') {
+                      setSuccessRoom(undefined);
                       setActiveRoomId(room.id);
                       return;
                     }
-                    void runRoomAction(
+                    setSuccessRoom(undefined);
+                    const succeeded = await runRoomAction(
                       room,
                       () => startHousekeepingRoom(propertyId, room.id, employeeId),
                       `Room ${room.number} started.`,
-                    ).then(() => setActiveRoomId(room.id));
+                    );
+                    if (succeeded) setActiveRoomId(room.id);
                   }}
                   style={{ fontSize: 19, fontWeight: 900 }}
                 >

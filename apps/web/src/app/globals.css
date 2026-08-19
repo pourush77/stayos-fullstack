@@ -43,6 +43,11 @@ textarea,
   cursor: text !important;
 }
 
+select,
+[role='combobox'] {
+  cursor: pointer !important;
+}
+
 /* Disabled controls */
 button:disabled,
 input:disabled,
@@ -54,4 +59,10 @@ select:disabled,
 
 * {
   box-sizing: border-box;
+}
+
+/* Accessible keyboard focus fallback for native interactive elements. */
+:where(button, a, input, textarea, select, [role='button'], [role='combobox']):focus-visible {
+  outline: 2px solid #6d5dfc;
+  outline-offset: 2px;
 }

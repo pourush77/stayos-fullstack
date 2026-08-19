@@ -2,11 +2,37 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Alert, Autocomplete, Box, Button, Card, Chip, Collapse, Group, Paper, Stack, Switch, Text, TextInput, Title } from '@mantine/core';
-import { CheckCircle2, ChevronDown, ChevronLeft, Mail, Phone, User, UserRound } from 'lucide-react';
+import {
+  Autocomplete,
+  Box,
+  Button,
+  Card,
+  Chip,
+  Collapse,
+  Group,
+  Loader,
+  Paper,
+  Stack,
+  Switch,
+  Text,
+  TextInput,
+  Title,
+} from '@mantine/core';
+import { CheckCircle2, ChevronDown, ChevronLeft, Mail, Phone, User } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
-import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
-import { friendlyGuestError, useGuestDetails, useGuests, type GuestFormValues } from '../../lib/guest-hooks';
+import {
+  BackendUnavailable,
+  GenericError,
+  ServerStarting,
+  showToast,
+  useBackendStatus,
+} from '@stayos/ui';
+import {
+  friendlyGuestError,
+  useGuestDetails,
+  useGuests,
+  type GuestFormValues,
+} from '../../lib/guest-hooks';
 import { GuestForm } from './components/GuestForm';
 import { preferredLanguageOptions } from './constants/languages';
 import { nationalityOptions } from './constants/nationalities';
@@ -145,18 +171,29 @@ function CreateGuestQuickForm({
       style={{
         background: 'linear-gradient(180deg, #fafbff 0%, #ffffff 100%)',
         minHeight: 'calc(100vh - 180px)',
-        paddingTop: '10vh',
+        paddingTop: spacing[3],
       }}
     >
       <Stack gap={spacing[3]} maw={560} mx="auto">
-        <Button variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content" onClick={onCancel}>
+        <Button
+          variant="subtle"
+          color="gray"
+          leftSection={<ChevronLeft size={16} />}
+          px={0}
+          w="fit-content"
+          onClick={onCancel}
+        >
           Back
         </Button>
         <Card radius={radius.lg} p={{ base: 18, sm: 24 }} style={quickCardStyle}>
           <Stack gap={spacing[4]}>
             <Box>
-              <Title order={1} c="#101828" style={{ fontSize: 28, fontWeight: 800 }}>New Guest</Title>
-              <Text c="#64748b" size="sm" mt={4}>Fast capture for walk-ins and phone bookings.</Text>
+              <Title order={1} c="#101828" style={{ fontSize: 28, fontWeight: 800 }}>
+                New Guest
+              </Title>
+              <Text c="#64748b" size="sm" mt={4}>
+                Fast capture for walk-ins and phone bookings.
+              </Text>
             </Box>
 
             <Stack gap={spacing[3]}>
@@ -166,7 +203,10 @@ function CreateGuestQuickForm({
                 error={errors.fullName}
                 label="Full name"
                 leftSection={<User size={20} />}
-                onChange={(event) => setFullName(event.currentTarget.value)}
+                onChange={(event) => {
+                  setFullName(event.currentTarget.value);
+                  setErrors((current) => ({ ...current, fullName: undefined }));
+                }}
                 placeholder="Sachin Tendulkar"
                 required
                 size="xl"
@@ -176,29 +216,57 @@ function CreateGuestQuickForm({
                 error={errors.phone}
                 label="Phone"
                 leftSection={<Phone size={18} />}
-                onChange={(event) => setPhone(event.currentTarget.value)}
+                onChange={(event) => {
+                  setPhone(event.currentTarget.value);
+                  setErrors((current) => ({ ...current, phone: undefined }));
+                }}
                 placeholder="+91 98765 43210"
                 required
-                rightSection={isSearching ? <Text c="#64748b" size="xs">...</Text> : null}
+                rightSection={isSearching ? <Loader size="xs" color="stayosBrand" /> : null}
                 size="md"
                 value={phone}
               />
               {existingGuest ? (
-                <Paper radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-                  <Group justify="space-between" align="center" gap={spacing[2]}>
+                <Paper
+                  radius={radius.md}
+                  p={12}
+                  style={{ background: '#fff7ed', border: '1px solid #fed7aa' }}
+                >
+                  <Group justify="space-between" align="center" gap={spacing[2]} wrap="wrap">
                     <Box>
-                      <Text fw={800} size="sm">Guest exists: {existingGuest.fullName}</Text>
-                      <Text c="#64748b" size="xs">{existingGuest.phone} - {existingGuest.email}</Text>
+                      <Text fw={800} size="sm" c="#9a3412">
+                        Possible existing guest: {existingGuest.fullName}
+                      </Text>
+                      <Text c="#64748b" size="xs">
+                        {existingGuest.phone} · {existingGuest.email}
+                      </Text>
                     </Box>
-                    <Group gap={6}>
-                      <Button component="a" href={`/guests/${existingGuest.id}`} variant="light" color="stayosBrand" size="compact-sm">Use existing</Button>
-                      <Button variant="subtle" color="gray" size="compact-sm" onClick={onContinueCreating}>Continue creating new</Button>
+                    <Group gap={6} wrap="wrap">
+                      <Button
+                        component="a"
+                        href={`/guests/${existingGuest.id}`}
+                        variant="light"
+                        color="stayosBrand"
+                        size="compact-sm"
+                      >
+                        Use existing
+                      </Button>
+                      <Button
+                        variant="subtle"
+                        color="gray"
+                        size="compact-sm"
+                        onClick={onContinueCreating}
+                      >
+                        Continue creating new
+                      </Button>
                     </Group>
                   </Group>
                 </Paper>
               ) : null}
               <Stack gap={8}>
-                <Text fw={700} size="sm">Language</Text>
+                <Text fw={700} size="sm">
+                  Language
+                </Text>
                 <Group gap={8}>
                   {['English', 'Hindi'].map((option) => (
                     <Chip
@@ -236,39 +304,87 @@ function CreateGuestQuickForm({
             </Stack>
 
             <Stack gap={6}>
-              <Button color="stayosBrand" loading={isSubmitting} onClick={() => void submit(true)} size="lg">
-                Save & Create Booking →
+              <Button
+                color="stayosBrand"
+                loading={isSubmitting}
+                disabled={isSubmitting || Boolean(existingGuest)}
+                onClick={() => void submit(true)}
+                size="lg"
+              >
+                Save & create booking
               </Button>
-              <Text c="#64748b" size="xs" ta="center">Guest saved. Booking form opens next.</Text>
-              <Button variant="subtle" color="gray" loading={isSubmitting} onClick={() => void submit(false)} size="sm">
+              <Text c="#64748b" size="xs" ta="center">
+                Creates the guest profile, then opens a new booking with this guest selected.
+              </Text>
+              <Button
+                variant="subtle"
+                color="gray"
+                loading={isSubmitting}
+                disabled={isSubmitting || Boolean(existingGuest)}
+                onClick={() => void submit(false)}
+                size="sm"
+              >
                 Save only
               </Button>
               <Button
                 variant="subtle"
                 color="gray"
                 justify="center"
-                rightSection={<ChevronDown size={16} style={{ transform: showMore ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 160ms ease' }} />}
+                rightSection={
+                  <ChevronDown
+                    size={16}
+                    style={{
+                      transform: showMore ? 'rotate(180deg)' : 'rotate(0deg)',
+                      transition: 'transform 160ms ease',
+                    }}
+                  />
+                }
+                disabled={isSubmitting}
                 onClick={() => setShowMore((current) => !current)}
               >
-                + Add more details
+                {showMore ? 'Show fewer details' : 'Add more details'}
               </Button>
             </Stack>
 
             <Collapse expanded={showMore}>
               <Stack gap={spacing[3]} pt={spacing[2]}>
-                <TextInput label="Email" leftSection={<Mail size={17} />} onChange={(event) => setEmail(event.currentTarget.value)} value={email} />
-                <TextInput label="Alternate phone" leftSection={<Phone size={17} />} onChange={(event) => setAlternatePhone(event.currentTarget.value)} value={alternatePhone} />
+                <TextInput
+                  label="Email"
+                  leftSection={<Mail size={17} />}
+                  onChange={(event) => setEmail(event.currentTarget.value)}
+                  value={email}
+                />
+                <TextInput
+                  label="Alternate phone"
+                  leftSection={<Phone size={17} />}
+                  onChange={(event) => setAlternatePhone(event.currentTarget.value)}
+                  value={alternatePhone}
+                />
                 <Autocomplete
                   data={nationalityOptions}
                   label="Nationality"
                   leftSection={<User size={17} />}
                   onChange={setNationality}
-                  placeholder={suggestedNationality ? `Suggested: ${suggestedNationality}` : 'Start typing nationality'}
+                  placeholder={
+                    suggestedNationality
+                      ? `Suggested: ${suggestedNationality}`
+                      : 'Start typing nationality'
+                  }
                   value={nationality}
                 />
                 <Group grow>
-                  <Switch checked={vipStatus} color="stayosBrand" label="VIP" onChange={(event) => setVipStatus(event.currentTarget.checked)} />
-                  <Switch checked={blacklistStatus} color="red" label="Blacklisted" onChange={(event) => setBlacklistStatus(event.currentTarget.checked)} />
+                  <Switch
+                    checked={vipStatus}
+                    color="stayosBrand"
+                    label="VIP"
+                    onChange={(event) => setVipStatus(event.currentTarget.checked)}
+                  />
+                  <Switch
+                    checked={blacklistStatus}
+                    color="red"
+                    label="Blacklisted"
+                    onChange={(event) => setBlacklistStatus(event.currentTarget.checked)}
+                  />
                 </Group>
               </Stack>
             </Collapse>
@@ -284,10 +400,16 @@ export function GuestFormPage({ mode }: { mode: 'create' | 'edit' }) {
   const router = useRouter();
   const backend = useBackendStatus();
   const allowMockFallback = process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
-  const enabled = backend.isOnline || (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
+  const enabled =
+    backend.isOnline ||
+    (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
   const guestList = useGuests({ allowMockFallback, enabled: mode === 'create' && enabled });
   const searchGuests = guestList.searchGuests;
-  const guestDetails = useGuestDetails({ allowMockFallback, enabled: mode === 'edit' && enabled, guestId: params.guestId ?? '' });
+  const guestDetails = useGuestDetails({
+    allowMockFallback,
+    enabled: mode === 'edit' && enabled,
+    guestId: params.guestId ?? '',
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [matchingGuest, setMatchingGuest] = useState<Guest | undefined>();
   const [ignoredMatchPhone, setIgnoredMatchPhone] = useState('');
@@ -299,9 +421,12 @@ export function GuestFormPage({ mode }: { mode: 'create' | 'edit' }) {
     setIsSubmitting(true);
 
     try {
-      const guest = mode === 'create' ? await guestList.createGuest(values) : await guestDetails.updateGuest(values);
+      const guest =
+        mode === 'create'
+          ? await guestList.createGuest(values)
+          : await guestDetails.updateGuest(values);
       showToast({
-        autoClose: mode === 'create' ? 2000 : undefined,
+        autoClose: 2000,
         color: 'green',
         icon: <CheckCircle2 size={18} />,
         position: 'top-right',
@@ -309,52 +434,93 @@ export function GuestFormPage({ mode }: { mode: 'create' | 'edit' }) {
         message: `${guest.fullName} saved successfully.`,
       });
       if (mode === 'create') {
-        window.setTimeout(() => {
-          router.push(redirectToBooking ? `/reservations/new?guestId=${guest.id}` : `/guests/${guest.id}`);
-        }, 2000);
+        router.push(
+          redirectToBooking ? `/reservations/new?guestId=${guest.id}` : `/guests/${guest.id}`,
+        );
       } else {
         router.push(`/guests/${guest.id}`);
       }
     } catch (error) {
-      showToast({ color: 'red', title: mode === 'create' ? 'Unable to create guest' : 'Unable to update guest', message: friendlyGuestError(error) });
+      showToast({
+        color: 'red',
+        title: mode === 'create' ? 'Unable to create guest' : 'Unable to update guest',
+        message: friendlyGuestError(error),
+      });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const searchExistingGuest = useCallback((phone: string) => {
-    const trimmedPhone = phone.trim();
-    if (mode !== 'create' || trimmedPhone.length < 4 || trimmedPhone === ignoredMatchPhone) {
-      setMatchingGuest(undefined);
-      setIsSearchingGuest(false);
-      return;
-    }
+  const searchExistingGuest = useCallback(
+    (phone: string) => {
+      const trimmedPhone = phone.trim();
+      if (mode !== 'create' || trimmedPhone.length < 4 || trimmedPhone === ignoredMatchPhone) {
+        setMatchingGuest(undefined);
+        setIsSearchingGuest(false);
+        return;
+      }
 
-    setIsSearchingGuest(true);
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => {
-      void searchGuests(trimmedPhone, controller.signal)
-        .then((guests) => setMatchingGuest(guests.find((guest) => guest.phone.replace(/\D/g, '').includes(trimmedPhone.replace(/\D/g, ''))) ?? guests[0]))
-        .catch((error) => {
-          if (!(error instanceof DOMException && error.name === 'AbortError')) setMatchingGuest(undefined);
-        })
-        .finally(() => setIsSearchingGuest(false));
-    }, 350);
+      setIsSearchingGuest(true);
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => {
+        void searchGuests(trimmedPhone, controller.signal)
+          .then((guests) =>
+            setMatchingGuest(
+              guests.find((guest) =>
+                guest.phone.replace(/\D/g, '').includes(trimmedPhone.replace(/\D/g, '')),
+              ) ?? guests[0],
+            ),
+          )
+          .catch((error) => {
+            if (!(error instanceof DOMException && error.name === 'AbortError'))
+              setMatchingGuest(undefined);
+          })
+          .finally(() => setIsSearchingGuest(false));
+      }, 350);
 
-    return () => {
-      window.clearTimeout(timeoutId);
-      controller.abort();
-    };
-  }, [ignoredMatchPhone, mode, searchGuests]);
+      return () => {
+        window.clearTimeout(timeoutId);
+        controller.abort();
+      };
+    },
+    [ignoredMatchPhone, mode, searchGuests],
+  );
 
-  if (!allowMockFallback && backend.status === 'SERVER_STARTING') return <ServerStarting onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
-  if (!allowMockFallback && !backend.isOnline && backend.status !== 'CONNECTING') return <BackendUnavailable onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
-  if (mode === 'edit' && !allowMockFallback && guestDetails.error && !guestDetails.isLoading && !guestDetails.guest) {
-    return <GenericError onAction={() => void guestDetails.refreshGuest()} onCheckStatus={checkBackendStatus} />;
+  if (!allowMockFallback && backend.status === 'SERVER_STARTING')
+    return <ServerStarting onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
+  if (!allowMockFallback && !backend.isOnline && backend.status !== 'CONNECTING')
+    return <BackendUnavailable onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
+  if (
+    mode === 'edit' &&
+    !allowMockFallback &&
+    guestDetails.error &&
+    !guestDetails.isLoading &&
+    !guestDetails.guest
+  ) {
+    return (
+      <GenericError
+        onAction={() => void guestDetails.refreshGuest()}
+        onCheckStatus={checkBackendStatus}
+      />
+    );
   }
 
   if (mode === 'edit' && !guestDetails.guest) {
-    return <Alert color="blue" variant="light" icon={<UserRound size={17} />} radius={radius.lg}>Loading guest profile...</Alert>;
+    return (
+      <Card radius={radius.lg} p={20} style={cardStyle}>
+        <Group gap={8}>
+          <Loader size="sm" color="stayosBrand" />
+          <Box>
+            <Text fw={800} c="#101828">
+              Loading guest profile…
+            </Text>
+            <Text c="#64748b" size="sm">
+              Preparing the guest details for editing.
+            </Text>
+          </Box>
+        </Group>
+      </Card>
+    );
   }
 
   if (mode === 'create') {
@@ -376,12 +542,24 @@ export function GuestFormPage({ mode }: { mode: 'create' | 'edit' }) {
 
   return (
     <Stack gap={spacing[3]}>
-      <Button variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content" onClick={() => router.back()}>
+      <Button
+        variant="subtle"
+        color="gray"
+        leftSection={<ChevronLeft size={16} />}
+        px={0}
+        w="fit-content"
+        onClick={() => router.back()}
+      >
         Back
       </Button>
-      <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 800 }}>
-        Edit Guest
-      </Title>
+      <Box>
+        <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 800 }}>
+          Edit Guest
+        </Title>
+        <Text c="#64748b" size="sm" mt={4}>
+          Update contact details, preferences, and guest flags.
+        </Text>
+      </Box>
       <Card radius={radius.lg} p={20} style={cardStyle}>
         <GuestForm
           guest={guestDetails.guest}

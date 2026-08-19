@@ -117,15 +117,19 @@ function formatHoldUntil(value?: string | null) {
 }
 
 function depositExplanation(deposit: GroupBookingDepositDto, estimatedTotal: number) {
+  const prefix = deposit.required ? 'Required deposit' : 'Suggested deposit';
+
   if (deposit.policyType === 'PERCENTAGE') {
-    return `Suggested deposit: ${deposit.policyValue}% of the estimated booking total (${formatCurrency(estimatedTotal)}).`;
+    return `${prefix}: ${deposit.policyValue}% of the estimated booking total (${formatCurrency(estimatedTotal)}).`;
   }
 
   if (deposit.policyType === 'FIXED_AMOUNT') {
-    return `Suggested deposit set by the hotel: ${formatCurrency(deposit.suggestedAmount)}.`;
+    return `${prefix}: ${formatCurrency(deposit.suggestedAmount)} set by the hotel policy.`;
   }
 
-  return "No deposit is required by the hotel's current group booking policy.";
+  return deposit.required
+    ? `A deposit of ${formatCurrency(deposit.suggestedAmount)} is required by the hotel policy.`
+    : "No deposit is required by the hotel's current group booking policy.";
 }
 
 const COUNTRY_CODE_OPTIONS = [
@@ -235,8 +239,8 @@ function OptionCard({
       }}
     >
       <Stack gap={spacing[3]}>
-        <Group justify="space-between" align="flex-start">
-          <Box>
+        <Group justify="space-between" align="flex-start" gap={spacing[3]} wrap="wrap">
+          <Box style={{ minWidth: 0 }}>
             <Group gap={8}>
               <Badge color="stayosBrand" variant="light">
                 {friendlyOptionLabel(option)}
@@ -254,7 +258,7 @@ function OptionCard({
               {option.reason}
             </Text>
           </Box>
-          <Box ta="right">
+          <Box ta={{ base: 'left', sm: 'right' }}>
             <Text c="#101828" fw={850} size="xl">
               {formatCurrency(grandTotal)}
             </Text>
@@ -356,7 +360,7 @@ function OptionCard({
           </Box>
         </Stack>
 
-        <Group gap={8}>
+        <Group gap={8} wrap="wrap">
           <Button
             leftSection={<Copy size={14} />}
             color="stayosBrand"
@@ -371,9 +375,6 @@ function OptionCard({
             onClick={() => onCreateHold(option)}
           >
             Hold These Rooms
-          </Button>
-          <Button variant="light" color="gray" disabled>
-            Walk-in Group
           </Button>
         </Group>
       </Stack>
@@ -421,8 +422,13 @@ export function GroupQuotePage() {
   const departureDate = dateToValue(dateRange[1]);
   const normalizedAdults = typeof adults === 'number' ? adults : 0;
   const normalizedChildren = typeof children === 'number' ? children : 0;
+  const stayDatesAreValid = Boolean(
+    arrivalDate &&
+    departureDate &&
+    new Date(`${departureDate}T00:00:00`).getTime() > new Date(`${arrivalDate}T00:00:00`).getTime(),
+  );
   const canSearch = Boolean(
-    propertyId && arrivalDate && departureDate && typeof adults === 'number' && adults > 0,
+    propertyId && stayDatesAreValid && typeof adults === 'number' && adults > 0,
   );
   const normalizedLeadPhone = normalizeMobile(countryCode, leadPhone);
   const mobileIsValid = isValidMobile(countryCode, leadPhone);
@@ -742,8 +748,8 @@ export function GroupQuotePage() {
       style={{ background: '#fbfcff', minHeight: 'calc(100vh - 180px)' }}
     >
       <Stack gap={spacing[3]} maw={1080} mx="auto">
-        <Group justify="space-between" align="flex-start">
-          <Box>
+        <Group justify="space-between" align="flex-start" gap={spacing[2]} wrap="wrap">
+          <Box style={{ minWidth: 0, flex: 1 }}>
             <Title order={1} c="#101828" style={{ fontSize: 32, fontWeight: 900 }}>
               Group Booking Quote
             </Title>
@@ -751,7 +757,7 @@ export function GroupQuotePage() {
               Find the best available room combination for a group stay.
             </Text>
           </Box>
-          <Group gap={8}>
+          <Group gap={8} wrap="wrap">
             <Button
               component={Link}
               href="/"
@@ -832,8 +838,8 @@ export function GroupQuotePage() {
                 value={preference}
               />
             </SimpleGrid>
-            <Group justify="space-between" align="flex-end">
-              <Box>
+            <Group justify="space-between" align="flex-end" gap={spacing[3]} wrap="wrap">
+              <Box style={{ minWidth: 0 }}>
                 {staySummary ? (
                   <Text c="#475569" size="sm" fw={700}>
                     {staySummary}
@@ -843,7 +849,11 @@ export function GroupQuotePage() {
                     Select check-in and check-out dates to continue.
                   </Text>
                 )}
-                {!canSearch && propertyId && arrivalDate && departureDate ? (
+                {propertyId && arrivalDate && departureDate && !stayDatesAreValid ? (
+                  <Text c="orange.7" size="xs" mt={2}>
+                    Check-out must be after check-in.
+                  </Text>
+                ) : !canSearch && propertyId && stayDatesAreValid ? (
                   <Text c="orange.7" size="xs" mt={2}>
                     Enter at least 1 adult to check availability.
                   </Text>
@@ -856,14 +866,19 @@ export function GroupQuotePage() {
                 loading={isLoading}
                 onClick={() => void search()}
                 disabled={!canSearch || isLoading}
+                style={{ flexShrink: 0 }}
               >
-                {isLoading ? 'Finding available rooms...' : 'Find Available Rooms'}
+                {isLoading ? 'Finding rooms…' : 'Find available rooms'}
               </Button>
             </Group>
           </Stack>
         </Card>
 
-        {error ? <Alert color="red">{error}</Alert> : null}
+        {error ? (
+          <Alert color="red" variant="light" title="Something needs attention">
+            {error}
+          </Alert>
+        ) : null}
 
         <SimpleGrid cols={{ base: 1, lg: 3 }} spacing={spacing[3]}>
           <Card radius={radius.lg} p={16} style={{ ...panelStyle, alignSelf: 'start' }}>
@@ -1010,7 +1025,12 @@ export function GroupQuotePage() {
             )}
           </Card>
 
-          <Stack ref={suggestionsRef} gap={spacing[3]} style={{ gridColumn: 'span 2' }}>
+          <Stack
+            ref={suggestionsRef}
+            gap={spacing[3]}
+            style={{ gridColumn: 'span 2' }}
+            aria-live="polite"
+          >
             <Card radius={radius.lg} p={16} style={panelStyle}>
               <Group justify="space-between" align="flex-start">
                 <Box>
@@ -1062,10 +1082,18 @@ export function GroupQuotePage() {
                             </Text>
                           </Box>
                           <Badge
-                            color={item.availableRooms > 2 ? 'green' : 'yellow'}
+                            color={
+                              item.availableRooms === 0
+                                ? 'gray'
+                                : item.availableRooms > 2
+                                  ? 'green'
+                                  : 'yellow'
+                            }
                             variant="light"
                           >
-                            {item.availableRooms} available
+                            {item.availableRooms === 0
+                              ? 'Sold out'
+                              : `${item.availableRooms} available`}
                           </Badge>
                         </Group>
                       </Paper>
@@ -1263,6 +1291,7 @@ export function GroupQuotePage() {
               }
               minDate={today()}
               onChange={(value) => setReleaseDate(value as Date | null)}
+              placeholder="No automatic release date"
               value={releaseDate}
             />
           </SimpleGrid>
@@ -1306,14 +1335,14 @@ export function GroupQuotePage() {
           ) : null}
 
           <Textarea
-            label="Notes (optional)"
-            placeholder="Add any special request or follow-up note..."
+            label="Internal notes (optional)"
+            placeholder="Follow-up details for front desk staff…"
             minRows={3}
             value={notes}
             onChange={(event) => setNotes(event.currentTarget.value)}
           />
 
-          <Group justify="flex-end">
+          <Group justify="flex-end" gap={8} wrap="wrap">
             <Button
               variant="subtle"
               color="gray"
@@ -1469,7 +1498,7 @@ export function GroupQuotePage() {
               label={
                 <Group gap={5}>
                   <Text size="sm" fw={500}>
-                    Deposit amount
+                    Deposit to confirm
                   </Text>
                   <Tooltip
                     label={
@@ -1505,8 +1534,8 @@ export function GroupQuotePage() {
             onChange={(event) => setHoldNotes(event.currentTarget.value)}
           />
 
-          <Group justify="space-between">
-            <Group gap={8}>
+          <Group justify="space-between" gap={spacing[2]} wrap="wrap">
+            <Group gap={8} wrap="wrap">
               <Button
                 color="orange"
                 variant="light"

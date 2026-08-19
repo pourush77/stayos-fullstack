@@ -1,14 +1,52 @@
 'use client';
 
 import Link from 'next/link';
-import { Alert, Avatar, Badge, Box, Button, Card, FileButton, Group, Paper, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core';
+import {
+  Alert,
+  Avatar,
+  Badge,
+  Box,
+  Button,
+  Card,
+  FileButton,
+  Group,
+  Paper,
+  SimpleGrid,
+  Stack,
+  Text,
+  ThemeIcon,
+  Title,
+} from '@mantine/core';
 import { useParams } from 'next/navigation';
-import { AlertCircle, CalendarDays, ChevronLeft, Edit, FileText, IdCard, Languages, NotebookText, Sparkles, Trash2, Upload, UserRound } from 'lucide-react';
+import {
+  AlertCircle,
+  CalendarDays,
+  ChevronLeft,
+  Edit,
+  IdCard,
+  Languages,
+  NotebookText,
+  Sparkles,
+  Trash2,
+  Upload,
+  UserRound,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
-import { BackendUnavailable, GenericError, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
+import {
+  BackendUnavailable,
+  GenericError,
+  ServerStarting,
+  showToast,
+  useBackendStatus,
+} from '@stayos/ui';
 import { useGuestDetails } from '../../lib/guest-hooks';
-import { deleteIdentityDocument, getCheckInWorkspace, uploadIdentityDocument, type LooseRecord } from '../check-in/check-in-api';
+import {
+  deleteIdentityDocument,
+  getCheckInWorkspace,
+  uploadIdentityDocument,
+  type LooseRecord,
+} from '../check-in/check-in-api';
 import { useAuth } from '../auth/auth-context';
 import { getFolioForReservation } from '../billing/api/billing-api';
 import type { Folio } from '../billing/types/billing.types';
@@ -25,18 +63,34 @@ const cardStyle = {
 function DetailTile({ label, value }: { label: string; value: string }) {
   return (
     <Paper radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
-      <Text c="#64748b" style={{ fontSize: 11, fontWeight: 600 }}>{label}</Text>
-      <Text c="#182230" mt={3} style={{ fontSize: 13, fontWeight: 700 }}>{value}</Text>
+      <Text c="#64748b" style={{ fontSize: 11, fontWeight: 600 }}>
+        {label}
+      </Text>
+      <Text c="#182230" mt={3} style={{ fontSize: 13, fontWeight: 700 }}>
+        {value}
+      </Text>
     </Paper>
   );
 }
 
-function Section({ children, icon, title }: { children: React.ReactNode; icon: React.ReactNode; title: string }) {
+function Section({
+  children,
+  icon,
+  title,
+}: {
+  children: React.ReactNode;
+  icon: React.ReactNode;
+  title: string;
+}) {
   return (
     <Card radius={radius.lg} p={16} style={cardStyle}>
       <Group gap={10}>
-        <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={34}>{icon}</ThemeIcon>
-        <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 800 }}>{title}</Title>
+        <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={34}>
+          {icon}
+        </ThemeIcon>
+        <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 800 }}>
+          {title}
+        </Title>
       </Group>
       <Box mt={14}>{children}</Box>
     </Card>
@@ -52,13 +106,24 @@ function normalizePaymentStatus(status: string) {
 }
 
 function readableStatus(status: string) {
-  return status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return status
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function getGuestActionState(guest: Guest) {
-  const reservations = [...(guest.reservations ?? [])].sort((a, b) => b.arrivalDate.localeCompare(a.arrivalDate));
-  const checkedIn = reservations.find((reservation) => normalizeReservationStatus(reservation) === 'CHECKED_IN');
-  const activeBooking = reservations.find((reservation) => ['RESERVED', 'CONFIRMED', 'PENDING', 'CHECKED_IN'].includes(normalizeReservationStatus(reservation)));
+  const reservations = [...(guest.reservations ?? [])].sort((a, b) =>
+    b.arrivalDate.localeCompare(a.arrivalDate),
+  );
+  const checkedIn = reservations.find(
+    (reservation) => normalizeReservationStatus(reservation) === 'CHECKED_IN',
+  );
+  const activeBooking = reservations.find((reservation) =>
+    ['RESERVED', 'CONFIRMED', 'PENDING', 'CHECKED_IN'].includes(
+      normalizeReservationStatus(reservation),
+    ),
+  );
 
   if (checkedIn) {
     return {
@@ -91,37 +156,70 @@ function Header({ guest }: { guest: Guest }) {
 
   return (
     <Card radius={radius.lg} p={20} style={cardStyle}>
-      <Group justify="space-between" align="flex-start" gap={spacing[4]}>
-        <Group align="flex-start" gap={spacing[4]} wrap="nowrap">
-          <Avatar color="stayosBrand" radius={radius.lg} size={76}>{guest.initials}</Avatar>
+      <Group justify="space-between" align="flex-start" gap={spacing[4]} wrap="wrap">
+        <Group align="flex-start" gap={spacing[4]} wrap="wrap" style={{ minWidth: 0, flex: 1 }}>
+          <Avatar color="stayosBrand" radius={radius.lg} size={76}>
+            {guest.initials}
+          </Avatar>
           <Stack gap={8}>
-            <Button component={Link} href="/guests" variant="subtle" color="gray" leftSection={<ChevronLeft size={16} />} px={0} w="fit-content">
+            <Button
+              component={Link}
+              href="/guests"
+              variant="subtle"
+              color="gray"
+              leftSection={<ChevronLeft size={16} />}
+              px={0}
+              w="fit-content"
+            >
               Back to Guests
             </Button>
             <Group gap={8}>
               <GuestStatusBadge status={guest.status} />
-              {guest.vipStatus ? <Text c="#7c3aed" fw={800} size="xs">VIP</Text> : null}
+              {guest.vipStatus ? (
+                <Text c="#7c3aed" fw={800} size="xs">
+                  VIP
+                </Text>
+              ) : null}
             </Group>
-            <Title order={1} c="#101828" style={{ fontSize: 34, fontWeight: 800 }}>{guest.fullName}</Title>
-            <Text c="#64748b" style={{ fontSize: 14 }}>{guest.phone} - {guest.email} - {guest.nationality}</Text>
-            <Text c="#64748b" style={{ fontSize: 13 }}>Preferred language: {guest.preferredLanguage}</Text>
+            <Title order={1} c="#101828" style={{ fontSize: 34, fontWeight: 800 }}>
+              {guest.fullName}
+            </Title>
+            <Text c="#64748b" style={{ fontSize: 14 }}>
+              {guest.phone} · {guest.email} · {guest.nationality}
+            </Text>
+            <Text c="#64748b" style={{ fontSize: 13 }}>
+              Preferred language: {guest.preferredLanguage}
+            </Text>
           </Stack>
         </Group>
         <Stack gap={6} align="flex-end">
-          <Group gap={8} justify="flex-end">
+          <Group gap={8} justify="flex-end" wrap="wrap">
             <Button component={Link} href={actionState.primary.href} color="stayosBrand">
               {actionState.primary.label}
             </Button>
-            <Button component={Link} href={actionState.secondary.href} variant="light" color="stayosBrand" leftSection={<Edit size={16} />}>
+            <Button
+              component={Link}
+              href={actionState.secondary.href}
+              variant="light"
+              color="stayosBrand"
+              leftSection={<Edit size={16} />}
+            >
               {actionState.secondary.label}
             </Button>
             {actionState.tertiary ? (
-              <Button component={Link} href={actionState.tertiary.href} variant="subtle" color="gray">
+              <Button
+                component={Link}
+                href={actionState.tertiary.href}
+                variant="subtle"
+                color="gray"
+              >
                 {actionState.tertiary.label}
               </Button>
             ) : null}
           </Group>
-          <Text c="#64748b" size="xs">{actionState.helper}</Text>
+          <Text c="#64748b" size="xs">
+            {actionState.helper}
+          </Text>
         </Stack>
       </Group>
     </Card>
@@ -160,7 +258,9 @@ function Preferences({ guest }: { guest: Guest }) {
   return (
     <Section title="Preferences" icon={<Sparkles size={17} />}>
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing={spacing[3]}>
-        {preferences.map(([label, value]) => <DetailTile key={label} label={label} value={value} />)}
+        {preferences.map(([label, value]) => (
+          <DetailTile key={label} label={label} value={value} />
+        ))}
       </SimpleGrid>
     </Section>
   );
@@ -184,13 +284,14 @@ function getArray(record: LooseRecord | undefined, keys: string[]) {
 
 function mapDocuments(workspace: LooseRecord | undefined): GuestDocument[] {
   return getArray(workspace, ['documents'])
-    .map((item) => (item && typeof item === 'object' ? item as LooseRecord : undefined))
+    .map((item) => (item && typeof item === 'object' ? (item as LooseRecord) : undefined))
     .filter((item): item is LooseRecord => Boolean(item))
     .map((item) => ({
       createdAt: typeof item.createdAt === 'string' ? item.createdAt : '',
       id: typeof item.id === 'string' ? item.id : '',
       mimeType: typeof item.mimeType === 'string' ? item.mimeType : '',
-      originalFilename: typeof item.originalFilename === 'string' ? item.originalFilename : 'Identity document',
+      originalFilename:
+        typeof item.originalFilename === 'string' ? item.originalFilename : 'Identity document',
       side: typeof item.side === 'string' ? item.side : '',
     }))
     .filter((item) => item.id);
@@ -208,10 +309,13 @@ function Documents({
   propertyId?: string;
 }) {
   const latestReservation = useMemo(
-    () => [...(guest.reservations ?? [])].sort((a, b) => b.arrivalDate.localeCompare(a.arrivalDate))[0],
+    () =>
+      [...(guest.reservations ?? [])].sort((a, b) => b.arrivalDate.localeCompare(a.arrivalDate))[0],
     [guest.reservations],
   );
   const [documents, setDocuments] = useState<GuestDocument[]>([]);
+  const [documentsLoaded, setDocumentsLoaded] = useState(false);
+  const [documentsError, setDocumentsError] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const canUpload = Boolean(propertyId && latestReservation?.id && canManageGuests);
@@ -219,10 +323,20 @@ function Documents({
   const refreshDocuments = useCallback(async () => {
     if (!propertyId || !latestReservation?.id) {
       setDocuments([]);
+      setDocumentsError(false);
+      setDocumentsLoaded(true);
       return;
     }
-    const workspace = await getCheckInWorkspace(propertyId, latestReservation.id).catch(() => undefined);
-    setDocuments(mapDocuments(workspace));
+
+    setDocumentsError(false);
+    try {
+      const workspace = await getCheckInWorkspace(propertyId, latestReservation.id);
+      setDocuments(mapDocuments(workspace));
+    } catch {
+      setDocumentsError(true);
+    } finally {
+      setDocumentsLoaded(true);
+    }
   }, [latestReservation?.id, propertyId]);
 
   useEffect(() => {
@@ -235,9 +349,17 @@ function Documents({
     try {
       await uploadIdentityDocument(propertyId, latestReservation.id, 'front', file);
       await Promise.all([refreshDocuments(), onRefreshGuest()]);
-      showToast({ color: 'green', title: 'Document uploaded', message: 'Identity document uploaded successfully.' });
+      showToast({
+        color: 'green',
+        title: 'Document uploaded',
+        message: 'Identity document uploaded successfully.',
+      });
     } catch {
-      showToast({ color: 'red', title: 'Upload failed', message: 'Unable to upload this document.' });
+      showToast({
+        color: 'red',
+        title: 'Upload failed',
+        message: 'Unable to upload this document.',
+      });
     } finally {
       setIsUploading(false);
     }
@@ -249,9 +371,17 @@ function Documents({
     try {
       await deleteIdentityDocument(propertyId, latestReservation.id, documentId);
       await refreshDocuments();
-      showToast({ color: 'green', title: 'Document deleted', message: 'Identity document removed.' });
+      showToast({
+        color: 'green',
+        title: 'Document deleted',
+        message: 'Identity document removed.',
+      });
     } catch {
-      showToast({ color: 'red', title: 'Delete failed', message: 'Unable to delete this document.' });
+      showToast({
+        color: 'red',
+        title: 'Delete failed',
+        message: 'Unable to delete this document.',
+      });
     } finally {
       setIsDeleting(null);
     }
@@ -260,15 +390,26 @@ function Documents({
   return (
     <Section title="Documents" icon={<IdCard size={17} />}>
       <Stack gap={spacing[2]}>
-        <Paper radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
-          <Group justify="space-between">
+        <Paper
+          radius={radius.md}
+          p={12}
+          style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}
+        >
+          <Group justify="space-between" gap={spacing[2]} wrap="wrap">
             <Box>
-              <Text fw={700} size="sm">Identity document</Text>
+              <Text fw={700} size="sm">
+                Identity document
+              </Text>
               <Text c="#64748b" size="xs">
-                {latestReservation ? `Linked to latest reservation from ${latestReservation.arrivalDate}` : 'No reservation available'}
+                {latestReservation
+                  ? `Linked to latest reservation from ${latestReservation.arrivalDate}`
+                  : 'No reservation available'}
               </Text>
             </Box>
-            <FileButton onChange={(file) => void uploadDocument(file)} accept="image/*,application/pdf">
+            <FileButton
+              onChange={(file) => void uploadDocument(file)}
+              accept="image/*,application/pdf"
+            >
               {(props) => (
                 <Button
                   {...props}
@@ -285,13 +426,30 @@ function Documents({
             </FileButton>
           </Group>
         </Paper>
-        {documents.length > 0 ? (
+        {documentsError ? (
+          <Alert color="yellow" variant="light">
+            Document status could not be loaded. Retry by refreshing the guest profile.
+          </Alert>
+        ) : !documentsLoaded ? (
+          <Text c="#64748b" size="xs">
+            Checking uploaded documents…
+          </Text>
+        ) : documents.length > 0 ? (
           documents.map((document) => (
-            <Paper key={document.id} radius={radius.md} p={12} style={{ background: '#ffffff', border: '1px solid #eef2f7' }}>
-              <Group justify="space-between">
+            <Paper
+              key={document.id}
+              radius={radius.md}
+              p={12}
+              style={{ background: '#ffffff', border: '1px solid #eef2f7' }}
+            >
+              <Group justify="space-between" gap={spacing[2]} wrap="wrap">
                 <Box>
-                  <Text fw={700} size="sm">{document.originalFilename}</Text>
-                  <Text c="#64748b" size="xs">{document.side.replace('ID_', '')} - {document.mimeType || 'Uploaded document'}</Text>
+                  <Text fw={700} size="sm">
+                    {document.originalFilename}
+                  </Text>
+                  <Text c="#64748b" size="xs">
+                    {document.side.replace('ID_', '')} - {document.mimeType || 'Uploaded document'}
+                  </Text>
                 </Box>
                 <Button
                   disabled={!canManageGuests}
@@ -308,16 +466,30 @@ function Documents({
             </Paper>
           ))
         ) : (
-          <Text c="#64748b" size="xs">{documentPlaceholders.join(', ')} not uploaded.</Text>
+          <Text c="#64748b" size="xs">
+            No identity documents uploaded yet ({documentPlaceholders.join(', ')}).
+          </Text>
         )}
-        {!canManageGuests ? <Text c="#64748b" size="xs">Guests manage permission is required to upload or delete documents.</Text> : null}
+        {!canManageGuests ? (
+          <Text c="#64748b" size="xs">
+            Guests manage permission is required to upload or delete documents.
+          </Text>
+        ) : null}
       </Stack>
     </Section>
   );
 }
 
-function Reservations({ foliosByReservationId, guest }: { foliosByReservationId: Record<string, Folio>; guest: Guest }) {
-  const reservations = [...(guest.reservations ?? [])].sort((a, b) => b.arrivalDate.localeCompare(a.arrivalDate));
+function Reservations({
+  foliosByReservationId,
+  guest,
+}: {
+  foliosByReservationId: Record<string, Folio>;
+  guest: Guest;
+}) {
+  const reservations = [...(guest.reservations ?? [])].sort((a, b) =>
+    b.arrivalDate.localeCompare(a.arrivalDate),
+  );
 
   return (
     <Section title="Reservations / Stay History" icon={<CalendarDays size={17} />}>
@@ -328,36 +500,81 @@ function Reservations({ foliosByReservationId, guest }: { foliosByReservationId:
             const folio = foliosByReservationId[reservation.id];
             const folioBalance = Number(folio?.totals.balance ?? Number.NaN);
             const folioPaid = Number(folio?.totals.paid ?? 0);
-            const paymentStatus = folio?.status === 'SETTLED' || (Number.isFinite(folioBalance) && folioBalance <= 0.01 && folioPaid > 0)
-              ? 'PAID'
-              : normalizePaymentStatus(reservation.paymentStatus);
+            const paymentStatus =
+              folio?.status === 'SETTLED' ||
+              (Number.isFinite(folioBalance) && folioBalance <= 0.01 && folioPaid > 0)
+                ? 'PAID'
+                : normalizePaymentStatus(reservation.paymentStatus);
             const isStay = ['CHECKED_IN', 'CHECKED_OUT'].includes(status);
-            const href = isStay ? `/guest-stay/${reservation.id}` : `/reservations/${reservation.id}`;
+            const href = isStay
+              ? `/guest-stay/${reservation.id}`
+              : `/reservations/${reservation.id}`;
             const folioNumber = folio?.folioNumber || reservation.folioNumber;
             return (
-              <Paper key={reservation.id} radius={radius.md} p={12} style={{ background: '#ffffff', border: '1px solid #eef2f7' }}>
-                <Group justify="space-between" align="flex-start" gap={spacing[3]}>
+              <Paper
+                key={reservation.id}
+                radius={radius.md}
+                p={12}
+                style={{ background: '#ffffff', border: '1px solid #eef2f7' }}
+              >
+                <Group justify="space-between" align="flex-start" gap={spacing[3]} wrap="wrap">
                   <Box>
-                    <Group gap={8} mb={4}>
+                    <Group gap={8} mb={4} wrap="wrap">
                       <Text c="#101828" fw={800} size="sm">
                         {reservation.reservationCode || reservation.id}
                       </Text>
-                      <Badge color={status === 'CHECKED_OUT' ? 'gray' : status === 'CHECKED_IN' ? 'blue' : 'yellow'} variant="light">
+                      <Badge
+                        color={
+                          status === 'CHECKED_OUT'
+                            ? 'gray'
+                            : status === 'CHECKED_IN'
+                              ? 'blue'
+                              : 'yellow'
+                        }
+                        variant="light"
+                      >
                         {reservation.status.replace(/_/g, ' ')}
                       </Badge>
-                      <Badge color={paymentStatus === 'PAID' ? 'green' : paymentStatus === 'PARTIALLY_PAID' ? 'yellow' : 'red'} variant="light">
+                      <Badge
+                        color={
+                          paymentStatus === 'PAID'
+                            ? 'green'
+                            : paymentStatus === 'PARTIALLY_PAID'
+                              ? 'yellow'
+                              : 'red'
+                        }
+                        variant="light"
+                      >
                         {readableStatus(paymentStatus)}
                       </Badge>
                     </Group>
                     <Text c="#64748b" size="xs">
-                      {reservation.arrivalDate} to {reservation.departureDate || '-'} - Room {reservation.roomNumber} - {reservation.roomType}
+                      {reservation.arrivalDate} to {reservation.departureDate || '-'} - Room{' '}
+                      {reservation.roomNumber} - {reservation.roomType}
                       {folioNumber ? ` - Folio ${folioNumber}` : ''}
                     </Text>
                   </Box>
-                  <Group gap={8}>
-                    <Button component={Link} href={href} variant="light" color="stayosBrand" size="compact-sm">
+                  <Group gap={8} wrap="wrap">
+                    <Button
+                      component={Link}
+                      href={href}
+                      variant="light"
+                      color="stayosBrand"
+                      size="compact-sm"
+                    >
                       {isStay ? 'View Stay' : 'View Booking'}
                     </Button>
+                    {folio ? (
+                      <Button
+                        component={Link}
+                        href={`/billing/${folio.id}`}
+                        variant="subtle"
+                        color="gray"
+                        size="compact-sm"
+                      >
+                        View Folio
+                      </Button>
+                    ) : null}
                   </Group>
                 </Group>
               </Paper>
@@ -379,8 +596,14 @@ export default function GuestProfilePage() {
   const backend = useBackendStatus();
   const auth = useAuth();
   const allowMockFallback = process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
-  const canLoadGuest = backend.isOnline || (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
-  const guestState = useGuestDetails({ allowMockFallback, enabled: canLoadGuest, guestId: params.guestId });
+  const canLoadGuest =
+    backend.isOnline ||
+    (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
+  const guestState = useGuestDetails({
+    allowMockFallback,
+    enabled: canLoadGuest,
+    guestId: params.guestId,
+  });
   const [foliosByReservationId, setFoliosByReservationId] = useState<Record<string, Folio>>({});
   const retryBackend = () => void backend.retry();
   const checkBackendStatus = () => void backend.checkHealth();
@@ -406,7 +629,9 @@ export default function GuestProfilePage() {
         }),
       );
       if (cancelled) return;
-      setFoliosByReservationId(Object.fromEntries(entries.filter(Boolean) as Array<readonly [string, Folio]>));
+      setFoliosByReservationId(
+        Object.fromEntries(entries.filter(Boolean) as Array<readonly [string, Folio]>),
+      );
     }
 
     void loadFolios();
@@ -415,23 +640,50 @@ export default function GuestProfilePage() {
     };
   }, [guestState.guest, guestState.propertyId]);
 
-  if (!allowMockFallback && backend.status === 'SERVER_STARTING') return <ServerStarting onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
-  if (!allowMockFallback && !backend.isOnline && backend.status !== 'CONNECTING') return <BackendUnavailable onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
-  if (!allowMockFallback && guestState.error && !guestState.isLoading && !guestState.guest) return <GenericError onAction={() => void guestState.refreshGuest()} onCheckStatus={checkBackendStatus} />;
+  if (!allowMockFallback && backend.status === 'SERVER_STARTING')
+    return <ServerStarting onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
+  if (!allowMockFallback && !backend.isOnline && backend.status !== 'CONNECTING')
+    return <BackendUnavailable onAction={retryBackend} onCheckStatus={checkBackendStatus} />;
+  if (!allowMockFallback && guestState.error && !guestState.isLoading && !guestState.guest)
+    return (
+      <GenericError
+        onAction={() => void guestState.refreshGuest()}
+        onCheckStatus={checkBackendStatus}
+      />
+    );
 
   if (!guestState.guest) {
-    return <Alert color="blue" variant="light" icon={<UserRound size={17} />} radius={radius.lg}>Loading guest profile...</Alert>;
+    return (
+      <Card radius={radius.lg} p={20} style={cardStyle}>
+        <Text fw={800} c="#101828">
+          Loading guest profile…
+        </Text>
+        <Text c="#64748b" size="sm" mt={4}>
+          Getting profile, stay history, documents, and billing context.
+        </Text>
+      </Card>
+    );
   }
 
   const guest = guestState.guest;
-  const canManageGuests = Boolean(auth.user?.permissions.includes('guests.manage') || auth.user?.permissions.includes('*'));
+  const canManageGuests = Boolean(
+    auth.user?.permissions.includes('guests.manage') || auth.user?.permissions.includes('*'),
+  );
 
   return (
     <Stack gap={spacing[3]}>
       {guestState.isFallback && guestState.error ? (
-        <Alert color="yellow" variant="light" icon={<AlertCircle size={17} />} radius={radius.lg}>Demo fallback is enabled, so this profile is sample data.</Alert>
+        <Alert color="yellow" variant="light" icon={<AlertCircle size={17} />} radius={radius.lg}>
+          Demo fallback is enabled, so this profile is sample data.
+        </Alert>
       ) : null}
       <Header guest={guest} />
+      {guest.blacklistStatus || guest.status === 'BLACKLISTED' ? (
+        <Alert color="red" variant="light" title="Blacklisted guest">
+          Review the guest profile and property policy before creating or confirming a new
+          reservation.
+        </Alert>
+      ) : null}
       <SimpleGrid cols={{ base: 1, lg: 12 }} spacing={spacing[3]}>
         <Stack gap={spacing[3]} style={{ gridColumn: 'span 8' }}>
           <ProfileDetails guest={guest} />
@@ -446,17 +698,16 @@ export default function GuestProfilePage() {
         </Stack>
         <Stack gap={spacing[3]} style={{ gridColumn: 'span 4' }}>
           <Section title="Notes" icon={<NotebookText size={17} />}>
-            <Text c="#334155" size="sm">{guest.notes}</Text>
+            <Text c="#334155" size="sm">
+              {guest.notes}
+            </Text>
           </Section>
-          <Section title="Identity Summary" icon={<Languages size={17} />}>
+          <Section title="Guest Summary" icon={<Languages size={17} />}>
             <Stack gap={spacing[2]}>
-              <DetailTile label="Language" value={guest.preferredLanguage} />
-              <DetailTile label="Document status" value="Not uploaded" />
-              <DetailTile label="Check-in readiness" value="Profile ready for future check-in integration" />
+              <DetailTile label="Preferred language" value={guest.preferredLanguage} />
+              <DetailTile label="Last stay" value={guest.lastStay} />
+              <DetailTile label="Upcoming booking" value={guest.upcomingBooking} />
             </Stack>
-          </Section>
-          <Section title="Future Check-In" icon={<FileText size={17} />}>
-            <Text c="#64748b" size="sm">Identity, documents, VIP flag, and notes will connect to the Check-In Workspace later.</Text>
           </Section>
         </Stack>
       </SimpleGrid>

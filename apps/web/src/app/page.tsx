@@ -28,7 +28,7 @@ import {
   Users,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
 import { type FrontDeskTask, useFrontDeskData } from '../lib/front-desk-api';
 import styles from './front-desk.module.css';
@@ -518,41 +518,6 @@ function FrontDeskLoading() {
 
 export default function HomePage() {
   const frontDesk = useFrontDeskData();
-
-  // TEMP F11 inventory reconciliation check - REMOVE AFTER VERIFICATION
-  useEffect(() => {
-    if (!frontDesk.propertyId) return;
-
-    const runReconciliation = async () => {
-      try {
-        const token = localStorage.getItem('accessToken');
-
-        const response = await fetch(
-          `http://localhost:3002/api/v1/properties/${frontDesk.propertyId}/inventory/reconciliation`,
-          {
-            headers: token
-              ? {
-                  Authorization: `Bearer ${token}`,
-                }
-              : undefined,
-          },
-        );
-
-        const result = await response.json();
-
-        console.log('==========================================');
-        console.log('F11 INVENTORY RECONCILIATION');
-        console.log('Property:', frontDesk.propertyId);
-        console.log('HTTP:', response.status);
-        console.log('RESULT:', result);
-        console.log('==========================================');
-      } catch (error) {
-        console.error('F11 RECONCILIATION FAILED:', error);
-      }
-    };
-
-    void runReconciliation();
-  }, [frontDesk.propertyId]);
 
   if (frontDesk.isLoading) {
     return <FrontDeskLoading />;

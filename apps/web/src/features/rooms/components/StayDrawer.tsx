@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { Badge, Box, Button, Drawer, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
-import { DoorOpen, History } from 'lucide-react';
+import { DoorOpen } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import type { Reservation } from '../../../lib/reservation-hooks';
 import styles from '../RoomsPage.module.css';
@@ -21,7 +21,10 @@ export function StayDrawer({
   reservation?: Reservation;
   room: Room | null;
 }) {
-  const stayHref = reservation?.stayHref ?? room?.stayHref ?? (reservation?.backendId ? `/guest-stay/${reservation.backendId}` : undefined);
+  const stayHref =
+    reservation?.stayHref ??
+    room?.stayHref ??
+    (reservation?.backendId ? `/guest-stay/${reservation.backendId}` : undefined);
   const housekeepingHref = `/housekeeping?room=${encodeURIComponent(room?.id ?? room?.number ?? '')}`;
 
   return (
@@ -43,19 +46,28 @@ export function StayDrawer({
         <Paper radius={radius.lg} p={16} className={styles.surfaceCard}>
           <SimpleGrid cols={2} spacing={spacing[3]}>
             <DetailTile label="Guest" value={reservation?.guest ?? room?.guest ?? 'Guest'} />
-            <DetailTile label="Reservation" value={reservation?.id ?? room?.reservation ?? 'Not recorded'} />
+            <DetailTile
+              label="Reservation"
+              value={reservation?.id ?? room?.reservation ?? 'Not recorded'}
+            />
             <DetailTile label="Room" value={room ? `Room ${room.number}` : 'Not recorded'} />
             <DetailTile label="Check-in time" value={room?.checkInTime ?? 'Checked in today'} />
             <DetailTile
               label="Expected check-out"
               value={reservation?.departureDate ?? room?.reservationDepartureDate ?? 'Not recorded'}
             />
-            <DetailTile label="Room type" value={room?.roomType ?? reservation?.roomType ?? 'Not recorded'} />
+            <DetailTile
+              label="Room type"
+              value={room?.roomType ?? reservation?.roomType ?? 'Not recorded'}
+            />
             <DetailTile
               label="Current room status"
               value={room ? statusLabel(room.status) : 'Not recorded'}
             />
-            <DetailTile label="Payment status" value={reservation?.payment ?? room?.paymentStatus ?? 'Not recorded'} />
+            <DetailTile
+              label="Payment status"
+              value={reservation?.payment ?? room?.paymentStatus ?? 'Not recorded'}
+            />
           </SimpleGrid>
           <Box mt={spacing[3]}>
             <DetailTile
@@ -75,10 +87,7 @@ export function StayDrawer({
             <Button color="red" leftSection={<DoorOpen size={16} />} onClick={onCheckOut}>
               Check Out
             </Button>
-            <Button variant="light" color="gray" leftSection={<History size={16} />}>
-              View History
-            </Button>
-            <Group gap={8}>
+            <Group gap={8} wrap="wrap">
               {stayHref ? (
                 <Button component={Link} href={stayHref} variant="subtle" color="gray">
                   Billing

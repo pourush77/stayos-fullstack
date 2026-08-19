@@ -1046,6 +1046,7 @@ function StayWorkspaceSkeleton() {
 }
 
 function MoveRoomModal({
+  isLoadingRooms,
   isMoving,
   onClose,
   onConfirm,
@@ -1060,6 +1061,7 @@ function MoveRoomModal({
   setSelectedRoomId,
   stay,
 }: {
+  isLoadingRooms: boolean;
   isMoving: boolean;
   onClose: () => void;
   onConfirm: () => void;
@@ -1092,7 +1094,12 @@ function MoveRoomModal({
   return (
     <Modal
       opened={opened}
-      onClose={onClose}
+      onClose={() => {
+        if (!isMoving) onClose();
+      }}
+      closeOnClickOutside={!isMoving}
+      closeOnEscape={!isMoving}
+      withCloseButton={!isMoving}
       centered
       size="lg"
       title={relocationRequired ? 'Relocate guest' : 'Move room'}
@@ -1107,15 +1114,24 @@ function MoveRoomModal({
         </SimpleGrid>
         <TextInput
           label="Search rooms"
+          disabled={isMoving}
           onChange={(event) => setSearch(event.currentTarget.value)}
           placeholder="Room number, floor, or type"
           value={search}
         />
+
         <Stack gap={8} mah={300} style={{ overflowY: 'auto' }}>
-          {visibleRooms.length > 0 ? (
+          {isLoadingRooms ? (
+            <>
+              <Skeleton height={64} radius={radius.md} />
+              <Skeleton height={64} radius={radius.md} />
+              <Skeleton height={64} radius={radius.md} />
+            </>
+          ) : visibleRooms.length > 0 ? (
             visibleRooms.map((room) => (
               <UnstyledButton
                 key={room.roomId}
+                disabled={isMoving}
                 onClick={() => setSelectedRoomId(room.roomId)}
                 style={{
                   background: selectedRoomId === room.roomId ? '#eef2ff' : '#ffffff',
@@ -1131,11 +1147,13 @@ function MoveRoomModal({
                     <Text c="#101828" fw={800}>
                       Room {room.roomNumber}
                     </Text>
+
                     <Text c="#64748b" size="sm">
                       {roomTypeLabel(room)} -{' '}
                       {room.floor.name || room.floor.code || 'Floor not recorded'}
                     </Text>
                   </Stack>
+
                   <Badge color="green" variant="light" radius={radius.full}>
                     Ready
                   </Badge>
@@ -1169,17 +1187,18 @@ function MoveRoomModal({
           label="Reason"
           maxLength={500}
           minRows={3}
+          disabled={isMoving}
           onChange={(event) => setReason(event.currentTarget.value)}
           placeholder="Optional operational note"
           value={reason}
         />
         <Group justify="flex-end">
-          <Button variant="subtle" color="gray" onClick={onClose}>
+          <Button variant="subtle" color="gray" disabled={isMoving} onClick={onClose}>
             Close
           </Button>
           <Button
             color="stayosBrand"
-            disabled={!selectedRoomId}
+            disabled={!selectedRoomId || isLoadingRooms}
             loading={isMoving}
             onClick={onConfirm}
           >
@@ -1210,6 +1229,7 @@ export default function StayWorkspace() {
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [isExtending, setIsExtending] = useState(false);
   const [isMoving, setIsMoving] = useState(false);
+  const [isLoadingMoveRooms, setIsLoadingMoveRooms] = useState(false);
   const [extendDepartureDate, setExtendDepartureDate] = useState('');
   const [moveOpened, setMoveOpened] = useState(false);
   const [moveReason, setMoveReason] = useState('');
@@ -1372,25 +1392,34 @@ export default function StayWorkspace() {
     setMoveSearch('');
     setMoveReason('');
     setSelectedMoveRoomId('');
+    setMoveRooms([]);
+    setIsLoadingMoveRooms(true);
+
     try {
       const rooms = await getAvailableRooms(stayState.propertyId, {
         arrivalDate: stay.arrivalDate,
         departureDate: stay.departureDate,
         guestCount: stay.adults + stay.children,
       });
+
       setMoveRooms(rooms);
     } catch {
       setMoveRooms([]);
+
       showToast({
         color: 'red',
         title: 'Rooms unavailable',
         message: 'Unable to load available rooms.',
       });
+    } finally {
+      setIsLoadingMoveRooms(false);
     }
   };
 
   const moveRoom = async () => {
-    if (!stayState.propertyId || !params.stayId || !selectedMoveRoomId) return;
+    if (isMoving || !stayState.propertyId || !params.stayId || !selectedMoveRoomId) {
+      return;
+    }
 
     setIsMoving(true);
     try {
@@ -1419,6 +1448,7 @@ export default function StayWorkspace() {
   };
 
   const checkOut = async () => {
+    if (isCheckingOut) return;
     setIsCheckingOut(true);
     try {
       await stayState.checkOutStay();
@@ -1462,7 +1492,9 @@ export default function StayWorkspace() {
   };
 
   const extendStay = async () => {
-    if (!stayState.propertyId || !params.stayId || !extendDepartureDate) return;
+    if (isExtending || !stayState.propertyId || !params.stayId || !extendDepartureDate) {
+      return;
+    }
 
     setIsExtending(true);
     try {
@@ -1555,7 +1587,12 @@ export default function StayWorkspace() {
 
       <Modal
         opened={checkoutOpened}
-        onClose={() => setCheckoutOpened(false)}
+        onClose={() => {
+          if (!isCheckingOut) setCheckoutOpened(false);
+        }}
+        closeOnClickOutside={!isCheckingOut}
+        closeOnEscape={!isCheckingOut}
+        withCloseButton={!isCheckingOut}
         centered
         title={hasOutstandingBalance ? 'Settle payment first' : 'Check out guest?'}
       >
@@ -1566,7 +1603,12 @@ export default function StayWorkspace() {
               : 'Confirm checkout. The room will be marked for cleaning and the stay will close.'}
           </Text>
           <Group justify="flex-end">
-            <Button variant="subtle" color="gray" onClick={() => setCheckoutOpened(false)}>
+            <Button
+              variant="subtle"
+              color="gray"
+              disabled={isCheckingOut}
+              onClick={() => setCheckoutOpened(false)}
+            >
               Cancel
             </Button>
             {hasOutstandingBalance ? (
@@ -1584,7 +1626,12 @@ export default function StayWorkspace() {
 
       <Modal
         opened={extendOpened}
-        onClose={() => setExtendOpened(false)}
+        onClose={() => {
+          if (!isExtending) setExtendOpened(false);
+        }}
+        closeOnClickOutside={!isExtending}
+        closeOnEscape={!isExtending}
+        withCloseButton={!isExtending}
         centered
         title="Extend stay"
       >
@@ -1592,12 +1639,18 @@ export default function StayWorkspace() {
           <TextInput
             label="New departure date"
             min={stay.departureDate}
+            disabled={isExtending}
             onChange={(event) => setExtendDepartureDate(event.currentTarget.value)}
             type="date"
             value={extendDepartureDate}
           />
           <Group justify="flex-end">
-            <Button variant="subtle" color="gray" onClick={() => setExtendOpened(false)}>
+            <Button
+              variant="subtle"
+              color="gray"
+              disabled={isExtending}
+              onClick={() => setExtendOpened(false)}
+            >
               Close
             </Button>
             <Button
@@ -1613,6 +1666,7 @@ export default function StayWorkspace() {
       </Modal>
 
       <MoveRoomModal
+        isLoadingRooms={isLoadingMoveRooms}
         isMoving={isMoving}
         onClose={() => setMoveOpened(false)}
         onConfirm={() => void moveRoom()}

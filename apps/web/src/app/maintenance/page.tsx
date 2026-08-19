@@ -168,7 +168,12 @@ export default function MaintenancePage() {
           </Text>
         </Box>
         {canManage ? (
-          <Button color="stayosBrand" leftSection={<Plus size={16} />} onClick={open}>
+          <Button
+            color="stayosBrand"
+            leftSection={<Plus size={16} />}
+            disabled={Boolean(state.mutationKey)}
+            onClick={open}
+          >
             New Ticket
           </Button>
         ) : null}
@@ -214,16 +219,26 @@ export default function MaintenancePage() {
       </Group>
 
       <Stack gap={spacing[4]}>
-        {state.tickets.map((ticket) => (
-          <MaintenanceTicketCard
-            key={ticket.id}
-            canManage={canManage}
-            ticket={ticket}
-            onAssign={(id) => (auth.user?.id ? void state.assign(id, auth.user.id) : undefined)}
-            onCancel={(id) => void state.cancel(id)}
-            onResolve={(id) => void state.resolve(id, 'Resolved from maintenance workspace')}
-          />
-        ))}
+        {state.tickets.map((ticket) => {
+          const ticketMutation = state.mutationKey?.endsWith(`:${ticket.id}`)
+            ? (state.mutationKey.split(':')[0] as 'assign' | 'cancel' | 'resolve')
+            : undefined;
+
+          return (
+            <MaintenanceTicketCard
+              key={ticket.id}
+              busyAction={ticketMutation}
+              canManage={canManage}
+              disabled={Boolean(state.mutationKey) && !ticketMutation}
+              ticket={ticket}
+              onAssign={(id) =>
+                auth.user?.id ? state.assign(id, auth.user.id) : Promise.resolve(false)
+              }
+              onCancel={(id) => state.cancel(id)}
+              onResolve={(id) => state.resolve(id, 'Resolved from maintenance workspace')}
+            />
+          );
+        })}
         {!state.isLoading && state.tickets.length === 0 ? (
           <Alert color="blue" variant="light" radius={radius.lg}>
             No maintenance tickets match these filters.
@@ -231,7 +246,12 @@ export default function MaintenancePage() {
         ) : null}
       </Stack>
 
-      <CreateMaintenanceTicketModal opened={opened} onClose={close} onCreate={state.create} />
+      <CreateMaintenanceTicketModal
+        opened={opened}
+        isSubmitting={state.mutationKey === 'create'}
+        onClose={close}
+        onCreate={state.create}
+      />
     </Stack>
   );
 }

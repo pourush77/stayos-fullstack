@@ -39,7 +39,8 @@ function friendlyQuoteError(message: string): string {
 /**
  * Debounced, abortable backend pricing quote for the individual booking flow.
  * The backend is the single source of truth for rate, child pricing, GST and
- * deposit — this hook never computes money locally.
+ * deposit — this hook never computes money locally. A monotonically increasing
+ * request id also prevents stale responses from committing after inputs change.
  */
 export function useReservationQuote(args: QuoteArgs): QuoteState {
   const {
@@ -69,13 +70,14 @@ export function useReservationQuote(args: QuoteArgs): QuoteState {
   const childAgesKey = (childAges ?? []).join(',');
 
   useEffect(() => {
+    const requestId = ++requestIdRef.current;
+
     if (!shouldQuote || !propertyId) {
       setState({ quote: null, isLoading: false, error: null });
       return;
     }
 
     const controller = new AbortController();
-    const requestId = ++requestIdRef.current;
     setState((current) => ({ ...current, isLoading: true, error: null }));
 
     const payload: ReservationQuoteInput = {

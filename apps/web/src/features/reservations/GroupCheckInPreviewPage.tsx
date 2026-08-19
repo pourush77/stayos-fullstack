@@ -9,13 +9,13 @@ import {
   Box,
   Button,
   Card,
+  Modal,
   Divider,
   Group,
   Paper,
   SimpleGrid,
   Stack,
   Text,
-  Textarea,
   Title,
 } from '@mantine/core';
 import { BedDouble, CheckCircle2, CircleAlert, CreditCard, Users } from 'lucide-react';
@@ -70,11 +70,15 @@ export function GroupCheckInPreviewPage({ groupHoldId }: { groupHoldId: string }
   const [propertyId, setPropertyId] = useState('');
   const [preview, setPreview] = useState<GroupCheckInPreviewDto | undefined>();
   const [error, setError] = useState<string | undefined>();
-  const [notes, setNotes] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
+  const [confirmOpened, setConfirmOpened] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
+    setIsLoading(true);
+    setError(undefined);
+
     getProperties(controller.signal)
       .then(async (properties) => {
         const active =
@@ -82,12 +86,20 @@ export function GroupCheckInPreviewPage({ groupHoldId }: { groupHoldId: string }
             (property) => String(property.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE',
           ) ?? properties[0];
         const id = typeof active?.id === 'string' ? active.id : '';
+        if (!id) throw new Error('No active property is available.');
+
         setPropertyId(id);
-        setPreview(await getGroupCheckInPreview(id, groupHoldId, controller.signal));
+        const nextPreview = await getGroupCheckInPreview(id, groupHoldId, controller.signal);
+        if (!controller.signal.aborted) setPreview(nextPreview);
       })
-      .catch((err) =>
-        setError(err instanceof Error ? err.message : 'Unable to load group check-in.'),
-      );
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        setError(err instanceof Error ? err.message : 'Unable to load group check-in.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
+      });
+
     return () => controller.abort();
   }, [groupHoldId]);
 
@@ -100,11 +112,8 @@ export function GroupCheckInPreviewPage({ groupHoldId }: { groupHoldId: string }
 
   const finalCheckIn = async () => {
     if (!preview || !propertyId) return;
-    const roomLabel = preview.rooms.length === 1 ? '1 room' : `${preview.rooms.length} rooms`;
-    const confirmed = window.confirm(
-      `Check in ${preview.group.groupCode} with ${roomLabel}: ${assignedRoomNumbers}?`,
-    );
-    if (!confirmed) return;
+    if (!preview.canCheckIn) return;
+    setConfirmOpened(false);
 
     setIsCheckingIn(true);
     try {
@@ -148,23 +157,43 @@ export function GroupCheckInPreviewPage({ groupHoldId }: { groupHoldId: string }
       style={{ background: '#fbfcff', minHeight: 'calc(100vh - 180px)' }}
     >
       <Stack gap={spacing[3]} maw={1120} mx="auto">
-        <Group justify="space-between" align="flex-start">
-          <Box>
+        <Group justify="space-between" align="flex-start" gap={spacing[2]} wrap="wrap">
+          <Box style={{ minWidth: 0 }}>
             <Title order={1} c="#101828" style={{ fontSize: 32, fontWeight: 900 }}>
               Group Check-in
             </Title>
             <Text c="#64748b" size="sm">
               {preview
-                ? `${preview.group.groupCode} - ${preview.group.groupName}`
+                ? `${preview.group.groupCode} · ${preview.group.groupName}`
                 : 'Loading group arrival...'}
             </Text>
           </Box>
-          <Button component={Link} href={`/reservations/group-holds/${groupHoldId}`} variant="light" color="gray">
+          <Button
+            component={Link}
+            href={`/reservations/group-holds/${groupHoldId}`}
+            variant="light"
+            color="gray"
+          >
             Back to Group
           </Button>
         </Group>
 
-        {error ? <Alert color="red">{error}</Alert> : null}
+        {error ? (
+          <Alert color="red" variant="light" title="Could not prepare group check-in">
+            {error}
+          </Alert>
+        ) : null}
+
+        {isLoading && !preview && !error ? (
+          <Card radius={radius.lg} p={20} style={panelStyle}>
+            <Text fw={850} c="#101828">
+              Preparing group check-in…
+            </Text>
+            <Text c="#64748b" size="sm" mt={4}>
+              Checking room readiness, assignments, payment status, and arrival requirements.
+            </Text>
+          </Card>
+        ) : null}
 
         {preview ? (
           <>
@@ -190,37 +219,54 @@ export function GroupCheckInPreviewPage({ groupHoldId }: { groupHoldId: string }
                     Arrival Summary
                   </Title>
                   <Text fw={850} mt={6}>
-                    {preview.group.groupCode} - {preview.group.groupName}
+                    {preview.group.groupCode} · {preview.group.groupName}
                   </Text>
                   <Text c="#64748b" size="sm">
-                    {formatDate(preview.group.arrivalDate)} to {formatDate(preview.group.departureDate)}
+                    {formatDate(preview.group.arrivalDate)} to{' '}
+                    {formatDate(preview.group.departureDate)}
                   </Text>
                 </Box>
                 <Badge color="stayosBrand" variant="light">
-                  {preview.group.status.replace('_', ' ')}
+                  {preview.group.status.replace(/_/g, ' ')}
                 </Badge>
               </Group>
               <SimpleGrid cols={{ base: 2, md: 5 }} spacing={spacing[2]} mt={spacing[3]}>
                 <Paper radius={radius.md} p={10} style={{ background: '#f8fafc' }}>
-                  <Text size="xs" c="#64748b" fw={800}>GUESTS</Text>
-                  <Text fw={850}>{preview.group.adults} adults, {preview.group.children} children</Text>
+                  <Text size="xs" c="#64748b" fw={800}>
+                    GUESTS
+                  </Text>
+                  <Text fw={850}>
+                    {preview.group.adults} adults, {preview.group.children} children
+                  </Text>
                 </Paper>
                 <Paper radius={radius.md} p={10} style={{ background: '#f8fafc' }}>
-                  <Text size="xs" c="#64748b" fw={800}>ROOMS</Text>
-                  <Text fw={850}>{preview.rooms.length} / {totalRooms}</Text>
+                  <Text size="xs" c="#64748b" fw={800}>
+                    ROOMS
+                  </Text>
+                  <Text fw={850}>
+                    {preview.rooms.length} / {totalRooms} assigned
+                  </Text>
                 </Paper>
                 <Paper radius={radius.md} p={10} style={{ background: '#f8fafc' }}>
-                  <Text size="xs" c="#64748b" fw={800}>LEAD</Text>
+                  <Text size="xs" c="#64748b" fw={800}>
+                    LEAD
+                  </Text>
                   <Text fw={850}>{preview.group.leadName}</Text>
-                  <Text c="#64748b" size="sm">{preview.group.leadPhone}</Text>
+                  <Text c="#64748b" size="sm">
+                    {preview.group.leadPhone}
+                  </Text>
                 </Paper>
                 <Paper radius={radius.md} p={10} style={{ background: '#f8fafc' }}>
-                  <Text size="xs" c="#64748b" fw={800}>FOLIO</Text>
+                  <Text size="xs" c="#64748b" fw={800}>
+                    FOLIO
+                  </Text>
                   <Text fw={850}>{preview.folioMode.replaceAll('_', ' ')}</Text>
                 </Paper>
                 <Paper radius={radius.md} p={10} style={{ background: '#f8fafc' }}>
-                  <Text size="xs" c="#64748b" fw={800}>PAYMENT</Text>
-                  <Text fw={850}>{preview.paymentSummary.paymentStatus.replace('_', ' ')}</Text>
+                  <Text size="xs" c="#64748b" fw={800}>
+                    PAYMENT
+                  </Text>
+                  <Text fw={850}>{preview.paymentSummary.paymentStatus.replace(/_/g, ' ')}</Text>
                 </Paper>
               </SimpleGrid>
             </Card>
@@ -237,16 +283,31 @@ export function GroupCheckInPreviewPage({ groupHoldId }: { groupHoldId: string }
                   {preview.rooms.map((room) => {
                     const badge = roomBadge(room);
                     return (
-                      <Paper key={room.roomId} radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
+                      <Paper
+                        key={room.roomId}
+                        radius={radius.md}
+                        p={12}
+                        style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}
+                      >
                         <Group justify="space-between">
                           <Box>
                             <Text fw={850}>Room {room.roomNumber}</Text>
-                            <Text c="#64748b" size="sm">{room.roomTypeName}</Text>
-                            {room.issue ? <Text c="#9a3412" size="sm">{room.issue}</Text> : null}
+                            <Text c="#64748b" size="sm">
+                              {room.roomTypeName}
+                            </Text>
+                            {room.issue ? (
+                              <Text c="#9a3412" size="sm">
+                                {room.issue}
+                              </Text>
+                            ) : null}
                           </Box>
                           <Stack gap={4} align="flex-end">
-                            <Badge color={badge.color} variant="light">{badge.label}</Badge>
-                            <Text c="#64748b" size="xs">{room.operationalStatus.replaceAll('_', ' ')}</Text>
+                            <Badge color={badge.color} variant="light">
+                              {badge.label}
+                            </Badge>
+                            <Text c="#64748b" size="xs">
+                              {room.operationalStatus.replaceAll('_', ' ')}
+                            </Text>
                           </Stack>
                         </Group>
                       </Paper>
@@ -268,12 +329,18 @@ export function GroupCheckInPreviewPage({ groupHoldId }: { groupHoldId: string }
                       (room) => room.roomId === item.assignedRoomId,
                     );
                     return (
-                      <Paper key={item.id} radius={radius.md} p={12} style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}>
+                      <Paper
+                        key={item.id}
+                        radius={radius.md}
+                        p={12}
+                        style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}
+                      >
                         <Group justify="space-between">
                           <Box>
                             <Text fw={850}>{item.guestName}</Text>
                             <Text c="#64748b" size="sm">
-                              {item.adults} adults, {item.children} children {item.phone ? `- ${item.phone}` : ''}
+                              {item.adults} adults, {item.children} children{' '}
+                              {item.phone ? `- ${item.phone}` : ''}
                             </Text>
                           </Box>
                           <Badge color="gray" variant="light">
@@ -317,66 +384,130 @@ export function GroupCheckInPreviewPage({ groupHoldId }: { groupHoldId: string }
                 </Title>
                 <SimpleGrid cols={2} spacing={spacing[2]} mt={spacing[3]}>
                   <Paper radius={radius.md} p={10} style={{ background: '#f8fafc' }}>
-                    <Text size="xs" c="#64748b" fw={800}>STANDARD CHECK-IN</Text>
+                    <Text size="xs" c="#64748b" fw={800}>
+                      STANDARD CHECK-IN
+                    </Text>
                     <Text fw={850}>{formatTime(preview.arrivalDetails.standardCheckInTime)}</Text>
                   </Paper>
                   <Paper radius={radius.md} p={10} style={{ background: '#f8fafc' }}>
-                    <Text size="xs" c="#64748b" fw={800}>STANDARD CHECKOUT</Text>
+                    <Text size="xs" c="#64748b" fw={800}>
+                      STANDARD CHECKOUT
+                    </Text>
                     <Text fw={850}>{formatTime(preview.arrivalDetails.standardCheckOutTime)}</Text>
                   </Paper>
                 </SimpleGrid>
                 <Divider my={spacing[3]} />
                 <Group justify="space-between">
                   <Text c="#64748b">Actual check-in</Text>
-                  <Text fw={850}>{new Date(preview.arrivalDetails.actualCheckInTime).toLocaleString('en-IN')}</Text>
+                  <Text fw={850}>
+                    {new Date(preview.arrivalDetails.actualCheckInTime).toLocaleString('en-IN')}
+                  </Text>
                 </Group>
                 <Group justify="space-between" mt={8}>
                   <Text c="#64748b">Early check-in</Text>
-                  <Badge color={preview.arrivalDetails.earlyCheckIn ? 'orange' : 'green'} variant="light">
+                  <Badge
+                    color={preview.arrivalDetails.earlyCheckIn ? 'orange' : 'green'}
+                    variant="light"
+                  >
                     {preview.arrivalDetails.earlyCheckIn ? 'Yes' : 'No'}
                   </Badge>
                 </Group>
-                <Textarea
-                  label="Notes"
-                  mt={spacing[3]}
-                  minRows={3}
-                  placeholder="Optional arrival note for the front desk"
-                  value={notes}
-                  onChange={(event) => setNotes(event.currentTarget.value)}
-                />
               </Card>
             </SimpleGrid>
 
             {preview.blockers.length || preview.warnings.length ? (
               <SimpleGrid cols={{ base: 1, md: 2 }} spacing={spacing[3]}>
-                <Alert color="red" title="Blockers">
-                  <Stack gap={4}>
-                    {preview.blockers.length ? preview.blockers.map((item) => <Text key={item}>{item}</Text>) : <Text>No blockers</Text>}
-                  </Stack>
-                </Alert>
-                <Alert color="yellow" title="Warnings">
-                  <Stack gap={4}>
-                    {preview.warnings.length ? preview.warnings.map((item) => <Text key={item}>{item}</Text>) : <Text>No warnings</Text>}
-                  </Stack>
-                </Alert>
+                {preview.blockers.length ? (
+                  <Alert color="red" title="Resolve before check-in">
+                    <Stack gap={4}>
+                      {preview.blockers.map((item) => (
+                        <Text key={item}>{item}</Text>
+                      ))}
+                    </Stack>
+                  </Alert>
+                ) : null}
+                {preview.warnings.length ? (
+                  <Alert color="yellow" title="Review before check-in">
+                    <Stack gap={4}>
+                      {preview.warnings.map((item) => (
+                        <Text key={item}>{item}</Text>
+                      ))}
+                    </Stack>
+                  </Alert>
+                ) : null}
               </SimpleGrid>
             ) : null}
 
-            <Group justify="flex-end">
-              <Button
-                color="stayosBrand"
-                size="md"
-                leftSection={<CheckCircle2 size={16} />}
-                loading={isCheckingIn}
-                disabled={!preview.canCheckIn}
-                onClick={() => void finalCheckIn()}
-              >
-                Check In {preview.rooms.length} {preview.rooms.length === 1 ? 'Room' : 'Rooms'}
-              </Button>
-            </Group>
+            {preview.previewStatus !== 'ALREADY_CHECKED_IN' ? (
+              <Group justify="flex-end" gap={8} wrap="wrap">
+                <Button
+                  color="stayosBrand"
+                  size="md"
+                  leftSection={<CheckCircle2 size={16} />}
+                  loading={isCheckingIn}
+                  disabled={!preview.canCheckIn || isCheckingIn}
+                  onClick={() => setConfirmOpened(true)}
+                >
+                  Check In {preview.rooms.length} {preview.rooms.length === 1 ? 'Room' : 'Rooms'}
+                </Button>
+              </Group>
+            ) : (
+              <Group justify="flex-end">
+                <Button
+                  component={Link}
+                  href={`/reservations/group-holds/${groupHoldId}`}
+                  color="stayosBrand"
+                >
+                  Return to Group
+                </Button>
+              </Group>
+            )}
           </>
         ) : null}
       </Stack>
+
+      <Modal
+        centered
+        opened={confirmOpened}
+        onClose={() => {
+          if (!isCheckingIn) setConfirmOpened(false);
+        }}
+        title="Confirm group check-in"
+      >
+        <Stack gap={spacing[3]}>
+          <Alert color="blue" variant="light">
+            This will check in the group and occupy all assigned rooms.
+          </Alert>
+          <Box>
+            <Text fw={850}>
+              {preview?.group.groupCode} · {preview?.group.groupName}
+            </Text>
+            <Text c="#64748b" size="sm" mt={4}>
+              {preview?.rooms.length ?? 0} {(preview?.rooms.length ?? 0) === 1 ? 'room' : 'rooms'}:{' '}
+              {assignedRoomNumbers || 'No rooms assigned'}
+            </Text>
+          </Box>
+          <Group justify="flex-end" gap={8} wrap="wrap">
+            <Button
+              variant="subtle"
+              color="gray"
+              disabled={isCheckingIn}
+              onClick={() => setConfirmOpened(false)}
+            >
+              Go back
+            </Button>
+            <Button
+              color="stayosBrand"
+              leftSection={<CheckCircle2 size={16} />}
+              loading={isCheckingIn}
+              disabled={!preview?.canCheckIn}
+              onClick={() => void finalCheckIn()}
+            >
+              Confirm check-in
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Box>
   );
 }

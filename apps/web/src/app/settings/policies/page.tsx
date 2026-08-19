@@ -471,6 +471,12 @@ export default function StayPoliciesPage() {
               </Text>
             </Group>
           </Paper>
+        ) : loadError ? (
+          <Paper radius={radius.lg} p={24} style={panelStyle}>
+            <Text c="#64748b" size="sm">
+              Policy cards are hidden until the current property rules can be loaded.
+            </Text>
+          </Paper>
         ) : (
           <SimpleGrid cols={{ base: 1, md: 2 }} spacing={spacing[3]}>
             {POLICY_DEFINITIONS.map((definition) => {
@@ -540,6 +546,9 @@ export default function StayPoliciesPage() {
         centered
         opened={Boolean(editingDefinition)}
         onClose={closeEditor}
+        closeOnClickOutside={!saving}
+        closeOnEscape={!saving}
+        withCloseButton={!saving}
         radius={radius.lg}
         size="lg"
         title={
@@ -773,7 +782,7 @@ export default function StayPoliciesPage() {
               </Text>
             ) : null}
 
-            <Group justify="flex-end">
+            <Group justify="flex-end" gap={8} wrap="wrap">
               <Button color="gray" variant="subtle" disabled={saving} onClick={closeEditor}>
                 Cancel
               </Button>

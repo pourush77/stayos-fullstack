@@ -404,10 +404,12 @@ export function housekeepingVisibleRoomTotal(rooms: HousekeepingRoom[]) {
 
 function ChecklistButtons({
   checklist,
+  disabled = false,
   onToggle,
   readOnly = false,
 }: {
   checklist: HousekeepingChecklistItem[];
+  disabled?: boolean;
   onToggle: (key: string) => void;
   readOnly?: boolean;
 }) {
@@ -445,6 +447,7 @@ function ChecklistButtons({
           <Button
             key={item.key}
             color={item.completed ? 'green' : 'gray'}
+            disabled={disabled}
             h={70}
             leftSection={<Icon size={22} />}
             onClick={() => onToggle(item.key)}
@@ -526,7 +529,18 @@ function StaffAccessModal({
   );
 
   return (
-    <Modal opened={opened} onClose={onClose} title="Staff Access" centered size="xl">
+    <Modal
+      opened={opened}
+      onClose={() => {
+        if (!isBusy) onClose();
+      }}
+      closeOnClickOutside={!isBusy}
+      closeOnEscape={!isBusy}
+      withCloseButton={!isBusy}
+      title="Staff Access"
+      centered
+      size="xl"
+    >
       <Stack gap={spacing[3]}>
         {isLoadingEmployees ? <Alert color="blue">Loading housekeeping staff...</Alert> : null}
         {!isLoadingEmployees && activeHousekeeping.length === 0 ? (
@@ -583,7 +597,7 @@ function StaffAccessModal({
                   variant="light"
                   color="gray"
                   leftSection={<Copy size={16} />}
-                  disabled={!enabled || !url}
+                  disabled={Boolean(isBusy) || !enabled || !url}
                   onClick={() => {
                     void navigator.clipboard.writeText(url).then(() => {
                       showToast({
@@ -599,7 +613,7 @@ function StaffAccessModal({
                 <Button
                   variant="light"
                   leftSection={<Printer size={16} />}
-                  disabled={!enabled || !url}
+                  disabled={Boolean(isBusy) || !enabled || !url}
                   onClick={() => onPrint(employee)}
                 >
                   Print card
@@ -609,6 +623,7 @@ function StaffAccessModal({
                   color="yellow"
                   leftSection={<RotateCw size={16} />}
                   loading={isBusy === `regenerate:${employee.id}`}
+                  disabled={Boolean(isBusy) && isBusy !== `regenerate:${employee.id}`}
                   onClick={() => onRegenerate(employee)}
                 >
                   Regenerate QR
@@ -618,6 +633,7 @@ function StaffAccessModal({
                   color={enabled ? 'red' : 'green'}
                   leftSection={enabled ? <ShieldOff size={16} /> : <ShieldCheck size={16} />}
                   loading={isBusy === `toggle:${employee.id}`}
+                  disabled={Boolean(isBusy) && isBusy !== `toggle:${employee.id}`}
                   onClick={() => onToggleAccess(employee)}
                 >
                   {enabled ? 'Disable Access' : 'Enable Access'}
@@ -632,6 +648,7 @@ function StaffAccessModal({
 }
 
 function RoomCard({
+  disabled,
   feedback,
   highlighted,
   loading,
@@ -642,6 +659,7 @@ function RoomCard({
   onView,
   room,
 }: {
+  disabled?: boolean;
   feedback?: string;
   highlighted?: boolean;
   loading?: boolean;
@@ -743,6 +761,7 @@ function RoomCard({
         {room.status === 'dirty' && !room.assignedEmployeeId ? (
           <Button
             data-testid={`housekeeping-assign-${room.id}`}
+            disabled={disabled}
             color={primaryColor}
             leftSection={<UserPlus size={16} />}
             onClick={() => onAssign(room)}
@@ -755,6 +774,7 @@ function RoomCard({
           <>
             <Button
               data-testid={`housekeeping-start-${room.id}`}
+              disabled={disabled}
               color={primaryColor}
               leftSection={<Brush size={16} />}
               onClick={() => onStart(room)}
@@ -766,6 +786,7 @@ function RoomCard({
               data-testid={`housekeeping-change-staff-${room.id}`}
               variant="subtle"
               color="gray"
+              disabled={disabled || loading}
               onClick={() => onAssign(room)}
             >
               Change Staff
@@ -776,6 +797,7 @@ function RoomCard({
           <>
             <Button
               data-testid={`housekeeping-complete-${room.id}`}
+              disabled={disabled}
               color={primaryColor}
               leftSection={<ClipboardCheck size={16} />}
               onClick={() => onComplete(room)}
@@ -787,6 +809,7 @@ function RoomCard({
               data-testid={`housekeeping-change-staff-${room.id}`}
               variant="subtle"
               color="gray"
+              disabled={disabled || loading}
               onClick={() => onAssign(room)}
             >
               Change Staff
@@ -796,6 +819,7 @@ function RoomCard({
         {room.status === 'inspection' ? (
           <Button
             data-testid={`housekeeping-inspect-${room.id}`}
+            disabled={disabled}
             color={primaryColor}
             leftSection={<Eye size={16} />}
             onClick={() => onInspect(room)}
@@ -809,6 +833,7 @@ function RoomCard({
             data-testid={`housekeeping-view-${room.id}`}
             variant="subtle"
             color="gray"
+            disabled={disabled || loading}
             onClick={() => onView(room)}
           >
             {action}
@@ -994,6 +1019,7 @@ export default function HousekeepingPage() {
   const [isEmployeeLoading, setIsEmployeeLoading] = useState(false);
   const [employeeError, setEmployeeError] = useState<string>();
   const [loadingRoomId, setLoadingRoomId] = useState<string>();
+  const roomActionBusyRef = useRef<string | null>(null);
   const [guestRequestBusy, setGuestRequestBusy] = useState<string>();
   const guestRequestBusyRef = useRef<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<Record<string, string>>({});
@@ -1363,7 +1389,10 @@ export default function HousekeepingPage() {
     action: () => Promise<unknown>,
     success: string,
     feedback = actionSuccessLabel(primaryAction(room)),
-  ) => {
+  ): Promise<boolean> => {
+    if (roomActionBusyRef.current) return false;
+
+    roomActionBusyRef.current = room.id;
     setLoadingRoomId(room.id);
     try {
       await action();
@@ -1373,13 +1402,16 @@ export default function HousekeepingPage() {
         window.setTimeout(resolve, 550);
       });
       await loadDashboard();
+      return true;
     } catch (actionError) {
       showToast({
         color: 'red',
         title: 'Unable to update room',
         message: friendlyHousekeepingError(actionError),
       });
+      return false;
     } finally {
+      roomActionBusyRef.current = null;
       setLoadingRoomId(undefined);
       window.setTimeout(() => {
         setActionFeedback((current) => {
@@ -1438,6 +1470,7 @@ export default function HousekeepingPage() {
   };
 
   const regenerateAccess = async (employee: HousekeepingEmployee) => {
+    if (staffAccessBusy) return;
     if (!window.confirm('Old QR will stop working. Continue?')) return;
     setStaffAccessBusy(`regenerate:${employee.id}`);
     try {
@@ -1456,6 +1489,7 @@ export default function HousekeepingPage() {
   };
 
   const toggleAccess = async (employee: HousekeepingEmployee) => {
+    if (staffAccessBusy) return;
     const enabled = Boolean(employee.staffAccessEnabled && employee.staffAccessToken);
     setStaffAccessBusy(`toggle:${employee.id}`);
     try {
@@ -1752,9 +1786,6 @@ export default function HousekeepingPage() {
                       <Group gap={6}>
                         {actions.map((item) => {
                           const busyKey = `${request.id}:${item.action}`;
-                          const requestIsBusy =
-                            guestRequestBusy?.startsWith(`${request.id}:`) ?? false;
-
                           return (
                             <Button
                               key={item.action}
@@ -1762,7 +1793,7 @@ export default function HousekeepingPage() {
                               size="xs"
                               variant={item.action === 'cancel' ? 'light' : 'filled'}
                               loading={guestRequestBusy === busyKey}
-                              disabled={requestIsBusy && guestRequestBusy !== busyKey}
+                              disabled={Boolean(guestRequestBusy) && guestRequestBusy !== busyKey}
                               onClick={() => void runGuestRequestAction(request, item.action)}
                             >
                               {item.label}
@@ -2138,6 +2169,7 @@ export default function HousekeepingPage() {
                                 style={{ scrollMarginTop: 24 }}
                               >
                                 <RoomCard
+                                  disabled={Boolean(loadingRoomId) && loadingRoomId !== room.id}
                                   feedback={actionFeedback[room.id]}
                                   highlighted={highlightedRoomId === room.id}
                                   loading={loadingRoomId === room.id}
@@ -2277,7 +2309,12 @@ export default function HousekeepingPage() {
 
       <Modal
         opened={Boolean(assignRoom)}
-        onClose={() => setAssignRoom(null)}
+        onClose={() => {
+          if (!loadingRoomId) setAssignRoom(null);
+        }}
+        closeOnClickOutside={!loadingRoomId}
+        closeOnEscape={!loadingRoomId}
+        withCloseButton={!loadingRoomId}
         title={assignRoom?.assignedEmployeeId ? 'Change Staff' : 'Assign Staff'}
         centered
       >
@@ -2288,7 +2325,7 @@ export default function HousekeepingPage() {
           <Select
             data={employeeOptions}
             label="Housekeeping staff"
-            disabled={isEmployeeLoading || employeeOptions.length === 0}
+            disabled={Boolean(loadingRoomId) || isEmployeeLoading || employeeOptions.length === 0}
             placeholder={
               isEmployeeLoading
                 ? 'Loading housekeeping staff'
@@ -2332,19 +2369,21 @@ export default function HousekeepingPage() {
           <Button
             data-testid="housekeeping-save-assignment"
             disabled={!assignRoom || !selectedEmployeeId || isEmployeeLoading}
-            onClick={() => {
-              if (!assignRoom || !selectedEmployeeId) return;
+            loading={Boolean(assignRoom && loadingRoomId === assignRoom.id)}
+            onClick={async () => {
+              if (!assignRoom || !selectedEmployeeId || loadingRoomId) return;
               const room = assignRoom;
+              const employeeId = selectedEmployeeId;
               const wasAssigned = Boolean(room.assignedEmployeeId);
-              setAssignRoom(null);
-              void runAction(
+              const succeeded = await runAction(
                 room,
-                () => assignHousekeepingRoom(propertyId, room.id, selectedEmployeeId),
+                () => assignHousekeepingRoom(propertyId, room.id, employeeId),
                 wasAssigned
                   ? `Room reassigned to ${selectedEmployee?.displayName ?? 'staff'}.`
                   : `Room assigned to ${selectedEmployee?.displayName ?? 'staff'}.`,
                 'Assigned',
               );
+              if (succeeded) setAssignRoom(null);
             }}
           >
             Save
@@ -2354,7 +2393,12 @@ export default function HousekeepingPage() {
 
       <Modal
         opened={Boolean(completeRoom)}
-        onClose={() => setCompleteRoom(null)}
+        onClose={() => {
+          if (!loadingRoomId) setCompleteRoom(null);
+        }}
+        closeOnClickOutside={!loadingRoomId}
+        closeOnEscape={!loadingRoomId}
+        withCloseButton={!loadingRoomId}
         title="Complete cleaning on behalf"
         centered
         size="lg"
@@ -2371,7 +2415,7 @@ export default function HousekeepingPage() {
           <Select
             data={employeeOptions}
             label="Staff"
-            disabled={isEmployeeLoading || employeeOptions.length === 0}
+            disabled={Boolean(loadingRoomId) || isEmployeeLoading || employeeOptions.length === 0}
             placeholder={
               isEmployeeLoading
                 ? 'Loading housekeeping staff'
@@ -2415,6 +2459,7 @@ export default function HousekeepingPage() {
           <Button
             variant="light"
             data-testid="housekeeping-mark-all-done"
+            disabled={Boolean(loadingRoomId)}
             onClick={() =>
               setChecklist((items) => items.map((item) => ({ ...item, completed: true })))
             }
@@ -2423,6 +2468,7 @@ export default function HousekeepingPage() {
           </Button>
           <ChecklistButtons
             checklist={checklist}
+            disabled={Boolean(loadingRoomId)}
             onToggle={(key) =>
               setChecklist((items) =>
                 items.map((item) =>
@@ -2433,27 +2479,29 @@ export default function HousekeepingPage() {
           />
           <Button
             data-testid="housekeeping-send-inspection"
+            loading={Boolean(completeRoom && loadingRoomId === completeRoom.id)}
             disabled={
               !completeRoom ||
               !selectedEmployeeId ||
               isEmployeeLoading ||
               checklist.some((item) => !item.completed)
             }
-            onClick={() => {
-              if (!completeRoom || !selectedEmployeeId) return;
+            onClick={async () => {
+              if (!completeRoom || !selectedEmployeeId || loadingRoomId) return;
               const room = completeRoom;
-              setCompleteRoom(null);
-              void runAction(
+              const employeeId = selectedEmployeeId;
+              const succeeded = await runAction(
                 room,
                 () =>
                   completeHousekeepingRoom(propertyId, room.id, {
                     checklist: serializeChecklist(checklist),
                     completedOnBehalf: true,
-                    employeeId: selectedEmployeeId,
+                    employeeId,
                   }),
                 'Room sent for inspection.',
                 'Submitted',
               );
+              if (succeeded) setCompleteRoom(null);
             }}
           >
             Send for Inspection
@@ -2463,7 +2511,12 @@ export default function HousekeepingPage() {
 
       <Modal
         opened={Boolean(inspectRoom)}
-        onClose={() => setInspectRoom(null)}
+        onClose={() => {
+          if (!loadingRoomId) setInspectRoom(null);
+        }}
+        closeOnClickOutside={!loadingRoomId}
+        closeOnEscape={!loadingRoomId}
+        withCloseButton={!loadingRoomId}
         title="Inspect Room"
         centered
         size="lg"
@@ -2478,6 +2531,7 @@ export default function HousekeepingPage() {
               variant="light"
               color="stayosBrand"
               data-testid="inspect-mark-all"
+              disabled={Boolean(loadingRoomId)}
               onClick={() =>
                 setChecklist((items) => {
                   const allDone = items.every((item) => item.completed);
@@ -2509,6 +2563,7 @@ export default function HousekeepingPage() {
                   key={item.key}
                   variant={rejectReason === item.label ? 'filled' : 'light'}
                   color={rejectReason === item.label ? 'red' : 'gray'}
+                  disabled={Boolean(loadingRoomId)}
                   leftSection={<Icon size={17} />}
                   onClick={() =>
                     setRejectReason((current) => (current === item.label ? undefined : item.label))
@@ -2524,20 +2579,23 @@ export default function HousekeepingPage() {
               color="red"
               variant="light"
               disabled={!canSendBackInspection}
-              onClick={() => {
-                if (!canSendBackInspection || !inspectRoom || !rejectReason) return;
+              loading={Boolean(inspectRoom && loadingRoomId === inspectRoom.id)}
+              onClick={async () => {
+                if (!canSendBackInspection || !inspectRoom || !rejectReason || loadingRoomId)
+                  return;
                 const room = inspectRoom;
-                setInspectRoom(null);
-                void runAction(
+                const reason = rejectReason;
+                const succeeded = await runAction(
                   room,
                   () =>
                     inspectHousekeepingRoom(propertyId, room.id, {
                       action: 'REJECT',
-                      reworkReason: rejectReason,
+                      reworkReason: reason,
                     }),
                   `Room ${room.number} sent back.`,
                   'Submitted',
                 );
+                if (succeeded) setInspectRoom(null);
               }}
             >
               Send Back
@@ -2545,16 +2603,17 @@ export default function HousekeepingPage() {
             <Button
               color="green"
               disabled={!canMarkInspectionReady}
-              onClick={() => {
-                if (!canMarkInspectionReady || !inspectRoom) return;
+              loading={Boolean(inspectRoom && loadingRoomId === inspectRoom.id)}
+              onClick={async () => {
+                if (!canMarkInspectionReady || !inspectRoom || loadingRoomId) return;
                 const room = inspectRoom;
-                setInspectRoom(null);
-                void runAction(
+                const succeeded = await runAction(
                   room,
                   () => inspectHousekeepingRoom(propertyId, room.id, { action: 'APPROVE' }),
                   `Room ${room.number} is ready.`,
                   'Approved',
                 );
+                if (succeeded) setInspectRoom(null);
               }}
             >
               Mark Ready

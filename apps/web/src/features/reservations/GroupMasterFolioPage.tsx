@@ -8,6 +8,7 @@ import {
   Box,
   Button,
   Card,
+  Modal,
   Divider,
   Group,
   NumberInput,
@@ -19,7 +20,7 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
-import { ArrowLeft, BedDouble, Receipt, Wallet } from 'lucide-react';
+import { ArrowLeft, BedDouble, CheckCircle2, Receipt, Wallet } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, ServerStarting, useBackendStatus } from '@stayos/ui';
 import {
@@ -75,10 +76,14 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [paymentReference, setPaymentReference] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [checkingOut, setCheckingOut] = useState(false);
+  const [checkoutOpened, setCheckoutOpened] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
+    setIsLoading(true);
+    setError(undefined);
     getProperties(controller.signal)
       .then(async (properties) => {
         const active =
@@ -86,19 +91,24 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
             (property) => String(property.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE',
           ) ?? properties[0];
         const id = typeof active?.id === 'string' ? active.id : '';
+        if (!id) throw new Error('No active property is available.');
         setPropertyId(id);
-        if (!id) return;
         try {
           const next = await getGroupMasterFolio(id, groupBookingId, controller.signal);
-          setFolio(next);
+          if (!controller.signal.aborted) setFolio(next);
         } catch (err) {
           if (controller.signal.aborted || isAbortError(err)) return;
           setError(err instanceof Error ? err.message : 'Unable to load group master folio.');
+        } finally {
+          if (!controller.signal.aborted) setIsLoading(false);
         }
       })
       .catch((err) => {
         if (controller.signal.aborted || isAbortError(err)) return;
         setError(err instanceof Error ? err.message : 'Unable to load property.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
       });
     return () => controller.abort();
   }, [groupBookingId]);
@@ -110,13 +120,14 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
   };
 
   const handleChargeSubmit = async () => {
-    if (!propertyId || !chargeLabel || !chargeAmount) return;
+    if (!propertyId || !chargeLabel.trim() || typeof chargeAmount !== 'number' || chargeAmount <= 0)
+      return;
     setSubmitting(true);
     setError(undefined);
     try {
       await postGroupMasterFolioCharge(propertyId, groupBookingId, {
         amount: Number(chargeAmount),
-        label: chargeLabel,
+        label: chargeLabel.trim(),
         type: chargeType,
       });
       await refreshFolio(propertyId);
@@ -131,7 +142,14 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
   };
 
   const handlePaymentSubmit = async () => {
-    if (!propertyId || !paymentAmount) return;
+    if (
+      !propertyId ||
+      !folio ||
+      typeof paymentAmount !== 'number' ||
+      paymentAmount <= 0 ||
+      paymentAmount > folio.checkoutSummary.balanceDue
+    )
+      return;
     setSubmitting(true);
     setError(undefined);
     try {
@@ -162,12 +180,22 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
     try {
       const next = await completeGroupCheckout(propertyId, groupBookingId);
       setFolio(next);
+      setCheckoutOpened(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to complete checkout.');
     } finally {
       setCheckingOut(false);
     }
   };
+
+  const chargeIsValid =
+    Boolean(chargeLabel.trim()) && typeof chargeAmount === 'number' && chargeAmount > 0;
+  const paymentIsValid =
+    Boolean(folio) &&
+    typeof paymentAmount === 'number' &&
+    paymentAmount > 0 &&
+    paymentAmount <= (folio?.checkoutSummary.balanceDue ?? 0);
+  const folioClosed = folio?.status === 'CLOSED';
 
   if (!backend.isOnline && backend.status === 'SERVER_STARTING')
     return (
@@ -191,8 +219,8 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
       style={{ background: '#fbfcff', minHeight: 'calc(100vh - 180px)' }}
     >
       <Stack gap={spacing[3]} maw={1080} mx="auto">
-        <Group justify="space-between" align="flex-start">
-          <Box>
+        <Group justify="space-between" align="flex-start" gap={spacing[3]} wrap="wrap">
+          <Box style={{ minWidth: 0 }}>
             <Group gap={8}>
               <Button
                 component={Link}
@@ -214,22 +242,21 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
               {folio ? `${folio.groupCode} · ${folio.groupName}` : 'Loading group folio...'}
             </Text>
           </Box>
-          <Box ta="right">
+          <Box ta={{ base: 'left', sm: 'right' }}>
             <Text c="#64748b" size="sm">
               Estimated total
             </Text>
             <Text fw={800} size="xl" c="#101828">
               {folio ? formatCurrency(folio.estimatedTotal) : '—'}
             </Text>
-            {folio ? (
+            {folio && !folioClosed ? (
               <Button
                 mt={12}
                 color="green"
-                onClick={handleCheckoutSubmit}
+                leftSection={<CheckCircle2 size={15} />}
+                onClick={() => setCheckoutOpened(true)}
                 loading={checkingOut}
-                disabled={
-                  !folio.checkoutSummary.checkoutEligible || folio.checkoutSummary.balanceDue > 0
-                }
+                disabled={!folio.checkoutSummary.checkoutEligible || checkingOut || submitting}
               >
                 Complete checkout
               </Button>
@@ -237,7 +264,26 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
           </Box>
         </Group>
 
-        {error ? <Alert color="red">{error}</Alert> : null}
+        {error ? (
+          <Alert color="red" variant="light" title="Folio needs attention">
+            {error}
+          </Alert>
+        ) : null}
+
+        {isLoading && !folio && !error ? (
+          <Card
+            radius={radius.lg}
+            p={20}
+            style={{ background: '#ffffff', border: '1px solid rgba(226,232,240,0.95)' }}
+          >
+            <Text fw={800} c="#101828">
+              Loading master folio…
+            </Text>
+            <Text c="#64748b" size="sm" mt={4}>
+              Getting charges, payments, room balances, and checkout readiness.
+            </Text>
+          </Card>
+        ) : null}
 
         {folio ? (
           <>
@@ -327,7 +373,11 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
                     <Text c="#64748b" size="sm">
                       Balance due
                     </Text>
-                    <Text fw={700} size="sm">
+                    <Text
+                      fw={800}
+                      size="sm"
+                      c={folio.checkoutSummary.balanceDue > 0 ? 'orange.8' : 'green.8'}
+                    >
                       <span data-testid="group-balance-due">
                         {formatCurrency(folio.checkoutSummary.balanceDue)}
                       </span>
@@ -348,7 +398,7 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
                       }
                       variant="light"
                     >
-                      {folio.checkoutSummary.paymentStatus.replace('_', ' ')}
+                      {folio.checkoutSummary.paymentStatus.replace(/_/g, ' ')}
                     </Badge>
                   </Group>
                   <Divider />
@@ -382,28 +432,36 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
                 Payment history
               </Title>
               {folio.payments.length ? (
-                <Table data-testid="group-payment-history" mt={12} verticalSpacing="sm" highlightOnHover>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Date & time</Table.Th>
-                      <Table.Th>Method</Table.Th>
-                      <Table.Th>Reference</Table.Th>
-                      <Table.Th style={{ textAlign: 'right' }}>Amount</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {folio.payments.map((payment) => (
-                      <Table.Tr key={payment.id}>
-                        <Table.Td>{formatDateTime(payment.receivedAt)}</Table.Td>
-                        <Table.Td>{payment.method}</Table.Td>
-                        <Table.Td>{payment.reference || '-'}</Table.Td>
-                        <Table.Td style={{ textAlign: 'right', fontWeight: 700 }}>
-                          {formatCurrency(payment.amount)}
-                        </Table.Td>
+                <Box style={{ overflowX: 'auto' }}>
+                  <Table
+                    data-testid="group-payment-history"
+                    mt={12}
+                    verticalSpacing="sm"
+                    highlightOnHover
+                    miw={640}
+                  >
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Date & time</Table.Th>
+                        <Table.Th>Method</Table.Th>
+                        <Table.Th>Reference</Table.Th>
+                        <Table.Th style={{ textAlign: 'right' }}>Amount</Table.Th>
                       </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {folio.payments.map((payment) => (
+                        <Table.Tr key={payment.id}>
+                          <Table.Td>{formatDateTime(payment.receivedAt)}</Table.Td>
+                          <Table.Td>{payment.method}</Table.Td>
+                          <Table.Td>{payment.reference || '-'}</Table.Td>
+                          <Table.Td style={{ textAlign: 'right', fontWeight: 700 }}>
+                            {formatCurrency(payment.amount)}
+                          </Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </Box>
               ) : (
                 <Text c="#64748b" mt={12} size="sm">
                   No payments recorded yet.
@@ -416,9 +474,17 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
               p={16}
               style={{ background: '#ffffff', border: '1px solid rgba(226,232,240,0.95)' }}
             >
-              <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 800 }}>
-                Post to folio
-              </Title>
+              <Group justify="space-between" gap={spacing[2]} wrap="wrap">
+                <Box>
+                  <Title order={2} c="#101828" style={{ fontSize: 18, fontWeight: 800 }}>
+                    Post to folio
+                  </Title>
+                  <Text c="#64748b" size="sm" mt={2}>
+                    Add incidental charges or record money actually received.
+                  </Text>
+                </Box>
+                {folioClosed ? <Badge color="gray">FOLIO CLOSED</Badge> : null}
+              </Group>
               <SimpleGrid cols={{ base: 1, md: 2 }} spacing={spacing[3]} mt={12}>
                 <Stack gap={10}>
                   <Text fw={700}>Add charge</Text>
@@ -433,7 +499,8 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
                     label="Amount"
                     value={chargeAmount}
                     onChange={(value) => setChargeAmount(typeof value === 'number' ? value : '')}
-                    min={0}
+                    min={0.01}
+                    decimalScale={2}
                     prefix="₹"
                   />
                   <Select
@@ -451,7 +518,11 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
                     value={chargeType}
                     onChange={(value) => setChargeType(value ?? 'MISC')}
                   />
-                  <Button onClick={handleChargeSubmit} loading={submitting}>
+                  <Button
+                    onClick={() => void handleChargeSubmit()}
+                    loading={submitting}
+                    disabled={!chargeIsValid || folioClosed || checkingOut}
+                  >
                     Post charge
                   </Button>
                 </Stack>
@@ -461,8 +532,11 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
                     label="Amount"
                     value={paymentAmount}
                     onChange={(value) => setPaymentAmount(typeof value === 'number' ? value : '')}
-                    min={0}
+                    min={0.01}
+                    max={folio.checkoutSummary.balanceDue}
+                    decimalScale={2}
                     prefix="₹"
+                    description={`Balance due: ${formatCurrency(folio.checkoutSummary.balanceDue)}`}
                   />
                   <Select
                     data-testid="group-payment-method"
@@ -473,16 +547,33 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
                   />
                   <TextInput
                     data-testid="group-payment-reference"
-                    label="Reference"
+                    label="Reference (optional)"
+                    description="Transaction, UPI, bank, or card reference when available."
                     value={paymentReference}
                     onChange={(event) => setPaymentReference(event.currentTarget.value)}
                     placeholder="TXN-001"
                   />
+                  {folio.checkoutSummary.balanceDue > 0 ? (
+                    <Button
+                      variant="subtle"
+                      color="gray"
+                      size="compact-sm"
+                      onClick={() => setPaymentAmount(folio.checkoutSummary.balanceDue)}
+                      disabled={folioClosed || submitting || checkingOut}
+                    >
+                      Use full balance · {formatCurrency(folio.checkoutSummary.balanceDue)}
+                    </Button>
+                  ) : (
+                    <Alert color="green" variant="light">
+                      No balance is due.
+                    </Alert>
+                  )}
                   <Button
                     data-testid="group-record-payment"
-                    onClick={handlePaymentSubmit}
+                    onClick={() => void handlePaymentSubmit()}
                     loading={submitting}
                     variant="light"
+                    disabled={!paymentIsValid || folioClosed || checkingOut}
                   >
                     Record payment
                   </Button>
@@ -526,6 +617,48 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
           </>
         ) : null}
       </Stack>
+
+      <Modal
+        centered
+        opened={checkoutOpened}
+        onClose={() => {
+          if (!checkingOut) setCheckoutOpened(false);
+        }}
+        title="Complete group checkout?"
+      >
+        <Stack gap={spacing[3]}>
+          <Alert color="green" variant="light">
+            The master folio is settled and the group is eligible for checkout.
+          </Alert>
+          <Box>
+            <Text fw={800}>
+              {folio?.groupCode} · {folio?.groupName}
+            </Text>
+            <Text c="#64748b" size="sm" mt={4}>
+              {folio?.checkoutSummary.occupiedRoomCount ?? 0} occupied rooms will be checked out.
+            </Text>
+          </Box>
+          <Group justify="flex-end" gap={8} wrap="wrap">
+            <Button
+              variant="subtle"
+              color="gray"
+              disabled={checkingOut}
+              onClick={() => setCheckoutOpened(false)}
+            >
+              Go back
+            </Button>
+            <Button
+              color="green"
+              leftSection={<CheckCircle2 size={15} />}
+              loading={checkingOut}
+              disabled={!folio?.checkoutSummary.checkoutEligible}
+              onClick={() => void handleCheckoutSubmit()}
+            >
+              Confirm checkout
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Box>
   );
 }

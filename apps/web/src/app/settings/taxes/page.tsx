@@ -867,6 +867,9 @@ export default function TaxesSettingsPage() {
         onClose={() => {
           if (!busyRuleId) setDeleteCandidate(null);
         }}
+        closeOnClickOutside={!busyRuleId}
+        closeOnEscape={!busyRuleId}
+        withCloseButton={!busyRuleId}
         radius={radius.lg}
         size="sm"
         title="Remove tax rule?"
@@ -888,7 +891,7 @@ export default function TaxesSettingsPage() {
             saved on them.
           </Alert>
 
-          <Group justify="flex-end">
+          <Group justify="flex-end" gap={8} wrap="wrap">
             <Button
               color="gray"
               variant="subtle"

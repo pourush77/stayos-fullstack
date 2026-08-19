@@ -19,8 +19,10 @@ export function useMaintenanceTickets(propertyId?: string) {
   const [isLoading, setIsLoading] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string>();
+  const [mutationKey, setMutationKey] = useState<string>();
 
   const requestIdRef = useRef(0);
+  const mutationBusyRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!propertyId) {
@@ -74,35 +76,57 @@ export function useMaintenanceTickets(propertyId?: string) {
     };
   }, [refresh]);
 
-  const create = async (payload: CreateMaintenanceTicketPayload) => {
-    if (!propertyId) return;
+  const runMutation = async (
+    key: string,
+    action: () => Promise<unknown>,
+    failureMessage: string,
+  ): Promise<boolean> => {
+    if (!propertyId || mutationBusyRef.current) return false;
 
-    await createMaintenanceTicket(propertyId, payload);
-    await refresh();
+    mutationBusyRef.current = key;
+    setMutationKey(key);
+    setError(undefined);
+
+    try {
+      await action();
+      await refresh();
+      return true;
+    } catch {
+      setError(failureMessage);
+      return false;
+    } finally {
+      mutationBusyRef.current = null;
+      setMutationKey(undefined);
+    }
   };
 
-  const assign = async (ticketId: string, assignedToUserId: string) => {
-    if (!propertyId) return;
+  const create = async (payload: CreateMaintenanceTicketPayload): Promise<boolean> =>
+    runMutation(
+      'create',
+      () => createMaintenanceTicket(propertyId as string, payload),
+      'Unable to create maintenance ticket.',
+    );
 
-    await assignMaintenanceTicket(propertyId, ticketId, assignedToUserId);
+  const assign = async (ticketId: string, assignedToUserId: string): Promise<boolean> =>
+    runMutation(
+      `assign:${ticketId}`,
+      () => assignMaintenanceTicket(propertyId as string, ticketId, assignedToUserId),
+      'Unable to accept maintenance ticket.',
+    );
 
-    await refresh();
-  };
+  const resolve = async (ticketId: string, resolutionNote?: string): Promise<boolean> =>
+    runMutation(
+      `resolve:${ticketId}`,
+      () => resolveMaintenanceTicket(propertyId as string, ticketId, resolutionNote),
+      'Unable to resolve maintenance ticket.',
+    );
 
-  const resolve = async (ticketId: string, resolutionNote?: string) => {
-    if (!propertyId) return;
-
-    await resolveMaintenanceTicket(propertyId, ticketId, resolutionNote);
-
-    await refresh();
-  };
-
-  const cancel = async (ticketId: string) => {
-    if (!propertyId) return;
-
-    await cancelMaintenanceTicket(propertyId, ticketId);
-    await refresh();
-  };
+  const cancel = async (ticketId: string): Promise<boolean> =>
+    runMutation(
+      `cancel:${ticketId}`,
+      () => cancelMaintenanceTicket(propertyId as string, ticketId),
+      'Unable to cancel maintenance ticket.',
+    );
 
   return {
     assign,
@@ -111,6 +135,7 @@ export function useMaintenanceTickets(propertyId?: string) {
     error,
     hasLoadedOnce,
     isLoading,
+    mutationKey,
     refresh,
     resolve,
     setStatus,

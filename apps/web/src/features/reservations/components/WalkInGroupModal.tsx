@@ -174,7 +174,7 @@ export function WalkInGroupModal({
     selectedList.length > 0;
 
   async function submit() {
-    if (!canSubmit) return;
+    if (!canSubmit || isSaving) return;
     setError(undefined);
     setIsSaving(true);
     try {
@@ -212,7 +212,12 @@ export function WalkInGroupModal({
   return (
     <Modal
       opened={opened}
-      onClose={onClose}
+      onClose={() => {
+        if (!isSaving) onClose();
+      }}
+      closeOnClickOutside={!isSaving}
+      closeOnEscape={!isSaving}
+      withCloseButton={!isSaving}
       centered
       size="xl"
       title={
@@ -333,6 +338,7 @@ export function WalkInGroupModal({
 
             <DatePickerInput
               label="Departure"
+              disabled={isSaving}
               value={departureDate}
               minDate={new Date(`${tomorrowIso()}T00:00:00`)}
               onChange={(value) => setDepartureDate(value as Date | null)}
@@ -343,6 +349,7 @@ export function WalkInGroupModal({
 
           <TextInput
             label="Group name"
+            disabled={isSaving}
             placeholder="e.g. Sharma Wedding Group"
             value={groupName}
             onChange={(event) => setGroupName(event.currentTarget.value)}
@@ -352,6 +359,7 @@ export function WalkInGroupModal({
           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[2]}>
             <TextInput
               label="Lead name"
+              disabled={isSaving}
               value={leadName}
               onChange={(event) => setLeadName(event.currentTarget.value)}
               required
@@ -359,6 +367,7 @@ export function WalkInGroupModal({
             />
             <TextInput
               label="Lead phone"
+              disabled={isSaving}
               value={leadPhone}
               onChange={(event) => setLeadPhone(event.currentTarget.value)}
               required
@@ -368,6 +377,7 @@ export function WalkInGroupModal({
           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[2]}>
             <TextInput
               label="Lead email (optional)"
+              disabled={isSaving}
               value={leadEmail}
               onChange={(event) => setLeadEmail(event.currentTarget.value)}
               data-testid="walk-in-lead-email"
@@ -408,19 +418,26 @@ export function WalkInGroupModal({
                             padding={8}
                             radius={radius.md}
                             withBorder
-                            onClick={() => toggleRoom(room)}
+                            onClick={() => {
+                              if (!isSaving) toggleRoom(room);
+                            }}
                             style={{
                               background: isSelected ? '#eef2ff' : '#ffffff',
                               borderColor: isSelected ? '#6366f1' : '#e2e8f0',
-                              cursor: 'pointer',
-                              transition: 'background 120ms ease, border-color 120ms ease',
+                              cursor: isSaving ? 'default' : 'pointer',
+                              opacity: isSaving ? 0.7 : 1,
+                              transition:
+                                'background 120ms ease, border-color 120ms ease, opacity 120ms ease',
                             }}
                             data-testid={`walk-in-room-${room.roomNumber}`}
                           >
                             <Group gap={6} wrap="nowrap">
                               <Checkbox
                                 checked={isSelected}
-                                onChange={() => toggleRoom(room)}
+                                disabled={isSaving}
+                                onChange={() => {
+                                  if (!isSaving) toggleRoom(room);
+                                }}
                                 onClick={(event) => event.stopPropagation()}
                                 aria-label={`Select room ${room.roomNumber}`}
                               />
@@ -461,6 +478,7 @@ export function WalkInGroupModal({
                       </Badge>
                       <TextInput
                         placeholder="Occupant name (optional)"
+                        disabled={isSaving}
                         value={assignment.guestName ?? ''}
                         onChange={(event) =>
                           updateAssignment(assignment.roomId, {
@@ -471,6 +489,7 @@ export function WalkInGroupModal({
                       />
                       <NumberInput
                         label="Adults"
+                        disabled={isSaving}
                         value={assignment.adults}
                         onChange={(value) =>
                           updateAssignment(assignment.roomId, { adults: Number(value) || 1 })
@@ -481,6 +500,7 @@ export function WalkInGroupModal({
                       />
                       <NumberInput
                         label="Kids"
+                        disabled={isSaving}
                         value={assignment.children}
                         onChange={(value) =>
                           updateAssignment(assignment.roomId, { children: Number(value) || 0 })
@@ -498,6 +518,7 @@ export function WalkInGroupModal({
 
           <Textarea
             label="Notes (optional)"
+            disabled={isSaving}
             value={notes}
             onChange={(event) => setNotes(event.currentTarget.value)}
             minRows={2}
@@ -516,7 +537,13 @@ export function WalkInGroupModal({
               selected rooms will be marked occupied immediately.
             </Text>
             <Group gap={8}>
-              <Button variant="subtle" color="gray" onClick={onClose} data-testid="walk-in-cancel">
+              <Button
+                variant="subtle"
+                color="gray"
+                disabled={isSaving}
+                onClick={onClose}
+                data-testid="walk-in-cancel"
+              >
                 Cancel
               </Button>
               <Button

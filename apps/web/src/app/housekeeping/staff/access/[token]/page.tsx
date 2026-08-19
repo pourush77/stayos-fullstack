@@ -1,6 +1,18 @@
 'use client';
 
-import { Alert, Badge, Box, Button, Card, Group, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core';
+import {
+  Alert,
+  Badge,
+  Box,
+  Button,
+  Card,
+  Group,
+  SimpleGrid,
+  Stack,
+  Text,
+  ThemeIcon,
+  Title,
+} from '@mantine/core';
 import { Brush, CheckCircle2, ClipboardCheck, RefreshCw, Sparkles } from 'lucide-react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -15,7 +27,10 @@ import {
   startStaffAccessRoom,
   startStaffRoomByToken,
 } from '../../../../../features/housekeeping/api/housekeeping-api';
-import { createChecklist, serializeChecklist } from '../../../../../features/housekeeping/utils/housekeeping-checklist';
+import {
+  createChecklist,
+  serializeChecklist,
+} from '../../../../../features/housekeeping/utils/housekeeping-checklist';
 import type {
   HousekeepingChecklistItem,
   HousekeepingEmployee,
@@ -44,9 +59,11 @@ function statusLabel(status: HousekeepingStatus) {
 }
 
 function StaffChecklist({
+  disabled = false,
   items,
   onToggle,
 }: {
+  disabled?: boolean;
   items: HousekeepingChecklistItem[];
   onToggle: (key: string) => void;
 }) {
@@ -59,6 +76,7 @@ function StaffChecklist({
             key={item.key}
             aria-pressed={item.completed}
             color={item.completed ? 'green' : 'gray'}
+            disabled={disabled}
             h={104}
             leftSection={<Icon size={32} />}
             onClick={() => onToggle(item.key)}
@@ -90,6 +108,7 @@ export default function HousekeepingStaffAccessPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadingRoomId, setLoadingRoomId] = useState<string>();
+  const roomActionBusyRef = useRef<string | null>(null);
   const [newRoomNotice, setNewRoomNotice] = useState(false);
   const [invalidAccess, setInvalidAccess] = useState(false);
   const [error, setError] = useState<string>();
@@ -127,7 +146,11 @@ export default function HousekeepingStaffAccessPage() {
       } catch (loadError) {
         if (loadError instanceof DOMException && loadError.name === 'AbortError') return;
         const message = loadError instanceof Error ? loadError.message.toLowerCase() : '';
-        if (message.includes('disabled') || message.includes('invalid') || message.includes('404')) {
+        if (
+          message.includes('disabled') ||
+          message.includes('invalid') ||
+          message.includes('404')
+        ) {
           setInvalidAccess(true);
         } else {
           setError('Unable to load your rooms. Please refresh.');
@@ -161,15 +184,29 @@ export default function HousekeepingStaffAccessPage() {
   const checklistComplete =
     activeChecklist.length > 0 && activeChecklist.every((item) => item.completed);
 
-  const runRoomAction = async (room: HousekeepingRoom, action: () => Promise<unknown>, success: string) => {
+  const runRoomAction = async (
+    room: HousekeepingRoom,
+    action: () => Promise<unknown>,
+    success: string,
+  ): Promise<boolean> => {
+    if (roomActionBusyRef.current) return false;
+
+    roomActionBusyRef.current = room.id;
     setLoadingRoomId(room.id);
     try {
       await action();
       showToast({ color: 'green', title: 'Done', message: success });
       await load(undefined, true);
+      return true;
     } catch (actionError) {
-      showToast({ color: 'red', title: 'Try again', message: friendlyHousekeepingError(actionError) });
+      showToast({
+        color: 'red',
+        title: 'Try again',
+        message: friendlyHousekeepingError(actionError),
+      });
+      return false;
     } finally {
+      roomActionBusyRef.current = null;
       setLoadingRoomId(undefined);
     }
   };
@@ -191,7 +228,11 @@ export default function HousekeepingStaffAccessPage() {
       <Stack gap={spacing[4]} maw={560} mx="auto" w="100%">
         <Group justify="space-between" align="flex-start" wrap="nowrap">
           <Box>
-            <Title order={1} c="#101828" style={{ fontSize: 28, fontWeight: 900, lineHeight: '34px' }}>
+            <Title
+              order={1}
+              c="#101828"
+              style={{ fontSize: 28, fontWeight: 900, lineHeight: '34px' }}
+            >
               Good morning, {employee?.displayName?.split(' ')[0] ?? 'Staff'}
             </Title>
             <Text c="#64748b" mt={5} style={{ fontSize: 16, fontWeight: 700 }}>
@@ -246,6 +287,7 @@ export default function HousekeepingStaffAccessPage() {
                 </Badge>
               </Group>
               <StaffChecklist
+                disabled={Boolean(loadingRoomId)}
                 items={activeChecklist}
                 onToggle={(key) =>
                   setChecklists((current) => ({
@@ -258,25 +300,28 @@ export default function HousekeepingStaffAccessPage() {
               />
               <Button
                 color="green"
-                disabled={!checklistComplete}
+                disabled={!checklistComplete || Boolean(loadingRoomId)}
                 fullWidth
                 h={64}
                 leftSection={<ClipboardCheck size={22} />}
                 loading={loadingRoomId === activeRoom.id}
-                onClick={() =>
-                  void runRoomAction(
-                    activeRoom,
+                onClick={async () => {
+                  if (loadingRoomId) return;
+                  const room = activeRoom;
+                  const succeeded = await runRoomAction(
+                    room,
                     () =>
                       propertyId
-                        ? completeStaffRoomByToken(propertyId, token, activeRoom.id, {
+                        ? completeStaffRoomByToken(propertyId, token, room.id, {
                             checklist: serializeChecklist(activeChecklist),
                           })
-                        : completeStaffAccessRoom(token, activeRoom.id, {
+                        : completeStaffAccessRoom(token, room.id, {
                             checklist: serializeChecklist(activeChecklist),
                           }),
                     'Room sent for inspection.',
-                  ).then(() => setActiveRoomId(undefined))
-                }
+                  );
+                  if (succeeded) setActiveRoomId(undefined);
+                }}
                 style={{ fontSize: 18, fontWeight: 900 }}
               >
                 Send for Inspection
@@ -300,7 +345,10 @@ export default function HousekeepingStaffAccessPage() {
                     <Card key={room.id} radius={radius.lg} p={18} style={cardStyle}>
                       <Group justify="space-between" align="flex-start" wrap="wrap">
                         <Box>
-                          <Text c="#101828" style={{ fontSize: 58, fontWeight: 950, lineHeight: '60px' }}>
+                          <Text
+                            c="#101828"
+                            style={{ fontSize: 58, fontWeight: 950, lineHeight: '60px' }}
+                          >
                             {room.number}
                           </Text>
                           <Text c="#64748b" mt={6} style={{ fontSize: 17, fontWeight: 800 }}>
@@ -310,7 +358,18 @@ export default function HousekeepingStaffAccessPage() {
                             {room.roomType}
                           </Text>
                         </Box>
-                        <Badge color={room.status === 'inspection' ? 'violet' : room.status === 'cleaning' ? 'blue' : 'yellow'} radius={radius.full} size="lg" variant="light">
+                        <Badge
+                          color={
+                            room.status === 'inspection'
+                              ? 'violet'
+                              : room.status === 'cleaning'
+                                ? 'blue'
+                                : 'yellow'
+                          }
+                          radius={radius.full}
+                          size="lg"
+                          variant="light"
+                        >
                           {statusLabel(room.status)}
                         </Badge>
                       </Group>
@@ -319,21 +378,23 @@ export default function HousekeepingStaffAccessPage() {
                         h={64}
                         mt={18}
                         leftSection={<Brush size={24} />}
-                        disabled={room.status === 'inspection'}
+                        disabled={Boolean(loadingRoomId) || room.status === 'inspection'}
                         loading={loadingRoomId === room.id}
-                        onClick={() => {
+                        onClick={async () => {
+                          if (loadingRoomId) return;
                           if (room.status === 'cleaning') {
                             setActiveRoomId(room.id);
                             return;
                           }
-                          void runRoomAction(
+                          const succeeded = await runRoomAction(
                             room,
                             () =>
                               propertyId
                                 ? startStaffRoomByToken(propertyId, token, room.id)
                                 : startStaffAccessRoom(token, room.id),
                             `Room ${room.number} started.`,
-                          ).then(() => setActiveRoomId(room.id));
+                          );
+                          if (succeeded) setActiveRoomId(room.id);
                         }}
                         style={{ fontSize: 19, fontWeight: 900 }}
                       >

@@ -1,6 +1,20 @@
 'use client';
 
-import { Alert, Badge, Box, Button, Card, Group, MultiSelect, NumberInput, SimpleGrid, Stack, Text, Title } from '@mantine/core';
+import {
+  Alert,
+  Badge,
+  Box,
+  Button,
+  Card,
+  Group,
+  MultiSelect,
+  NumberInput,
+  SimpleGrid,
+  Stack,
+  Text,
+  Title,
+  Loader,
+} from '@mantine/core';
 import { CheckCircle2, ListChecks } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
@@ -45,7 +59,8 @@ function getNumber(record: Record<string, unknown>, keys: string[], fallback: nu
   for (const key of keys) {
     const value = record[key];
     if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value);
+    if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value)))
+      return Number(value);
   }
   return fallback;
 }
@@ -69,7 +84,9 @@ function hasPermission(permissions: string[] | undefined, permission: string) {
 }
 
 function activeProperty(properties: InventoryPropertyDto[]) {
-  return properties.find((property) => getString(property, ['status'], 'ACTIVE').toUpperCase() === 'ACTIVE');
+  return properties.find(
+    (property) => getString(property, ['status'], 'ACTIVE').toUpperCase() === 'ACTIVE',
+  );
 }
 
 export default function RoomTypeAmenitiesPage() {
@@ -84,12 +101,17 @@ export default function RoomTypeAmenitiesPage() {
   const [saving, setSaving] = useState<string>();
   const [occupancySaving, setOccupancySaving] = useState<string>();
   const [error, setError] = useState<string>();
+  const [isLoading, setIsLoading] = useState(true);
 
   const amenityOptions = useMemo(
-    () => amenities
-      .filter((amenity) => getBoolean(amenity, ['isActive', 'is_active'], true))
-      .map((amenity) => ({ label: getString(amenity, ['label', 'code']), value: getString(amenity, ['id']) }))
-      .filter((option) => option.value),
+    () =>
+      amenities
+        .filter((amenity) => getBoolean(amenity, ['isActive', 'is_active'], true))
+        .map((amenity) => ({
+          label: getString(amenity, ['label', 'code']),
+          value: getString(amenity, ['id']),
+        }))
+        .filter((option) => option.value),
     [amenities],
   );
 
@@ -98,8 +120,10 @@ export default function RoomTypeAmenitiesPage() {
 
     async function load() {
       try {
+        setIsLoading(true);
         setError(undefined);
-        const resolvedPropertyId = propertyId || getString(activeProperty(await getProperties(controller.signal)), ['id']);
+        const resolvedPropertyId =
+          propertyId || getString(activeProperty(await getProperties(controller.signal)), ['id']);
         if (!resolvedPropertyId) throw new Error('No active property returned.');
         setPropertyId(resolvedPropertyId);
         const [nextAmenities, nextRoomTypes] = await Promise.all([
@@ -108,20 +132,30 @@ export default function RoomTypeAmenitiesPage() {
         ]);
         setAmenities(nextAmenities);
         setRoomTypes(nextRoomTypes);
-        setOccupancyDrafts(Object.fromEntries(nextRoomTypes.map((roomType) => [
-          getString(roomType, ['id']),
-          roomTypeOccupancy(roomType),
-        ])));
+        setOccupancyDrafts(
+          Object.fromEntries(
+            nextRoomTypes.map((roomType) => [
+              getString(roomType, ['id']),
+              roomTypeOccupancy(roomType),
+            ]),
+          ),
+        );
         setOccupancyErrors({});
-        setSelected(Object.fromEntries(nextRoomTypes.map((roomType) => [
-          getString(roomType, ['id']),
-          (Array.isArray(roomType.amenities) ? roomType.amenities : [])
-            .map((amenity) => getString(amenity as Record<string, unknown>, ['id']))
-            .filter(Boolean),
-        ])));
+        setSelected(
+          Object.fromEntries(
+            nextRoomTypes.map((roomType) => [
+              getString(roomType, ['id']),
+              (Array.isArray(roomType.amenities) ? roomType.amenities : [])
+                .map((amenity) => getString(amenity as Record<string, unknown>, ['id']))
+                .filter(Boolean),
+            ]),
+          ),
+        );
       } catch (loadError) {
         if (loadError instanceof DOMException && loadError.name === 'AbortError') return;
         setError('Unable to load room type settings.');
+      } finally {
+        if (!controller.signal.aborted) setIsLoading(false);
       }
     }
 
@@ -130,152 +164,229 @@ export default function RoomTypeAmenitiesPage() {
   }, [propertyId]);
 
   if (!canManage) {
-    return <Alert color="red" variant="light" radius={radius.lg}>You do not have permission to manage room type settings.</Alert>;
+    return (
+      <Alert color="red" variant="light" radius={radius.lg}>
+        You do not have permission to manage room type settings.
+      </Alert>
+    );
   }
 
   return (
     <Stack gap={spacing[4]}>
       <Box>
-        <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 750 }}>Room Types</Title>
-        <Text c="#64748b" mt={4} style={{ fontSize: 14 }}>Configure guest limits and amenity badges for each room type.</Text>
+        <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 750 }}>
+          Room Types
+        </Title>
+        <Text c="#64748b" mt={4} style={{ fontSize: 14 }}>
+          Configure guest limits and amenity badges for each room type.
+        </Text>
       </Box>
 
-      {error ? <Alert color="red" variant="light" radius={radius.lg}>{error}</Alert> : null}
+      {error ? (
+        <Alert color="red" variant="light" radius={radius.lg}>
+          {error}
+        </Alert>
+      ) : null}
 
-      <SimpleGrid cols={{ base: 1, lg: 2 }} spacing={spacing[3]}>
-        {roomTypes.map((roomType) => {
-          const id = getString(roomType, ['id']);
-          const draft = occupancyDrafts[id] ?? roomTypeOccupancy(roomType);
-          const draftErrors = occupancyErrors[id] ?? validateOccupancyDraft(draft);
-          const isOccupancyInvalid = hasOccupancyErrors(draftErrors);
+      {isLoading ? (
+        <Card radius={radius.lg} p={28} style={{ border: '1px solid rgba(226, 232, 240, 0.9)' }}>
+          <Group justify="center" gap={10}>
+            <Loader size="sm" color="stayosBrand" />
+            <Text c="#64748b" size="sm">
+              Loading room type settings…
+            </Text>
+          </Group>
+        </Card>
+      ) : roomTypes.length === 0 && !error ? (
+        <Card
+          radius={radius.lg}
+          p={28}
+          ta="center"
+          style={{ border: '1px solid rgba(226, 232, 240, 0.9)' }}
+        >
+          <Text c="#101828" fw={800}>
+            No room types found
+          </Text>
+          <Text c="#64748b" size="sm" mt={4}>
+            Create room types in property inventory before configuring occupancy and amenities.
+          </Text>
+        </Card>
+      ) : (
+        <SimpleGrid cols={{ base: 1, lg: 2 }} spacing={spacing[3]}>
+          {roomTypes.map((roomType) => {
+            const id = getString(roomType, ['id']);
+            const draft = occupancyDrafts[id] ?? roomTypeOccupancy(roomType);
+            const draftErrors = occupancyErrors[id] ?? validateOccupancyDraft(draft);
+            const isOccupancyInvalid = hasOccupancyErrors(draftErrors);
 
-          function updateDraft(field: keyof OccupancyDraft, value: string | number) {
-            setOccupancyDrafts((current) => {
-              const currentDraft = current[id] ?? draft;
-              const nextDraft = { ...currentDraft, [field]: normalizedInputValue(value, currentDraft[field]) };
+            function updateDraft(field: keyof OccupancyDraft, value: string | number) {
+              setOccupancyDrafts((current) => {
+                const currentDraft = current[id] ?? draft;
+                const nextDraft = {
+                  ...currentDraft,
+                  [field]: normalizedInputValue(value, currentDraft[field]),
+                };
 
-              setOccupancyErrors((errors) => ({ ...errors, [id]: validateOccupancyDraft(nextDraft) }));
-              return { ...current, [id]: nextDraft };
-            });
-          }
+                setOccupancyErrors((errors) => ({
+                  ...errors,
+                  [id]: validateOccupancyDraft(nextDraft),
+                }));
+                return { ...current, [id]: nextDraft };
+              });
+            }
 
-          return (
-            <Card key={id} radius={radius.lg} p={20} style={{ border: '1px solid rgba(226, 232, 240, 0.9)' }}>
-              <Group justify="space-between" align="flex-start">
-                <Group gap={12}>
-                  <ListChecks size={22} color="#4f46e5" />
-                  <Box>
-                    <Text c="#101828" fw={800}>{getString(roomType, ['name'], 'Room Type')}</Text>
-                    <Text c="#64748b" size="sm">{getString(roomType, ['code'])}</Text>
-                  </Box>
+            return (
+              <Card
+                key={id}
+                radius={radius.lg}
+                p={20}
+                style={{ border: '1px solid rgba(226, 232, 240, 0.9)' }}
+              >
+                <Group justify="space-between" align="flex-start" gap={spacing[2]} wrap="wrap">
+                  <Group gap={12}>
+                    <ListChecks size={22} color="#4f46e5" />
+                    <Box>
+                      <Text c="#101828" fw={800}>
+                        {getString(roomType, ['name'], 'Room Type')}
+                      </Text>
+                      <Text c="#64748b" size="sm">
+                        {getString(roomType, ['code'])}
+                      </Text>
+                    </Box>
+                  </Group>
+                  <Badge radius={radius.full} variant="light" color="gray">
+                    {(selected[id] ?? []).length} amenities
+                  </Badge>
                 </Group>
-                <Badge radius={radius.full} variant="light" color="gray">
-                  {(selected[id] ?? []).length} amenities
-                </Badge>
-              </Group>
-              <Box mt={spacing[4]}>
-                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
-                  <NumberInput
-                    label="Standard occupancy"
-                    min={1}
-                    step={1}
-                    allowDecimal={false}
-                    value={draft.baseOccupancy}
-                    error={draftErrors.baseOccupancy}
-                    onChange={(value) => updateDraft('baseOccupancy', value)}
-                  />
-                  <NumberInput
-                    label="Maximum occupancy"
-                    min={1}
-                    step={1}
-                    allowDecimal={false}
-                    value={draft.maxOccupancy}
-                    error={draftErrors.maxOccupancy}
-                    onChange={(value) => updateDraft('maxOccupancy', value)}
-                  />
-                  <NumberInput
-                    label="Maximum adults"
-                    min={1}
-                    step={1}
-                    allowDecimal={false}
-                    value={draft.maxAdults}
-                    error={draftErrors.maxAdults}
-                    onChange={(value) => updateDraft('maxAdults', value)}
-                  />
-                  <NumberInput
-                    label="Maximum children"
-                    min={0}
-                    step={1}
-                    allowDecimal={false}
-                    value={draft.maxChildren}
-                    error={draftErrors.maxChildren}
-                    onChange={(value) => updateDraft('maxChildren', value)}
-                  />
-                </SimpleGrid>
-                <p style={{ color: '#475569', fontSize: 13, margin: `${spacing[2]} 0 0` }}>
-                  {occupancyPreview(draft)}
-                </p>
-                {isOccupancyInvalid ? (
-                  <p style={{ color: '#b42318', fontSize: 13, margin: `${spacing[2]} 0 0` }}>
-                    Fix the occupancy limits above before saving this room type.
+                <Box mt={spacing[4]}>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
+                    <NumberInput
+                      label="Standard occupancy"
+                      disabled={saving === id || occupancySaving === id}
+                      min={1}
+                      step={1}
+                      allowDecimal={false}
+                      value={draft.baseOccupancy}
+                      error={draftErrors.baseOccupancy}
+                      onChange={(value) => updateDraft('baseOccupancy', value)}
+                    />
+                    <NumberInput
+                      label="Maximum occupancy"
+                      disabled={saving === id || occupancySaving === id}
+                      min={1}
+                      step={1}
+                      allowDecimal={false}
+                      value={draft.maxOccupancy}
+                      error={draftErrors.maxOccupancy}
+                      onChange={(value) => updateDraft('maxOccupancy', value)}
+                    />
+                    <NumberInput
+                      label="Maximum adults"
+                      disabled={saving === id || occupancySaving === id}
+                      min={1}
+                      step={1}
+                      allowDecimal={false}
+                      value={draft.maxAdults}
+                      error={draftErrors.maxAdults}
+                      onChange={(value) => updateDraft('maxAdults', value)}
+                    />
+                    <NumberInput
+                      label="Maximum children"
+                      disabled={saving === id || occupancySaving === id}
+                      min={0}
+                      step={1}
+                      allowDecimal={false}
+                      value={draft.maxChildren}
+                      error={draftErrors.maxChildren}
+                      onChange={(value) => updateDraft('maxChildren', value)}
+                    />
+                  </SimpleGrid>
+                  <p style={{ color: '#475569', fontSize: 13, margin: `${spacing[2]} 0 0` }}>
+                    {occupancyPreview(draft)}
                   </p>
-                ) : null}
-              </Box>
-              <Group justify="flex-end" mt={spacing[3]}>
-                <Button
-                  color="stayosBrand"
-                  variant="light"
-                  loading={occupancySaving === id}
-                  disabled={isOccupancyInvalid}
-                  onClick={() => {
-                    const nextErrors = validateOccupancyDraft(draft);
-                    setOccupancyErrors((current) => ({ ...current, [id]: nextErrors }));
-                    if (hasOccupancyErrors(nextErrors)) return;
+                  {isOccupancyInvalid ? (
+                    <p style={{ color: '#b42318', fontSize: 13, margin: `${spacing[2]} 0 0` }}>
+                      Fix the occupancy limits above before saving this room type.
+                    </p>
+                  ) : null}
+                </Box>
+                <Group justify="flex-end" mt={spacing[3]}>
+                  <Button
+                    color="stayosBrand"
+                    variant="light"
+                    loading={occupancySaving === id}
+                    disabled={isOccupancyInvalid || saving === id}
+                    onClick={() => {
+                      const nextErrors = validateOccupancyDraft(draft);
+                      setOccupancyErrors((current) => ({ ...current, [id]: nextErrors }));
+                      if (hasOccupancyErrors(nextErrors)) return;
 
-                    setOccupancySaving(id);
-                    void updateRoomTypeOccupancy(propertyId, id, draft)
-                      .then((updated) => {
-                        setRoomTypes((current) => current.map((item) => getString(item, ['id']) === id ? updated : item));
-                        setOccupancyDrafts((current) => ({ ...current, [id]: roomTypeOccupancy(updated) }));
-                      })
-                      .catch((saveError) => setError(saveError instanceof Error ? saveError.message : 'Unable to save room type occupancy.'))
-                      .finally(() => setOccupancySaving(undefined));
-                  }}
-                >
-                  Save occupancy
-                </Button>
-              </Group>
-              <MultiSelect
-                mt={spacing[4]}
-                data={amenityOptions}
-                searchable
-                clearable
-                placeholder="Select amenities"
-                value={selected[id] ?? []}
-                onChange={(value) => setSelected((current) => ({ ...current, [id]: value }))}
-              />
-              <Group justify="flex-end" mt={spacing[4]}>
-                <Button
-                  color="stayosBrand"
-                  leftSection={<CheckCircle2 size={16} />}
-                  loading={saving === id}
-                  onClick={() => {
-                    setSaving(id);
-                    void setRoomTypeAmenities(propertyId, id, selected[id] ?? [])
-                      .then((updated) => {
-                        setRoomTypes((current) => current.map((item) => getString(item, ['id']) === id ? updated : item));
-                      })
-                      .catch(() => setError('Unable to save room type amenities.'))
-                      .finally(() => setSaving(undefined));
-                  }}
-                >
-                  Save
-                </Button>
-              </Group>
-            </Card>
-          );
-        })}
-      </SimpleGrid>
+                      setOccupancySaving(id);
+                      void updateRoomTypeOccupancy(propertyId, id, draft)
+                        .then((updated) => {
+                          setRoomTypes((current) =>
+                            current.map((item) =>
+                              getString(item, ['id']) === id ? updated : item,
+                            ),
+                          );
+                          setOccupancyDrafts((current) => ({
+                            ...current,
+                            [id]: roomTypeOccupancy(updated),
+                          }));
+                        })
+                        .catch((saveError) =>
+                          setError(
+                            saveError instanceof Error
+                              ? saveError.message
+                              : 'Unable to save room type occupancy.',
+                          ),
+                        )
+                        .finally(() => setOccupancySaving(undefined));
+                    }}
+                  >
+                    Save occupancy
+                  </Button>
+                </Group>
+                <MultiSelect
+                  mt={spacing[4]}
+                  label="Standard amenities"
+                  description="Shown as room-type features across StayOS."
+                  data={amenityOptions}
+                  disabled={saving === id || occupancySaving === id}
+                  searchable
+                  clearable
+                  placeholder="Select amenities"
+                  value={selected[id] ?? []}
+                  onChange={(value) => setSelected((current) => ({ ...current, [id]: value }))}
+                />
+                <Group justify="flex-end" mt={spacing[4]}>
+                  <Button
+                    color="stayosBrand"
+                    leftSection={<CheckCircle2 size={16} />}
+                    loading={saving === id}
+                    disabled={occupancySaving === id}
+                    onClick={() => {
+                      setSaving(id);
+                      void setRoomTypeAmenities(propertyId, id, selected[id] ?? [])
+                        .then((updated) => {
+                          setRoomTypes((current) =>
+                            current.map((item) =>
+                              getString(item, ['id']) === id ? updated : item,
+                            ),
+                          );
+                        })
+                        .catch(() => setError('Unable to save room type amenities.'))
+                        .finally(() => setSaving(undefined));
+                    }}
+                  >
+                    Save amenities
+                  </Button>
+                </Group>
+              </Card>
+            );
+          })}
+        </SimpleGrid>
+      )}
     </Stack>
   );
 }

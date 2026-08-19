@@ -47,10 +47,7 @@ import {
 import { createPropertyGuest } from '../../lib/guest-api';
 import { friendlyGuestError } from '../../lib/guest-hooks';
 import { getAvailableRooms } from '../../lib/operations-api';
-import {
-  getGuestPricingPolicy,
-  type GuestPricingPolicyResponse,
-} from '../rates/api/rates-api';
+import { getGuestPricingPolicy, type GuestPricingPolicyResponse } from '../rates/api/rates-api';
 import { nationalityOptions } from '../guests/constants/nationalities';
 import { BookingForm } from './components/BookingForm';
 import { friendlyBookingError, useBookingDetails, useBookings } from './hooks/useBookings';
@@ -79,15 +76,23 @@ const quickCardStyle = {
 
 function dateToValue(value: Date | string | null) {
   if (!value) return '';
-  if (typeof value === 'string') return value.slice(0, 10);
+  if (typeof value === 'string')
+    return /^\d{4}-\d{2}-\d{2}$/.test(value.slice(0, 10)) ? value.slice(0, 10) : '';
+  if (Number.isNaN(value.getTime())) return '';
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
 }
 
+function parseDateValue(value?: string) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime()) || dateToValue(parsed) !== value) return null;
+  return parsed;
+}
+
 function formatShortDate(value: string) {
-  if (!value) return '';
-  return new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(
-    new Date(`${value}T00:00:00`),
-  );
+  const parsed = parseDateValue(value);
+  if (!parsed) return '';
+  return new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(parsed);
 }
 
 function formatCurrency(value: number) {
@@ -271,25 +276,21 @@ function calculateNights(arrivalDate: string, departureDate: string) {
 function resolveChildAgeLabel(
   age: number | undefined,
   policyResponse: GuestPricingPolicyResponse | null,
-  nightlyRoomRate: number,
 ) {
   if (age === undefined || !Number.isInteger(age) || age < 0) return '';
   const policy = policyResponse?.policy;
   if (!policy?.ageBasedChildPricingEnabled || !policy.isActive) return '';
-  if (age > policy.maximumChildAge) return 'Adult pricing';
+  if (age > policy.maximumChildAge) return 'Adult pricing applies';
   const band = policyResponse?.childAgeBands.find(
     (item) => item.isActive && age >= item.minAge && age <= item.maxAge,
   );
   if (!band) return 'No matching child age band';
-  if (band.pricingMode === 'FREE') return 'Free';
-  if (band.pricingMode === 'FIXED_PER_NIGHT') {
-    return `${formatCurrency(Number(band.fixedAmount ?? 0))} / night`;
-  }
+  if (band.pricingMode === 'FREE') return 'No child charge';
+  if (band.pricingMode === 'FIXED_PER_NIGHT') return 'Fixed child rate applies';
   if (band.pricingMode === 'PERCENT_OF_ROOM_RATE') {
-    const amount = nightlyRoomRate * (Number(band.percentage ?? 0) / 100);
-    return `${formatCurrency(amount)} / night`;
+    return `${Number(band.percentage ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}% of room rate`;
   }
-  return 'Adult pricing';
+  return 'Adult pricing applies';
 }
 
 function today() {
@@ -384,10 +385,10 @@ function QuickBookingForm({
     phone?: string;
   }>({});
   const [isCreatingGuest, setIsCreatingGuest] = useState(false);
-  const [dateRange, setDateRange] = useState<[Date | null, Date | null]>(() => {
-    const parse = (v?: string) => (v ? new Date(`${v}T00:00:00`) : null);
-    return [parse(initialArrival), parse(initialDeparture)];
-  });
+  const [dateRange, setDateRange] = useState<[Date | null, Date | null]>(() => [
+    parseDateValue(initialArrival),
+    parseDateValue(initialDeparture),
+  ]);
   const [roomTypeId, setRoomTypeId] = useState(initialRoomTypeId ?? '');
   const [adults, setAdults] = useState(initialAdults ?? 1);
   const [children, setChildren] = useState(initialChildren ?? 0);
@@ -408,6 +409,9 @@ function QuickBookingForm({
     'CASH' | 'CARD' | 'UPI' | 'BANK_TRANSFER' | 'WALLET' | 'OTHER'
   >('CASH');
   const [availabilityCounts, setAvailabilityCounts] = useState<Record<string, number>>({});
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState('');
+  const [paymentError, setPaymentError] = useState('');
   const [errors, setErrors] = useState<{
     childAges?: string;
     dates?: string;
@@ -450,7 +454,6 @@ function QuickBookingForm({
   const subtotal = quote ? money(quote.taxableSubtotal) : 0;
   const taxAmount = quote ? money(quote.tax.totalTax) : 0;
   const total = quote ? money(quote.grandTotal) : 0;
-  const perNightRoomRate = quote && quote.nights > 0 ? money(quote.roomCharges) / quote.nights : 0;
   const depositSuggestion = quote ? money(quote.deposit.suggestedAmount) : 0;
   const taxLabel =
     quote && quote.tax.applied
@@ -464,6 +467,11 @@ function QuickBookingForm({
   const childAgesInvalid =
     childAgesRequired &&
     (childAges.length !== children || childAges.some((age) => !Number.isInteger(age) || age < 0));
+  const selectedRoomInvalid = Boolean(selectedRoomCapacityError);
+  const paymentAmountInvalid =
+    paymentIntent !== 'CHECKOUT' &&
+    (!Number.isFinite(paymentAmount) || paymentAmount <= 0 || paymentAmount > total);
+  const remainingAfterPayment = Math.max(0, total - paymentAmount);
 
   useEffect(() => {
     setChildAges((current) => {
@@ -498,10 +506,19 @@ function QuickBookingForm({
   useEffect(() => {
     if (paymentIntent === 'FULL') {
       setPaymentAmount(total);
-    } else if (paymentIntent === 'CHECKOUT') {
-      setPaymentAmount(0);
+      setPaymentError('');
+      return;
     }
-  }, [paymentIntent, total]);
+    if (paymentIntent === 'CHECKOUT') {
+      setPaymentAmount(0);
+      setPaymentError('');
+      return;
+    }
+    if (total > 0 && paymentAmount > total) {
+      setPaymentAmount(total);
+      setPaymentError('');
+    }
+  }, [paymentAmount, paymentIntent, total]);
 
   useEffect(() => {
     if (!guestId || initialGuestWasProvided.current) return;
@@ -545,10 +562,15 @@ function QuickBookingForm({
   useEffect(() => {
     if (!propertyId || !arrivalDate || !departureDate) {
       setAvailabilityCounts({});
+      setAvailabilityError('');
+      setAvailabilityLoading(false);
       return;
     }
 
     const controller = new AbortController();
+    setAvailabilityLoading(true);
+    setAvailabilityError('');
+
     void getAvailableRooms(
       propertyId,
       { adults, arrivalDate, children, departureDate, guestCount: adults + children },
@@ -561,7 +583,16 @@ function QuickBookingForm({
         });
         setAvailabilityCounts(counts);
       })
-      .catch(() => setAvailabilityCounts({}));
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setAvailabilityCounts({});
+        setAvailabilityError(
+          'Room availability could not be checked. Pricing will confirm whether this stay can be booked.',
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setAvailabilityLoading(false);
+      });
 
     return () => controller.abort();
   }, [adults, arrivalDate, children, departureDate, propertyId]);
@@ -665,6 +696,17 @@ function QuickBookingForm({
       return;
     }
 
+    if (paymentAmountInvalid) {
+      const message =
+        total <= 0
+          ? 'Wait for the live total before recording a payment.'
+          : `Enter an amount greater than ₹0 and not more than ${formatCurrency(total)}.`;
+      setPaymentError(message);
+      showToast({ color: 'red', title: 'Check payment amount', message });
+      return;
+    }
+
+    setPaymentError('');
     await onSubmit({
       adults,
       arrivalDate,
@@ -771,10 +813,14 @@ function QuickBookingForm({
                 value: item.id,
               }))}
               data-testid="booking-guest-select"
+              error={errors.guestId}
               label="Guest"
               nothingFoundMessage="No guests found"
-              onChange={(value) => setGuestId(value ?? '')}
-              placeholder="Search guest by name or phone"
+              onChange={(value) => {
+                setGuestId(value ?? '');
+                setErrors((current) => ({ ...current, guestId: undefined }));
+              }}
+              placeholder="Search by name or mobile number"
               searchable
               value={guestId}
             />
@@ -791,7 +837,7 @@ function QuickBookingForm({
               setNewGuestFieldErrors({});
             }}
           >
-            + Add new guest
+            Add new guest
           </Button>
           <Collapse expanded={newGuestOpen}>
             <Stack gap={spacing[2]}>
@@ -941,9 +987,10 @@ function QuickBookingForm({
               minDate={today()}
               onChange={(value) => {
                 setDateRange(value as [Date | null, Date | null]);
-                setErrors((current) => ({ ...current, dates: undefined }));
+                setAvailabilityError('');
+                setErrors((current) => ({ ...current, dates: undefined, roomTypeId: undefined }));
               }}
-              placeholder="Select arrival -> departure"
+              placeholder="Choose check-in and check-out dates"
               size="xl"
               type="range"
               value={dateRange}
@@ -966,20 +1013,23 @@ function QuickBookingForm({
         <Box ref={roomsRef}>
           <StepSection
             active={datesComplete && !roomComplete}
-            complete={roomComplete}
+            complete={roomComplete && !selectedRoomInvalid}
             number={3}
-            title="Room?"
+            subtitle="Choose a room type and confirm occupancy"
+            title="Which room?"
           >
             <Stack gap={8}>
               {roomTypes.map((roomType) => {
                 const selected = roomType.id === roomTypeId;
                 const available = availabilityCounts[roomType.id] ?? 0;
                 const showAvailability =
-                  datesComplete && Object.keys(availabilityCounts).length > 0;
+                  datesComplete &&
+                  !availabilityLoading &&
+                  !availabilityError &&
+                  Object.keys(availabilityCounts).length > 0;
                 const capacityError = roomCapacityMessage(roomType, adults, children);
                 const unavailableByCapacity = Boolean(capacityError);
-                const soldOutByAvailability = showAvailability && available === 0;
-                const unavailable = unavailableByCapacity || soldOutByAvailability;
+                const unavailable = unavailableByCapacity;
                 const selectionInvalid = selected && unavailableByCapacity;
                 return (
                   <UnstyledButton
@@ -1033,20 +1083,12 @@ function QuickBookingForm({
                             size="sm"
                             variant="light"
                             color={
-                              unavailableByCapacity
-                                ? 'orange'
-                                : soldOutByAvailability
-                                  ? 'gray'
-                                  : available <= 2
-                                    ? 'orange'
-                                    : 'green'
+                              unavailableByCapacity ? 'orange' : available <= 2 ? 'orange' : 'green'
                             }
                           >
                             {unavailableByCapacity
                               ? roomCapacityLabel(roomType)
-                              : soldOutByAvailability
-                                ? 'Sold out'
-                                : `${available} left`}
+                              : `${available} assignable`}
                           </Badge>
                         ) : null}
                         <Box
@@ -1076,6 +1118,19 @@ function QuickBookingForm({
                 );
               })}
             </Stack>
+            {datesComplete && availabilityLoading ? (
+              <Group gap={8} role="status" aria-live="polite">
+                <Loader size="xs" color="stayosBrand" />
+                <Text c="#64748b" size="sm">
+                  Checking room assignment options…
+                </Text>
+              </Group>
+            ) : null}
+            {datesComplete && availabilityError ? (
+              <Alert color="yellow" variant="light" radius={radius.md}>
+                {availabilityError}
+              </Alert>
+            ) : null}
             {errors.roomTypeId ? (
               <Text c="red" size="sm">
                 {errors.roomTypeId}
@@ -1091,6 +1146,8 @@ function QuickBookingForm({
                 leftSection={<Users size={16} />}
                 label="Adults"
                 min={1}
+                max={20}
+                clampBehavior="strict"
                 onChange={(value) => {
                   setAdults(Number(value) || 1);
                   setErrors((current) => ({ ...current, roomTypeId: undefined }));
@@ -1102,9 +1159,15 @@ function QuickBookingForm({
                 leftSection={<Baby size={16} />}
                 label="Children"
                 min={0}
+                max={20}
+                clampBehavior="strict"
                 onChange={(value) => {
                   setChildren(Number(value) || 0);
-                  setErrors((current) => ({ ...current, childAges: undefined, roomTypeId: undefined }));
+                  setErrors((current) => ({
+                    ...current,
+                    childAges: undefined,
+                    roomTypeId: undefined,
+                  }));
                 }}
                 size="md"
                 value={children}
@@ -1120,16 +1183,14 @@ function QuickBookingForm({
               >
                 {Array.from({ length: children }).map((_, index) => {
                   const age = childAges[index];
-                  const label = resolveChildAgeLabel(
-                    age,
-                    guestPricingPolicy,
-                    perNightRoomRate,
-                  );
+                  const label = resolveChildAgeLabel(age, guestPricingPolicy);
                   return (
                     <div key={index}>
                       <NumberInput
                         label={`Child ${index + 1} age`}
                         min={0}
+                        max={guestPricingPolicy?.policy.maximumChildAge ?? 17}
+                        clampBehavior="strict"
                         step={1}
                         allowDecimal={false}
                         value={Number.isNaN(age) ? undefined : age}
@@ -1171,7 +1232,8 @@ function QuickBookingForm({
             active={datesComplete && roomComplete}
             complete={false}
             number={4}
-            title="Confirm"
+            subtitle="Review price, payment and booking details"
+            title="Review & create"
           >
             {datesComplete && roomComplete ? (
               <Paper
@@ -1197,15 +1259,25 @@ function QuickBookingForm({
                       </Text>
                     </Group>
                   ) : quoteError ? (
-                    <small style={{ color: '#dc2626', display: 'block' }} data-testid="booking-quote-error">
-                      {quoteError}
+                    <small
+                      style={{ color: '#dc2626', display: 'block' }}
+                      data-testid="booking-quote-error"
+                    >
+                      {quoteError} Check the stay details or try again.
                     </small>
                   ) : quote && !quotePriced ? (
-                    <small style={{ color: '#b45309', display: 'block' }} data-testid="booking-quote-blocker">
+                    <small
+                      style={{ color: '#b45309', display: 'block' }}
+                      data-testid="booking-quote-blocker"
+                    >
                       {quoteBlocker ?? 'This stay cannot be priced yet.'}
                     </small>
                   ) : quote ? (
-                    <Stack gap={4} data-testid="booking-quote-breakdown" style={{ opacity: quoteLoading ? 0.6 : 1 }}>
+                    <Stack
+                      gap={4}
+                      data-testid="booking-quote-breakdown"
+                      style={{ opacity: quoteLoading ? 0.6 : 1 }}
+                    >
                       <Group justify="space-between">
                         <Text c="#64748b" size="sm">
                           Room charges
@@ -1253,9 +1325,11 @@ function QuickBookingForm({
                       {quote.deposit.required ? (
                         <Group justify="space-between" pt={4}>
                           <span style={{ color: '#64748b', fontSize: 13 }}>
-                            Suggested deposit ({quote.deposit.policyType === 'PERCENTAGE'
+                            {quote.deposit.required ? 'Required deposit' : 'Suggested deposit'} (
+                            {quote.deposit.policyType === 'PERCENTAGE'
                               ? `${quote.deposit.policyValue}%`
-                              : 'fixed'})
+                              : 'fixed'}
+                            )
                           </span>
                           <span
                             style={{ color: '#6536b5', fontSize: 13, fontWeight: 800 }}
@@ -1289,18 +1363,22 @@ function QuickBookingForm({
               rightSection={<ChevronDown size={16} />}
               onClick={() => setNotesOpen((current) => !current)}
             >
-              + Add notes / special requests
+              Add notes or guest requests
             </Button>
             <Collapse expanded={notesOpen}>
               <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
                 <Textarea
-                  label="Notes"
+                  label="Internal notes"
+                  description="Visible to hotel staff"
+                  placeholder="Operational notes for the team"
                   minRows={3}
                   onChange={(event) => setNotes(event.currentTarget.value)}
                   value={notes}
                 />
                 <Textarea
-                  label="Special requests"
+                  label="Guest requests"
+                  description="Requests made by the guest"
+                  placeholder="Late arrival, extra bed, accessibility needs…"
                   minRows={3}
                   onChange={(event) => setSpecialRequests(event.currentTarget.value)}
                   value={specialRequests}
@@ -1316,20 +1394,23 @@ function QuickBookingForm({
                 {[
                   {
                     key: 'CHECKOUT' as const,
-                    label: 'Collect at check-in',
-                    hint: `Collect ${formatCurrency(total)} after ID verification`,
+                    label: 'Collect later',
+                    hint: 'Do not record a payment with this booking',
                     status: 'PAYMENT_DUE' as BookingPaymentStatus,
                   },
                   {
                     key: 'PARTIAL' as const,
-                    label: 'Partial deposit now',
-                    hint: 'Advance / holding amount',
+                    label: 'Collect deposit now',
+                    hint:
+                      depositSuggestion > 0
+                        ? `Property policy suggests ${formatCurrency(depositSuggestion)}`
+                        : 'Record an advance payment',
                     status: 'PARTIALLY_PAID' as BookingPaymentStatus,
                   },
                   {
                     key: 'FULL' as const,
                     label: 'Collect full now',
-                    hint: `Take ${formatCurrency(total)} now and mark paid`,
+                    hint: `Record ${formatCurrency(total)} now`,
                     status: 'PAID' as BookingPaymentStatus,
                   },
                 ].map((opt) => {
@@ -1340,10 +1421,13 @@ function QuickBookingForm({
                       onClick={() => {
                         setPaymentIntent(opt.key);
                         setPaymentStatus(opt.status);
+                        setPaymentError('');
                         if (opt.key === 'CHECKOUT') setPaymentAmount(0);
                         else if (opt.key === 'FULL') setPaymentAmount(total);
-                        else if (opt.key === 'PARTIAL' && paymentAmount === 0)
-                          setPaymentAmount(Math.round(total * 0.3));
+                        else if (opt.key === 'PARTIAL')
+                          setPaymentAmount(
+                            depositSuggestion > 0 ? Math.min(depositSuggestion, total) : 0,
+                          );
                       }}
                       data-testid={`booking-payment-intent-${opt.key.toLowerCase()}`}
                       style={{
@@ -1366,18 +1450,23 @@ function QuickBookingForm({
               </SimpleGrid>
               {paymentIntent === 'CHECKOUT' ? (
                 <Alert color="blue" variant="light" radius={radius.md}>
-                  No payment is recorded during booking. At check-in, collect the total payable
-                  amount: <b>{formatCurrency(total)}</b>.
+                  No payment will be recorded now. The outstanding amount remains
+                  <b> {formatCurrency(total)}</b> and can be collected later in the stay workflow.
                 </Alert>
               ) : null}
               {paymentIntent !== 'CHECKOUT' ? (
                 <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[3]}>
                   <NumberInput
                     label="Amount to collect now"
+                    error={paymentError}
                     min={0}
-                    max={paymentIntent === 'FULL' ? undefined : total}
+                    max={total || undefined}
+                    readOnly={paymentIntent === 'FULL'}
                     value={paymentAmount}
-                    onChange={(v) => setPaymentAmount(Number(v) || 0)}
+                    onChange={(v) => {
+                      setPaymentAmount(Number(v) || 0);
+                      setPaymentError('');
+                    }}
                     data-testid="booking-deposit-amount"
                   />
                   <Select
@@ -1395,6 +1484,22 @@ function QuickBookingForm({
                     data-testid="booking-deposit-method"
                   />
                 </SimpleGrid>
+              ) : null}
+              {paymentIntent !== 'CHECKOUT' && total > 0 ? (
+                <Paper
+                  radius={radius.md}
+                  p={12}
+                  style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}
+                >
+                  <Group justify="space-between" gap={spacing[2]}>
+                    <Text c="#64748b" size="sm">
+                      Remaining after this payment
+                    </Text>
+                    <Text fw={800} size="sm">
+                      {formatCurrency(remainingAfterPayment)}
+                    </Text>
+                  </Group>
+                </Paper>
               ) : null}
             </Stack>
             <Button
@@ -1432,19 +1537,21 @@ function QuickBookingForm({
                   !datesComplete ||
                   !roomComplete ||
                   childAgesInvalid ||
-                  Boolean(selectedRoomCapacityError) ||
+                  selectedRoomInvalid ||
+                  paymentAmountInvalid ||
                   quoteLoading ||
-                  !quotePriced
+                  !quotePriced ||
+                  isSubmitting
                 }
                 fullWidth
                 loading={isSubmitting}
                 onClick={() => void submit()}
                 size="lg"
               >
-                {quoteLoading ? 'Pricing…' : 'Create Booking →'}
+                {quoteLoading ? 'Updating price…' : 'Create booking'}
               </Button>
               <Text c="#64748b" size="xs" ta="center">
-                Booking confirmed. You can assign a room next.
+                The booking is saved first; room assignment can be completed separately.
               </Text>
             </Stack>
           </StepSection>
@@ -1465,10 +1572,19 @@ export function BookingFormPage({ mode }: { mode: 'create' | 'edit' }) {
     mode === 'create' ? (searchParams.get('departureDate') ?? undefined) : undefined;
   const initialRoomTypeId =
     mode === 'create' ? (searchParams.get('roomTypeId') ?? undefined) : undefined;
+  const adultsParam = mode === 'create' ? Number(searchParams.get('adults')) : NaN;
+  const childrenParam = mode === 'create' ? Number(searchParams.get('children')) : NaN;
   const initialAdults =
-    mode === 'create' ? Number(searchParams.get('adults')) || undefined : undefined;
+    mode === 'create' && Number.isInteger(adultsParam) && adultsParam > 0 && adultsParam <= 20
+      ? adultsParam
+      : undefined;
   const initialChildren =
-    mode === 'create' ? Number(searchParams.get('children')) || undefined : undefined;
+    mode === 'create' &&
+    Number.isInteger(childrenParam) &&
+    childrenParam >= 0 &&
+    childrenParam <= 20
+      ? childrenParam
+      : undefined;
   const backend = useBackendStatus();
   const allowMockFallback = process.env.NEXT_PUBLIC_ENABLE_MOCK_FALLBACK === 'true';
   const enabled =
@@ -1503,8 +1619,8 @@ export function BookingFormPage({ mode }: { mode: 'create' | 'edit' }) {
     );
   if (mode === 'edit' && !details.booking)
     return (
-      <Alert color="blue" variant="light" icon={<CalendarDays size={17} />} radius={radius.lg}>
-        Loading booking...
+      <Alert color="blue" variant="light" icon={<Loader size={17} />} radius={radius.lg}>
+        Loading booking details…
       </Alert>
     );
 

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import {
   Alert,
   Badge,
+  Button,
   Box,
   Group,
   Loader,
@@ -219,7 +220,7 @@ export function BillingPage() {
           Billing
         </Title>
         <Text c="#64748b" mt={4} style={{ fontSize: 14 }}>
-          Track folios, record payments, and settle guest accounts.
+          Review guest accounts, outstanding balances, payments, and settlement status.
         </Text>
       </Box>
 
@@ -257,22 +258,30 @@ export function BillingPage() {
       ) : null}
 
       <Paper radius={radius.lg} p={16} style={{ border: '1px solid #e2e8f0' }}>
-        <Group grow align="flex-end" wrap="wrap">
-          <TextInput
-            data-testid="billing-search"
-            label="Search"
-            placeholder="Search by folio, guest or reservation"
-            value={search}
-            onChange={(event) => setSearch(event.currentTarget.value)}
-          />
-          <Select
-            clearable
-            data={statusFilters}
-            data-testid="billing-status-filter"
-            label="Status"
-            value={status ?? null}
-            onChange={(value) => setStatus((value as FolioStatus | null) ?? undefined)}
-          />
+        <Group justify="space-between" align="flex-end" gap={spacing[3]} wrap="wrap">
+          <Group grow align="flex-end" wrap="wrap" style={{ flex: 1, minWidth: 280 }}>
+            <TextInput
+              data-testid="billing-search"
+              label="Search"
+              placeholder="Search by folio, guest or reservation"
+              value={search}
+              onChange={(event) => setSearch(event.currentTarget.value)}
+            />
+            <Select
+              clearable
+              data={statusFilters}
+              data-testid="billing-status-filter"
+              label="Status"
+              value={status ?? null}
+              onChange={(value) => {
+                setError(undefined);
+                setStatus((value as FolioStatus | null) ?? undefined);
+              }}
+            />
+          </Group>
+          <Text c="#64748b" size="xs" fw={700}>
+            {filtered.length} {filtered.length === 1 ? 'folio' : 'folios'}
+          </Text>
         </Group>
       </Paper>
 
@@ -280,32 +289,26 @@ export function BillingPage() {
         <Alert color="red" title="Unable to load billing data." data-testid="billing-error">
           <Stack gap={8}>
             <Text size="sm">{error}</Text>
-            <button
+            <Button
+              variant="light"
+              color="red"
+              size="xs"
+              leftSection={<RefreshCcw size={14} />}
               onClick={() => void load()}
-              style={{
-                alignSelf: 'flex-start',
-                padding: '6px 12px',
-                border: '1px solid #e2e8f0',
-                borderRadius: 8,
-                background: 'white',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                fontSize: 13,
-              }}
+              loading={isLoading}
+              style={{ alignSelf: 'flex-start' }}
             >
-              <RefreshCcw size={14} /> Retry
-            </button>
+              Retry
+            </Button>
           </Stack>
         </Alert>
       ) : null}
 
-      {isLoading ? (
+      {isLoading && hasLoadedOnce ? (
         <Group gap={8} role="status" aria-live="polite">
           <Loader color="stayosBrand" size="xs" />
           <Text c="#64748b" size="sm" fw={600}>
-            Updating billing data...
+            Updating folios…
           </Text>
         </Group>
       ) : null}
@@ -313,12 +316,27 @@ export function BillingPage() {
       {!isLoading && !error && filtered.length === 0 ? (
         <Paper radius={radius.lg} p={28} style={{ border: '1px solid #e2e8f0' }}>
           <Text c="#101828" fw={800} size="md">
-            No folios found.
+            {search.trim() || status ? 'No matching folios' : 'No folios yet'}
           </Text>
           <Text c="#64748b" size="sm" mt={4}>
-            Folios are automatically opened when a reservation is checked in, or you can open one
-            from the Stay Workspace.
+            {search.trim() || status
+              ? 'Try clearing the search or status filter.'
+              : 'Folios open automatically when a reservation is checked in. You can then manage the account from Billing or the Stay Workspace.'}
           </Text>
+          {search.trim() || status ? (
+            <Button
+              variant="subtle"
+              color="gray"
+              size="xs"
+              mt={10}
+              onClick={() => {
+                setSearch('');
+                setStatus(undefined);
+              }}
+            >
+              Clear filters
+            </Button>
+          ) : null}
         </Paper>
       ) : null}
 
@@ -335,7 +353,7 @@ export function BillingPage() {
                   <Table.Th>Total</Table.Th>
                   <Table.Th>Paid</Table.Th>
                   <Table.Th>Balance</Table.Th>
-                  <Table.Th></Table.Th>
+                  <Table.Th aria-label="Actions"></Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -358,11 +376,20 @@ export function BillingPage() {
                     </Table.Td>
                     <Table.Td>{folio.reservation.reservationCode}</Table.Td>
                     <Table.Td>
-                      <Badge color={statusColor(folio.status)} variant="light">
-                        {folio.status}
-                      </Badge>
+                      <Stack gap={3} align="flex-start">
+                        <Badge color={statusColor(folio.status)} variant="light">
+                          {folio.status}
+                        </Badge>
+                        {folio.status === 'OPEN' && Number(folio.totals.balance) > 0 ? (
+                          <Text c="#b45309" size="xs" fw={700}>
+                            Payment due
+                          </Text>
+                        ) : null}
+                      </Stack>
                     </Table.Td>
-                    <Table.Td>{formatCurrency(folio.totals.total)}</Table.Td>
+                    <Table.Td>
+                      <Text fw={700}>{formatCurrency(folio.totals.total)}</Text>
+                    </Table.Td>
                     <Table.Td>
                       <Text c="#0f8f4b" fw={700}>
                         {formatCurrency(folio.totals.paid)}
@@ -381,7 +408,7 @@ export function BillingPage() {
                       >
                         <Group gap={4}>
                           <Text c="#0f172a" fw={700} size="sm">
-                            Open
+                            View folio
                           </Text>
                           <ChevronRight size={14} />
                         </Group>

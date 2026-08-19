@@ -2101,9 +2101,9 @@ function RoomAlerts({
                     {task.priority}
                   </Badge>
                 </Group>
-                <Button mt={10} size="compact-xs" variant="light" color="stayosBrand">
-                  {task.primaryAction}
-                </Button>
+                <Badge mt={10} size="sm" variant="light" color="stayosBrand">
+                  Next: {task.primaryAction}
+                </Badge>
               </Card>
             ))
           ) : (
@@ -3177,7 +3177,7 @@ export default function RoomsPage() {
                   </Stack>
                 ))}
               </Stack>
-            ) : (
+            ) : displayRooms.length > 0 ? (
               <Card p={spacing[8]} ta="center" radius={radius.lg} className={styles.surfaceCard}>
                 <ThemeIcon
                   color="stayosBrand"
@@ -3194,15 +3194,21 @@ export default function RoomsPage() {
                 <Text mt={spacing[2]} className={styles.emptyDetail}>
                   Try another floor, status, room type, or search term.
                 </Text>
+                <Button
+                  mt={spacing[3]}
+                  variant="light"
+                  color="gray"
+                  onClick={() => setFilters(defaultRoomFilters)}
+                >
+                  Clear room filters
+                </Button>
               </Card>
-            )}
-
-            {!inventory.isLoading && displayRooms.length === 0 ? (
+            ) : (
               <EmptyData
                 title="No rooms returned"
                 detail="The active property has no live room inventory yet."
               />
-            ) : null}
+            )}
           </Stack>
         </Box>
 
@@ -3289,7 +3295,7 @@ export default function RoomsPage() {
             review, and check-in.
           </Text>
 
-          <Group justify="flex-end">
+          <Group justify="flex-end" gap={8} wrap="wrap">
             <Button variant="subtle" color="gray" onClick={() => setAssignedFollowUp(undefined)}>
               Stay on Rooms
             </Button>
