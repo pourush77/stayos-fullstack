@@ -34,6 +34,7 @@ const propertyEntity: PropertyEntity = {
   totalFloors: 6,
   totalRooms: 120,
   status: PropertyStatus.ACTIVE,
+  emailNotificationsEnabled: false,
   createdAt: new Date('2026-06-30T00:00:00.000Z'),
   updatedAt: new Date('2026-06-30T00:00:00.000Z'),
 };

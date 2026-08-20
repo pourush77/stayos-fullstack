@@ -1,4 +1,14 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -27,7 +37,11 @@ import { ExtendReservationDto } from './dto/extend-reservation.dto';
 import { MoveRoomDto } from './dto/move-room.dto';
 import { PaymentReviewDto } from './dto/payment-review.dto';
 import { ReservationResponseDto } from './dto/reservation-response.dto';
-import { CheckInActionDto, CheckOutActionDto, LifecycleActionDto } from './dto/lifecycle-action.dto';
+import {
+  CheckInActionDto,
+  CheckOutActionDto,
+  LifecycleActionDto,
+} from './dto/lifecycle-action.dto';
 import { ReservationWorkflowResponseDto } from './dto/reservation-workflow-response.dto';
 import { UpdateGuestRegistrationDto } from './dto/update-guest-registration.dto';
 import { UpdateIdentityVerificationDto } from './dto/update-identity-verification.dto';
@@ -37,6 +51,8 @@ import { ReservationsService } from './reservations.service';
 import { ReservationQuoteService } from './services/reservation-quote.service';
 import { CheckInService } from './services/check-in.service';
 import { ReservationWorkflowService } from './services/reservation-workflow.service';
+import { BookingConfirmationEmailService } from '../notifications/email/booking-confirmation-email.service';
+import { CheckoutInvoiceEmailService } from '../notifications/email/checkout-invoice-email.service';
 
 type ReservationListResponse = PreWrappedSuccessResponse<ReservationResponseDto[]> & {
   message: string;
@@ -52,6 +68,8 @@ export class ReservationsController {
     private readonly reservationWorkflowService: ReservationWorkflowService,
     private readonly checkInService: CheckInService,
     private readonly reservationQuoteService: ReservationQuoteService,
+    private readonly bookingConfirmationEmailService: BookingConfirmationEmailService,
+    private readonly checkoutInvoiceEmailService: CheckoutInvoiceEmailService,
   ) {}
 
   @Get()
@@ -118,6 +136,16 @@ export class ReservationsController {
     @Body() createReservationDto: CreateReservationDto,
   ): Promise<ReservationResponseDto> {
     const reservation = await this.reservationsService.create(propertyId, createReservationDto);
+
+    // Communication is best-effort and never changes reservation success.
+    // queueAutomatic exits immediately when email is disabled, missing, or the
+    // reservation was created as PENDING.
+    try {
+      await this.bookingConfirmationEmailService.queueAutomatic(propertyId, reservation.id);
+    } catch {
+      // Booking is authoritative. Notification infrastructure must never make
+      // a successfully committed reservation appear to fail to front desk.
+    }
 
     return ReservationsMapper.toResponse(reservation);
   }
@@ -221,7 +249,43 @@ export class ReservationsController {
     const reservation = await this.reservationWorkflowService.confirm(propertyId, reservationId, {
       actorId: user?.id ?? null,
     });
+
+    try {
+      await this.bookingConfirmationEmailService.queueAutomatic(propertyId, reservation.id);
+    } catch {
+      // Confirmation is authoritative. Email failure must never roll it back
+      // or surface as a failed reservation operation.
+    }
+
     return ReservationsMapper.toResponse(reservation);
+  }
+
+  @Post(':reservationId/send-confirmation-email')
+  @HttpCode(200)
+  @RequirePermissions(Permissions.BookingsManage)
+  @ApiOperation({ summary: 'Send the booking confirmation email again' })
+  @ApiBadRequestResponse({ description: 'Reservation is not confirmed or guest has no email' })
+  @ApiNotFoundResponse({ description: 'Reservation or property not found' })
+  async resendConfirmationEmail(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('reservationId', ParseUUIDPipe) reservationId: string,
+  ): Promise<{ success: true; queued: boolean; message: string }> {
+    const result = await this.bookingConfirmationEmailService.resend(propertyId, reservationId);
+
+    const message =
+      result.reason === 'NO_GUEST_EMAIL'
+        ? 'Guest email is not available.'
+        : result.reason === 'EMAIL_DISABLED'
+          ? 'Email service is not configured.'
+          : result.reason === 'NOT_CONFIRMED'
+            ? 'Only confirmed bookings can send a confirmation email.'
+            : 'Booking confirmation email queued.';
+
+    return {
+      success: true,
+      queued: result.queued,
+      message,
+    };
   }
 
   @Patch(':reservationId/cancel')
@@ -362,11 +426,55 @@ export class ReservationsController {
     @Body() dto: CheckOutActionDto,
     @CurrentUser() user?: AuthenticatedRequest['currentUser'],
   ): Promise<ReservationWorkflowResponseDto> {
-    return this.reservationWorkflowService.checkOut(
+    const result = await this.reservationWorkflowService.checkOut(
       propertyId,
       reservationId,
       { actorId: user?.id ?? null },
       { lateCheckout: dto?.lateCheckout ?? false },
     );
+
+    try {
+      await this.checkoutInvoiceEmailService.queueAutomatic(propertyId, reservationId);
+    } catch {
+      // Checkout is authoritative. Notification infrastructure must never make
+      // a successfully committed checkout appear to fail to front desk.
+    }
+
+    return result;
+  }
+
+  @Post(':reservationId/send-final-invoice-email')
+  @HttpCode(200)
+  @RequirePermissions(Permissions.CheckoutManage)
+  @ApiOperation({ summary: 'Send the finalized tax invoice email again' })
+  @ApiBadRequestResponse({
+    description:
+      'Reservation is not checked out, guest has no email, or finalized tax invoice is unavailable',
+  })
+  @ApiNotFoundResponse({ description: 'Reservation or property not found' })
+  async resendFinalInvoiceEmail(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('reservationId', ParseUUIDPipe) reservationId: string,
+  ): Promise<{ success: true; queued: boolean; message: string }> {
+    const result = await this.checkoutInvoiceEmailService.resend(propertyId, reservationId);
+
+    const message =
+      result.reason === 'NO_GUEST_EMAIL'
+        ? 'Guest email is not available.'
+        : result.reason === 'EMAIL_DISABLED'
+          ? 'Email service is not configured.'
+          : result.reason === 'PROPERTY_EMAIL_DISABLED'
+            ? 'Guest email notifications are disabled for this property.'
+            : result.reason === 'NOT_CHECKED_OUT'
+              ? 'Final invoice email can be sent only after checkout.'
+              : result.reason === 'NO_FINALIZED_INVOICE'
+                ? 'A finalized tax invoice is not available yet.'
+                : 'Final invoice email queued.';
+
+    return {
+      success: true,
+      queued: result.queued,
+      message,
+    };
   }
 }

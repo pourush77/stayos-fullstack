@@ -27,6 +27,7 @@ import { ReservationPricingService } from './services/reservation-pricing.servic
 import { ReservationQuoteService } from './services/reservation-quote.service';
 import { ReservationRateSnapshotService } from './services/reservation-rate-snapshot.service';
 import { StaysController } from './stays.controller';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { StaysController } from './stays.controller';
     PoliciesModule,
     BillingModule,
     InventoryModule,
+    NotificationsModule,
   ],
   controllers: [
     ReservationsController,

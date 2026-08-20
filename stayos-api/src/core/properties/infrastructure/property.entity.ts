@@ -95,6 +95,13 @@ export class PropertyEntity {
   })
   status!: PropertyStatus;
 
+  @Column({
+    type: 'boolean',
+    name: 'email_notifications_enabled',
+    default: false,
+  })
+  emailNotificationsEnabled!: boolean;
+
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt!: Date;
 

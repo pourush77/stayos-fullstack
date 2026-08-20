@@ -26,4 +26,12 @@ export default () => ({
     host: process.env.REDIS_HOST ?? 'localhost',
     port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
   },
+  email: {
+    enabled: process.env.EMAIL_ENABLED === 'true',
+    provider: process.env.EMAIL_PROVIDER ?? 'resend',
+    apiKey: process.env.EMAIL_API_KEY ?? '',
+    fromAddress: process.env.EMAIL_FROM_ADDRESS ?? '',
+    fromName: process.env.EMAIL_FROM_NAME ?? 'StayOS',
+    replyTo: process.env.EMAIL_REPLY_TO ?? '',
+  },
 });

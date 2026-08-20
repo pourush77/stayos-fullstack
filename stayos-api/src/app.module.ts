@@ -27,6 +27,7 @@ import { InventoryModule } from './core/inventory/inventory.module';
 import configuration from './core/config/configuration';
 import { validateEnvironment } from './core/config/environment.validation';
 import { GlobalSearchModule } from './core/global-search/global-search.module';
+import { NotificationsModule } from './core/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -78,6 +79,7 @@ import { GlobalSearchModule } from './core/global-search/global-search.module';
     BillingConfigModule,
     InventoryModule,
     GlobalSearchModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}

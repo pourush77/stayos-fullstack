@@ -64,6 +64,7 @@ export interface InvoiceSellerSnapshot {
   postalCode: string;
   email: string;
   phone: string;
+  logoUrl?: string | null;
 }
 
 export interface InvoiceBuyerSnapshot {
@@ -185,6 +186,7 @@ export function buildInvoiceSnapshot(folio: FolioEntity): InvoiceSnapshot {
       postalCode: property.postalCode,
       email: property.email,
       phone: property.phone,
+      logoUrl: property.logoUrl ?? null,
     },
     buyer: {
       guestId: folio.guestId,
@@ -236,7 +238,10 @@ export function buildInvoiceSnapshot(folio: FolioEntity): InvoiceSnapshot {
 /** Negates a snapshot's monetary values for a full-reversal credit note. */
 export function negateInvoiceSnapshot(snap: InvoiceSnapshot): InvoiceSnapshot {
   const neg = (v: string): string => fromCents(-toCents(v));
-  const negComp = (c: InvoiceTaxComponent): InvoiceTaxComponent => ({ rate: c.rate, amount: neg(c.amount) });
+  const negComp = (c: InvoiceTaxComponent): InvoiceTaxComponent => ({
+    rate: c.rate,
+    amount: neg(c.amount),
+  });
   return {
     ...snap,
     lines: snap.lines.map((l) => ({

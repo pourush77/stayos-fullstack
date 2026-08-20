@@ -47,6 +47,7 @@ export const validateEnvironment = (config: Record<string, unknown>): Record<str
     errors,
   );
   validateOptionalPort('REDIS_PORT', env.REDIS_PORT, errors);
+  validateOptionalEmailConfiguration(env, errors);
 
   if (errors.length > 0) {
     throw new Error(`Invalid environment configuration: ${errors.join('; ')}`);
@@ -138,6 +139,38 @@ const validateOptionalPositiveInteger = (
     errors.push(`${key} must be a positive integer`);
   }
 };
+
+const validateOptionalEmailConfiguration = (env: Environment, errors: string[]): void => {
+  if (
+    env.EMAIL_ENABLED !== undefined &&
+    !['true', 'false'].includes(env.EMAIL_ENABLED.trim().toLowerCase())
+  ) {
+    errors.push('EMAIL_ENABLED must be true or false');
+  }
+
+  const enabled = env.EMAIL_ENABLED?.trim().toLowerCase() === 'true';
+  if (!enabled) {
+    return;
+  }
+
+  if (!env.EMAIL_PROVIDER?.trim()) {
+    errors.push('EMAIL_PROVIDER is required when EMAIL_ENABLED=true');
+  }
+  if (!env.EMAIL_API_KEY?.trim()) {
+    errors.push('EMAIL_API_KEY is required when EMAIL_ENABLED=true');
+  }
+  if (!env.EMAIL_FROM_ADDRESS?.trim()) {
+    errors.push('EMAIL_FROM_ADDRESS is required when EMAIL_ENABLED=true');
+  } else if (!isEmailLike(env.EMAIL_FROM_ADDRESS)) {
+    errors.push('EMAIL_FROM_ADDRESS must be a valid email address');
+  }
+
+  if (env.EMAIL_REPLY_TO?.trim() && !isEmailLike(env.EMAIL_REPLY_TO)) {
+    errors.push('EMAIL_REPLY_TO must be a valid email address');
+  }
+};
+
+const isEmailLike = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
 const isValidPort = (value: string): boolean => {
   if (!/^\d+$/.test(value)) {

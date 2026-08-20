@@ -44,7 +44,7 @@ import {
   showToast,
   useBackendStatus,
 } from '@stayos/ui';
-import { createPropertyGuest } from '../../lib/guest-api';
+import { createPropertyGuest, getProperties } from '../../lib/guest-api';
 import { friendlyGuestError } from '../../lib/guest-hooks';
 import { getAvailableRooms } from '../../lib/operations-api';
 import { getGuestPricingPolicy, type GuestPricingPolicyResponse } from '../rates/api/rates-api';
@@ -377,6 +377,7 @@ function QuickBookingForm({
   const [newGuestPhone, setNewGuestPhone] = useState('');
   const [newGuestEmail, setNewGuestEmail] = useState('');
   const [newGuestNationality, setNewGuestNationality] = useState('Indian');
+  const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState<boolean | null>(null);
   const [newGuestError, setNewGuestError] = useState('');
   const [newGuestFieldErrors, setNewGuestFieldErrors] = useState<{
     email?: string;
@@ -481,6 +482,36 @@ function QuickBookingForm({
       return next;
     });
   }, [children]);
+
+  useEffect(() => {
+    if (!propertyId) {
+      setEmailNotificationsEnabled(null);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    void getProperties(controller.signal)
+      .then((properties) => {
+        if (controller.signal.aborted) return;
+
+        const currentProperty = properties.find(
+          (item) =>
+            typeof item === 'object' && item !== null && 'id' in item && item.id === propertyId,
+        ) as { emailNotificationsEnabled?: boolean } | undefined;
+
+        setEmailNotificationsEnabled(currentProperty?.emailNotificationsEnabled ?? false);
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+
+        // Do not block guest/booking creation if property communication settings
+        // cannot be read. Fall back to the neutral optional-email guidance.
+        setEmailNotificationsEnabled(false);
+      });
+
+    return () => controller.abort();
+  }, [propertyId]);
 
   useEffect(() => {
     if (!propertyId) {
@@ -864,19 +895,53 @@ function QuickBookingForm({
                   required
                   value={newGuestLastName}
                 />
-                <TextInput
-                  data-testid="booking-new-guest-email"
-                  error={newGuestFieldErrors.email}
-                  label="Email"
-                  leftSection={<Mail size={16} />}
-                  onChange={(event) => {
-                    setNewGuestEmail(event.currentTarget.value);
-                    setNewGuestFieldErrors((current) => ({ ...current, email: undefined }));
-                    setNewGuestError('');
-                  }}
-                  type="email"
-                  value={newGuestEmail}
-                />
+                <Box>
+                  <Group gap={7} mb={4}>
+                    <Text c="#212529" fw={500} size="sm">
+                      Email
+                    </Text>
+                    {emailNotificationsEnabled ? (
+                      <Badge color="stayosBrand" size="xs" variant="light">
+                        Recommended
+                      </Badge>
+                    ) : (
+                      <Text c="#94a3b8" size="xs">
+                        Optional
+                      </Text>
+                    )}
+                  </Group>
+
+                  <TextInput
+                    aria-label="Email"
+                    data-testid="booking-new-guest-email"
+                    error={newGuestFieldErrors.email}
+                    leftSection={<Mail size={16} />}
+                    onChange={(event) => {
+                      setNewGuestEmail(event.currentTarget.value);
+                      setNewGuestFieldErrors((current) => ({ ...current, email: undefined }));
+                      setNewGuestError('');
+                    }}
+                    placeholder="guest@example.com"
+                    type="email"
+                    value={newGuestEmail}
+                  />
+
+                  {!newGuestFieldErrors.email ? (
+                    <Text
+                      c={emailNotificationsEnabled ? '#64748b' : '#94a3b8'}
+                      data-testid="booking-new-guest-email-help"
+                      mt={5}
+                      size="xs"
+                      lh={1.45}
+                    >
+                      {emailNotificationsEnabled
+                        ? newGuestEmail.trim()
+                          ? 'Booking confirmation and final invoice will be sent to this email.'
+                          : "Add the guest's email so they can receive their booking confirmation and final invoice automatically."
+                        : 'Optional contact email for the guest.'}
+                    </Text>
+                  ) : null}
+                </Box>
                 <Autocomplete
                   data={nationalityOptions}
                   data-testid="booking-new-guest-nationality"

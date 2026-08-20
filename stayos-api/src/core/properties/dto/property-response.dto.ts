@@ -87,6 +87,12 @@ export class PropertyResponseDto {
   @ApiPropertyOptional()
   groupBookingDepositPolicyValue!: number | null;
 
+  @ApiProperty({
+    type: Boolean,
+    example: false,
+  })
+  emailNotificationsEnabled!: boolean;
+
   @ApiProperty({ type: String, format: 'date-time' })
   createdAt!: Date;
 

@@ -1,6 +1,6 @@
 import { ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsEnum, IsNumber, IsOptional, Max } from 'class-validator';
+import { IsBoolean, IsEnum, IsNumber, IsOptional, Max } from 'class-validator';
 import { CreatePropertyDto } from './create-property.dto';
 import { GroupBookingDepositPolicyType } from '../domain/group-booking-deposit-policy-type.enum';
 
@@ -28,4 +28,13 @@ export class UpdatePropertyDto extends PartialType(CreatePropertyDto) {
   @IsNumber()
   @Max(9999999999)
   groupBookingDepositPolicyValue?: number;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    default: false,
+    description: 'Enable or disable automatic guest email notifications for this property.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  emailNotificationsEnabled?: boolean;
 }

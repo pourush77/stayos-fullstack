@@ -75,4 +75,40 @@ describe('validateEnvironment', () => {
 
     expect(() => validateEnvironment(config)).toThrow(/JWT_SECRET must be at least 32 characters/);
   });
+  it('allows email to stay disabled without provider credentials', () => {
+    const config = {
+      ...validDevelopmentConfig,
+      EMAIL_ENABLED: 'false',
+    };
+
+    expect(validateEnvironment(config)).toEqual(config);
+  });
+
+  it('requires provider credentials only when email is enabled', () => {
+    const config = {
+      ...validDevelopmentConfig,
+      EMAIL_ENABLED: 'true',
+      EMAIL_PROVIDER: 'resend',
+      EMAIL_API_KEY: undefined,
+      EMAIL_FROM_ADDRESS: 'frontdesk@example.com',
+    };
+
+    expect(() => validateEnvironment(config)).toThrow(
+      /EMAIL_API_KEY is required when EMAIL_ENABLED=true/,
+    );
+  });
+
+  it('accepts a complete enabled email configuration', () => {
+    const config = {
+      ...validDevelopmentConfig,
+      EMAIL_ENABLED: 'true',
+      EMAIL_PROVIDER: 'resend',
+      EMAIL_API_KEY: 'test-api-key',
+      EMAIL_FROM_ADDRESS: 'frontdesk@example.com',
+      EMAIL_FROM_NAME: 'StayOS Hotel',
+      EMAIL_REPLY_TO: 'reception@example.com',
+    };
+
+    expect(validateEnvironment(config)).toEqual(config);
+  });
 });

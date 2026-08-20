@@ -51,6 +51,7 @@ const propertyEntity: PropertyEntity = {
   addressLine2: null,
   businessDayCutOffTime: '00:00:00',
   status: PropertyStatus.ACTIVE,
+  emailNotificationsEnabled: false,
   createdAt: new Date('2026-06-30T00:00:00.000Z'),
   updatedAt: new Date('2026-06-30T00:00:00.000Z'),
 };

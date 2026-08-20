@@ -39,6 +39,7 @@ export class PropertiesMapper {
       groupBookingDepositPolicyType: deposit.type,
       groupBookingDepositPolicyValue:
         deposit.type === GroupBookingDepositPolicyType.NONE ? null : deposit.value,
+      emailNotificationsEnabled: entity.emailNotificationsEnabled,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
     };

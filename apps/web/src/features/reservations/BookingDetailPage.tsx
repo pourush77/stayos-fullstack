@@ -10,6 +10,7 @@ import {
   Card,
   Group,
   Loader,
+  Menu,
   Modal,
   Paper,
   Popover,
@@ -31,6 +32,8 @@ import {
   CreditCard,
   Edit,
   IdCard,
+  Mail,
+  MoreHorizontal,
   MoveRight,
   NotebookText,
   Plus,
@@ -55,7 +58,11 @@ import { bookingStatusLabel, paymentStatusLabel, sourceLabel } from './utils/boo
 import { CheckoutModal } from './components/CheckoutModal';
 import { ExtendStayModal } from './components/ExtendStayModal';
 import { getFolioForReservation } from '../billing/api/billing-api';
-import { moveReservationRoom } from '../../lib/reservation-api';
+import {
+  moveReservationRoom,
+  resendFinalInvoiceEmail,
+  resendReservationConfirmationEmail,
+} from '../../lib/reservation-api';
 import type { Folio } from '../billing/types/billing.types';
 
 const cardStyle = {
@@ -738,6 +745,8 @@ export default function BookingDetailPage() {
   const [folioSummary, setFolioSummary] = useState<FolioSummary | undefined>(undefined);
   const [folioId, setFolioId] = useState<string | undefined>(undefined);
   const [isActing, setIsActing] = useState(false);
+  const [isSendingConfirmation, setIsSendingConfirmation] = useState(false);
+  const [isSendingFinalInvoice, setIsSendingFinalInvoice] = useState(false);
   const retryBackend = () => void backend.retry();
   const checkBackendStatus = () => void backend.checkHealth();
 
@@ -931,6 +940,99 @@ export default function BookingDetailPage() {
 
   const openCheckoutFlow = async () => setCheckoutOpened(true);
 
+  const resendConfirmationEmail = async () => {
+    if (!bookingState.propertyId || booking.status !== 'CONFIRMED') return;
+
+    if (isMissing(booking.email)) {
+      showToast({
+        color: 'yellow',
+        title: 'Guest email required',
+        message: 'Add the guest email address before sending the booking confirmation.',
+      });
+      return;
+    }
+
+    setIsSendingConfirmation(true);
+
+    try {
+      const result = await resendReservationConfirmationEmail(
+        bookingState.propertyId,
+        booking.backendId,
+      );
+
+      if (!result.queued) {
+        showToast({
+          color: 'yellow',
+          title: 'Confirmation email not queued',
+          message: result.message || 'StayOS could not queue the booking confirmation email.',
+        });
+        return;
+      }
+
+      showToast({
+        color: 'green',
+        title: 'Confirmation email queued',
+        message: `StayOS is sending the booking confirmation to ${booking.email}.`,
+      });
+    } catch (error) {
+      showToast({
+        color: 'red',
+        title: 'Unable to send confirmation email',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'StayOS could not queue the booking confirmation email.',
+      });
+    } finally {
+      setIsSendingConfirmation(false);
+    }
+  };
+
+  const resendFinalInvoice = async () => {
+    if (!bookingState.propertyId || booking.status !== 'CHECKED_OUT') return;
+
+    if (isMissing(booking.email)) {
+      showToast({
+        color: 'yellow',
+        title: 'Guest email required',
+        message: 'Add the guest email address before sending the final invoice.',
+      });
+      return;
+    }
+
+    setIsSendingFinalInvoice(true);
+
+    try {
+      const result = await resendFinalInvoiceEmail(bookingState.propertyId, booking.backendId);
+
+      if (!result.queued) {
+        showToast({
+          color: 'yellow',
+          title: 'Final invoice email not queued',
+          message: result.message || 'StayOS could not queue the final invoice email.',
+        });
+        return;
+      }
+
+      showToast({
+        color: 'green',
+        title: 'Final invoice email queued',
+        message: `StayOS is sending the final invoice to ${booking.email}.`,
+      });
+    } catch (error) {
+      showToast({
+        color: 'red',
+        title: 'Unable to send final invoice email',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'StayOS could not queue the final invoice email.',
+      });
+    } finally {
+      setIsSendingFinalInvoice(false);
+    }
+  };
+
   const saveGuestField = async (field: 'phone' | 'email' | 'nationality', value: string) => {
     if (!bookingState.propertyId || !booking.guestId) return;
     try {
@@ -1119,6 +1221,51 @@ export default function BookingDetailPage() {
               >
                 Move Room
               </Button>
+            ) : null}
+
+            {booking.status === 'CONFIRMED' || booking.status === 'CHECKED_OUT' ? (
+              <Menu position="bottom-end" shadow="md" width={245}>
+                <Menu.Target>
+                  <Button
+                    variant="subtle"
+                    color="gray"
+                    leftSection={<MoreHorizontal size={16} />}
+                    disabled={isActing || isSendingConfirmation || isSendingFinalInvoice}
+                    loading={isSendingConfirmation || isSendingFinalInvoice}
+                    data-testid="booking-more-actions"
+                  >
+                    More
+                  </Button>
+                </Menu.Target>
+
+                <Menu.Dropdown>
+                  {booking.status === 'CONFIRMED' ? (
+                    <Menu.Item
+                      leftSection={<Mail size={16} />}
+                      disabled={isMissing(booking.email) || isSendingConfirmation}
+                      onClick={() => void resendConfirmationEmail()}
+                      data-testid="send-confirmation-email"
+                    >
+                      Send confirmation email
+                    </Menu.Item>
+                  ) : (
+                    <Menu.Item
+                      leftSection={<ReceiptIndianRupee size={16} />}
+                      disabled={isMissing(booking.email) || isSendingFinalInvoice}
+                      onClick={() => void resendFinalInvoice()}
+                      data-testid="send-final-invoice-email"
+                    >
+                      Send final invoice email
+                    </Menu.Item>
+                  )}
+
+                  {isMissing(booking.email) ? (
+                    <Menu.Label>Add guest email to enable this action</Menu.Label>
+                  ) : (
+                    <Menu.Label>{booking.email}</Menu.Label>
+                  )}
+                </Menu.Dropdown>
+              </Menu>
             ) : null}
 
             {canCancel ? (

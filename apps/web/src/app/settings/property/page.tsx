@@ -12,12 +12,13 @@ import {
   Select,
   SimpleGrid,
   Stack,
+  Switch,
   Text,
   TextInput,
   ThemeIcon,
   Title,
 } from '@mantine/core';
-import { Building2, CheckCircle2, Clock3, Save, Users } from 'lucide-react';
+import { Building2, CheckCircle2, Clock3, Mail, Save, Users } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { showToast } from '@stayos/ui';
 import { getProperties, updateProperty } from '../../../lib/guest-api';
@@ -33,6 +34,8 @@ type PropertySettingsDto = {
 
   groupBookingDepositPolicyType?: DepositPolicyType;
   groupBookingDepositPolicyValue?: number | null;
+
+  emailNotificationsEnabled?: boolean;
 };
 
 const DEFAULT_CHECK_IN_TIME = '14:00';
@@ -84,9 +87,13 @@ export default function PropertySettingsPage() {
   const [policyType, setPolicyType] = useState<DepositPolicyType>('NONE');
   const [policyValue, setPolicyValue] = useState<number | ''>(0);
 
+  const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState(false);
+  const [savedEmailNotificationsEnabled, setSavedEmailNotificationsEnabled] = useState(false);
+
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingTimings, setIsSavingTimings] = useState(false);
   const [isSavingPolicy, setIsSavingPolicy] = useState(false);
+  const [isSavingEmailNotifications, setIsSavingEmailNotifications] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
   useEffect(() => {
@@ -121,6 +128,10 @@ export default function PropertySettingsPage() {
             ? ''
             : Number(active.groupBookingDepositPolicyValue ?? 0),
         );
+
+        const initialEmailNotificationsEnabled = active.emailNotificationsEnabled ?? false;
+        setEmailNotificationsEnabled(initialEmailNotificationsEnabled);
+        setSavedEmailNotificationsEnabled(initialEmailNotificationsEnabled);
       })
       .catch((err: unknown) => {
         if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -137,6 +148,7 @@ export default function PropertySettingsPage() {
   }, []);
 
   const timingsChanged = checkInTime !== savedCheckInTime || checkOutTime !== savedCheckOutTime;
+  const emailNotificationsChanged = emailNotificationsEnabled !== savedEmailNotificationsEnabled;
 
   const timingsValid = /^\d{2}:\d{2}$/.test(checkInTime) && /^\d{2}:\d{2}$/.test(checkOutTime);
 
@@ -244,6 +256,47 @@ export default function PropertySettingsPage() {
     }
   };
 
+  const saveEmailNotifications = async () => {
+    if (!property || !emailNotificationsChanged) return;
+
+    setIsSavingEmailNotifications(true);
+
+    try {
+      const updated = (await updateProperty(property.id, {
+        emailNotificationsEnabled,
+      })) as PropertySettingsDto;
+
+      const nextEnabled = updated.emailNotificationsEnabled ?? emailNotificationsEnabled;
+
+      setProperty((current) => ({
+        ...current,
+        ...updated,
+      }));
+
+      setEmailNotificationsEnabled(nextEnabled);
+      setSavedEmailNotificationsEnabled(nextEnabled);
+
+      showToast({
+        color: 'green',
+        message: nextEnabled
+          ? 'Automatic guest emails are now enabled for this property.'
+          : 'Automatic guest emails are paused. Reservations and checkout will continue normally.',
+        title: nextEnabled ? 'Guest emails enabled' : 'Guest emails paused',
+      });
+    } catch {
+      setEmailNotificationsEnabled(savedEmailNotificationsEnabled);
+
+      showToast({
+        color: 'red',
+        message:
+          'We could not update guest email notifications. Your previous setting is unchanged.',
+        title: 'Save failed',
+      });
+    } finally {
+      setIsSavingEmailNotifications(false);
+    }
+  };
+
   return (
     <Stack gap={spacing[4]} data-testid="property-settings">
       <Box>
@@ -348,7 +401,13 @@ export default function PropertySettingsPage() {
 
             <Button
               color="stayosBrand"
-              disabled={isLoading || !timingsChanged || !timingsValid || isSavingPolicy}
+              disabled={
+                isLoading ||
+                !timingsChanged ||
+                !timingsValid ||
+                isSavingPolicy ||
+                isSavingEmailNotifications
+              }
               leftSection={<Save size={14} />}
               loading={isSavingTimings}
               onClick={() => void saveTimings()}
@@ -437,12 +496,106 @@ export default function PropertySettingsPage() {
           <Group justify="flex-end">
             <Button
               color="stayosBrand"
-              disabled={Boolean(valueError) || isLoading || isSavingTimings}
+              disabled={
+                Boolean(valueError) || isLoading || isSavingTimings || isSavingEmailNotifications
+              }
               leftSection={<Save size={14} />}
               loading={isSavingPolicy}
               onClick={() => void saveDepositPolicy()}
             >
               Save policy
+            </Button>
+          </Group>
+        </Stack>
+      </Card>
+
+      <Card radius={radius.lg} p={20} style={panelStyle}>
+        <Stack gap={spacing[3]}>
+          <Group justify="space-between" align="flex-start" wrap="nowrap">
+            <Group gap={12} align="flex-start" wrap="nowrap">
+              <ThemeIcon color="stayosBrand" radius="md" size={38} variant="light">
+                <Mail size={19} />
+              </ThemeIcon>
+
+              <Box>
+                <Text c="#101828" fw={850} size="lg">
+                  Guest communications
+                </Text>
+
+                <Text c="#64748b" size="sm" mt={3}>
+                  Control whether StayOS sends automatic guest emails for this property.
+                </Text>
+              </Box>
+            </Group>
+
+            {!isLoading && !emailNotificationsChanged ? (
+              <Group gap={5}>
+                <CheckCircle2 size={15} color="#16a34a" />
+                <Text c="#16a34a" size="sm" fw={650}>
+                  Saved
+                </Text>
+              </Group>
+            ) : null}
+          </Group>
+
+          <Divider color="#eef2f6" />
+
+          <Group
+            justify="space-between"
+            align="center"
+            wrap="nowrap"
+            p="md"
+            style={{
+              border: '1px solid #e5e7eb',
+              borderRadius: 12,
+              background: '#fafafa',
+            }}
+          >
+            <Box style={{ minWidth: 0 }}>
+              <Text c="#101828" fw={750} size="sm">
+                Email notifications
+              </Text>
+
+              <Text c="#64748b" size="xs" mt={4} lh={1.5}>
+                Send automatic booking confirmation and checkout emails to guests.
+              </Text>
+            </Box>
+
+            <Switch
+              aria-label="Email notifications"
+              checked={emailNotificationsEnabled}
+              color="stayosBrand"
+              disabled={isLoading || isSavingEmailNotifications}
+              onChange={(event) => setEmailNotificationsEnabled(event.currentTarget.checked)}
+              size="md"
+            />
+          </Group>
+
+          <Alert color={emailNotificationsEnabled ? 'green' : 'gray'} variant="light">
+            {emailNotificationsEnabled
+              ? 'Automatic booking confirmation and final checkout emails are enabled for this property.'
+              : 'Automatic guest emails are paused. Reservations and checkout continue normally.'}
+          </Alert>
+
+          <Group justify="space-between" align="center">
+            <Text c="#64748b" size="sm">
+              {emailNotificationsChanged
+                ? 'You have an unsaved email notification change.'
+                : savedEmailNotificationsEnabled
+                  ? 'Guest email notifications are currently enabled.'
+                  : 'Guest email notifications are currently paused.'}
+            </Text>
+
+            <Button
+              color="stayosBrand"
+              disabled={
+                isLoading || !emailNotificationsChanged || isSavingTimings || isSavingPolicy
+              }
+              leftSection={<Save size={14} />}
+              loading={isSavingEmailNotifications}
+              onClick={() => void saveEmailNotifications()}
+            >
+              Save email setting
             </Button>
           </Group>
         </Stack>

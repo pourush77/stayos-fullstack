@@ -203,17 +203,18 @@ export function cancelReservation(
   // Dedicated lifecycle endpoint: transitions the reservation to CANCELLED and
   // releases its room-type inventory entitlement (paired reserve/release). The
   // generic PATCH does NOT accept status changes, so it can never cancel.
-  return request<ReservationDto>(
-    `/properties/${propertyId}/reservations/${reservationId}/cancel`,
-    {
-      body: JSON.stringify(reason ? { reason } : {}),
-      method: 'PATCH',
-      signal,
-    },
-  );
+  return request<ReservationDto>(`/properties/${propertyId}/reservations/${reservationId}/cancel`, {
+    body: JSON.stringify(reason ? { reason } : {}),
+    method: 'PATCH',
+    signal,
+  });
 }
 
-export function confirmReservation(propertyId: string, reservationId: string, signal?: AbortSignal) {
+export function confirmReservation(
+  propertyId: string,
+  reservationId: string,
+  signal?: AbortSignal,
+) {
   // PENDING -> CONFIRMED. Freezes the commercial (rate/policy/tax) snapshot.
   return request<ReservationDto>(
     `/properties/${propertyId}/reservations/${reservationId}/confirm`,
@@ -612,4 +613,44 @@ export async function uploadPublicCaptureDocument(
   }
   const body = await response.json();
   return (body?.data ?? body) as MobileCaptureSessionDto;
+}
+
+export type ResendReservationConfirmationEmailResponse = {
+  success: true;
+  queued: boolean;
+  message: string;
+};
+
+export function resendReservationConfirmationEmail(
+  propertyId: string,
+  reservationId: string,
+  signal?: AbortSignal,
+) {
+  return request<ResendReservationConfirmationEmailResponse>(
+    `/properties/${propertyId}/reservations/${reservationId}/send-confirmation-email`,
+    {
+      method: 'POST',
+      signal,
+    },
+  );
+}
+
+export type ResendFinalInvoiceEmailResponse = {
+  success: true;
+  queued: boolean;
+  message: string;
+};
+
+export function resendFinalInvoiceEmail(
+  propertyId: string,
+  reservationId: string,
+  signal?: AbortSignal,
+) {
+  return request<ResendFinalInvoiceEmailResponse>(
+    `/properties/${propertyId}/reservations/${reservationId}/send-final-invoice-email`,
+    {
+      method: 'POST',
+      signal,
+    },
+  );
 }
