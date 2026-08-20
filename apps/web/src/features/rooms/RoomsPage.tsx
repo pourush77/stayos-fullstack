@@ -763,7 +763,7 @@ function RoomCard({
             fontWeight: 650,
           }}
         >
-          {primaryAction(room)}
+          {room.status === 'occupied' && room.groupContext ? 'Open Group' : primaryAction(room)}
         </Button>
       </Stack>
     </Paper>
@@ -1836,7 +1836,9 @@ function RoomDrawer({
                 variant={isReady ? 'filled' : 'light'}
                 style={{ fontWeight: 650 }}
               >
-                {primaryAction(room)}
+                {room.status === 'occupied' && room.groupContext
+                  ? 'Open Group'
+                  : primaryAction(room)}
               </Button>
             </Stack>
           </Paper>
@@ -2582,6 +2584,13 @@ export default function RoomsPage() {
   };
 
   const openStay = (room: Room) => {
+    // Group rooms belong to the group booking workflow, not an individual stay.
+    if (room.groupContext?.groupBookingId) {
+      router.push(`/reservations/group-holds/${room.groupContext.groupBookingId}`);
+      return;
+    }
+
+    // Normal individual reservation.
     const reservation = reservationForRoom(room);
     const stayId = reservation?.backendId ?? room.reservationId ?? room.bookingId;
 
