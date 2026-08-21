@@ -182,7 +182,22 @@ export class CheckInOperationalContextDto {
       'Backend-resolved LATE_CHECKOUT policy fee. Present only when a late-checkout fee applies; posted only on explicit staff approval at check-out.',
   })
   lateCheckoutFee?: { chargeMode: string; chargeValue: number; amount: string } | null;
+  @ApiPropertyOptional({ description: 'Approved late check-out time (HH:mm or HH:mm:ss)' })
+  lateCheckoutApprovedUntil?: string | null;
+  @ApiPropertyOptional({ type: String, format: 'date-time', description: 'Timestamp when late checkout was approved' })
+  lateCheckoutApprovedAt?: Date | null;
+  @ApiPropertyOptional({ description: 'Staff user ID who approved late checkout' })
+  lateCheckoutApprovedBy?: string | null;
+  @ApiPropertyOptional({ description: 'Staff notes or reason for late checkout approval' })
+  lateCheckoutNotes?: string | null;
+  @ApiPropertyOptional({ description: 'Effective checkout deadline time' })
+  effectiveCheckoutTime?: string | null;
+  @ApiPropertyOptional({ description: 'Resolved checkout operational status' })
+  lateCheckoutOperationalStatus?: string | null;
+  @ApiPropertyOptional({ description: 'True when late checkout policy charge has already been posted to the folio' })
+  lateCheckoutFeeAlreadyApplied?: boolean;
 }
+
 
 export class CheckInWorkspaceResponseDto {
   @ApiProperty({ type: CheckInBookingDto })

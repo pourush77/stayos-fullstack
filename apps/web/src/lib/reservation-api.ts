@@ -332,6 +332,22 @@ export function extendReservationStay(
   );
 }
 
+export function approveLateCheckout(
+  propertyId: string,
+  reservationId: string,
+  data: { approvedUntil: string; notes?: string; applyLateCheckoutFee?: boolean },
+  signal?: AbortSignal,
+) {
+  return request<ReservationWorkflowResponseDto>(
+    `/properties/${propertyId}/reservations/${reservationId}/late-checkout`,
+    {
+      body: JSON.stringify(data),
+      method: 'PATCH',
+      signal,
+    },
+  );
+}
+
 export function moveReservationRoom(
   propertyId: string,
   reservationId: string,
@@ -440,6 +456,13 @@ export type CheckInWorkspaceDto = {
     roomAssigned: boolean;
     earlyCheckInFee?: { chargeMode: string; chargeValue: number; amount: string } | null;
     lateCheckoutFee?: { chargeMode: string; chargeValue: number; amount: string } | null;
+    lateCheckoutApprovedUntil?: string | null;
+    lateCheckoutApprovedAt?: string | null;
+    lateCheckoutApprovedBy?: string | null;
+    lateCheckoutNotes?: string | null;
+    effectiveCheckoutTime?: string | null;
+    lateCheckoutOperationalStatus?: string | null;
+    lateCheckoutFeeAlreadyApplied?: boolean;
   };
 };
 

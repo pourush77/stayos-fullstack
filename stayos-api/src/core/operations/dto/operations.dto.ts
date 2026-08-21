@@ -106,6 +106,9 @@ export class OperationsReservationSummaryDto {
 
   @ApiProperty({ enum: ReservationPaymentStatus })
   paymentStatus!: ReservationPaymentStatus;
+
+  @ApiPropertyOptional()
+  lateCheckoutApprovedUntil?: string | null;
 }
 
 export class GroupContextDto {
@@ -1193,6 +1196,15 @@ export class NeedsAttentionItemDto {
 
   @ApiProperty()
   primaryAction!: string;
+
+  @ApiPropertyOptional()
+  category?: string;
+
+  @ApiPropertyOptional()
+  signal?: string;
+
+  @ApiPropertyOptional()
+  metadata?: Record<string, unknown>;
 }
 
 export class WalkInGroupRoomAssignmentDto {

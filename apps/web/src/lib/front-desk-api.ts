@@ -5,6 +5,7 @@ import { useAuth } from '../features/auth/auth-context';
 import { getProperties, getPropertyReservations, type ReservationDto } from './reservation-api';
 import { getPropertyGuests, type GuestDto } from './guest-api';
 import { getPropertyRooms, type InventoryRoomDto } from './inventory-api';
+import { getNeedsAttention, type OperationsAttentionItemDto } from './operations-api';
 
 export type FrontDeskTone = 'red' | 'amber' | 'green' | 'blue' | 'purple' | 'neutral';
 export type FrontDeskTaskPriority = 'critical' | 'high' | 'medium';
@@ -22,8 +23,11 @@ export type FrontDeskTask = {
   category: 'Arrival' | 'Room Ready' | 'VIP' | 'Maintenance' | 'ID Verification' | 'Checkout';
   title: string;
   subtitle: string;
+  roomText?: string;
+  bookingCode?: string;
   message: string;
   signal: string;
+  eyebrow?: string;
   action: string;
   tone: FrontDeskTone;
   href: string;
@@ -44,6 +48,8 @@ type ReservationView = {
   departureDate: string;
   guestName: string;
   isVip: boolean;
+  roomId?: string;
+  roomNumber?: string;
   roomAssigned: boolean;
   roomLabel: string;
   status: string;
@@ -163,29 +169,45 @@ function isInHouseStatus(status: string) {
   return normalizeStatus(status) === 'CHECKED_IN';
 }
 
-function guestName(guest: GuestDto | undefined) {
-  if (!guest) return 'Guest not connected';
+function guestName(guestRecord: Record<string, unknown> | GuestDto | undefined) {
+  if (!guestRecord) return 'Guest not connected';
   return (
-    getString(guest, ['name', 'fullName', 'displayName', 'guestName']) ||
-    [getString(guest, ['firstName']), getString(guest, ['lastName'])].filter(Boolean).join(' ') ||
+    getString(guestRecord as Record<string, unknown>, ['displayName', 'name', 'fullName', 'guestName']) ||
+    [
+      getString(guestRecord as Record<string, unknown>, ['firstName']),
+      getString(guestRecord as Record<string, unknown>, ['lastName']),
+    ]
+      .filter(Boolean)
+      .join(' ') ||
     'Guest not connected'
   );
 }
 
-function createLookup<T extends Record<string, unknown>>(items: T[]) {
-  return new Map(items.map((item) => [getId(item), item] as const).filter(([id]) => id));
+function createLookup<T extends { id?: string }>(items: T[]): Map<string, T> {
+  const map = new Map<string, T>();
+  for (const item of items) {
+    const id = getId(item);
+    if (id) map.set(id, item);
+  }
+  return map;
 }
 
 function mapReservation(
   dto: ReservationDto,
   guests: Map<string, GuestDto>,
+  rooms: Map<string, RoomView>,
   timeZone: string,
 ): ReservationView {
   const guestRecord =
     getRecord(dto, ['guest', 'guestProfile']) ?? guests.get(getString(dto, ['guestId']));
   const roomRecord = getRecord(dto, ['room']);
-  const roomNumber = getString(roomRecord, ['roomNumber', 'number', 'displayName']);
   const roomId = getString(dto, ['roomId'], getId(roomRecord ?? {}));
+  const roomFromMap = roomId ? rooms.get(roomId) : undefined;
+  const roomNumber =
+    getString(dto, ['roomNumber']) ||
+    getString(roomRecord, ['roomNumber', 'number', 'displayName']) ||
+    roomFromMap?.number ||
+    '';
   const arrivalDate = normalizeDate(
     getString(dto, ['arrivalDate', 'checkInDate', 'startDate']),
     timeZone,
@@ -202,8 +224,10 @@ function mapReservation(
     guestName: guestName(guestRecord),
     isVip:
       getBoolean(dto, ['isVip', 'vip']) || getBoolean(guestRecord, ['isVip', 'vip', 'vipStatus']),
+    roomId: roomId || undefined,
+    roomNumber: roomNumber || undefined,
     roomAssigned: Boolean(roomNumber || roomId),
-    roomLabel: roomNumber ? `Room ${roomNumber}` : 'Room not assigned',
+    roomLabel: roomNumber ? `Room ${roomNumber}` : 'Unassigned',
     status: getString(dto, ['status'], 'CONFIRMED'),
   };
 }
@@ -282,14 +306,19 @@ function buildTasks(
     const urgency = minutesUntil(reservation.arrivalDate, timeZone);
 
     if (isArrivalToday && !reservation.roomAssigned) {
+      const roomText = 'Unassigned';
+      const bookingCode = reservation.id;
       tasks.push({
         id: `arrival-room-${reservation.id}`,
-        priority: 'critical',
+        priority: 'high',
         category: 'Arrival',
         title: reservation.guestName,
-        subtitle: `${reservation.id} - ${reservation.roomLabel}`,
-        message: 'Room is not assigned for today arrival.',
+        roomText,
+        bookingCode,
+        subtitle: `${roomText} · ${bookingCode}`,
+        message: 'Arrives today without an assigned room.',
         signal: urgency ? `Arrival in ${urgency} min` : 'Arriving today',
+        eyebrow: 'ACTION NEEDED',
         action: 'Assign Room',
         tone: 'red',
         href: `/rooms?mode=assign&status=ready&reservationId=${encodeURIComponent(reservation.backendId)}`,
@@ -297,14 +326,19 @@ function buildTasks(
     }
 
     if (isArrivalToday && reservation.isVip) {
+      const roomText = reservation.roomNumber ? `Room ${reservation.roomNumber}` : 'Unassigned';
+      const bookingCode = reservation.id;
       tasks.push({
         id: `vip-${reservation.id}`,
-        priority: 'medium',
+        priority: 'critical',
         category: 'VIP',
         title: reservation.guestName,
-        subtitle: `${reservation.id} - ${reservation.roomLabel}`,
+        roomText,
+        bookingCode,
+        subtitle: `${roomText} · ${bookingCode}`,
         message: 'VIP arrival needs welcome preparation.',
         signal: 'VIP arrival',
+        eyebrow: 'VIP ARRIVAL',
         action: 'Prepare Welcome',
         tone: 'purple',
         href: '/guests',
@@ -316,14 +350,17 @@ function buildTasks(
     .filter((room) => isRoomReady(room.status))
     .slice(0, 2)
     .forEach((room) => {
+      const roomText = `Room ${room.number}`;
       tasks.push({
         id: `room-ready-${room.id || room.number}`,
         priority: 'medium',
         category: 'Room Ready',
         title: `Room ${room.number}`,
-        subtitle: 'Cleaned and ready',
-        message: 'Available to assign to a waiting or upcoming guest.',
+        roomText,
+        subtitle: roomText,
+        message: 'Cleaned, inspected, and ready for check-in.',
         signal: 'Ready now',
+        eyebrow: 'ROOM READY',
         action: 'Assign Guest',
         tone: 'green',
         href: '/rooms',
@@ -334,14 +371,17 @@ function buildTasks(
     .filter((room) => isRoomMaintenance(room.status))
     .slice(0, 2)
     .forEach((room) => {
+      const roomText = `Room ${room.number}`;
       tasks.push({
         id: `maintenance-${room.id || room.number}`,
         priority: 'high',
         category: 'Maintenance',
         title: `Room ${room.number}`,
-        subtitle: 'Unavailable room',
-        message: 'Room requires engineering or operational review.',
+        roomText,
+        subtitle: roomText,
+        message: 'Requires engineering or maintenance review.',
         signal: 'Maintenance',
+        eyebrow: 'MAINTENANCE',
         action: 'View Room',
         tone: 'red',
         href: '/rooms',
@@ -377,12 +417,143 @@ async function getCurrentProperty(
   return { propertyId, timeZone };
 }
 
+function mapAttentionItemToTask(
+  item: OperationsAttentionItemDto,
+  reservationsMap: Map<string, ReservationView>,
+  roomsMap: Map<string, RoomView>,
+): FrontDeskTask {
+  const isCheckout =
+    item.category === 'Checkout' ||
+    item.type.includes('CHECKOUT') ||
+    item.type === 'DEPARTURE_TODAY';
+  const isArrival = item.type.includes('ARRIVAL') || item.category === 'Arrival';
+  const isVip = item.category === 'VIP' || item.type.includes('VIP');
+  const isRoom = item.type.startsWith('ROOM_') || item.relatedEntity?.type === 'Room';
+
+  let category: FrontDeskTask['category'] = 'Arrival';
+  if (isCheckout) category = 'Checkout';
+  else if (isVip) category = 'VIP';
+  else if (isArrival) category = 'Arrival';
+  else if (isRoom) {
+    category =
+      item.type === 'ROOM_MAINTENANCE' || item.type === 'ROOM_OUT_OF_ORDER'
+        ? 'Maintenance'
+        : 'Room Ready';
+  }
+
+  const priority: FrontDeskTaskPriority =
+    item.priority === 'CRITICAL'
+      ? 'critical'
+      : item.priority === 'HIGH'
+        ? 'high'
+        : 'medium';
+
+  let tone: FrontDeskTone = 'neutral';
+  if (priority === 'critical') tone = 'red';
+  else if (priority === 'high') tone = category === 'Checkout' ? 'amber' : 'red';
+  else if (category === 'VIP') tone = 'purple';
+  else if (category === 'Room Ready') tone = 'green';
+  else tone = 'blue';
+
+  let href = '/';
+  if (item.relatedEntity?.type === 'Reservation') {
+    if (isArrival) {
+      href = `/rooms?mode=assign&status=ready&reservationId=${encodeURIComponent(item.relatedEntity.id)}`;
+    } else {
+      href = `/reservations/${encodeURIComponent(item.relatedEntity.id)}`;
+    }
+  } else if (item.relatedEntity?.type === 'Room') {
+    href = `/rooms?roomId=${encodeURIComponent(item.relatedEntity.id)}`;
+  }
+
+  let roomNumber: string | undefined = undefined;
+  let bookingCode: string | undefined = undefined;
+  let title = item.title;
+
+  if (item.relatedEntity?.type === 'Reservation') {
+    const res = reservationsMap.get(item.relatedEntity.id);
+    if (item.metadata?.roomNumber) {
+      roomNumber = String(item.metadata.roomNumber);
+    } else if (res?.roomNumber) {
+      roomNumber = res.roomNumber;
+    } else if (res?.roomId) {
+      const roomEntity = roomsMap.get(res.roomId);
+      if (roomEntity?.number) {
+        roomNumber = roomEntity.number;
+      }
+    }
+
+    if (item.metadata?.reservationCode) {
+      bookingCode = String(item.metadata.reservationCode);
+    } else if (res?.id) {
+      bookingCode = res.id;
+    }
+
+    if (item.metadata?.guestName && item.metadata.guestName !== 'Guest') {
+      title = String(item.metadata.guestName);
+    } else if (res?.guestName && res.guestName !== 'Guest not connected') {
+      title = res.guestName;
+    }
+  } else if (item.relatedEntity?.type === 'Room') {
+    const rm = roomsMap.get(item.relatedEntity.id);
+    roomNumber = rm?.number || (item.metadata?.roomNumber ? String(item.metadata.roomNumber) : undefined);
+    if (!title || title === 'View Room' || title === 'View Progress') {
+      title = roomNumber ? `Room ${roomNumber}` : 'Room';
+    }
+  }
+
+  const roomText = roomNumber
+    ? `Room ${roomNumber}`
+    : isRoom
+      ? title.startsWith('Room')
+        ? title
+        : `Room ${title}`
+      : 'Unassigned';
+  const subtitle = `${roomText}${bookingCode ? ` · ${bookingCode}` : ''}`;
+
+  let eyebrow = 'ACTION REQUIRED';
+  if (priority === 'critical') {
+    if (category === 'Checkout') eyebrow = 'OVERDUE CHECKOUT';
+    else if (category === 'VIP') eyebrow = 'VIP ARRIVAL';
+    else if (item.type === 'ROOM_OUT_OF_ORDER') eyebrow = 'OUT OF ORDER';
+    else eyebrow = 'CRITICAL ATTENTION';
+  } else if (priority === 'high') {
+    if (item.type.includes('DUE_NOW')) eyebrow = 'CHECKOUT DUE NOW';
+    else if (item.type.includes('DUE_SOON')) eyebrow = 'CHECKOUT DUE SOON';
+    else if (category === 'Arrival') eyebrow = 'ACTION NEEDED';
+    else if (category === 'Maintenance') eyebrow = 'MAINTENANCE';
+    else if (item.type === 'PENDING_PAYMENT') eyebrow = 'PAYMENT DUE';
+    else eyebrow = 'HIGH PRIORITY';
+  } else {
+    if (item.type === 'LATE_CHECKOUT_APPROVED') eyebrow = 'LATE CHECKOUT';
+    else if (category === 'Checkout') eyebrow = 'DEPARTING TODAY';
+    else if (category === 'Room Ready') eyebrow = 'ROOM READY';
+    else eyebrow = 'SCHEDULED';
+  }
+
+  return {
+    id: `attention-${item.type}-${item.relatedEntity?.id ?? item.title}`,
+    priority,
+    category,
+    title,
+    roomText,
+    bookingCode,
+    subtitle,
+    message: item.description,
+    signal: item.signal || (priority === 'critical' ? 'Urgent' : 'Action needed'),
+    eyebrow,
+    action: item.primaryAction,
+    tone,
+    href,
+  };
+}
+
 async function loadFrontDesk(
   signal?: AbortSignal,
   preferredPropertyId?: string,
 ): Promise<Omit<FrontDeskState, 'isLoading' | 'error'> & { error?: string }> {
   const { propertyId, timeZone } = await getCurrentProperty(signal, preferredPropertyId);
-  const [reservationResult, roomResult, guestResult] = await Promise.all([
+  const [reservationResult, roomResult, guestResult, attentionResult] = await Promise.all([
     getPropertyReservations(propertyId, signal).then(
       (reservations): LoadResult<ReservationDto[]> => ({ data: reservations }),
       (error: unknown) => {
@@ -416,19 +587,45 @@ async function loadFrontDesk(
         };
       },
     ),
+    getNeedsAttention(propertyId, signal).then(
+      (attention): LoadResult<OperationsAttentionItemDto[]> => ({ data: attention }),
+      (error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') throw error;
+
+        return {
+          data: [] as OperationsAttentionItemDto[],
+          error: errorMessage(error, 'Attention queue data is temporarily unavailable.'),
+        };
+      },
+    ),
   ]);
   const guests = createLookup(guestResult.data);
-  const reservations = reservationResult.data.map((reservation) =>
-    mapReservation(reservation, guests, timeZone),
-  );
   const rooms = roomResult.data.map(mapRoom);
-  const dataErrors = [reservationResult.error, roomResult.error, guestResult.error].filter(Boolean);
+  const roomsById = new Map(rooms.map((r) => [r.id, r]));
+  const reservations = reservationResult.data.map((reservation) =>
+    mapReservation(reservation, guests, roomsById, timeZone),
+  );
+  const reservationsById = new Map(reservations.map((r) => [r.backendId, r]));
+
+  const tasks =
+    attentionResult.data.length > 0
+      ? attentionResult.data.map((item) =>
+          mapAttentionItemToTask(item, reservationsById, roomsById),
+        )
+      : buildTasks(reservations, rooms, timeZone);
+
+  const dataErrors = [
+    reservationResult.error,
+    roomResult.error,
+    guestResult.error,
+    attentionResult.error,
+  ].filter(Boolean);
 
   return {
     error: dataErrors.length > 0 ? dataErrors.join(' ') : undefined,
     propertyId,
     summary: buildSummary(reservations, rooms, timeZone),
-    tasks: buildTasks(reservations, rooms, timeZone),
+    tasks,
   };
 }
 

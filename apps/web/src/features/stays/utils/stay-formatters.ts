@@ -29,3 +29,15 @@ export function calculateRemainingNights(departureDate: string) {
   today.setHours(0, 0, 0, 0);
   return Math.max(0, Math.ceil((departure.getTime() - today.getTime()) / 86_400_000));
 }
+
+export function formatTimeDisplay(timeStr?: string | null): string {
+  if (!timeStr) return '';
+  const clean = timeStr.trim();
+  const [hStr, mStr] = clean.split(':');
+  const h = parseInt(hStr, 10) || 0;
+  const m = parseInt(mStr, 10) || 0;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const displayHour = h % 12 === 0 ? 12 : h % 12;
+  const displayMinute = m === 0 ? ':00' : `:${String(m).padStart(2, '0')}`;
+  return `${displayHour}${displayMinute} ${period}`;
+}

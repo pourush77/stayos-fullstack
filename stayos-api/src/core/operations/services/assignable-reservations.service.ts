@@ -10,6 +10,7 @@ import {
   AssignableReservationDto,
   AssignableReservationsQueryDto,
 } from '../dto/operations.dto';
+import { todayIsoDate } from './operations-query.helpers';
 
 const eligibleReservationStatuses = [ReservationStatus.CONFIRMED, ReservationStatus.PENDING];
 const activeAssignmentStatuses = [
@@ -17,13 +18,6 @@ const activeAssignmentStatuses = [
   ReservationStatus.CONFIRMED,
   ReservationStatus.CHECKED_IN,
 ];
-
-function todayKey() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
-    now.getDate(),
-  ).padStart(2, '0')}`;
-}
 
 function guestName(reservation: ReservationEntity) {
   return (
@@ -47,10 +41,10 @@ export class AssignableReservationsService {
     propertyId: string,
     query: AssignableReservationsQueryDto,
   ): Promise<AssignableReservationDto[]> {
-    await this.propertiesService.findOne(propertyId);
+    const property = await this.propertiesService.findOne(propertyId);
 
     const room = query.roomId ? await this.getAssignableRoom(propertyId, query.roomId) : undefined;
-    const today = todayKey();
+    const today = todayIsoDate(property.timezone ?? 'UTC');
     const reservations = await this.reservationsRepository.find({
       where: {
         propertyId,

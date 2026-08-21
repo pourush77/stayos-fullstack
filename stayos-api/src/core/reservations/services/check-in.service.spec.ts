@@ -12,6 +12,8 @@ import { IdentityDocumentType } from '../domain/identity-document-type.enum';
 import { ReservationPaymentStatus } from '../domain/reservation-payment-status.enum';
 import { ReservationSource } from '../domain/reservation-source.enum';
 import { ReservationStatus } from '../domain/reservation-status.enum';
+import { PropertyStatus } from '../../properties/domain/property-status.enum';
+import { PropertyEntity } from '../../properties/infrastructure/property.entity';
 import { GuestIdentityDocumentEntity } from '../infrastructure/guest-identity-document.entity';
 import { ReservationEntity } from '../infrastructure/reservation.entity';
 import { GuestDocumentEntity } from '../check-in-capture/guest-document.entity';
@@ -138,6 +140,39 @@ const identity = (
   verified: true,
   verifiedByUserId: '2075c8fa-f36e-4f40-a3ef-2e9dbb1f0679',
   verifiedAt: new Date('2026-07-09T00:00:00.000Z'),
+  createdAt: new Date('2026-07-01T00:00:00.000Z'),
+  updatedAt: new Date('2026-07-01T00:00:00.000Z'),
+  ...overrides,
+});
+
+const property = (overrides: Partial<PropertyEntity> = {}): PropertyEntity => ({
+  id: propertyId,
+  code: 'HILLSTON',
+  name: 'Hillston Hotel',
+  legalName: 'Hillston Hospitality Ltd',
+  gstNumber: '29ABCDE1234F1Z5',
+  panNumber: 'ABCDE1234F',
+  cinNumber: null,
+  logoUrl: null,
+  email: 'frontdesk@hillston.test',
+  phone: '9876543210',
+  website: null,
+  addressLine1: '12 Hill Road',
+  addressLine2: null,
+  city: 'Bengaluru',
+  state: 'Karnataka',
+  stateCode: 'KA',
+  country: 'India',
+  postalCode: '560001',
+  timezone: 'UTC',
+  currency: 'INR',
+  checkInTime: '14:00:00',
+  checkOutTime: '11:00:00',
+  businessDayCutOffTime: '00:00:00',
+  totalFloors: 4,
+  totalRooms: 24,
+  status: PropertyStatus.ACTIVE,
+  emailNotificationsEnabled: false,
   createdAt: new Date('2026-07-01T00:00:00.000Z'),
   updatedAt: new Date('2026-07-01T00:00:00.000Z'),
   ...overrides,
@@ -330,5 +365,67 @@ describe('CheckInService', () => {
         identity: identity(),
       }),
     ).toThrow(BadRequestException);
+  });
+
+  it('marks today departure before checkout time as not late', () => {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(new Date());
+    const workspace = service.toWorkspace({
+      reservation: reservation({
+        status: ReservationStatus.CHECKED_IN,
+        departureDate: today,
+      }),
+      guest: guest(),
+      room: room(),
+      identity: identity(),
+      property: property({ checkOutTime: '23:59:59' }),
+    });
+
+    expect(workspace.operational.lateCheckout).toBe(false);
+  });
+
+  it('marks today departure after checkout time as late', () => {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(new Date());
+    const workspace = service.toWorkspace({
+      reservation: reservation({
+        status: ReservationStatus.CHECKED_IN,
+        departureDate: today,
+      }),
+      guest: guest(),
+      room: room(),
+      identity: identity(),
+      property: property({ checkOutTime: '00:00:01' }),
+    });
+
+    expect(workspace.operational.lateCheckout).toBe(true);
+  });
+
+  it('marks overdue checked-in stay (past departure date) as late/overdue', () => {
+    const workspace = service.toWorkspace({
+      reservation: reservation({
+        status: ReservationStatus.CHECKED_IN,
+        departureDate: '2020-01-01',
+      }),
+      guest: guest(),
+      room: room(),
+      identity: identity(),
+      property: property({ checkOutTime: '11:00:00' }),
+    });
+
+    expect(workspace.operational.lateCheckout).toBe(true);
+  });
+
+  it('does not mark past departure as late when not checked in', () => {
+    const workspace = service.toWorkspace({
+      reservation: reservation({
+        status: ReservationStatus.CONFIRMED,
+        departureDate: '2020-01-01',
+      }),
+      guest: guest(),
+      room: room(),
+      identity: identity(),
+      property: property({ checkOutTime: '11:00:00' }),
+    });
+
+    expect(workspace.operational.lateCheckout).toBe(false);
   });
 });

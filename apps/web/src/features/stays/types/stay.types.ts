@@ -13,6 +13,7 @@ export type StayAttentionItem = {
 };
 
 export type StayAllowedActions = {
+  canApproveLateCheckout: boolean;
   canCheckOut: boolean;
   canExtendStay: boolean;
   canMoveRoom: boolean;
@@ -21,6 +22,18 @@ export type StayAllowedActions = {
 export type StayDocument = {
   label: string;
   status: string;
+};
+
+export type StayLateCheckout = {
+  approvedUntil: string | null;
+  approvedAt?: string | null;
+  approvedBy?: string | null;
+  notes?: string | null;
+  effectiveCheckoutTime?: string | null;
+  operationalStatus?: string | null;
+  standardCheckoutTime?: string | null;
+  fee?: { chargeMode: string; chargeValue: number; amount: string } | null;
+  feeAlreadyApplied?: boolean;
 };
 
 export type StayBilling = {
@@ -53,6 +66,7 @@ export type Stay = {
   internalNotes: string;
   isVip: boolean;
   language: string;
+  lateCheckout?: StayLateCheckout;
   nationality: string;
   nights: number;
   outstandingAmount: string;

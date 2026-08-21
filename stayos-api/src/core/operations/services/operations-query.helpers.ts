@@ -49,18 +49,22 @@ export const findRoomsWithInventory = (
     order: { roomNumber: 'ASC' },
   });
 
+/**
+ * In-house stays are defined strictly by CHECKED_IN status and an assigned room,
+ * not by the planned calendar departure date. A guest remains in-house until
+ * Front Desk completes the checkout transition, even if the scheduled departure
+ * date has passed.
+ */
 export const findCurrentRoomStays = (
   reservationsRepository: Repository<ReservationEntity>,
   propertyId: string,
-  today: string,
+  _today?: string,
 ): Promise<ReservationEntity[]> =>
   reservationsRepository.find({
     where: {
       propertyId,
       roomId: Not(IsNull()),
-      status: In([ReservationStatus.CHECKED_IN]),
-      arrivalDate: LessThanOrEqual(today),
-      departureDate: MoreThanOrEqual(today),
+      status: ReservationStatus.CHECKED_IN,
     },
     relations: { guest: true },
   });

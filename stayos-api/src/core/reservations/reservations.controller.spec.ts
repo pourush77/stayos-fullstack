@@ -11,6 +11,8 @@ import { CheckInService } from './services/check-in.service';
 import { ReservationQuoteService } from './services/reservation-quote.service';
 import { ReservationWorkflowService } from './services/reservation-workflow.service';
 
+import { ReservationsMapper } from './reservations.mapper';
+
 const propertyId = '4075c8fa-f36e-4f40-a3ef-2e9dbb1f0670';
 const guestId = '6075c8fa-f36e-4f40-a3ef-2e9dbb1f0672';
 const roomTypeId = '7075c8fa-f36e-4f40-a3ef-2e9dbb1f0673';
@@ -43,28 +45,7 @@ const reservationEntity: ReservationEntity = {
   updatedAt: new Date('2026-07-01T00:00:00.000Z'),
 };
 
-const reservationResponse = {
-  id: reservationId,
-  propertyId,
-  guestId,
-  reservationCode: 'RSV-HILL-0001',
-  arrivalDate: '2026-07-15',
-  departureDate: '2026-07-17',
-  adults: 2,
-  children: 0,
-  roomTypeId,
-  roomId: null,
-  source: ReservationSource.DIRECT,
-  sourceProvider: null,
-  externalReservationId: null,
-  externalConfirmationId: null,
-  status: ReservationStatus.CONFIRMED,
-  paymentStatus: ReservationPaymentStatus.PAYMENT_DUE,
-  notes: null,
-  specialRequests: null,
-  createdAt: new Date('2026-07-01T00:00:00.000Z'),
-  updatedAt: new Date('2026-07-01T00:00:00.000Z'),
-};
+const reservationResponse = ReservationsMapper.toResponse(reservationEntity);
 
 describe('ReservationsController', () => {
   let controller: ReservationsController;
@@ -84,6 +65,7 @@ describe('ReservationsController', () => {
     confirm: jest.fn(),
     checkIn: jest.fn(),
     checkOut: jest.fn(),
+    approveLateCheckout: jest.fn(),
   };
 
   const checkInService = {
@@ -270,6 +252,26 @@ describe('ReservationsController', () => {
         roomId: 'target-room-id',
         reason: 'Guest requested quieter room',
       },
+      { actorId: null },
+    );
+  });
+
+  it('delegates approve-late-checkout workflow requests', async () => {
+    const workflowResponse = {
+      reservation: { ...reservationResponse, lateCheckoutApprovedUntil: '14:00' },
+      room: { id: 'room-id' },
+    };
+
+    reservationWorkflowService.approveLateCheckout.mockResolvedValue(workflowResponse);
+
+    await expect(
+      controller.approveLateCheckout(propertyId, reservationId, { approvedUntil: '14:00', notes: 'Late flight' }),
+    ).resolves.toEqual(workflowResponse);
+
+    expect(reservationWorkflowService.approveLateCheckout).toHaveBeenCalledWith(
+      propertyId,
+      reservationId,
+      { approvedUntil: '14:00', notes: 'Late flight' },
       { actorId: null },
     );
   });

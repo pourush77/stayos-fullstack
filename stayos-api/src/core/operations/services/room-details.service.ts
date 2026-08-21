@@ -34,8 +34,8 @@ export class RoomDetailsService {
   ) {}
 
   async getRoomDetails(propertyId: string, roomId: string): Promise<RoomDrawerDto> {
-    await this.propertiesService.findOne(propertyId);
-    const today = todayIsoDate();
+    const property = await this.propertiesService.findOne(propertyId);
+    const today = todayIsoDate(property.timezone ?? 'UTC');
     const room = await this.roomsRepository.findOne({
       where: { id: roomId, propertyId },
       relations: { floor: true, roomType: true },

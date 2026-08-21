@@ -18,9 +18,11 @@ import { FolioChargeStatus } from '../../billing/domain/folio-charge-status.enum
 import { FolioEntity } from '../../billing/infrastructure/folio.entity';
 import { TaxService } from '../../rates/tax.service';
 import { AssignRoomDto } from '../dto/assign-room.dto';
+import { ApproveLateCheckoutDto } from '../dto/approve-late-checkout.dto';
 import { ExtendReservationDto } from '../dto/extend-reservation.dto';
 import { MoveRoomDto } from '../dto/move-room.dto';
 import { ReservationWorkflowResponseDto } from '../dto/reservation-workflow-response.dto';
+import { PropertyEntity } from '../../properties/infrastructure/property.entity';
 import { ReservationPaymentStatus } from '../domain/reservation-payment-status.enum';
 import { ReservationStatus } from '../domain/reservation-status.enum';
 import { ReservationEntity } from '../infrastructure/reservation.entity';
@@ -43,6 +45,12 @@ import { ReservationRateSnapshotService } from './reservation-rate-snapshot.serv
 import { RestrictionService } from '../../rates/restriction.service';
 import { ReservationRateSnapshotTrigger } from '../domain/reservation-rate-snapshot-trigger.enum';
 import { expandStayNights } from '../../inventory/domain/inventory-nights';
+import {
+  formatTimeDisplay,
+  parseTimeToMinutes,
+  propertyLocalDate,
+  propertyLocalTime,
+} from '../../operations/services/checkout-operational-state.resolver';
 
 const activeAssignmentStatuses = [
   ReservationStatus.PENDING,
@@ -707,6 +715,121 @@ export class ReservationWorkflowService {
     });
   }
 
+  async approveLateCheckout(
+    propertyId: string,
+    reservationId: string,
+    dto: ApproveLateCheckoutDto,
+    actorContext: WorkflowActorContext = {},
+  ): Promise<ReservationWorkflowResponseDto> {
+    return this.dataSource.transaction(async (manager) => {
+      const reservationRepository = manager.getRepository(ReservationEntity);
+      const roomRepository = manager.getRepository(RoomEntity);
+      const propertyRepository = manager.getRepository(PropertyEntity);
+
+      const reservation = await this.findReservation(
+        reservationRepository,
+        propertyId,
+        reservationId,
+      );
+      this.ensureReservationStatus(
+        reservation,
+        ReservationStatus.CHECKED_IN,
+        ApiErrorCode.RESERVATION_NOT_CHECKED_IN,
+        'Only checked-in reservations can have late checkout approved',
+      );
+
+      if (!reservation.roomId) {
+        throw this.badRequest(
+          ApiErrorCode.ROOM_NOT_FOUND,
+          'Reservation must have an assigned room before approving late checkout',
+        );
+      }
+
+      const property = await propertyRepository.findOne({ where: { id: propertyId } });
+      if (!property) {
+        throw new NotFoundException({
+          code: ApiErrorCode.NOT_FOUND,
+          message: `Property ${propertyId} not found`,
+        });
+      }
+
+      const room = await this.findRoom(roomRepository, reservation.roomId);
+      this.ensureRoomBelongsToProperty(room, propertyId);
+
+      const timeZone = property.timezone ?? 'UTC';
+      const standardCheckOutTime = property.checkOutTime ?? '11:00:00';
+      const today = propertyLocalDate(timeZone);
+      const nowTime = propertyLocalTime(timeZone);
+      const normalizedTime = dto.approvedUntil.trim();
+      const nowMinutes = parseTimeToMinutes(nowTime);
+      const standardMinutes = parseTimeToMinutes(standardCheckOutTime);
+      const approvedMinutes = parseTimeToMinutes(normalizedTime);
+
+      if (reservation.departureDate < today) {
+        throw this.badRequest(
+          ApiErrorCode.VALIDATION_ERROR,
+          'Reservation departure date has passed. Extend stay to update the departure date.',
+        );
+      }
+
+      if (approvedMinutes <= standardMinutes) {
+        throw this.badRequest(
+          ApiErrorCode.VALIDATION_ERROR,
+          `Approved late checkout time must be later than standard checkout time (${formatTimeDisplay(standardCheckOutTime)}).`,
+        );
+      }
+
+      if (reservation.departureDate === today && approvedMinutes <= nowMinutes) {
+        throw this.badRequest(
+          ApiErrorCode.VALIDATION_ERROR,
+          `Approved late checkout time must be later than current property time (${formatTimeDisplay(nowTime)}).`,
+        );
+      }
+
+      if (dto.applyLateCheckoutFee) {
+        await this.postLifecyclePolicyCharge(
+          manager,
+          propertyId,
+          reservation,
+          PropertyPolicyType.LATE_CHECKOUT,
+          'Late check-out charge',
+          actorContext.actorId ?? null,
+        );
+      }
+
+      const previousState = this.workflowAuditState(reservation, room);
+
+      reservation.lateCheckoutApprovedUntil = normalizedTime;
+      reservation.lateCheckoutApprovedAt = new Date();
+      reservation.lateCheckoutApprovedBy = actorContext.actorId ?? null;
+      if (dto.notes !== undefined) {
+        reservation.lateCheckoutNotes = dto.notes;
+      }
+
+      const updatedReservation = await reservationRepository.save(reservation);
+
+      await this.createEvents(manager, {
+        propertyId,
+        action: 'RESERVATION_LATE_CHECKOUT_APPROVED',
+        previousState,
+        nextState: this.workflowAuditState(updatedReservation, room),
+        activityType: 'LATE_CHECKOUT_APPROVED',
+        activityTitle: 'Late checkout approved',
+        activityDescription: `Late checkout approved for ${reservation.reservationCode} until ${normalizedTime}.`,
+        reservation: updatedReservation,
+        room,
+        actorId: actorContext.actorId ?? null,
+        metadata: {
+          approvedUntil: normalizedTime,
+          notes: dto.notes ?? null,
+          feeApplied: Boolean(dto.applyLateCheckoutFee),
+        },
+      });
+
+      return this.toWorkflowResponse(updatedReservation, room);
+    });
+  }
+
   async moveRoom(
     propertyId: string,
     reservationId: string,
@@ -1015,6 +1138,10 @@ export class ReservationWorkflowService {
       id: reservation.id,
       status: reservation.status,
       roomId: reservation.roomId,
+      lateCheckoutApprovedUntil: reservation.lateCheckoutApprovedUntil ?? null,
+      lateCheckoutApprovedAt: reservation.lateCheckoutApprovedAt ?? null,
+      lateCheckoutApprovedBy: reservation.lateCheckoutApprovedBy ?? null,
+      lateCheckoutNotes: reservation.lateCheckoutNotes ?? null,
     };
   }
 

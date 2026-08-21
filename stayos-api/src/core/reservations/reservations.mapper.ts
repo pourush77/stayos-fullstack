@@ -35,6 +35,10 @@ export class ReservationsMapper {
       guestEmail: guest?.email ?? undefined,
       roomTypeName: entity.roomType?.name ?? undefined,
       roomNumber: entity.room?.roomNumber ?? undefined,
+      lateCheckoutApprovedUntil: entity.lateCheckoutApprovedUntil ?? null,
+      lateCheckoutApprovedAt: entity.lateCheckoutApprovedAt ?? null,
+      lateCheckoutApprovedBy: entity.lateCheckoutApprovedBy ?? null,
+      lateCheckoutNotes: entity.lateCheckoutNotes ?? null,
     };
   }
 }

@@ -81,4 +81,16 @@ export class ReservationResponseDto {
 
   @ApiPropertyOptional()
   roomNumber?: string;
+
+  @ApiPropertyOptional({ description: 'Approved late checkout time (HH:mm or HH:mm:ss)' })
+  lateCheckoutApprovedUntil?: string | null;
+
+  @ApiPropertyOptional({ type: String, format: 'date-time' })
+  lateCheckoutApprovedAt?: Date | null;
+
+  @ApiPropertyOptional()
+  lateCheckoutApprovedBy?: string | null;
+
+  @ApiPropertyOptional()
+  lateCheckoutNotes?: string | null;
 }

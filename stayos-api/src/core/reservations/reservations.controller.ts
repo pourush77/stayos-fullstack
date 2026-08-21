@@ -33,6 +33,7 @@ import { QuoteReservationDto } from './dto/quote-reservation.dto';
 import { ListReservationsQueryDto } from './dto/list-reservations-query.dto';
 import { AssignRoomDto } from './dto/assign-room.dto';
 import { CheckInWorkspaceResponseDto } from './dto/check-in-workspace-response.dto';
+import { ApproveLateCheckoutDto } from './dto/approve-late-checkout.dto';
 import { ExtendReservationDto } from './dto/extend-reservation.dto';
 import { MoveRoomDto } from './dto/move-room.dto';
 import { PaymentReviewDto } from './dto/payment-review.dto';
@@ -214,6 +215,23 @@ export class ReservationsController {
     @CurrentUser() user?: AuthenticatedRequest['currentUser'],
   ): Promise<ReservationWorkflowResponseDto> {
     return this.reservationWorkflowService.extendStay(propertyId, reservationId, dto, {
+      actorId: user?.id ?? null,
+    });
+  }
+
+  @Patch(':reservationId/late-checkout')
+  @RequirePermissions(Permissions.BookingsManage)
+  @ApiOperation({ summary: 'Approve late checkout for a checked-in reservation' })
+  @ApiStandardOkResponse(ReservationWorkflowResponseDto)
+  @ApiBadRequestResponse({ description: 'Invalid late checkout time or reservation state' })
+  @ApiNotFoundResponse({ description: 'Reservation or room not found' })
+  async approveLateCheckout(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('reservationId', ParseUUIDPipe) reservationId: string,
+    @Body() dto: ApproveLateCheckoutDto,
+    @CurrentUser() user?: AuthenticatedRequest['currentUser'],
+  ): Promise<ReservationWorkflowResponseDto> {
+    return this.reservationWorkflowService.approveLateCheckout(propertyId, reservationId, dto, {
       actorId: user?.id ?? null,
     });
   }

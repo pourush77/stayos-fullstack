@@ -95,6 +95,26 @@ describe('OperationsMapper', () => {
     });
   });
 
+  it('maps overdue checked-in stay with Overdue Checkout label and CRITICAL attention level', () => {
+    expect(
+      OperationsMapper.toRoomBoardItem(
+        room(RoomOperationalStatus.OCCUPIED),
+        reservation('2026-07-01'),
+        '2026-07-03',
+      ),
+    ).toMatchObject({
+      uiStatus: OperationsRoomUiStatus.OCCUPIED,
+      operationalStatus: RoomOperationalStatus.OCCUPIED,
+      currentStay: {
+        guestName: 'Rahul Sharma',
+        status: ReservationStatus.CHECKED_IN,
+      },
+      checkoutLabel: 'Overdue Checkout',
+      primaryAction: 'Open Stay',
+      attentionLevel: OperationsAttentionLevel.CRITICAL,
+    });
+  });
+
   it('keeps checked-in stays authoritative even when the room is marked maintenance', () => {
     expect(
       OperationsMapper.toRoomBoardItem(

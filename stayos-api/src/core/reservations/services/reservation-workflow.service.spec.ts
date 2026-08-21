@@ -3,6 +3,7 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 import { ActivityEventEntity } from '../../activity/infrastructure/activity-event.entity';
 import { AuditEventEntity } from '../../audit/infrastructure/audit-event.entity';
 import { GuestStatus } from '../../guests/domain/guest-status.enum';
+import { PropertyEntity } from '../../properties/infrastructure/property.entity';
 import { GuestEntity } from '../../guests/infrastructure/guest.entity';
 import { RoomTypeStatus } from '../../room-types/domain/room-type-status.enum';
 import { RoomTypeEntity } from '../../room-types/infrastructure/room-type.entity';
@@ -198,6 +199,10 @@ describe('ReservationWorkflowService', () => {
       save: jest.fn().mockImplementation(async (entity) => entity),
     };
 
+    const propertiesRepository = {
+      findOne: jest.fn().mockResolvedValue({ id: propertyId, checkOutTime: '11:00:00' }),
+    };
+
     const manager = {
       getRepository: jest.fn((entity) => {
         if (entity === ReservationEntity) return reservationsRepository;
@@ -208,6 +213,7 @@ describe('ReservationWorkflowService', () => {
         if (entity === ActivityEventEntity) return activityRepository;
         if (entity === FolioEntity) return foliosRepository;
         if (entity === FolioChargeEntity) return folioChargesRepository;
+        if (entity === PropertyEntity) return propertiesRepository;
         throw new Error('Unexpected repository');
       }),
     } as unknown as EntityManager;
@@ -892,6 +898,123 @@ describe('ReservationWorkflowService', () => {
       await expect(
         service.moveRoom(propertyId, reservationId, { roomId: targetRoomId }),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('approveLateCheckout', () => {
+    it('approves late checkout on checked in reservation and emits events without mutating room status', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({
+          roomId,
+          status: ReservationStatus.CHECKED_IN,
+          departureDate: '2099-12-31',
+        }),
+      );
+      roomsRepository.findOne?.mockResolvedValue(
+        roomEntity({ operationalStatus: RoomOperationalStatus.OCCUPIED }),
+      );
+
+      const result = await service.approveLateCheckout(
+        propertyId,
+        reservationId,
+        { approvedUntil: '14:00', notes: 'Flight in evening' },
+        { actorId: 'user-1' },
+      );
+
+      expect(reservationsRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: ReservationStatus.CHECKED_IN,
+          lateCheckoutApprovedUntil: '14:00',
+          lateCheckoutApprovedBy: 'user-1',
+          lateCheckoutNotes: 'Flight in evening',
+          lateCheckoutApprovedAt: expect.any(Date),
+        }),
+      );
+      expect(roomsRepository.save).not.toHaveBeenCalled();
+      expect(result.reservation).toMatchObject({
+        id: reservationId,
+        status: ReservationStatus.CHECKED_IN,
+        lateCheckoutApprovedUntil: '14:00',
+      });
+      expect(result.room).toMatchObject({
+        id: roomId,
+        operationalStatus: RoomOperationalStatus.OCCUPIED,
+      });
+      expect(auditRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'RESERVATION_LATE_CHECKOUT_APPROVED' }),
+      );
+      expect(activityRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'LATE_CHECKOUT_APPROVED',
+          metadata: expect.objectContaining({ approvedUntil: '14:00', notes: 'Flight in evening' }),
+        }),
+      );
+    });
+
+    it('rejects late checkout when reservation is not checked in', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({
+          roomId,
+          status: ReservationStatus.CONFIRMED,
+          departureDate: '2099-12-31',
+        }),
+      );
+
+      await expect(
+        service.approveLateCheckout(propertyId, reservationId, { approvedUntil: '14:00' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects late checkout when reservation has no assigned room', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({
+          roomId: null,
+          status: ReservationStatus.CHECKED_IN,
+          departureDate: '2099-12-31',
+        }),
+      );
+
+      await expect(
+        service.approveLateCheckout(propertyId, reservationId, { approvedUntil: '14:00' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects late checkout when reservation departure date has already passed', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({
+          roomId,
+          status: ReservationStatus.CHECKED_IN,
+          departureDate: '2020-01-01',
+        }),
+      );
+      roomsRepository.findOne?.mockResolvedValue(
+        roomEntity({ operationalStatus: RoomOperationalStatus.OCCUPIED }),
+      );
+
+      await expect(
+        service.approveLateCheckout(propertyId, reservationId, { approvedUntil: '14:00' }),
+      ).rejects.toThrow('Reservation departure date has passed. Extend stay to update the departure date.');
+    });
+
+    it('rejects late checkout when approved time is earlier than or equal to standard checkout time', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({
+          roomId,
+          status: ReservationStatus.CHECKED_IN,
+          departureDate: '2099-12-31',
+        }),
+      );
+      roomsRepository.findOne?.mockResolvedValue(
+        roomEntity({ operationalStatus: RoomOperationalStatus.OCCUPIED }),
+      );
+
+      await expect(
+        service.approveLateCheckout(propertyId, reservationId, { approvedUntil: '10:30' }),
+      ).rejects.toThrow('Approved late checkout time must be later than standard checkout time (11:00 AM).');
+
+      await expect(
+        service.approveLateCheckout(propertyId, reservationId, { approvedUntil: '11:00' }),
+      ).rejects.toThrow('Approved late checkout time must be later than standard checkout time (11:00 AM).');
     });
   });
 });

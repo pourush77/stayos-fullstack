@@ -141,6 +141,7 @@ function mapAllowedActions(
   const checkedIn = status === 'CHECKED_IN';
 
   return {
+    canApproveLateCheckout: getBoolean(allowedActions, ['canApproveLateCheckout']) || checkedIn,
     canCheckOut: getBoolean(allowedActions, ['canCheckOut']) || checkedIn,
     canExtendStay: getBoolean(allowedActions, ['canExtendStay']) || checkedIn,
     canMoveRoom: getBoolean(allowedActions, ['canMoveRoom']) || checkedIn,
@@ -226,7 +227,16 @@ function mapWarnings(dto: StayWorkspaceDto, stay: Omit<Stay, 'warnings'>): StayA
     items.push({ title: 'ID document missing', detail: 'No check-in ID document is attached to this stay.', tone: 'warning' });
   }
 
-  if (stay.departureDate === today) {
+  if (stay.lateCheckout?.approvedUntil) {
+    const isOverdue = stay.lateCheckout.operationalStatus === 'LATE_CHECKOUT_OVERDUE';
+    items.push({
+      title: isOverdue ? 'Late Checkout Overdue' : 'Late Checkout Approved',
+      detail: isOverdue
+        ? `Approved deadline (${stay.lateCheckout.approvedUntil.slice(0, 5)}) has passed.`
+        : `Approved until ${stay.lateCheckout.approvedUntil.slice(0, 5)}.`,
+      tone: isOverdue ? 'danger' : 'info',
+    });
+  } else if (stay.departureDate === today) {
     items.push({ title: 'Checkout Today', detail: 'This stay is scheduled to depart today.', tone: 'info' });
   }
 
@@ -264,6 +274,32 @@ export function mapStayWorkspace(dto: StayWorkspaceDto): Stay {
     .map((item) => (typeof item === 'string' ? item : fullGuestName(item as Record<string, unknown>, reservation)))
     .filter(Boolean);
 
+  const lateCheckoutApprovedUntil =
+    getString(reservation, ['lateCheckoutApprovedUntil']) ||
+    dto.operational?.lateCheckoutApprovedUntil ||
+    null;
+  const lateCheckoutApprovedAt =
+    getString(reservation, ['lateCheckoutApprovedAt']) ||
+    dto.operational?.lateCheckoutApprovedAt ||
+    null;
+  const lateCheckoutApprovedBy =
+    getString(reservation, ['lateCheckoutApprovedBy']) ||
+    dto.operational?.lateCheckoutApprovedBy ||
+    null;
+  const lateCheckoutNotes =
+    getString(reservation, ['lateCheckoutNotes']) ||
+    dto.operational?.lateCheckoutNotes ||
+    null;
+  const effectiveCheckoutTime =
+    dto.operational?.effectiveCheckoutTime ||
+    lateCheckoutApprovedUntil ||
+    dto.operational?.standardCheckOutTime ||
+    null;
+  const operationalStatus = dto.operational?.lateCheckoutOperationalStatus || null;
+  const standardCheckoutTime = dto.operational?.standardCheckOutTime || null;
+  const fee = dto.operational?.lateCheckoutFee ?? null;
+  const feeAlreadyApplied = Boolean(dto.operational?.lateCheckoutFeeAlreadyApplied);
+
   const baseStay: Omit<Stay, 'warnings'> = {
     activity: mapActivity(dto.activity),
     additionalGuests,
@@ -292,6 +328,17 @@ export function mapStayWorkspace(dto: StayWorkspaceDto): Stay {
     internalNotes: getString(reservation, ['notes', 'note'], 'No stay notes recorded.'),
     isVip: getBoolean(reservation, ['isVip', 'vip']) || getBoolean(guest, ['vipStatus', 'vip', 'isVip']),
     language: getString(guest, ['preferredLanguage', 'language'], 'Language not recorded'),
+    lateCheckout: {
+      approvedUntil: lateCheckoutApprovedUntil,
+      approvedAt: lateCheckoutApprovedAt,
+      approvedBy: lateCheckoutApprovedBy,
+      notes: lateCheckoutNotes,
+      effectiveCheckoutTime,
+      operationalStatus,
+      standardCheckoutTime,
+      fee,
+      feeAlreadyApplied,
+    },
     nationality: getString(reservation, ['nationality'], getString(guest, ['nationality'], 'Nationality not recorded')),
     nights: calculateNights(arrivalDate, departureDate),
     outstandingAmount,
@@ -312,4 +359,3 @@ export function mapStayWorkspace(dto: StayWorkspaceDto): Stay {
     warnings: mapWarnings(dto, baseStay),
   };
 }
-

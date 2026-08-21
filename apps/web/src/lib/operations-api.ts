@@ -179,6 +179,9 @@ export type OperationsAttentionItemDto = {
     id: string;
   };
   primaryAction: string;
+  category?: string;
+  signal?: string;
+  metadata?: Record<string, unknown>;
 };
 
 export type OperationsActivityItemDto = {

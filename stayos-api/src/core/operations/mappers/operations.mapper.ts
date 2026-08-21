@@ -17,6 +17,7 @@ import {
   OperationsRoomUiStatus,
   RoomBoardItemDto,
 } from '../dto/operations.dto';
+import { formatTimeDisplay } from '../services/checkout-operational-state.resolver';
 
 export class OperationsMapper {
   static toRoomBoardItem(
@@ -41,7 +42,13 @@ export class OperationsMapper {
       uiStatus: this.toUiStatus(room.operationalStatus, currentStay, groupContext),
       operationalStatus: this.toOperationalStatus(room.operationalStatus, currentStay, groupContext),
       currentStay: currentStay ? this.toReservationSummary(currentStay) : null,
-      checkoutLabel: currentStay ? this.toCheckoutLabel(currentStay.departureDate, today) : null,
+      checkoutLabel: currentStay
+        ? this.toCheckoutLabel(
+            currentStay.departureDate,
+            today,
+            currentStay.lateCheckoutApprovedUntil,
+          )
+        : null,
       groupContext: groupContext ?? null,
       primaryAction: this.toPrimaryAction(room, currentStay, groupContext),
       attentionLevel: this.toAttentionLevel(room, currentStay, today, groupContext),
@@ -78,6 +85,7 @@ export class OperationsMapper {
       departureDate: reservation.departureDate,
       status: reservation.status,
       paymentStatus: reservation.paymentStatus,
+      lateCheckoutApprovedUntil: reservation.lateCheckoutApprovedUntil ?? null,
     };
   }
 
@@ -130,6 +138,9 @@ export class OperationsMapper {
     priority: OperationsPriority;
     relatedEntity: { type: string; id: string };
     primaryAction: string;
+    category?: string;
+    signal?: string;
+    metadata?: Record<string, unknown>;
   }): NeedsAttentionItemDto {
     return input;
   }
@@ -170,7 +181,19 @@ export class OperationsMapper {
     }
   }
 
-  private static toCheckoutLabel(departureDate: string, today: string): string {
+  private static toCheckoutLabel(
+    departureDate: string,
+    today: string,
+    lateCheckoutApprovedUntil?: string | null,
+  ): string {
+    if (departureDate < today) {
+      return 'Overdue Checkout';
+    }
+
+    if (lateCheckoutApprovedUntil && departureDate === today) {
+      return `Late Checkout · ${formatTimeDisplay(lateCheckoutApprovedUntil)}`;
+    }
+
     const tomorrow = new Date(`${today}T00:00:00.000Z`);
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
     const tomorrowValue = tomorrow.toISOString().slice(0, 10);
@@ -245,6 +268,13 @@ export class OperationsMapper {
       [RoomOperationalStatus.OUT_OF_ORDER, RoomOperationalStatus.OUT_OF_SERVICE].includes(
         room.operationalStatus,
       )
+    ) {
+      return OperationsAttentionLevel.CRITICAL;
+    }
+
+    if (
+      currentStay?.status === ReservationStatus.CHECKED_IN &&
+      currentStay.departureDate < today
     ) {
       return OperationsAttentionLevel.CRITICAL;
     }

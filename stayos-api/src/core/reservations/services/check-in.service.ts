@@ -18,7 +18,10 @@ import { CFormStatus } from '../domain/c-form-status.enum';
 import { IdentityDocumentType } from '../domain/identity-document-type.enum';
 import { ReservationPaymentStatus } from '../domain/reservation-payment-status.enum';
 import { PaymentReviewDto } from '../dto/payment-review.dto';
-import { CheckInWorkspaceResponseDto } from '../dto/check-in-workspace-response.dto';
+import {
+  CheckInWorkspaceResponseDto,
+  CheckInOperationalContextDto,
+} from '../dto/check-in-workspace-response.dto';
 import { UpdateGuestRegistrationDto } from '../dto/update-guest-registration.dto';
 import { UpdateIdentityVerificationDto } from '../dto/update-identity-verification.dto';
 import { GuestIdentityDocumentEntity } from '../infrastructure/guest-identity-document.entity';
@@ -31,6 +34,10 @@ import { PropertyPolicyType } from '../../policies/domain/property-policy-type.e
 import { PolicyChargeMode } from '../../policies/domain/policy-charge-mode.enum';
 import { normalizePolicyCharge } from '../../policies/domain/normalize-policy-charge';
 import { BusinessDateService } from '../../properties/services/business-date.service';
+import {
+  resolveCheckoutOperationalState,
+  CheckoutOperationalStatus,
+} from '../../operations/services/checkout-operational-state.resolver';
 
 interface ActorContext {
   actorId?: string | null;
@@ -64,9 +71,17 @@ export class CheckInService {
     parts: WorkspaceParts,
   ): Promise<CheckInWorkspaceResponseDto> {
     workspace.operational.earlyCheckInFee = await this.resolveEarlyCheckInFee(parts);
-    workspace.operational.lateCheckoutFee = workspace.operational.lateCheckout
-      ? await this.resolveLateCheckoutFee(parts)
-      : null;
+    workspace.operational.lateCheckoutFee =
+      parts.reservation?.status === 'CHECKED_IN'
+        ? await this.resolveLateCheckoutFee(parts)
+        : null;
+    const existingLateFee = (parts.folio?.charges ?? []).some(
+      (c) =>
+        c.type === FolioChargeType.MISC &&
+        c.description === 'Late check-out charge' &&
+        c.status === FolioChargeStatus.POSTED,
+    );
+    workspace.operational.lateCheckoutFeeAlreadyApplied = existingLateFee;
     return workspace;
   }
 
@@ -607,13 +622,7 @@ export class CheckInService {
    * Read-only operational context (Phase 1E). Detects, but does NOT enforce or
    * charge, early check-in / late checkout against the property standard times.
    */
-  private getOperationalContext(parts: WorkspaceParts): {
-    standardCheckInTime: string | null;
-    standardCheckOutTime: string | null;
-    earlyCheckIn: boolean;
-    lateCheckout: boolean;
-    roomAssigned: boolean;
-  } {
+  private getOperationalContext(parts: WorkspaceParts): CheckInOperationalContextDto {
     const checkInTime = parts.property?.checkInTime ?? null;
     const checkOutTime = parts.property?.checkOutTime ?? null;
     const timeZone = parts.property?.timezone ?? 'UTC';
@@ -630,11 +639,19 @@ export class CheckInService {
       checkInTime != null &&
       nowTime < checkInTime;
 
+    const isPastDeparture = parts.reservation.departureDate < today;
+    const isDepartureToday = parts.reservation.departureDate === today;
+
+    const checkoutResolution = resolveCheckoutOperationalState(
+      parts.reservation,
+      parts.property,
+      now,
+    );
+
     const lateCheckout =
       parts.reservation.status === 'CHECKED_IN' &&
-      parts.reservation.departureDate === today &&
-      checkOutTime != null &&
-      nowTime > checkOutTime;
+      (isPastDeparture ||
+        (isDepartureToday && checkOutTime != null && nowTime > checkOutTime));
 
     return {
       standardCheckInTime: checkInTime,
@@ -642,6 +659,12 @@ export class CheckInService {
       earlyCheckIn,
       lateCheckout,
       roomAssigned: parts.reservation.roomId != null,
+      lateCheckoutApprovedUntil: parts.reservation.lateCheckoutApprovedUntil ?? null,
+      lateCheckoutApprovedAt: parts.reservation.lateCheckoutApprovedAt ?? null,
+      lateCheckoutApprovedBy: parts.reservation.lateCheckoutApprovedBy ?? null,
+      lateCheckoutNotes: parts.reservation.lateCheckoutNotes ?? null,
+      effectiveCheckoutTime: checkoutResolution.effectiveCheckoutTime,
+      lateCheckoutOperationalStatus: checkoutResolution.status,
     };
   }
 

@@ -288,24 +288,28 @@ function AttentionCard({ item }: { item: FrontDeskTask }) {
       className={styles.attentionActionButton}
       variant={buttonVariant(item.tone)}
       color={buttonColor(item.tone)}
-      size="compact-sm"
+      size="sm"
     >
       {item.action}
     </Button>
   );
 
   return (
-    <Paper className={`${styles.attentionCard} ${toneClass(item.tone)}`} radius={radius.lg}>
+    <Paper className={`${styles.attentionCard} ${toneClass(item.tone)}`}>
       <Group className={styles.attentionGrid} wrap="nowrap">
-        {/* <Box className={styles.attentionPriority}>{priorityLabel(item.priority)}</Box> */}
-
-        <ThemeIcon className={styles.attentionIcon} variant="light" radius={radius.md} size={38}>
+        <ThemeIcon
+          className={styles.attentionIcon}
+          variant="light"
+          radius={radius.md}
+          size={38}
+          aria-hidden="true"
+        >
           {taskIcon(item)}
         </ThemeIcon>
 
         <Box className={styles.attentionBody}>
-          <Group gap={spacing[2]} wrap="nowrap">
-            <Text className={styles.attentionSignal}>{item.signal}</Text>
+          <Group gap={spacing[2]} wrap="nowrap" className={styles.attentionHeader}>
+            <Text className={styles.attentionEyebrow}>{item.eyebrow ?? item.signal}</Text>
             <Text className={styles.attentionCategory}>{item.category}</Text>
           </Group>
 
@@ -314,13 +318,15 @@ function AttentionCard({ item }: { item: FrontDeskTask }) {
           <Text className={styles.attentionDetail}>{item.message}</Text>
         </Box>
 
-        {item.href ? (
-          <Link href={item.href} className={styles.cardLink}>
-            {actionButton}
-          </Link>
-        ) : (
-          actionButton
-        )}
+        <Box className={styles.attentionActionWrapper}>
+          {item.href ? (
+            <Link href={item.href} className={styles.actionButtonLink} tabIndex={-1}>
+              {actionButton}
+            </Link>
+          ) : (
+            actionButton
+          )}
+        </Box>
       </Group>
     </Paper>
   );
@@ -337,6 +343,7 @@ function NeedsAttention({
 }) {
   const [filter, setFilter] = useState('all');
   const arrivalCount = items.filter((item) => item.category === 'Arrival').length;
+  const checkoutCount = items.filter((item) => item.category === 'Checkout').length;
   const roomCount = items.filter(
     (item) => item.category === 'Room Ready' || item.category === 'Maintenance',
   ).length;
@@ -346,6 +353,7 @@ function NeedsAttention({
       ? items
       : items.filter((item) => {
           if (filter === 'arrivals') return item.category === 'Arrival';
+          if (filter === 'checkouts') return item.category === 'Checkout';
           if (filter === 'rooms')
             return item.category === 'Room Ready' || item.category === 'Maintenance';
           return item.category === 'VIP';
@@ -379,6 +387,7 @@ function NeedsAttention({
           data={[
             { label: `All ${items.length}`, value: 'all' },
             { label: `Arrivals ${arrivalCount}`, value: 'arrivals' },
+            { label: `Checkouts ${checkoutCount}`, value: 'checkouts' },
             { label: `Rooms ${roomCount}`, value: 'rooms' },
             { label: `VIP ${vipCount}`, value: 'vip' },
           ]}

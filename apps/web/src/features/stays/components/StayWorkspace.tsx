@@ -29,6 +29,7 @@ import {
   Car,
   ChevronDown,
   ChevronLeft,
+  Clock,
   ConciergeBell,
   DoorOpen,
   Droplets,
@@ -61,8 +62,10 @@ import {
 import { extendReservationStay, moveReservationRoom } from '../../../lib/reservation-api';
 import { useStayWorkspace } from '../hooks/useStayWorkspace';
 import { StayBillingPanel } from './StayBillingPanel';
+import { LateCheckoutModal } from './LateCheckoutModal';
 import type { Stay } from '../types/stay.types';
-import { formatDisplayDate } from '../utils/stay-formatters';
+import { formatDisplayDate, formatTimeDisplay } from '../utils/stay-formatters';
+
 import {
   createGuestRequest,
   listGuestRequests,
@@ -274,12 +277,14 @@ function DetailTile({ label, value }: { label: string; value: React.ReactNode })
 function StayHeader({
   onCheckOut,
   onExtendStay,
+  onLateCheckout,
   onMoveRoom,
   relocationRequired,
   stay,
 }: {
   onCheckOut: () => void;
   onExtendStay: () => void;
+  onLateCheckout: () => void;
   onMoveRoom: () => void;
   relocationRequired: boolean;
   stay: Stay;
@@ -312,7 +317,7 @@ function StayHeader({
               Back to Front Desk
             </Button>
           </Group>
-          <Group gap={8}>
+          <Group gap={8} wrap="wrap">
             <Badge color="blue" variant="light" radius={radius.full}>
               {stay.status}
             </Badge>
@@ -328,6 +333,17 @@ function StayHeader({
             >
               {stay.paymentStatus}
             </Badge>
+            {stay.lateCheckout?.approvedUntil ? (
+              <Badge
+                color={stay.lateCheckout.operationalStatus === 'LATE_CHECKOUT_OVERDUE' ? 'red' : 'violet'}
+                variant="light"
+                radius={radius.full}
+                leftSection={<Clock size={12} />}
+                data-testid="stay-late-checkout-badge"
+              >
+                Late checkout approved · Until {formatTimeDisplay(stay.lateCheckout.approvedUntil)}
+              </Badge>
+            ) : null}
           </Group>
           <Title order={1} c="#101828" style={{ fontSize: 34, fontWeight: 800 }}>
             {stay.guestName}
@@ -348,9 +364,25 @@ function StayHeader({
             <Text c="#64748b" size="sm">
               Booking: {stay.bookingId}
             </Text>
+            {stay.lateCheckout?.approvedUntil ? (
+              <Text c="#7c3aed" size="sm" fw={700} data-testid="stay-late-checkout-indicator">
+                Late Checkout: Until {formatTimeDisplay(stay.lateCheckout.approvedUntil)}
+                {stay.lateCheckout.notes ? ` · Note: ${stay.lateCheckout.notes}` : ''}
+              </Text>
+            ) : null}
           </Group>
         </Stack>
-        <Group gap={8}>
+        <Group gap={8} wrap="wrap">
+          <Button
+            disabled={!stay.allowedActions.canApproveLateCheckout}
+            variant="light"
+            color="stayosBrand"
+            leftSection={<Clock size={16} />}
+            onClick={onLateCheckout}
+            data-testid="stay-late-checkout-action"
+          >
+            Late Checkout
+          </Button>
           <Button
             disabled={!stay.allowedActions.canMoveRoom}
             variant={relocationRequired ? 'filled' : 'light'}
@@ -1225,6 +1257,7 @@ export default function StayWorkspace() {
     (backend.status === 'CONNECTING' && backend.lastSuccessfulConnection !== null);
   const stayState = useStayWorkspace({ enabled, stayId: params.stayId });
   const [checkoutOpened, setCheckoutOpened] = useState(false);
+  const [lateCheckoutOpened, setLateCheckoutOpened] = useState(false);
   const [extendOpened, setExtendOpened] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [isExtending, setIsExtending] = useState(false);
@@ -1548,6 +1581,7 @@ export default function StayWorkspace() {
       <StayHeader
         stay={stay}
         relocationRequired={relocationRequired}
+        onLateCheckout={() => setLateCheckoutOpened(true)}
         onMoveRoom={() => void openMoveRoom()}
         onExtendStay={openExtendStay}
         onCheckOut={() => setCheckoutOpened(true)}
@@ -1664,6 +1698,25 @@ export default function StayWorkspace() {
           </Group>
         </Stack>
       </Modal>
+
+      <LateCheckoutModal
+        opened={lateCheckoutOpened}
+        onClose={() => setLateCheckoutOpened(false)}
+        propertyId={stayState.propertyId ?? ''}
+        reservationId={params.stayId ?? ''}
+        guestName={stay.guestName}
+        roomNumber={stay.roomNumber}
+        bookingCode={stay.bookingId}
+        departureDate={stay.departureDate}
+        standardCheckoutTime={stay.lateCheckout?.standardCheckoutTime}
+        currentApprovedUntil={stay.lateCheckout?.approvedUntil}
+        currentNotes={stay.lateCheckout?.notes}
+        operationalStatus={stay.lateCheckout?.operationalStatus}
+        onApproved={async () => {
+          await stayState.refreshStay();
+          setBillingReloadSignal((value) => value + 1);
+        }}
+      />
 
       <MoveRoomModal
         isLoadingRooms={isLoadingMoveRooms}

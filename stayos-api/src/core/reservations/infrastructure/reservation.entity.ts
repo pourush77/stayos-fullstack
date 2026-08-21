@@ -208,6 +208,18 @@ export class ReservationEntity {
   @Column({ type: 'jsonb', name: 'tax_snapshot', nullable: true })
   taxSnapshot?: Record<string, unknown> | null;
 
+  @Column({ type: 'varchar', length: 32, name: 'late_checkout_approved_until', nullable: true })
+  lateCheckoutApprovedUntil?: string | null;
+
+  @Column({ type: 'timestamptz', name: 'late_checkout_approved_at', nullable: true })
+  lateCheckoutApprovedAt?: Date | null;
+
+  @Column({ type: 'varchar', length: 64, name: 'late_checkout_approved_by', nullable: true })
+  lateCheckoutApprovedBy?: string | null;
+
+  @Column({ type: 'text', name: 'late_checkout_notes', nullable: true })
+  lateCheckoutNotes?: string | null;
+
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt!: Date;
 

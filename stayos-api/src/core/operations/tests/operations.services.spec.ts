@@ -27,6 +27,7 @@ import { NeedsAttentionService } from '../services/needs-attention.service';
 import { RoomAvailabilityService } from '../services/room-availability.service';
 import { RoomBoardService } from '../services/room-board.service';
 import { RoomDetailsService } from '../services/room-details.service';
+import { todayIsoDate } from '../services/operations-query.helpers';
 
 type MockRepository<T extends object = object> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -87,10 +88,8 @@ const asRepository = <T extends object>(repository: MockRepository<T>): Reposito
 
 const dateKey = (offsetDays = 0) => {
   const value = new Date();
-  value.setDate(value.getDate() + offsetDays);
-  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(
-    value.getDate(),
-  ).padStart(2, '0')}`;
+  value.setUTCDate(value.getUTCDate() + offsetDays);
+  return todayIsoDate('UTC', value);
 };
 
 const createGroupRoomMixService = (
@@ -334,6 +333,44 @@ describe('Operations services', () => {
       },
       checkoutLabel: expect.stringMatching(/^Checkout (Today|Tomorrow)$/),
       primaryAction: 'Open Stay',
+    });
+  });
+
+  it('keeps overdue checked-in stay attached to room board as currentStay with OCCUPIED status and Open Stay action', async () => {
+    reservationsRepository.find?.mockResolvedValue([
+      reservation({
+        arrivalDate: dateKey(-3),
+        departureDate: dateKey(-1),
+        status: ReservationStatus.CHECKED_IN,
+      }),
+    ]);
+    reservationsRepository.createQueryBuilder?.mockReturnValue({
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    });
+    const service = new RoomBoardService(
+      asRepository(roomsRepository),
+      asRepository(reservationsRepository),
+      asRepository(groupAssignmentsRepository),
+      asRepository(groupMasterFoliosRepository),
+      propertiesService,
+    );
+
+    const result = await service.getRoomBoard(propertyId);
+
+    expect(result[0]).toMatchObject({
+      uiStatus: 'OCCUPIED',
+      operationalStatus: RoomOperationalStatus.OCCUPIED,
+      currentStay: {
+        guestName: 'Rahul Sharma',
+        status: ReservationStatus.CHECKED_IN,
+      },
+      checkoutLabel: 'Overdue Checkout',
+      primaryAction: 'Open Stay',
+      attentionLevel: 'CRITICAL',
     });
   });
 
@@ -2378,6 +2415,77 @@ describe('Operations services', () => {
     );
 
     await expect(service.getNeedsAttention(propertyId)).resolves.toEqual([]);
+  });
+
+  it('flags departures due today with MEDIUM priority and DEPARTURE_TODAY type', async () => {
+    roomsRepository.find?.mockResolvedValue([]);
+    reservationsRepository.find
+      ?.mockResolvedValueOnce([]) // unassignedArrivals
+      .mockResolvedValueOnce([]) // vipUnassignedArrivals
+      .mockResolvedValueOnce([
+        reservation({
+          departureDate: dateKey(),
+          status: ReservationStatus.CHECKED_IN,
+        }),
+      ]) // checkedInDepartures
+      .mockResolvedValueOnce([]); // pendingPayments
+
+    const service = new NeedsAttentionService(
+      asRepository(reservationsRepository),
+      asRepository(roomsRepository),
+      propertiesService,
+    );
+
+    const result = await service.getNeedsAttention(propertyId);
+
+    expect(result).toMatchObject([
+      {
+        type: 'DEPARTURE_TODAY',
+        title: 'Rahul Sharma',
+        priority: 'MEDIUM',
+        primaryAction: 'Open Stay',
+        metadata: {
+          guestName: 'Rahul Sharma',
+          reservationCode: 'RSV-001',
+        },
+      },
+    ]);
+  });
+
+  it('flags overdue checked-in departures with CRITICAL priority and OVERDUE_CHECKOUT type', async () => {
+    roomsRepository.find?.mockResolvedValue([]);
+    reservationsRepository.find
+      ?.mockResolvedValueOnce([]) // unassignedArrivals
+      .mockResolvedValueOnce([]) // vipUnassignedArrivals
+      .mockResolvedValueOnce([
+        reservation({
+          departureDate: dateKey(-1),
+          status: ReservationStatus.CHECKED_IN,
+        }),
+      ]) // checkedInDepartures
+      .mockResolvedValueOnce([]); // pendingPayments
+
+    const service = new NeedsAttentionService(
+      asRepository(reservationsRepository),
+      asRepository(roomsRepository),
+      propertiesService,
+    );
+
+    const result = await service.getNeedsAttention(propertyId);
+
+    expect(result).toMatchObject([
+      {
+        type: 'OVERDUE_CHECKOUT',
+        title: 'Rahul Sharma',
+        description: expect.stringContaining('overdue for checkout'),
+        priority: 'CRITICAL',
+        primaryAction: 'Open Stay',
+        metadata: {
+          guestName: 'Rahul Sharma',
+          reservationCode: 'RSV-001',
+        },
+      },
+    ]);
   });
 
   it('returns assignable reservations only for valid unassigned active bookings', async () => {

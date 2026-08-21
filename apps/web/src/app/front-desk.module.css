@@ -354,17 +354,29 @@
   flex: 0 0 auto;
 }
 
+@keyframes queueItemEnter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* New premium task queue row */
 .attentionCard {
-  min-height: 82px;
-  padding: 12px 16px;
+  min-height: 84px;
+  padding: 14px 18px;
   border: 0;
   border-left: 4px solid var(--tone);
   border-bottom: 1px solid #e2e8f0;
   border-radius: 0 !important;
   background: #ffffff;
+  animation: queueItemEnter 220ms ease-out backwards;
   transition:
-    background 160ms ease,
+    background-color 160ms ease,
     box-shadow 160ms ease;
 }
 
@@ -404,27 +416,26 @@
 }
 
 .emptyQueue {
-  padding: 18px 16px;
+  padding: 24px 20px;
   background: #ffffff;
 }
 
 .attentionCard:hover {
-  background: #fbfdff;
-  box-shadow: inset 0 0 0 999px rgba(248, 250, 252, 0.35);
+  background: #f8fafc;
 }
 
 .attentionGrid {
   display: grid;
   width: 100%;
-  grid-template-columns: 42px minmax(280px, 0.72fr) minmax(180px, 0.28fr);
-  gap: 14px;
+  grid-template-columns: 40px minmax(260px, 1fr) auto;
+  gap: 16px;
   align-items: center;
 }
 
 .attentionIcon {
-  width: 38px;
-  height: 38px;
-  min-width: 38px;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
   color: var(--tone);
   background: var(--tone-bg);
   border-radius: 12px;
@@ -434,17 +445,20 @@
   min-width: 0;
 }
 
-.attentionBody :global(.mantine-Group-root) {
+.attentionHeader {
   min-width: 0;
+  margin-bottom: 3px;
 }
 
-.attentionSignal {
+.attentionEyebrow {
   display: inline-flex;
   align-items: center;
   color: var(--tone);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 15px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 14px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
@@ -453,10 +467,10 @@
   height: 20px;
   align-items: center;
   padding: 0 8px;
-  border: 1px solid rgba(226, 232, 240, 0.95);
+  border: 1px solid rgba(203, 213, 225, 0.8);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--tone) 7%, #ffffff);
-  color: var(--tone);
+  background: #f1f5f9;
+  color: #475569;
   font-size: 11px;
   font-weight: 600;
   line-height: 18px;
@@ -464,42 +478,63 @@
 }
 
 .attentionSubject {
-  margin-top: 3px;
+  margin: 0;
   color: #0f172a;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 700;
-  line-height: 18px;
+  line-height: 22px;
+  letter-spacing: -0.01em;
 }
 
 .attentionMeta {
   margin-top: 2px;
-  color: #526383;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 15px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 18px;
 }
 
 .attentionDetail {
-  margin-top: 1px;
+  margin-top: 2px;
   color: #64748b;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 15px;
+  font-size: 13px;
+  font-weight: 450;
+  line-height: 18px;
+}
+
+.attentionActionWrapper {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
 }
 
 .attentionActionButton {
-  width: 172px;
-  max-width: 100%;
+  min-width: 130px;
   height: 36px;
-  justify-self: end;
-  border-radius: 11px;
+  padding: 0 16px;
+  border-radius: 10px;
   font-size: 13px;
   font-weight: 600;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease;
 }
 
-.attentionGrid > .cardLink {
-  width: auto;
-  justify-self: end;
+.attentionActionButton:hover {
+  transform: translateY(-1px);
+}
+
+.attentionActionButton:focus-visible {
+  outline: 2px solid var(--tone);
+  outline-offset: 2px;
+}
+
+.actionButtonLink {
+  display: inline-block;
+  text-decoration: none;
+  outline: none;
 }
 
 /* Old classes retained safely in case other components still reference them */
@@ -636,13 +671,17 @@
   .quickActionCard,
   .summaryCard,
   .summaryStripItem,
-  .attentionCard {
-    transition: none;
+  .attentionCard,
+  .attentionActionButton {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
   }
 
   .quickActionCard:hover,
-  .summaryCard:hover {
-    transform: none;
+  .summaryCard:hover,
+  .attentionActionButton:hover {
+    transform: none !important;
   }
 }
 
@@ -680,13 +719,11 @@
   }
 
   .attentionGrid {
-    grid-template-columns: 40px minmax(0, 1fr);
+    grid-template-columns: 40px minmax(200px, 1fr) auto;
   }
 
-  .attentionActionButton {
-    grid-column: 2 / -1;
-    justify-self: start;
-    margin-top: 8px;
+  .attentionActionWrapper {
+    justify-self: end;
   }
 
   .quickActionCard {
@@ -769,8 +806,12 @@
     display: none;
   }
 
+  .attentionActionWrapper {
+    width: 100%;
+    margin-top: 8px;
+  }
+
   .attentionActionButton {
-    grid-column: 1 / -1;
     width: 100%;
   }
 

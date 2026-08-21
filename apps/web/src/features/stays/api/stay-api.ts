@@ -6,7 +6,12 @@ import {
   type OperationsActivityItemDto,
   type OperationsRoomBoardItemDto,
 } from '../../../lib/operations-api';
-import { API_BASE_URL, type ReservationDto } from '../../../lib/reservation-api';
+import {
+  API_BASE_URL,
+  getCheckInWorkspace,
+  type CheckInWorkspaceDto,
+  type ReservationDto,
+} from '../../../lib/reservation-api';
 
 type ApiResponse<T> = T | { data?: T } | { items?: T } | { results?: T };
 
@@ -15,6 +20,7 @@ export type StayReadModelDto = {
   allowedActions?: Record<string, unknown>;
   documents?: Record<string, unknown>[];
   guest?: GuestDto;
+  operational?: CheckInWorkspaceDto['operational'];
   payment?: Record<string, unknown>;
   reservation?: ReservationDto;
   room?: InventoryRoomDto | OperationsRoomBoardItemDto;
@@ -26,6 +32,7 @@ export type StayWorkspaceDto = {
   allowedActions?: Record<string, unknown>;
   documents?: Record<string, unknown>[];
   guest?: GuestDto;
+  operational?: CheckInWorkspaceDto['operational'];
   payment?: Record<string, unknown>;
   reservation: ReservationDto;
   room?: InventoryRoomDto | OperationsRoomBoardItemDto;
@@ -115,6 +122,7 @@ export async function getStayWorkspace(
         allowedActions: readModel.allowedActions,
         documents: readModel.documents,
         guest: readModel.guest,
+        operational: readModel.operational,
         payment: readModel.payment,
         reservation: readModel.reservation,
         room: readModel.room,
@@ -131,16 +139,18 @@ export async function getStayWorkspace(
   );
   const guestId = getString(reservation, ['guestId'], getString(getRecord(reservation, ['guest', 'guestProfile']), ['id', '_id', 'uuid']));
 
-  const [guest, rooms, roomBoard, activity] = await Promise.all([
+  const [guest, rooms, roomBoard, activity, checkInWorkspace] = await Promise.all([
     guestId ? getPropertyGuest(propertyId, guestId, signal).catch(() => undefined) : Promise.resolve(undefined),
     getPropertyRooms(propertyId, signal).catch(() => []),
     getRoomBoard(propertyId, signal).catch(() => []),
     getActivityFeed(propertyId, { entityType: 'RESERVATION', entityId: reservationId, limit: 20 }, signal).catch(() => []),
+    getCheckInWorkspace(propertyId, reservationId, signal).catch(() => undefined),
   ]);
 
   return {
     activity,
     guest,
+    operational: checkInWorkspace?.operational,
     reservation,
     room: findAssignedRoom(reservation, rooms, roomBoard),
   };
