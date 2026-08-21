@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, QueryFailedError, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, QueryFailedError, Repository } from 'typeorm';
 import { PropertiesService } from '../properties/properties.service';
 import { RoomTypesService } from '../room-types/room-types.service';
 import { ChildPricingMode } from './domain/child-pricing-mode.enum';
@@ -104,6 +104,34 @@ export class RatesService {
       where: { propertyId, ratePlanId: plan.id, roomTypeId },
     });
     return applicable ? plan : null;
+  }
+
+  async findActiveApplicableRatePlans(
+    propertyId: string,
+    roomTypeId: string,
+    manager?: EntityManager,
+  ): Promise<RatePlanEntity[]> {
+    const ratePlansRepo = manager
+      ? manager.getRepository(RatePlanEntity)
+      : this.ratePlansRepository;
+    const ratePlanRoomTypesRepo = manager
+      ? manager.getRepository(RatePlanRoomTypeEntity)
+      : this.ratePlanRoomTypesRepository;
+
+    const roomTypeApplicabilities = await ratePlanRoomTypesRepo.find({
+      where: { propertyId, roomTypeId },
+    });
+    if (roomTypeApplicabilities.length === 0) return [];
+
+    const applicablePlanIds = roomTypeApplicabilities.map((a) => a.ratePlanId);
+    return ratePlansRepo.find({
+      where: {
+        id: In(applicablePlanIds),
+        propertyId,
+        status: RatePlanStatus.ACTIVE,
+      },
+      order: { isDefault: 'DESC', name: 'ASC' },
+    });
   }
 
   async updateRatePlan(

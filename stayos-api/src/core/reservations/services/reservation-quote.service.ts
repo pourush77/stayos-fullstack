@@ -11,13 +11,51 @@ import { GroupBookingDepositPolicyType } from '../../properties/domain/group-boo
 import { normalizeDepositPolicy } from '../../policies/domain/normalize-deposit-policy';
 import { FolioChargeType } from '../../billing/domain/folio-charge-type.enum';
 import { toCents, fromCents } from '../../billing/domain/money';
+import { MealPlan } from '../../rates/domain/meal-plan.enum';
+import { RatesService } from '../../rates/rates.service';
+import { RateResolverService } from '../../rates/rate-resolver.service';
 import { QuoteReservationDto } from '../dto/quote-reservation.dto';
 import { ReservationPricingService } from './reservation-pricing.service';
+
+export interface EligibleRatePlanQuote {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  mealPlan: MealPlan;
+  refundable: boolean;
+  isDefault: boolean;
+  pricingStatus: 'PRICED' | 'UNPRICED';
+  roomCharges: string;
+  extraAdultCharges: string;
+  childCharges: string;
+  taxableSubtotal: string;
+  grandTotal: string;
+  tax: {
+    applied: boolean;
+    totalRate: string;
+    totalTax: string;
+  };
+  deposit: {
+    required: boolean;
+    suggestedAmount: string;
+    policyType: string;
+    policyValue: number;
+  };
+}
 
 export interface ReservationQuoteResult {
   pricingStatus: 'PRICED' | 'UNPRICED';
   currency: 'INR';
-  ratePlan: { id: string; code: string } | null;
+  ratePlan: {
+    id: string;
+    code: string;
+    name?: string;
+    mealPlan?: MealPlan;
+    refundable?: boolean;
+    isDefault?: boolean;
+  } | null;
+  ratePlans: EligibleRatePlanQuote[];
   roomType: {
     id: string;
     code: string;
@@ -72,6 +110,8 @@ export class ReservationQuoteService {
     private readonly childPricingService: ChildPricingService,
     private readonly gstService: GstService,
     private readonly policyResolver: PolicyResolverService,
+    private readonly ratesService: RatesService,
+    private readonly rateResolver: RateResolverService,
   ) {}
 
   async quote(propertyId: string, dto: QuoteReservationDto): Promise<ReservationQuoteResult> {
@@ -96,11 +136,86 @@ export class ReservationQuoteService {
     // or fall outside a configured band).
     await this.childPricingService.validateReservationChildAges(propertyId, children, dto.childAges);
 
-    // SAME commercial path as create: resolves the effective/default rate plan
-    // (e.g. BAR) and prices via the shared RateResolver. Never mutates anything.
+    // Discover all active sellable rate plans applicable to this room type
+    const activePlans = await this.ratesService.findActiveApplicableRatePlans(
+      propertyId,
+      dto.roomTypeId,
+    );
+
+    const eligibleRatePlans: EligibleRatePlanQuote[] = [];
+    for (const plan of activePlans) {
+      try {
+        const resolved = await this.rateResolver.resolve({
+          propertyId,
+          ratePlanId: plan.id,
+          roomTypeId: dto.roomTypeId,
+          arrivalDate: dto.arrivalDate,
+          departureDate: dto.departureDate,
+          adults: dto.adults,
+          childAges: children > 0 ? dto.childAges : undefined,
+        });
+
+        const planGrandTotalCents = toCents(resolved.totals.grandTotal);
+        const nights = resolved.nights.length;
+        const planUnitCents = nights > 0 ? Math.round(planGrandTotalCents / nights) : planGrandTotalCents;
+        const planGst = await this.gstService.computeTax({
+          propertyId,
+          chargeType: FolioChargeType.ROOM,
+          taxableAmountCents: planGrandTotalCents,
+          slabBasisAmount: planUnitCents / 100,
+          placeOfSupply: PlaceOfSupply.INTRA_STATE,
+          chargeDate: new Date(dto.arrivalDate),
+        });
+
+        const planPayableCents = planGrandTotalCents + planGst.totalTaxCents;
+        const planDeposit = await this.resolveIndividualDeposit(propertyId, plan.id, planPayableCents);
+
+        eligibleRatePlans.push({
+          id: plan.id,
+          code: plan.code,
+          name: plan.name,
+          description: plan.description ?? null,
+          mealPlan: plan.mealPlan,
+          refundable: plan.refundable,
+          isDefault: plan.isDefault,
+          pricingStatus: 'PRICED',
+          roomCharges: resolved.totals.room,
+          extraAdultCharges: resolved.totals.extraAdult,
+          childCharges: resolved.totals.child,
+          taxableSubtotal: resolved.totals.grandTotal,
+          grandTotal: fromCents(planPayableCents),
+          tax: {
+            applied: planGst.applied,
+            totalRate: planGst.totalRate,
+            totalTax: planGst.totalTax,
+          },
+          deposit: planDeposit,
+        });
+      } catch {
+        // Skip unpriced or restricted plans from selectable options
+      }
+    }
+
+    // Determine target rate plan for primary quote:
+    // 1. Explicit ratePlanId if requested
+    // 2. Default active plan if available in eligible plans
+    // 3. First eligible priced plan
+    let targetRatePlanId = dto.ratePlanId ?? null;
+    if (targetRatePlanId && !eligibleRatePlans.some((p) => p.id === targetRatePlanId)) {
+      throw new BadRequestException(
+        'Selected rate plan is not sellable for this room type and stay.',
+      );
+    }
+    if (!targetRatePlanId) {
+      const defaultEligible = eligibleRatePlans.find((p) => p.isDefault);
+      targetRatePlanId = defaultEligible ? defaultEligible.id : (eligibleRatePlans[0]?.id ?? null);
+    }
+
+    // SAME commercial path as create: resolves the effective/selected rate plan
+    // and prices via the shared RateResolver. Never mutates anything.
     const snapshot = await this.reservationPricingService.buildCommercialSnapshot({
       propertyId,
-      ratePlanId: dto.ratePlanId ?? null,
+      ratePlanId: targetRatePlanId,
       roomTypeId: dto.roomTypeId,
       arrivalDate: dto.arrivalDate,
       departureDate: dto.departureDate,
@@ -124,6 +239,7 @@ export class ReservationQuoteService {
         pricingStatus: 'UNPRICED',
         currency: 'INR',
         ratePlan: null,
+        ratePlans: eligibleRatePlans,
         roomType: roomTypeView,
         occupancy: (snap.occupancy as Record<string, unknown>) ?? {},
         nights: 0,
@@ -156,6 +272,7 @@ export class ReservationQuoteService {
     }
 
     const ratePlan = snap.ratePlan as { id: string; code: string };
+    const matchingActivePlan = activePlans.find((p) => p.id === ratePlan.id);
     const totals = snap.totals as {
       room: string;
       extraAdult: string;
@@ -190,7 +307,15 @@ export class ReservationQuoteService {
     return {
       pricingStatus: 'PRICED',
       currency: 'INR',
-      ratePlan: { id: ratePlan.id, code: ratePlan.code },
+      ratePlan: {
+        id: ratePlan.id,
+        code: ratePlan.code,
+        name: matchingActivePlan?.name ?? ratePlan.code,
+        mealPlan: (snap.mealPlan as MealPlan) ?? matchingActivePlan?.mealPlan ?? MealPlan.ROOM_ONLY,
+        refundable: typeof snap.refundable === 'boolean' ? snap.refundable : (matchingActivePlan?.refundable ?? true),
+        isDefault: matchingActivePlan?.isDefault ?? false,
+      },
+      ratePlans: eligibleRatePlans,
       roomType: roomTypeView,
       occupancy: (snap.occupancy as Record<string, unknown>) ?? {},
       nights,

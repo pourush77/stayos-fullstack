@@ -140,10 +140,45 @@ export type ReservationQuoteInput = {
 
 export type ReservationQuoteTaxComponent = { name: string; rate: string; amount: string };
 
+export type EligibleRatePlanQuoteDto = {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  mealPlan: string;
+  refundable: boolean;
+  isDefault: boolean;
+  pricingStatus: 'PRICED' | 'UNPRICED';
+  roomCharges: string;
+  extraAdultCharges: string;
+  childCharges: string;
+  taxableSubtotal: string;
+  grandTotal: string;
+  tax: {
+    applied: boolean;
+    totalRate: string;
+    totalTax: string;
+  };
+  deposit: {
+    required: boolean;
+    suggestedAmount: string;
+    policyType: string;
+    policyValue: number;
+  };
+};
+
 export type ReservationQuoteDto = {
   pricingStatus: 'PRICED' | 'UNPRICED';
   currency: 'INR';
-  ratePlan: { id: string; code: string } | null;
+  ratePlan: {
+    id: string;
+    code: string;
+    name?: string;
+    mealPlan?: string;
+    refundable?: boolean;
+    isDefault?: boolean;
+  } | null;
+  ratePlans?: EligibleRatePlanQuoteDto[];
   roomType: {
     id: string;
     code: string;

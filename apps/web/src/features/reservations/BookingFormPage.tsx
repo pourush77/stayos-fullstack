@@ -103,6 +103,20 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
+function formatMealPlan(mealPlan?: string) {
+  switch (mealPlan) {
+    case 'BREAKFAST':
+      return 'Breakfast included';
+    case 'HALF_BOARD':
+      return 'Half board';
+    case 'FULL_BOARD':
+      return 'Full board';
+    case 'ROOM_ONLY':
+    default:
+      return 'Room only';
+  }
+}
+
 function initialsFor(name: string) {
   return name
     .split(' ')
@@ -391,6 +405,7 @@ function QuickBookingForm({
     parseDateValue(initialDeparture),
   ]);
   const [roomTypeId, setRoomTypeId] = useState(initialRoomTypeId ?? '');
+  const [selectedRatePlanId, setSelectedRatePlanId] = useState<string>('');
   const [adults, setAdults] = useState(initialAdults ?? 1);
   const [children, setChildren] = useState(initialChildren ?? 0);
   const [childAges, setChildAges] = useState<number[]>([]);
@@ -445,8 +460,22 @@ function QuickBookingForm({
     children,
     childAges,
     roomTypeId,
+    ratePlanId: selectedRatePlanId || undefined,
     enabled: nights > 0 && Boolean(roomTypeId) && childAgesReady,
   });
+
+  useEffect(() => {
+    if (quote?.ratePlan?.id) {
+      if (
+        !selectedRatePlanId ||
+        (quote.ratePlans &&
+          quote.ratePlans.length > 0 &&
+          !quote.ratePlans.some((p) => p.id === selectedRatePlanId))
+      ) {
+        setSelectedRatePlanId(quote.ratePlan.id);
+      }
+    }
+  }, [quote?.ratePlan?.id, quote?.ratePlans, selectedRatePlanId]);
   const money = (value?: string) => Number(value ?? '0');
   const quotePriced = quote?.pricingStatus === 'PRICED';
   const quoteBlocker = quote?.blocker ?? null;
@@ -748,7 +777,7 @@ function QuickBookingForm({
       notes,
       paymentStatus,
       roomTypeId,
-      ratePlanId: quote?.ratePlan?.id,
+      ratePlanId: selectedRatePlanId || quote?.ratePlan?.id,
       source,
       specialRequests,
       deposit:
@@ -1103,6 +1132,7 @@ function QuickBookingForm({
                     data-testid={`room-type-option-${roomType.id}`}
                     onClick={() => {
                       setRoomTypeId(roomType.id);
+                      setSelectedRatePlanId('');
                       setErrors((current) => ({ ...current, roomTypeId: undefined }));
                     }}
                     style={{
@@ -1338,75 +1368,203 @@ function QuickBookingForm({
                       {quoteBlocker ?? 'This stay cannot be priced yet.'}
                     </small>
                   ) : quote ? (
-                    <Stack
-                      gap={4}
-                      data-testid="booking-quote-breakdown"
-                      style={{ opacity: quoteLoading ? 0.6 : 1 }}
-                    >
-                      <Group justify="space-between">
-                        <Text c="#64748b" size="sm">
-                          Room charges
-                        </Text>
-                        <Text fw={800} data-testid="booking-quote-room">
-                          {formatCurrency(roomSubtotal)}
-                        </Text>
-                      </Group>
-                      {childSubtotal > 0 ? (
-                        <>
-                          <Group justify="space-between">
-                            <span style={{ color: '#64748b', fontSize: 14 }}>Child charges</span>
-                            <span style={{ color: '#101828', fontSize: 14, fontWeight: 800 }}>
-                              {formatCurrency(childSubtotal)}
-                            </span>
+                    <Stack gap={12}>
+                      {quote.ratePlans && quote.ratePlans.length > 0 ? (
+                        <Stack gap={8} pt={2}>
+                          <Group justify="space-between" align="center">
+                            <Text fw={800} c="#101828" size="sm">
+                              Select Rate Plan
+                            </Text>
+                            {quoteLoading ? (
+                              <Group gap={6} data-testid="rate-plan-recalculating">
+                                <Loader size={12} color="stayosBrand" />
+                                <Text c="#64748b" size="xs">
+                                  Recalculating…
+                                </Text>
+                              </Group>
+                            ) : null}
                           </Group>
-                          <Group justify="space-between">
-                            <span style={{ color: '#64748b', fontSize: 14 }}>Subtotal</span>
-                            <span style={{ color: '#101828', fontSize: 14, fontWeight: 800 }}>
-                              {formatCurrency(subtotal)}
-                            </span>
-                          </Group>
-                        </>
-                      ) : null}
-                      {quote.tax.applied ? (
-                        <Group justify="space-between">
-                          <span style={{ color: '#64748b', fontSize: 14 }}>{taxLabel}</span>
-                          <span style={{ color: '#101828', fontSize: 14, fontWeight: 800 }}>
-                            {formatCurrency(taxAmount)}
-                          </span>
-                        </Group>
-                      ) : null}
-                      <Group
-                        justify="space-between"
-                        pt={8}
-                        style={{ borderTop: '1px solid #e2e8f0' }}
-                      >
-                        <Text c="#101828" fw={900} size="sm">
-                          Total payable
-                        </Text>
-                        <Text fw={900} size="xl" data-testid="booking-quote-total">
-                          {formatCurrency(total)}
-                        </Text>
-                      </Group>
-                      {quote.deposit.required ? (
-                        <Group justify="space-between" pt={4}>
-                          <span style={{ color: '#64748b', fontSize: 13 }}>
-                            {quote.deposit.required ? 'Required deposit' : 'Suggested deposit'} (
-                            {quote.deposit.policyType === 'PERCENTAGE'
-                              ? `${quote.deposit.policyValue}%`
-                              : 'fixed'}
-                            )
-                          </span>
-                          <span
-                            style={{ color: '#6536b5', fontSize: 13, fontWeight: 800 }}
-                            data-testid="booking-quote-deposit"
+                          <SimpleGrid
+                            cols={{ base: 1, sm: quote.ratePlans.length > 2 ? 3 : 2 }}
+                            spacing={8}
                           >
-                            {formatCurrency(depositSuggestion)}
-                          </span>
-                        </Group>
+                            {quote.ratePlans.map((plan) => {
+                              const isSelected =
+                                (selectedRatePlanId || quote.ratePlan?.id) === plan.id;
+                              return (
+                                <UnstyledButton
+                                  key={plan.id}
+                                  data-testid={`rate-plan-card-${plan.code.toLowerCase()}`}
+                                  data-rate-plan-id={plan.id}
+                                  data-rate-plan-code={plan.code}
+                                  aria-pressed={isSelected}
+                                  onClick={() => {
+                                    if (plan.id !== selectedRatePlanId) {
+                                      setSelectedRatePlanId(plan.id);
+                                    }
+                                  }}
+                                  style={{
+                                    background: isSelected ? '#f6f1ff' : '#ffffff',
+                                    border: `1.5px solid ${isSelected ? '#7d4dd6' : '#e2e8f0'}`,
+                                    borderRadius: 12,
+                                    padding: '12px 14px',
+                                    cursor: 'pointer',
+                                    transition:
+                                      'background 120ms ease, border-color 120ms ease, box-shadow 120ms ease',
+                                    boxShadow: isSelected
+                                      ? '0 2px 8px rgba(125, 77, 214, 0.12)'
+                                      : 'none',
+                                    textAlign: 'left',
+                                  }}
+                                >
+                                  <Group
+                                    justify="space-between"
+                                    align="flex-start"
+                                    wrap="nowrap"
+                                    gap={8}
+                                  >
+                                    <Stack gap={4} style={{ minWidth: 0, flex: 1 }}>
+                                      <Group gap={6} wrap="wrap">
+                                        <Text fw={750} c="#101828" size="sm" lineClamp={1}>
+                                          {plan.name || plan.code}
+                                        </Text>
+                                        {plan.isDefault ? (
+                                          <Badge size="xs" variant="light" color="blue">
+                                            Default
+                                          </Badge>
+                                        ) : null}
+                                      </Group>
+                                      <Group gap={6} wrap="wrap">
+                                        <Badge size="xs" variant="outline" color="gray">
+                                          {formatMealPlan(plan.mealPlan)}
+                                        </Badge>
+                                        <Badge
+                                          size="xs"
+                                          variant="light"
+                                          color={plan.refundable ? 'green' : 'orange'}
+                                        >
+                                          {plan.refundable ? 'Refundable' : 'Non-refundable'}
+                                        </Badge>
+                                      </Group>
+                                      <Text
+                                        fw={800}
+                                        c="#101828"
+                                        size="md"
+                                        mt={2}
+                                        data-testid={`rate-plan-price-${plan.code.toLowerCase()}`}
+                                      >
+                                        {formatCurrency(money(plan.grandTotal))}
+                                      </Text>
+                                    </Stack>
+
+                                    <Box
+                                      style={{
+                                        alignItems: 'center',
+                                        background: isSelected ? '#7d4dd6' : 'transparent',
+                                        border: `1.5px solid ${isSelected ? '#7d4dd6' : '#cbd5e1'}`,
+                                        borderRadius: 999,
+                                        display: 'flex',
+                                        height: 18,
+                                        justifyContent: 'center',
+                                        width: 18,
+                                        flexShrink: 0,
+                                        marginTop: 2,
+                                      }}
+                                    >
+                                      {isSelected ? (
+                                        <Check size={11} color="#ffffff" strokeWidth={3} />
+                                      ) : null}
+                                    </Box>
+                                  </Group>
+                                </UnstyledButton>
+                              );
+                            })}
+                          </SimpleGrid>
+                        </Stack>
                       ) : null}
-                      <Text c="#94a3b8" size="xs">
-                        Rate plan {quote.ratePlan?.code ?? '—'} · prices from live hotel settings
-                      </Text>
+
+                      <Stack
+                        gap={4}
+                        data-testid="booking-quote-breakdown"
+                        style={{
+                          opacity: quoteLoading ? 0.6 : 1,
+                          transition: 'opacity 120ms ease',
+                          borderTop:
+                            quote.ratePlans && quote.ratePlans.length > 0
+                              ? '1px solid #e2e8f0'
+                              : 'none',
+                          paddingTop: quote.ratePlans && quote.ratePlans.length > 0 ? 8 : 0,
+                        }}
+                      >
+                        <Group justify="space-between">
+                          <Text c="#64748b" size="sm">
+                            Room charges
+                          </Text>
+                          <Text fw={800} data-testid="booking-quote-room">
+                            {formatCurrency(roomSubtotal)}
+                          </Text>
+                        </Group>
+                        {childSubtotal > 0 ? (
+                          <>
+                            <Group justify="space-between">
+                              <span style={{ color: '#64748b', fontSize: 14 }}>Child charges</span>
+                              <span style={{ color: '#101828', fontSize: 14, fontWeight: 800 }}>
+                                {formatCurrency(childSubtotal)}
+                              </span>
+                            </Group>
+                            <Group justify="space-between">
+                              <span style={{ color: '#64748b', fontSize: 14 }}>Subtotal</span>
+                              <span style={{ color: '#101828', fontSize: 14, fontWeight: 800 }}>
+                                {formatCurrency(subtotal)}
+                              </span>
+                            </Group>
+                          </>
+                        ) : null}
+                        {quote.tax.applied ? (
+                          <Group justify="space-between">
+                            <span style={{ color: '#64748b', fontSize: 14 }}>{taxLabel}</span>
+                            <span style={{ color: '#101828', fontSize: 14, fontWeight: 800 }}>
+                              {formatCurrency(taxAmount)}
+                            </span>
+                          </Group>
+                        ) : null}
+                        <Group
+                          justify="space-between"
+                          pt={8}
+                          style={{ borderTop: '1px solid #e2e8f0' }}
+                        >
+                          <Text c="#101828" fw={900} size="sm">
+                            Total payable
+                          </Text>
+                          <Text fw={900} size="xl" data-testid="booking-quote-total">
+                            {formatCurrency(total)}
+                          </Text>
+                        </Group>
+                        {quote.deposit.required ? (
+                          <Group justify="space-between" pt={4}>
+                            <span style={{ color: '#64748b', fontSize: 13 }}>
+                              {quote.deposit.required ? 'Required deposit' : 'Suggested deposit'} (
+                              {quote.deposit.policyType === 'PERCENTAGE'
+                                ? `${quote.deposit.policyValue}%`
+                                : 'fixed'}
+                              )
+                            </span>
+                            <span
+                              style={{ color: '#6536b5', fontSize: 13, fontWeight: 800 }}
+                              data-testid="booking-quote-deposit"
+                            >
+                              {formatCurrency(depositSuggestion)}
+                            </span>
+                          </Group>
+                        ) : null}
+                        <Text c="#94a3b8" size="xs">
+                          Rate plan {quote.ratePlan?.name || quote.ratePlan?.code || '—'} (
+                          {quote.ratePlan?.code ?? '—'}) ·{' '}
+                          {formatMealPlan(quote.ratePlan?.mealPlan)} ·{' '}
+                          {quote.ratePlan?.refundable ? 'Refundable' : 'Non-refundable'} · prices
+                          from live hotel settings
+                        </Text>
+                      </Stack>
                     </Stack>
                   ) : null}
                 </Stack>

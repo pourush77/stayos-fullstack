@@ -1035,5 +1035,79 @@ describe('RatesService', () => {
 
       expect(dataSource.transaction).not.toHaveBeenCalled();
     });
+
+    describe('findDefaultApplicableRatePlan', () => {
+      it('returns the active default rate plan when applicable to the room type', async () => {
+        ratePlansRepository.findOne?.mockResolvedValue(ratePlanEntity);
+        ratePlanRoomTypesRepository.findOne?.mockResolvedValue({
+          propertyId,
+          ratePlanId,
+          roomTypeId,
+          baseRate: '5000.00',
+        });
+
+        const result = await service.findDefaultApplicableRatePlan(propertyId, roomTypeId);
+        expect(result).toEqual(ratePlanEntity);
+        expect(ratePlansRepository.findOne).toHaveBeenCalledWith({
+          where: { propertyId, isDefault: true, status: RatePlanStatus.ACTIVE },
+        });
+        expect(ratePlanRoomTypesRepository.findOne).toHaveBeenCalledWith({
+          where: { propertyId, ratePlanId, roomTypeId },
+        });
+      });
+
+      it('returns null when no active default rate plan exists', async () => {
+        ratePlansRepository.findOne?.mockResolvedValue(null);
+
+        const result = await service.findDefaultApplicableRatePlan(propertyId, roomTypeId);
+        expect(result).toBeNull();
+      });
+
+      it('returns null when the default rate plan is not applicable to the room type', async () => {
+        ratePlansRepository.findOne?.mockResolvedValue(ratePlanEntity);
+        ratePlanRoomTypesRepository.findOne?.mockResolvedValue(null);
+
+        const result = await service.findDefaultApplicableRatePlan(propertyId, roomTypeId);
+        expect(result).toBeNull();
+      });
+    });
+
+    describe('findActiveApplicableRatePlans', () => {
+      it('returns all active rate plans applicable to the room type ordered by default first', async () => {
+        ratePlanRoomTypesRepository.find?.mockResolvedValue([
+          { propertyId, ratePlanId: 'bar-1', roomTypeId },
+          { propertyId, ratePlanId: 'bfast-1', roomTypeId },
+        ]);
+        const activePlans = [
+          { ...ratePlanEntity, id: 'bar-1', isDefault: true, name: 'BAR' },
+          { ...ratePlanEntity, id: 'bfast-1', isDefault: false, name: 'Breakfast Included' },
+        ];
+        ratePlansRepository.find?.mockResolvedValue(activePlans);
+
+        const result = await service.findActiveApplicableRatePlans(propertyId, roomTypeId);
+        expect(result).toEqual(activePlans);
+        expect(ratePlanRoomTypesRepository.find).toHaveBeenCalledWith({
+          where: { propertyId, roomTypeId },
+        });
+        expect(ratePlansRepository.find).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              id: expect.anything(),
+              propertyId,
+              status: RatePlanStatus.ACTIVE,
+            },
+            order: { isDefault: 'DESC', name: 'ASC' },
+          }),
+        );
+      });
+
+      it('returns empty array when room type has no rate plan pricing mapped', async () => {
+        ratePlanRoomTypesRepository.find?.mockResolvedValue([]);
+
+        const result = await service.findActiveApplicableRatePlans(propertyId, roomTypeId);
+        expect(result).toEqual([]);
+        expect(ratePlansRepository.find).not.toHaveBeenCalled();
+      });
+    });
   });
 });

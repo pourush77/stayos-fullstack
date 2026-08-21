@@ -133,7 +133,7 @@ describe('ReservationsService', () => {
   const availabilityService = { reserve: jest.fn(), restore: jest.fn(), applyDelta: jest.fn(), read: jest.fn() };
   const reservationPricingService = {
     buildCommercialSnapshot: jest.fn(),
-    resolveEffectiveRatePlanId: jest.fn().mockResolvedValue(null),
+    resolveEffectiveRatePlanId: jest.fn().mockImplementation(async (input) => input?.ratePlanId ?? null),
   };
   const restrictionService = {
     assertStaySellable: jest.fn().mockResolvedValue(undefined),
@@ -257,6 +257,53 @@ describe('ReservationsService', () => {
         roomId,
         childAges: null,
       }),
+    );
+  });
+
+  it('creates a reservation with explicit ratePlanId and records rate snapshot', async () => {
+    const selectedRatePlanId = '7075c8fa-f36e-4f40-a3ef-2e9dbb1f0673';
+    reservationPricingService.buildCommercialSnapshot.mockResolvedValueOnce({
+      ratePlanId: selectedRatePlanId,
+      rateSnapshot: {
+        version: 1,
+        pricingStatus: 'PRICED',
+        ratePlan: { id: selectedRatePlanId, code: 'BFAST' },
+      },
+    });
+    reservationsRepository.create?.mockReturnValue({
+      ...reservationEntity,
+      roomId,
+      ratePlanId: selectedRatePlanId,
+    });
+    reservationsRepository.save?.mockResolvedValue({
+      ...reservationEntity,
+      roomId,
+      ratePlanId: selectedRatePlanId,
+    });
+
+    const result = await service.create(propertyId, {
+      guestId,
+      arrivalDate: '2026-07-15',
+      departureDate: '2026-07-17',
+      adults: 2,
+      roomTypeId,
+      roomId,
+      ratePlanId: selectedRatePlanId,
+    });
+
+    expect(result.ratePlanId).toBe(selectedRatePlanId);
+    expect(reservationsRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ratePlanId: selectedRatePlanId,
+      }),
+    );
+    expect(restrictionService.assertStaySellable).toHaveBeenCalledWith(
+      expect.objectContaining({
+        propertyId,
+        roomTypeId,
+        ratePlanId: selectedRatePlanId,
+      }),
+      expect.anything(),
     );
   });
 
