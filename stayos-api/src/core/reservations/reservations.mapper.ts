@@ -1,6 +1,14 @@
 import { ReservationResponseDto } from './dto/reservation-response.dto';
 import { ReservationEntity } from './infrastructure/reservation.entity';
 
+type RateSnapshotView = {
+  pricingStatus?: string;
+  ratePlan?: { id?: unknown; code?: unknown; name?: unknown };
+  mealPlan?: unknown;
+  refundable?: unknown;
+  nights?: Array<{ nightTotal?: unknown; roomRate?: unknown }>;
+};
+
 export class ReservationsMapper {
   static toResponse(entity: ReservationEntity): ReservationResponseDto {
     const guest = entity.guest;
@@ -35,10 +43,30 @@ export class ReservationsMapper {
       guestEmail: guest?.email ?? undefined,
       roomTypeName: entity.roomType?.name ?? undefined,
       roomNumber: entity.room?.roomNumber ?? undefined,
+      bookedRatePlan: this.toBookedRatePlan(entity),
       lateCheckoutApprovedUntil: entity.lateCheckoutApprovedUntil ?? null,
       lateCheckoutApprovedAt: entity.lateCheckoutApprovedAt ?? null,
       lateCheckoutApprovedBy: entity.lateCheckoutApprovedBy ?? null,
       lateCheckoutNotes: entity.lateCheckoutNotes ?? null,
+    };
+  }
+
+  private static toBookedRatePlan(entity: ReservationEntity): ReservationResponseDto['bookedRatePlan'] {
+    const snapshot = (entity.rateSnapshot ?? {}) as RateSnapshotView;
+    if (snapshot.pricingStatus !== 'PRICED' && !entity.ratePlanId) return null;
+
+    const ratePlan = snapshot.ratePlan ?? {};
+    const nightlyRate = Array.isArray(snapshot.nights) && snapshot.nights.length > 0
+      ? snapshot.nights[0].nightTotal ?? snapshot.nights[0].roomRate
+      : null;
+
+    return {
+      id: typeof ratePlan.id === 'string' ? ratePlan.id : entity.ratePlanId,
+      code: typeof ratePlan.code === 'string' ? ratePlan.code : null,
+      name: typeof ratePlan.name === 'string' ? ratePlan.name : null,
+      mealPlan: typeof snapshot.mealPlan === 'string' ? snapshot.mealPlan : null,
+      refundable: typeof snapshot.refundable === 'boolean' ? snapshot.refundable : null,
+      nightlyRate: typeof nightlyRate === 'string' ? nightlyRate : null,
     };
   }
 }

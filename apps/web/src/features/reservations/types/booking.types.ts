@@ -34,6 +34,14 @@ export type Booking = {
   roomId?: string;
   roomType: string;
   roomTypeId?: string;
+  ratePlan?: {
+    id?: string | null;
+    code?: string | null;
+    name?: string | null;
+    mealPlan?: string | null;
+    refundable?: boolean | null;
+    nightlyRate?: string | null;
+  } | null;
   source: BookingSource;
   specialRequests: string;
   status: BookingStatus;

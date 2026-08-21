@@ -43,6 +43,7 @@ export interface ResolvedRate {
   propertyId: string;
   ratePlanId: string;
   ratePlanCode: string;
+  ratePlanName: string;
   roomTypeId: string;
   mealPlan: MealPlan;
   refundable: boolean;
@@ -218,6 +219,7 @@ export class RateResolverService {
       propertyId: input.propertyId,
       ratePlanId: input.ratePlanId,
       ratePlanCode: ratePlan.code,
+      ratePlanName: ratePlan.name,
       roomTypeId: input.roomTypeId,
       mealPlan: ratePlan.mealPlan,
       refundable: ratePlan.refundable,

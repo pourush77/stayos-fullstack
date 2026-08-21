@@ -43,6 +43,21 @@ function getRecord(record: Record<string, unknown>, keys: string[]) {
   return undefined;
 }
 
+function mapBookedRatePlan(dto: ReservationDto): Booking['ratePlan'] {
+  const bookedRatePlan = getRecord(dto, ['bookedRatePlan']);
+  if (!bookedRatePlan) return null;
+
+  return {
+    id: getString(bookedRatePlan, ['id']) || null,
+    code: getString(bookedRatePlan, ['code']) || null,
+    name: getString(bookedRatePlan, ['name']) || null,
+    mealPlan: getString(bookedRatePlan, ['mealPlan']) || null,
+    refundable:
+      typeof bookedRatePlan.refundable === 'boolean' ? bookedRatePlan.refundable : null,
+    nightlyRate: getString(bookedRatePlan, ['nightlyRate']) || null,
+  };
+}
+
 function normalizeStatus(value: string): BookingStatus {
   const normalized = value.toUpperCase().replace(/[\s-]/g, '_');
   if (normalized === 'PENDING') return 'PENDING';
@@ -143,6 +158,7 @@ export function mapBooking(dto: ReservationDto): Booking {
     roomId: getString(dto, ['roomId'], getString(room, ['id', '_id', 'uuid'])) || undefined,
     roomType: roomTypeName,
     roomTypeId: getString(dto, ['roomTypeId'], getString(roomType, ['id', '_id', 'uuid'])) || undefined,
+    ratePlan: mapBookedRatePlan(dto),
     source: normalizeSource(getString(dto, ['source'], 'DIRECT')),
     specialRequests: getString(dto, ['specialRequests', 'requests'], 'None'),
     status: normalizeStatus(getString(dto, ['status'], 'CONFIRMED')),

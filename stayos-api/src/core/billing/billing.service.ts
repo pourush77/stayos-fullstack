@@ -147,6 +147,7 @@ export class BillingService {
     if (!activeSnapshot) return;
     const snap = (activeSnapshot.snapshot ?? {}) as {
       pricingStatus?: string;
+      ratePlan?: { code?: string; name?: string };
       nights?: unknown[];
       totals?: { grandTotal?: string };
     };
@@ -185,7 +186,7 @@ export class BillingService {
         status: FolioChargeStatus.POSTED,
         rateSnapshotId: activeSnapshot.id,
         rateSnapshotVersion: activeSnapshot.version,
-        description: `Room charges - ${nights} night${nights === 1 ? '' : 's'} (snapshot v${activeSnapshot.version})`,
+        description: this.buildRoomChargeDescription(snap, nights, activeSnapshot.version),
         quantity: nights,
         unitAmount: fromCents(unitCents),
         amount: fromCents(grandTotalCents),
@@ -196,6 +197,24 @@ export class BillingService {
         createdByUserId: actorUserId ?? null,
       }),
     );
+  }
+
+  private buildRoomChargeDescription(
+    snap: { ratePlan?: { code?: string; name?: string } },
+    nights: number,
+    snapshotVersion: number,
+  ): string {
+    const planName = snap.ratePlan?.name?.trim();
+    const planCode = snap.ratePlan?.code?.trim();
+    const planLabel = planName
+      ? planCode && !planName.includes(planCode)
+        ? `${planName} (${planCode})`
+        : planName
+      : planCode;
+    const stayLabel = `${nights} night${nights === 1 ? '' : 's'}`;
+    return planLabel
+      ? `Room charges · ${planLabel} · ${stayLabel} (snapshot v${snapshotVersion})`
+      : `Room charges - ${stayLabel} (snapshot v${snapshotVersion})`;
   }
 
   private toStoredSnapshot(gst: TaxSnapshot): TaxSnapshot {

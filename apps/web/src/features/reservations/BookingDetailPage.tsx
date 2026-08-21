@@ -98,6 +98,41 @@ function formatCurrency(amount?: number) {
   }).format(amount);
 }
 
+function formatBookedAmount(amount?: string | null) {
+  if (!amount) return undefined;
+  const parsed = Number(amount);
+  if (!Number.isFinite(parsed)) return undefined;
+  return formatCurrency(parsed);
+}
+
+function formatMealPlan(mealPlan?: string | null) {
+  switch (mealPlan) {
+    case 'BREAKFAST':
+      return 'Breakfast included';
+    case 'HALF_BOARD':
+      return 'Half board';
+    case 'FULL_BOARD':
+      return 'Full board';
+    case 'ROOM_ONLY':
+      return 'Room only';
+    default:
+      return mealPlan ? mealPlan.replace(/_/g, ' ').toLowerCase() : 'Not recorded';
+  }
+}
+
+function formatRefundable(refundable?: boolean | null) {
+  if (refundable === true) return 'Refundable';
+  if (refundable === false) return 'Non-refundable';
+  return 'Not recorded';
+}
+
+function formatRatePlanLabel(ratePlan: Booking['ratePlan']) {
+  const name = ratePlan?.name?.trim();
+  const code = ratePlan?.code?.trim();
+  if (name && code && !name.includes(code)) return `${name} (${code})`;
+  return name || code || 'Not recorded';
+}
+
 function formatHeaderStayDates(arrivalDate: string, departureDate: string) {
   const format = (value: string) => {
     const date = new Date(`${value.slice(0, 10)}T00:00:00`);
@@ -1405,6 +1440,27 @@ export default function BookingDetailPage() {
               <DetailTile label="Special requests" value={booking.specialRequests || 'None'} />
             </SimpleGrid>
           </Section>
+
+          {booking.ratePlan ? (
+            <Section title="Rate Plan" icon={<ReceiptIndianRupee size={17} />}>
+              <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing={spacing[3]}>
+                <DetailTile label="Rate plan" value={formatRatePlanLabel(booking.ratePlan)} />
+                <DetailTile label="Meal plan" value={formatMealPlan(booking.ratePlan.mealPlan)} />
+                <DetailTile
+                  label="Cancellation"
+                  value={formatRefundable(booking.ratePlan.refundable)}
+                />
+                <DetailTile
+                  label="Booked rate"
+                  value={
+                    formatBookedAmount(booking.ratePlan.nightlyRate)
+                      ? `${formatBookedAmount(booking.ratePlan.nightlyRate)} / night`
+                      : 'Not recorded'
+                  }
+                />
+              </SimpleGrid>
+            </Section>
+          ) : null}
 
           {booking.status === 'CHECKED_IN' || canAssignRoom || canChangeRoom ? (
             <Section title="Room Assignment" icon={<BedDouble size={17} />}>

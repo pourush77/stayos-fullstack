@@ -3,6 +3,26 @@ import { ReservationPaymentStatus } from '../domain/reservation-payment-status.e
 import { ReservationSource } from '../domain/reservation-source.enum';
 import { ReservationStatus } from '../domain/reservation-status.enum';
 
+export class BookedRatePlanResponseDto {
+  @ApiPropertyOptional({ format: 'uuid' })
+  id?: string | null;
+
+  @ApiPropertyOptional()
+  code?: string | null;
+
+  @ApiPropertyOptional()
+  name?: string | null;
+
+  @ApiPropertyOptional()
+  mealPlan?: string | null;
+
+  @ApiPropertyOptional()
+  refundable?: boolean | null;
+
+  @ApiPropertyOptional()
+  nightlyRate?: string | null;
+}
+
 export class ReservationResponseDto {
   @ApiProperty({ format: 'uuid' })
   id!: string;
@@ -81,6 +101,9 @@ export class ReservationResponseDto {
 
   @ApiPropertyOptional()
   roomNumber?: string;
+
+  @ApiPropertyOptional({ type: BookedRatePlanResponseDto })
+  bookedRatePlan?: BookedRatePlanResponseDto | null;
 
   @ApiPropertyOptional({ description: 'Approved late checkout time (HH:mm or HH:mm:ss)' })
   lateCheckoutApprovedUntil?: string | null;

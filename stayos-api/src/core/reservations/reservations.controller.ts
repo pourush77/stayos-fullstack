@@ -88,7 +88,7 @@ export class ReservationsController {
     return {
       success: true,
       message: 'Records fetched successfully.',
-      data: result.data.map(ReservationsMapper.toResponse),
+      data: result.data.map((reservation) => ReservationsMapper.toResponse(reservation)),
       ...(result.pagination ? { pagination: result.pagination } : {}),
     };
   }

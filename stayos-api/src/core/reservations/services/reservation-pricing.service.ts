@@ -91,7 +91,11 @@ export class ReservationPricingService {
         version: SNAPSHOT_VERSION,
         pricingStatus: 'PRICED',
         snapshotAt: new Date().toISOString(),
-        ratePlan: { id: resolved.ratePlanId, code: resolved.ratePlanCode },
+        ratePlan: {
+          id: resolved.ratePlanId,
+          code: resolved.ratePlanCode,
+          name: resolved.ratePlanName,
+        },
         roomTypeId: resolved.roomTypeId,
         mealPlan: resolved.mealPlan,
         refundable: resolved.refundable,

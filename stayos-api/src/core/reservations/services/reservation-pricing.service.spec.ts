@@ -12,6 +12,7 @@ function build(overrides: { defaultPlan?: unknown; resolved?: unknown; resolveEr
           overrides.resolved ?? {
             ratePlanId: 'rp-1',
             ratePlanCode: 'BAR',
+            ratePlanName: 'Best Available Rate',
             roomTypeId,
             mealPlan: 'BREAKFAST',
             refundable: true,
@@ -38,7 +39,13 @@ describe('ReservationPricingService', () => {
     const r = await service.buildCommercialSnapshot({ ...base, ratePlanId: 'rp-1' });
     expect(rateResolver.resolve).toHaveBeenCalledWith(expect.objectContaining({ ratePlanId: 'rp-1' }), undefined);
     expect(r.ratePlanId).toBe('rp-1');
-    expect(r.rateSnapshot).toMatchObject({ pricingStatus: 'PRICED', ratePlan: { code: 'BAR' }, totals: { grandTotal: '10000.00' } });
+    expect(r.rateSnapshot).toMatchObject({
+      pricingStatus: 'PRICED',
+      ratePlan: { code: 'BAR', name: 'Best Available Rate' },
+      mealPlan: 'BREAKFAST',
+      refundable: true,
+      totals: { grandTotal: '10000.00' },
+    });
   });
 
   it('falls back to the property default plan when ratePlanId omitted', async () => {

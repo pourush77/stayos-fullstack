@@ -17,7 +17,7 @@ function build(overrides: {
   const ratePlansRepository = {
     findOne: jest.fn().mockResolvedValue(
       overrides.plan === undefined
-        ? { id: ratePlanId, propertyId, code: 'BAR', status: RatePlanStatus.ACTIVE, mealPlan: MealPlan.BREAKFAST, refundable: true }
+        ? { id: ratePlanId, propertyId, code: 'BAR', name: 'Best Available Rate', status: RatePlanStatus.ACTIVE, mealPlan: MealPlan.BREAKFAST, refundable: true }
         : overrides.plan,
     ),
   };
@@ -52,6 +52,7 @@ describe('RateResolverService', () => {
     expect(r.nights).toHaveLength(2);
     expect(r.nights.every((n) => n.source === 'BASE_RATE' && n.roomRate === '5000.00')).toBe(true);
     expect(r.totals.room).toBe('10000.00');
+    expect(r.ratePlanName).toBe('Best Available Rate');
     expect(r.mealPlan).toBe(MealPlan.BREAKFAST);
     expect(r.refundable).toBe(true);
   });
