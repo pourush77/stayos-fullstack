@@ -28,7 +28,7 @@ import {
   Smartphone,
   Wallet,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
 import { showToast } from '@stayos/ui';
 import {
@@ -50,6 +50,7 @@ import type {
   FolioPayment,
   FolioPaymentMethod,
 } from '../types/billing.types';
+import { formatCents, validateRefundAmount } from '../utils/refund-amount-validation';
 
 declare global {
   interface Window {
@@ -642,7 +643,7 @@ function RefundModal({
     idempotencyKey: string;
   }) => Promise<void>;
 }) {
-  const [amount, setAmount] = useState<number>(0);
+  const [amount, setAmount] = useState<string | number>('');
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | undefined>();
@@ -650,7 +651,7 @@ function RefundModal({
 
   useEffect(() => {
     if (opened && payment) {
-      setAmount(refundableAmount);
+      setAmount(refundableAmount.toFixed(2));
       setReference('');
       setNotes('');
       setError(undefined);
@@ -662,6 +663,15 @@ function RefundModal({
     if (submitting) return;
     onClose();
   };
+
+  const amountValidation = validateRefundAmount(
+    amount,
+    refundableAmount.toFixed(2),
+    formatCurrency(refundableAmount),
+  );
+  const notesValid = notes.trim().length > 0;
+  const formInvalid = !amountValidation.valid || !notesValid;
+  const refundButtonAmount = amountValidation.valid ? formatCents(amountValidation.amountCents) : amount;
 
   return (
     <Modal
@@ -680,13 +690,8 @@ function RefundModal({
 
           if (submitting || !payment) return;
 
-          if (amount <= 0) {
-            setError('Refund amount must be greater than 0.');
-            return;
-          }
-
-          if (amount > refundableAmount + 0.001) {
-            setError(`Refund cannot exceed ${formatCurrency(refundableAmount)}.`);
+          if (!amountValidation.valid) {
+            setError(amountValidation.message);
             return;
           }
 
@@ -698,7 +703,7 @@ function RefundModal({
           setError(undefined);
 
           void onSubmit({
-            amount: amount.toFixed(2),
+            amount: formatCents(amountValidation.amountCents),
             reference: reference.trim() || undefined,
             notes: notes.trim(),
             idempotencyKey,
@@ -716,11 +721,10 @@ function RefundModal({
 
           <NumberInput
             label="Refund amount (INR)"
-            min={0}
-            max={refundableAmount}
             decimalScale={2}
             value={amount}
-            onChange={(value) => setAmount(typeof value === 'number' ? value : 0)}
+            error={!amountValidation.valid && amount !== '' ? amountValidation.message : undefined}
+            onChange={setAmount}
             required
             disabled={submitting}
           />
@@ -751,9 +755,10 @@ function RefundModal({
               color="red"
               type="submit"
               loading={submitting}
+              disabled={submitting || formInvalid}
               leftSection={<RotateCcw size={16} />}
             >
-              Refund {formatCurrency(amount)}
+              Refund {formatCurrency(refundButtonAmount)}
             </Button>
           </Group>
         </Stack>
@@ -805,9 +810,21 @@ export function FolioPanel({
 
   const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
 
+  const settleAttentionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [settleAttentionActive, setSettleAttentionActive] = useState(false);
+
   useEffect(() => {
     setCurrent(folio);
   }, [folio]);
+
+  useEffect(() => {
+    return () => {
+      if (settleAttentionTimeoutRef.current) {
+        clearTimeout(settleAttentionTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const balance = useMemo(() => Number(current.totals.balance), [current.totals.balance]);
 
@@ -819,12 +836,44 @@ export function FolioPanel({
 
   const isExactZero = Math.abs(balance) <= 0.01;
 
+  const isOpenZeroBalance = current.status === 'OPEN' && isExactZero;
+
   const isBillingBusy = billingAction !== null;
 
   const canGenerateFinalBill =
     !isVoid &&
     isExactZero &&
     current.payments.some((payment) => payment.type === 'PAYMENT' && Number(payment.amount) > 0);
+
+  const triggerSettleAttention = (next: Folio, previousBalance: number) => {
+    const nextBalance = Number(next.totals.balance);
+    const nextIsOpenZero = next.status === 'OPEN' && Math.abs(nextBalance) <= 0.01;
+
+    if (previousBalance <= 0.01 || !nextIsOpenZero) {
+      return;
+    }
+
+    if (
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    ) {
+      setSettleAttentionActive(false);
+      return;
+    }
+
+    if (settleAttentionTimeoutRef.current) {
+      clearTimeout(settleAttentionTimeoutRef.current);
+    }
+
+    setSettleAttentionActive(false);
+
+    requestAnimationFrame(() => {
+      setSettleAttentionActive(true);
+      settleAttentionTimeoutRef.current = setTimeout(() => {
+        setSettleAttentionActive(false);
+      }, 2700);
+    });
+  };
 
   const refundableByPayment = useMemo(() => {
     const result = new Map<string, number>();
@@ -901,6 +950,7 @@ export function FolioPanel({
     try {
       const next = await addPayment(propertyId, current.id, payload);
 
+      triggerSettleAttention(next, balance);
       setCurrent(next);
       onFolioChanged?.(next);
       setPaymentOpen(false);
@@ -1176,7 +1226,7 @@ export function FolioPanel({
               ? `${formatCurrency(balance)} remains due. Record a partial or full payment; the folio stays OPEN until it is settled.`
               : isOverpaid
                 ? `${formatCurrency(Math.abs(balance))} guest credit remains. Review/refund the credit before settlement.`
-                : 'Balance is fully paid. Settle the folio when the guest account is ready to close.'}
+                : 'Payment complete — ₹0 balance. Next step: Settle the folio to close the guest account.'}
           </Alert>
         ) : null}
 
@@ -1224,19 +1274,45 @@ export function FolioPanel({
             </Button>
 
             <Button
+              className={settleAttentionActive ? 'folio-settle-attention' : undefined}
               color="green"
+              data-prominent={isOpenZeroBalance ? 'true' : undefined}
               data-testid="folio-settle"
               disabled={!isExactZero || isSettled || (isBillingBusy && billingAction !== 'settle')}
               leftSection={<Wallet size={16} />}
               onClick={() => setSettleOpen(true)}
               loading={billingAction === 'settle'}
-              variant="light"
+              variant={isOpenZeroBalance ? 'filled' : 'light'}
             >
               Settle Folio
             </Button>
           </Group>
         ) : null}
       </Paper>
+
+      <style>{`
+        @keyframes folio-settle-soft-pulse {
+          0% {
+            box-shadow: 0 0 0 0 rgba(34, 139, 74, 0.28);
+          }
+          55% {
+            box-shadow: 0 0 0 8px rgba(34, 139, 74, 0.08);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(34, 139, 74, 0);
+          }
+        }
+
+        .folio-settle-attention {
+          animation: folio-settle-soft-pulse 850ms ease-out 3;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .folio-settle-attention {
+            animation: none;
+          }
+        }
+      `}</style>
 
       <Paper
         radius={radius.lg}
@@ -1488,6 +1564,7 @@ export function FolioPanel({
         propertyId={propertyId}
         folioId={current.id}
         onRazorpaySuccess={(next) => {
+          triggerSettleAttention(next, balance);
           setCurrent(next);
           onFolioChanged?.(next);
           setPaymentOpen(false);

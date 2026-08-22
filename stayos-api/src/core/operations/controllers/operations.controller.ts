@@ -48,6 +48,7 @@ import {
   NeedsAttentionItemDto,
   RoomBoardItemDto,
   RoomDrawerDto,
+  UpdateGroupRoomingListItemDto,
   UpdateGroupHoldDto,
 } from '../dto/operations.dto';
 import { ActivityFeedService } from '../services/activity-feed.service';
@@ -413,6 +414,45 @@ export class OperationsController {
     @Body() dto: AddGroupRoomingListItemDto,
   ): Promise<GroupHoldDto> {
     return this.groupBookingService.addRoomingListItem(propertyId, groupHoldId, dto);
+  }
+
+  @Patch('operations/group-holds/:groupHoldId/rooming-list/:itemId')
+  @RequirePermissions(Permissions.OperationsView, Permissions.RoomsView)
+  @ApiOperation({ summary: 'Update a group rooming-list item' })
+  @ApiParam({ name: 'propertyId', format: 'uuid' })
+  @ApiParam({ name: 'groupHoldId', format: 'uuid' })
+  @ApiParam({ name: 'itemId', format: 'uuid' })
+  @ApiStandardOkResponse(GroupHoldDto)
+  @ApiBadRequestResponse({
+    description: 'Rooming-list item cannot be edited. Stable code: VALIDATION_ERROR.',
+  })
+  @ApiNotFoundResponse({ description: 'Rooming-list item not found. Stable code: NOT_FOUND.' })
+  updateGroupRoomingListItem(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('groupHoldId', ParseUUIDPipe) groupHoldId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Body() dto: UpdateGroupRoomingListItemDto,
+  ): Promise<GroupHoldDto> {
+    return this.groupBookingService.updateRoomingListItem(propertyId, groupHoldId, itemId, dto);
+  }
+
+  @Delete('operations/group-holds/:groupHoldId/rooming-list/:itemId')
+  @RequirePermissions(Permissions.OperationsView, Permissions.RoomsView)
+  @ApiOperation({ summary: 'Delete a group rooming-list item' })
+  @ApiParam({ name: 'propertyId', format: 'uuid' })
+  @ApiParam({ name: 'groupHoldId', format: 'uuid' })
+  @ApiParam({ name: 'itemId', format: 'uuid' })
+  @ApiStandardOkResponse(GroupHoldDto)
+  @ApiBadRequestResponse({
+    description: 'Rooming-list item cannot be deleted. Stable code: VALIDATION_ERROR.',
+  })
+  @ApiNotFoundResponse({ description: 'Rooming-list item not found. Stable code: NOT_FOUND.' })
+  deleteGroupRoomingListItem(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('groupHoldId', ParseUUIDPipe) groupHoldId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+  ): Promise<GroupHoldDto> {
+    return this.groupBookingService.deleteRoomingListItem(propertyId, groupHoldId, itemId);
   }
 
   @Post('operations/group-holds/:groupHoldId/room-assignments')

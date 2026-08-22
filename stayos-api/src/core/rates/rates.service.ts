@@ -5,8 +5,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, QueryFailedError, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Not, QueryFailedError, Repository } from 'typeorm';
 import { PropertiesService } from '../properties/properties.service';
+import { PropertyEntity } from '../properties/infrastructure/property.entity';
 import { RoomTypesService } from '../room-types/room-types.service';
 import { ChildPricingMode } from './domain/child-pricing-mode.enum';
 import { RatePlanStatus } from './domain/rate-plan-status.enum';
@@ -139,6 +140,52 @@ export class RatesService {
     id: string,
     input: UpdateRatePlanInput,
   ): Promise<RatePlanEntity> {
+    if (input.isDefault === true) {
+      try {
+        return await this.dataSource.transaction(async (manager) => {
+          const property = await manager.getRepository(PropertyEntity).findOne({
+            where: { id: propertyId },
+            lock: { mode: 'pessimistic_write' },
+          });
+
+          if (!property) {
+            throw new NotFoundException(`Property ${propertyId} was not found`);
+          }
+
+          const ratePlanRepository = manager.getRepository(RatePlanEntity);
+          const ratePlan = await ratePlanRepository.findOne({
+            where: { id, propertyId },
+            lock: { mode: 'pessimistic_write' },
+          });
+
+          if (!ratePlan) {
+            throw new NotFoundException(`Rate plan ${id} was not found`);
+          }
+
+          const nextStatus = input.status ?? ratePlan.status;
+
+          if (nextStatus !== RatePlanStatus.ACTIVE) {
+            throw new BadRequestException('Default rate plan must be active');
+          }
+
+          await ratePlanRepository.update(
+            { propertyId, id: Not(id), isDefault: true },
+            { isDefault: false },
+          );
+
+          const merged = ratePlanRepository.merge(ratePlan, {
+            ...input,
+            description: input.description === undefined ? ratePlan.description : input.description,
+            isDefault: true,
+          });
+
+          return await ratePlanRepository.save(merged);
+        });
+      } catch (error) {
+        this.handleRatePlanPersistenceError(error);
+      }
+    }
+
     const ratePlan = await this.findRatePlan(propertyId, id);
 
     try {

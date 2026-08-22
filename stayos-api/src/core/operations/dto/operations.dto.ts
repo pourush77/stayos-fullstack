@@ -983,6 +983,8 @@ export class AddGroupRoomingListItemDto {
   notes?: string;
 }
 
+export class UpdateGroupRoomingListItemDto extends AddGroupRoomingListItemDto {}
+
 export class AssignGroupRoomDto {
   @ApiProperty({ format: 'uuid' })
   @IsUUID()

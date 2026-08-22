@@ -39,6 +39,7 @@ type GlobalSearchResult = {
   badge?: string;
   route: string;
   priority: number;
+  isExactMatch?: boolean;
 };
 
 type GlobalSearchGroups = {
@@ -54,6 +55,7 @@ type GlobalSearchResponse = {
   query: string;
   total: number;
   results: GlobalSearchGroups;
+  bestMatch?: GlobalSearchResult;
 };
 
 type StandardApiResponse<T> = {
@@ -163,6 +165,33 @@ function badgeColor(type: GlobalSearchResultType) {
   }
 }
 
+function isSameResult(a: GlobalSearchResult, b: GlobalSearchResult) {
+  return a.type === b.type && a.id === b.id;
+}
+
+function withoutBestMatch(
+  results: GlobalSearchResult[],
+  bestMatch?: GlobalSearchResult,
+): GlobalSearchResult[] {
+  if (!bestMatch) {
+    return results;
+  }
+
+  return results.filter((result) => !isSameResult(result, bestMatch));
+}
+
+export function getDisplayedGlobalSearchResults(response: GlobalSearchResponse | null) {
+  if (!response) {
+    return [];
+  }
+
+  const groupedResults = searchGroups.flatMap((group) =>
+    withoutBestMatch(response.results[group.key] ?? [], response.bestMatch),
+  );
+
+  return response.bestMatch ? [response.bestMatch, ...groupedResults] : groupedResults;
+}
+
 async function searchGlobalRecords(
   apiBaseUrl: string,
   propertyId: string,
@@ -227,11 +256,7 @@ export function GlobalSearch({ apiBaseUrl, propertyId }: GlobalSearchProps) {
   const trimmedQuery = query.trim();
 
   const flatResults = useMemo(() => {
-    if (!searchResponse) {
-      return [];
-    }
-
-    return searchGroups.flatMap((group) => searchResponse.results[group.key] ?? []);
+    return getDisplayedGlobalSearchResults(searchResponse);
   }, [searchResponse]);
 
   useEffect(() => {
@@ -502,8 +527,131 @@ export function GlobalSearch({ apiBaseUrl, propertyId }: GlobalSearchProps) {
         {searchResponse && searchResponse.total > 0 ? (
           <ScrollArea.Autosize mah={500}>
             <Stack gap={0} py={spacing[2]}>
+              {searchResponse.bestMatch ? (
+                <Box>
+                  <Group gap={spacing[2]} px={spacing[4]} pb={spacing[1]} pt={spacing[3]}>
+                    <Search size={14} color={colors.text.muted} />
+
+                    <Text
+                      c={colors.text.muted}
+                      tt="uppercase"
+                      style={{
+                        ...typography.styles.caption,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: '0.08em',
+                      }}
+                    >
+                      Best match
+                    </Text>
+                  </Group>
+
+                  <Stack gap={2} px={spacing[2]}>
+                    {(() => {
+                      const result = searchResponse.bestMatch;
+                      currentResultIndex += 1;
+
+                      const resultIndex = currentResultIndex;
+                      const ResultIcon = resultIcon(result.type);
+                      const isActive = activeIndex === resultIndex;
+
+                      return (
+                        <UnstyledButton
+                          key={`best-${result.type}-${result.id}`}
+                          type="button"
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                          }}
+                          onMouseEnter={() => {
+                            setActiveIndex(resultIndex);
+                          }}
+                          onClick={() => {
+                            openResult(result);
+                          }}
+                          style={{
+                            background: isActive ? colors.brand[50] : 'transparent',
+                            borderRadius: radius.md,
+                            padding: spacing[3],
+                            transition: 'background-color 120ms ease',
+                            width: '100%',
+                          }}
+                        >
+                          <Group gap={spacing[3]} wrap="nowrap" align="flex-start">
+                            <Box
+                              aria-hidden
+                              style={{
+                                alignItems: 'center',
+                                background: colors.brand[50],
+                                borderRadius: radius.md,
+                                color: colors.brand[500],
+                                display: 'flex',
+                                flex: '0 0 auto',
+                                height: 36,
+                                justifyContent: 'center',
+                                width: 36,
+                              }}
+                            >
+                              <ResultIcon size={17} />
+                            </Box>
+
+                            <Box
+                              style={{
+                                flex: 1,
+                                minWidth: 0,
+                              }}
+                            >
+                              <Group justify="space-between" gap={spacing[2]} wrap="nowrap">
+                                <Text
+                                  c={colors.text.strong}
+                                  lineClamp={1}
+                                  style={typography.styles.label}
+                                >
+                                  {highlightMatch(result.title, trimmedQuery)}
+                                </Text>
+
+                                {result.badge ? (
+                                  <Badge color={badgeColor(result.type)} size="xs" variant="light">
+                                    {result.badge.replaceAll('_', ' ')}
+                                  </Badge>
+                                ) : null}
+                              </Group>
+
+                              <Text
+                                c={colors.text.body}
+                                lineClamp={1}
+                                mt={2}
+                                style={typography.styles.caption}
+                              >
+                                {highlightMatch(result.subtitle, trimmedQuery)}
+                              </Text>
+
+                              {result.description ? (
+                                <Text
+                                  c={colors.text.muted}
+                                  lineClamp={1}
+                                  mt={2}
+                                  style={{
+                                    ...typography.styles.caption,
+                                    fontSize: 11,
+                                  }}
+                                >
+                                  {highlightMatch(result.description, trimmedQuery)}
+                                </Text>
+                              ) : null}
+                            </Box>
+                          </Group>
+                        </UnstyledButton>
+                      );
+                    })()}
+                  </Stack>
+                </Box>
+              ) : null}
+
               {searchGroups.map((group) => {
-                const results = searchResponse.results[group.key] ?? [];
+                const results = withoutBestMatch(
+                  searchResponse.results[group.key] ?? [],
+                  searchResponse.bestMatch,
+                );
 
                 if (results.length === 0) {
                   return null;

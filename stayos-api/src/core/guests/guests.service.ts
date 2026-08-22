@@ -202,21 +202,29 @@ export class GuestsService {
   }
 
   private resolveDisplayName(dto: CreateGuestDto): string {
-    return dto.displayName ?? [dto.firstName, dto.lastName].filter(Boolean).join(' ');
+    return dto.displayName ?? this.buildCanonicalName(dto.firstName, dto.lastName ?? null);
   }
 
   private resolveUpdatedDisplayName(guest: GuestEntity, dto: UpdateGuestDto): string {
-    if (dto.displayName) {
+    const nameChanged = dto.firstName !== undefined || dto.lastName !== undefined;
+    const updatedCanonicalName = this.buildCanonicalName(
+      dto.firstName ?? guest.firstName,
+      dto.lastName !== undefined ? (dto.lastName ?? null) : guest.lastName,
+    );
+
+    if (dto.displayName && (!nameChanged || dto.displayName !== guest.displayName)) {
       return dto.displayName;
     }
 
-    if (dto.firstName || dto.lastName !== undefined) {
-      return [dto.firstName ?? guest.firstName, dto.lastName ?? guest.lastName]
-        .filter(Boolean)
-        .join(' ');
+    if (nameChanged) {
+      return updatedCanonicalName;
     }
 
     return guest.displayName;
+  }
+
+  private buildCanonicalName(firstName: string, lastName?: string | null): string {
+    return [firstName, lastName].filter(Boolean).join(' ');
   }
 
   private toCreatePersistenceFields(dto: CreateGuestDto): Partial<GuestEntity> {

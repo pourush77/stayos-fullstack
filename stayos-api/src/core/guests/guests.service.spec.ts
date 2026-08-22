@@ -192,6 +192,50 @@ describe('GuestsService', () => {
     });
   });
 
+  it('resyncs display name when a name edit repeats the old display name', async () => {
+    const rhea = {
+      ...guestEntity,
+      firstName: 'Rhea',
+      lastName: 'Kapoor',
+      displayName: 'Rhea Kapoor',
+    };
+    guestsRepository.findOne?.mockResolvedValue(rhea);
+    guestsRepository.merge?.mockImplementation((guest, update) => ({ ...guest, ...update }));
+    guestsRepository.save?.mockImplementation(async (guest) => guest);
+
+    await expect(
+      service.update(propertyId, guestId, {
+        firstName: 'Rhea',
+        lastName: 'Kapoor Rai',
+        displayName: 'Rhea Kapoor',
+      }),
+    ).resolves.toEqual({
+      ...rhea,
+      firstName: 'Rhea',
+      lastName: 'Kapoor Rai',
+      displayName: 'Rhea Kapoor Rai',
+      reservations: [],
+    });
+  });
+
+  it('preserves an intentionally changed display name during a name edit', async () => {
+    guestsRepository.findOne?.mockResolvedValue(guestEntity);
+    guestsRepository.merge?.mockImplementation((guest, update) => ({ ...guest, ...update }));
+    guestsRepository.save?.mockImplementation(async (guest) => guest);
+
+    await expect(
+      service.update(propertyId, guestId, {
+        lastName: 'Sharma',
+        displayName: 'Mr. Aarav',
+      }),
+    ).resolves.toEqual({
+      ...guestEntity,
+      lastName: 'Sharma',
+      displayName: 'Mr. Aarav',
+      reservations: [],
+    });
+  });
+
   it('updates guest preference fields', async () => {
     guestsRepository.findOne?.mockResolvedValue(guestEntity);
     guestsRepository.merge?.mockImplementation((guest, update) => ({ ...guest, ...update }));

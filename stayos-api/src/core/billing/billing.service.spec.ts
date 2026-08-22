@@ -70,6 +70,10 @@ describe('BillingService', () => {
   let childPricingService: Pick<ChildPricingService, 'resolveChildPricing'>;
   let dataSource: { transaction: jest.Mock; query: jest.Mock };
   let service: BillingService;
+  let managerFoliosRepository: MockRepository<FolioEntity>;
+  let managerChargesRepository: MockRepository<FolioChargeEntity>;
+  let managerPaymentsRepository: MockRepository<FolioPaymentEntity>;
+  let managerReservationsRepository: MockRepository<ReservationEntity>;
 
   beforeEach(() => {
     foliosRepository = {
@@ -106,27 +110,40 @@ describe('BillingService', () => {
       })),
       resolvePlaceOfSupply: jest.fn(() => 'INTRA_STATE'),
     };
+    managerFoliosRepository = {
+      create: jest.fn((input) => input),
+      save: jest.fn(async (input) => ({ id: 'folio-1', createdAt: new Date(), updatedAt: new Date(), ...input })),
+      findOne: jest.fn(),
+    };
+    managerChargesRepository = {
+      create: jest.fn((input) => input),
+      save: jest.fn(async (input) => ({ id: 'charge-1', createdAt: new Date(), ...input })),
+      find: jest.fn().mockResolvedValue([]),
+    };
+    managerPaymentsRepository = {
+      create: jest.fn((input) => input),
+      save: paymentsRepository.save,
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn(),
+    };
+    managerReservationsRepository = {
+      update: jest.fn().mockResolvedValue(undefined),
+    };
     dataSource = {
       transaction: jest.fn(async (callback: (manager: { getRepository: (entity: unknown) => unknown }) => Promise<unknown>) => {
         const manager = {
           getRepository: (entity: unknown) => {
             if (entity === FolioEntity) {
-              return {
-                create: jest.fn((input) => input),
-                save: jest.fn(async (input) => ({ id: 'folio-1', createdAt: new Date(), updatedAt: new Date(), ...input })),
-              };
+              return managerFoliosRepository;
             }
             if (entity === FolioChargeEntity) {
-              return {
-                create: jest.fn((input) => input),
-                save: jest.fn(async (input) => ({ id: 'charge-1', createdAt: new Date(), ...input })),
-              };
+              return managerChargesRepository;
             }
             if (entity === FolioPaymentEntity) {
-              return {
-                create: jest.fn((input) => input),
-                save: paymentsRepository.save,
-              };
+              return managerPaymentsRepository;
+            }
+            if (entity === ReservationEntity) {
+              return managerReservationsRepository;
             }
             throw new Error('unexpected repository');
           },
@@ -189,5 +206,115 @@ describe('BillingService', () => {
     await service.getOrCreateFolioForReservation(propertyId, reservationId);
 
     expect(paymentsRepository.save).not.toHaveBeenCalled();
+  });
+
+  describe('refunds', () => {
+    const folioId = 'folio-1';
+    const originalPaymentId = 'payment-original';
+
+    function seedRefundScenario(priorRefunds: Array<Partial<FolioPaymentEntity>> = []) {
+      const folio = {
+        id: folioId,
+        propertyId,
+        reservationId,
+        guestId,
+        folioNumber: 'FO260803-00001',
+        status: FolioStatus.OPEN,
+        currency: 'INR',
+      } as FolioEntity;
+      const original = {
+        id: originalPaymentId,
+        folioId,
+        type: 'PAYMENT',
+        method: FolioPaymentMethod.CASH,
+        amount: '2000.00',
+      } as FolioPaymentEntity;
+
+      managerFoliosRepository.findOne = jest
+        .fn()
+        .mockResolvedValueOnce(folio)
+        .mockResolvedValueOnce(folio)
+        .mockResolvedValueOnce({ ...folio, charges: [], payments: [] });
+      managerPaymentsRepository.findOne = jest.fn().mockResolvedValue(original);
+      managerPaymentsRepository.find = jest.fn().mockResolvedValue(priorRefunds);
+      managerChargesRepository.find = jest.fn().mockResolvedValue([]);
+    }
+
+    it('allows a partial refund below the remaining refundable amount', async () => {
+      seedRefundScenario();
+
+      await service.addRefund(propertyId, folioId, {
+        originalPaymentId,
+        amount: '500.00',
+        notes: 'Guest request',
+      });
+
+      expect(managerPaymentsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ amount: '-500.00', reversalOfPaymentId: originalPaymentId }),
+      );
+      expect(paymentsRepository.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('allows an exact refund equal to the remaining refundable amount', async () => {
+      seedRefundScenario();
+
+      await service.addRefund(propertyId, folioId, {
+        originalPaymentId,
+        amount: '2000.00',
+        notes: 'Guest request',
+      });
+
+      expect(managerPaymentsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ amount: '-2000.00', reversalOfPaymentId: originalPaymentId }),
+      );
+      expect(paymentsRepository.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects an over-refund and creates no financial mutation', async () => {
+      seedRefundScenario();
+
+      await expect(
+        service.addRefund(propertyId, folioId, {
+          originalPaymentId,
+          amount: '2001.00',
+          notes: 'Guest request',
+        }),
+      ).rejects.toThrow('Refund exceeds refundable amount for this payment');
+
+      expect(managerPaymentsRepository.create).not.toHaveBeenCalled();
+      expect(paymentsRepository.save).not.toHaveBeenCalled();
+      expect(managerReservationsRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects repeated refunds that cumulatively exceed the original payment', async () => {
+      seedRefundScenario([{ amount: '-1500.00' }]);
+
+      await expect(
+        service.addRefund(propertyId, folioId, {
+          originalPaymentId,
+          amount: '501.00',
+          notes: 'Guest request',
+        }),
+      ).rejects.toThrow('Refund exceeds refundable amount for this payment');
+
+      expect(managerPaymentsRepository.create).not.toHaveBeenCalled();
+      expect(paymentsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('keeps net paid at zero after a full refund of a 2000 payment', async () => {
+      seedRefundScenario();
+
+      await service.addRefund(propertyId, folioId, {
+        originalPaymentId,
+        amount: '2000.00',
+        notes: 'Guest request',
+      });
+
+      const createPayment = managerPaymentsRepository.create as jest.Mock;
+      const refund = createPayment.mock.calls[0][0];
+      const netPaid =
+        Math.round(Number('2000.00') * 100) + Math.round(Number(refund.amount) * 100);
+      expect(netPaid).toBe(0);
+    });
   });
 });

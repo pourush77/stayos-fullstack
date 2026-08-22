@@ -45,6 +45,7 @@ import {
   type GroupHoldDto,
   type InHouseGroupDto,
 } from '../../lib/operations-api';
+import { ActiveGroupsSection } from './components/ActiveGroupsSection';
 import { BookingStatusBadge, PaymentStatusBadge } from './components/BookingBadges';
 import { WalkInGroupModal } from './components/WalkInGroupModal';
 import { bookingFilterOptions } from './constants/booking.constants';
@@ -329,6 +330,8 @@ export default function BookingsPage() {
 
   const visibleGroupBookings = useMemo(() => {
     const normalized = query.trim().toLowerCase();
+    const shouldShowGroupRows = normalized.length > 0 || filter !== 'all';
+    if (!shouldShowGroupRows) return [];
 
     return [...groupHolds, ...recentlyDepartedGroups].filter((group) => {
       const searchable = [
@@ -553,6 +556,7 @@ export default function BookingsPage() {
           </Stack>
         </Card>
       ) : null}
+      <ActiveGroupsSection groups={groupHolds} today={today} />
       {showRecentlyDepartedGroups && recentlyDepartedGroups.length ? (
         <Card
           radius={radius.lg}

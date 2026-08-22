@@ -221,6 +221,7 @@ export default function RatesSettingsPage() {
   const [editingPlan, setEditingPlan] = useState<RatePlanDto | null>(null);
   const [planForm, setPlanForm] = useState<RatePlanForm>(emptyRatePlanForm);
   const [savingPlan, setSavingPlan] = useState(false);
+  const [defaultReplacementPlan, setDefaultReplacementPlan] = useState<RatePlanDto | null>(null);
 
   const [ageBasedPricingEnabled, setAgeBasedPricingEnabled] = useState(true);
   const [maximumChildAge, setMaximumChildAge] = useState(17);
@@ -228,6 +229,8 @@ export default function RatesSettingsPage() {
   const [savingGuestPricing, setSavingGuestPricing] = useState(false);
 
   const selectedPlan = plans.find((plan) => plan.id === selectedPlanId) ?? null;
+  const currentDefaultPlan =
+    plans.find((plan) => plan.isDefault && plan.id !== editingPlan?.id) ?? null;
 
   useEffect(() => {
     if (!propertyId) {
@@ -381,13 +384,26 @@ export default function RatesSettingsPage() {
 
   function closePlanEditor() {
     if (savingPlan) return;
+    setDefaultReplacementPlan(null);
     setPlanEditorOpened(false);
+  }
+
+  function requestSavePlan() {
+    if (!propertyId || planFormError || !canManage) return;
+
+    if (editingPlan && !editingPlan.isDefault && planForm.isDefault && currentDefaultPlan) {
+      setDefaultReplacementPlan(currentDefaultPlan);
+      return;
+    }
+
+    void savePlan();
   }
 
   async function savePlan() {
     if (!propertyId || planFormError || !canManage) return;
 
     setSavingPlan(true);
+    setDefaultReplacementPlan(null);
 
     try {
       if (editingPlan) {
@@ -400,7 +416,9 @@ export default function RatesSettingsPage() {
           refundable: planForm.refundable,
         });
 
-        setPlans((current) => current.map((plan) => (plan.id === updated.id ? updated : plan)));
+        const refreshedPlans = await getRatePlans(propertyId);
+        setPlans(refreshedPlans);
+        setSelectedPlanId(updated.id);
 
         showToast({
           color: 'green',
@@ -1436,22 +1454,42 @@ export default function RatesSettingsPage() {
         onClose={closePlanEditor}
         radius={radius.lg}
         size="lg"
+        padding="xl"
+        overlayProps={{ backgroundOpacity: 0.55, blur: 4 }}
         title={
-          <Box>
-            <Text c="#101828" fw={850} size="lg">
-              {editingPlan ? 'Edit rate plan' : 'Add rate plan'}
-            </Text>
-            <Text c="#64748b" size="sm" mt={2}>
-              Set the commercial rules first. Room prices are configured after the plan is saved.
-            </Text>
-          </Box>
+          <Group gap="sm" align="flex-start" wrap="nowrap">
+            <ThemeIcon variant="light" color="stayosBrand" size={42} radius="md">
+              {editingPlan ? <Pencil size={20} /> : <Plus size={20} />}
+            </ThemeIcon>
+            <Box style={{ flex: 1 }}>
+              <Group gap="xs" align="center">
+                <Text c="#101828" fw={850} size="lg" style={{ lineHeight: 1.2 }}>
+                  {editingPlan ? 'Edit rate plan' : 'Add rate plan'}
+                </Text>
+                <Badge
+                  variant="dot"
+                  color={editingPlan ? 'orange' : 'green'}
+                  size="sm"
+                  tt="capitalize"
+                >
+                  {editingPlan ? 'Updating' : 'New Plan'}
+                </Badge>
+              </Group>
+              <Text c="#64748b" size="sm" mt={2}>
+                Set the commercial rules first. Room prices are configured after the plan is saved.
+              </Text>
+            </Box>
+          </Group>
         }
       >
         <Stack gap={spacing[4]}>
+          <Divider my={2} />
+
           <SimpleGrid cols={{ base: 1, sm: 2 }}>
             <TextInput
               autoFocus
               label="Plan name"
+              description=" "
               placeholder="Best Available Rate"
               disabled={savingPlan}
               value={planForm.name}
@@ -1483,6 +1521,8 @@ export default function RatesSettingsPage() {
             placeholder="Flexible everyday rate"
             disabled={savingPlan}
             minRows={2}
+            autosize
+            maxRows={4}
             value={planForm.description}
             onChange={(event) => {
               const value = event.currentTarget.value;
@@ -1524,44 +1564,78 @@ export default function RatesSettingsPage() {
             />
           </SimpleGrid>
 
-          <Switch
-            checked={planForm.refundable}
-            disabled={savingPlan}
-            label="Refundable"
-            description="Turn this off for a non-refundable rate plan."
-            onChange={(event) => {
-              const checked = event.currentTarget.checked;
-              setPlanForm((current) => ({
-                ...current,
-                refundable: checked,
-              }));
+          <Paper
+            withBorder
+            p="sm"
+            radius="md"
+            style={{
+              borderColor: planForm.refundable
+                ? 'var(--mantine-color-stayosBrand-filled)'
+                : undefined,
+              transition: 'all 0.2s ease',
             }}
-          />
+          >
+            <Switch
+              checked={planForm.refundable}
+              disabled={savingPlan}
+              label={
+                <Text fw={600} size="sm">
+                  Refundable
+                </Text>
+              }
+              description="Turn this off for a non-refundable rate plan."
+              onChange={(event) => {
+                const checked = event.currentTarget.checked;
+                setPlanForm((current) => ({
+                  ...current,
+                  refundable: checked,
+                }));
+              }}
+            />
+          </Paper>
 
-          <Switch
-            checked={planForm.isDefault}
-            disabled={savingPlan}
-            label="Default rate plan"
-            description="StayOS uses the default active plan when a booking does not explicitly choose another plan."
-            onChange={(event) => {
-              const checked = event.currentTarget.checked;
-              setPlanForm((current) => ({
-                ...current,
-                isDefault: checked,
-              }));
+          <Paper
+            withBorder
+            p="sm"
+            radius="md"
+            style={{
+              borderColor: planForm.isDefault
+                ? 'var(--mantine-color-stayosBrand-filled)'
+                : undefined,
+              transition: 'all 0.2s ease',
             }}
-          />
+          >
+            <Switch
+              checked={planForm.isDefault}
+              disabled={savingPlan}
+              label={
+                <Text fw={600} size="sm">
+                  Default rate plan
+                </Text>
+              }
+              description="StayOS uses the default active plan when a booking does not explicitly choose another plan."
+              onChange={(event) => {
+                const checked = event.currentTarget.checked;
+                setPlanForm((current) => ({
+                  ...current,
+                  isDefault: checked,
+                }));
+              }}
+            />
+          </Paper>
 
           {planFormError ? (
-            <Alert color="red" variant="light">
+            <Alert color="red" variant="light" radius="md">
               {planFormError}
             </Alert>
           ) : (
-            <Alert color="blue" variant="light">
+            <Alert color="blue" variant="light" radius="md" icon={<CheckCircle2 size={18} />}>
               After saving, StayOS will guide you to add a base price for each room type this plan
               should sell.
             </Alert>
           )}
+
+          <Divider my={2} />
 
           <Group justify="flex-end">
             <Button color="gray" variant="subtle" disabled={savingPlan} onClick={closePlanEditor}>
@@ -1570,12 +1644,92 @@ export default function RatesSettingsPage() {
 
             <Button
               color="stayosBrand"
-              leftSection={<Save size={15} />}
+              leftSection={<Save size={16} />}
               disabled={Boolean(planFormError)}
+              loading={savingPlan}
+              onClick={requestSavePlan}
+              radius="md"
+              px="lg"
+            >
+              {editingPlan ? 'Save changes' : 'Create rate plan'}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal
+        centered
+        opened={Boolean(defaultReplacementPlan)}
+        onClose={() => {
+          if (!savingPlan) setDefaultReplacementPlan(null);
+        }}
+        radius={radius.lg}
+        size="md"
+        title={
+          <Text fw={600} size="lg" c="#0F172A">
+            Change default rate plan?
+          </Text>
+        }
+        closeOnClickOutside={!savingPlan}
+        closeOnEscape={!savingPlan}
+        withCloseButton={!savingPlan}
+        styles={{
+          header: { paddingBottom: 0 },
+          body: { paddingTop: '12px' },
+        }}
+      >
+        <Stack gap="lg">
+          <Text c="#475569" size="sm" lh={1.6}>
+            This will update your property's default rate plan. Existing bookings won't be affected,
+            but new direct bookings will automatically apply the new default.
+          </Text>
+
+          {/* Plan Comparison Card */}
+          <Stack
+            gap="xs"
+            p="md"
+            bg="#F8FAFC"
+            style={{ borderRadius: '12px', border: '1px solid #E2E8F0' }}
+          >
+            <Group justify="space-between" wrap="nowrap">
+              <Text size="xs" fw={600} c="#64748B" tt="uppercase">
+                Current Default
+              </Text>
+              <Text size="sm" fw={500} c="#334155" ta="right" truncate>
+                {defaultReplacementPlan?.name}
+              </Text>
+            </Group>
+
+            <Divider color="#E2E8F0" />
+
+            <Group justify="space-between" wrap="nowrap">
+              <Text size="xs" fw={600} c="stayosBrand" tt="uppercase">
+                New Default
+              </Text>
+              <Text size="sm" fw={600} c="#0F172A" ta="right" truncate>
+                {planForm.name.trim() || editingPlan?.name || 'This rate plan'}
+              </Text>
+            </Group>
+          </Stack>
+
+          <Group justify="flex-end" gap="sm" pt="xs">
+            <Button
+              variant="subtle"
+              color="gray"
+              radius="md"
+              disabled={savingPlan}
+              onClick={() => setDefaultReplacementPlan(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              color="stayosBrand"
+              radius="md"
+              leftSection={<CheckCircle2 size={16} />}
               loading={savingPlan}
               onClick={() => void savePlan()}
             >
-              {editingPlan ? 'Save changes' : 'Create rate plan'}
+              Confirm & Make Default
             </Button>
           </Group>
         </Stack>

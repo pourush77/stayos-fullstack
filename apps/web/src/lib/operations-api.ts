@@ -691,6 +691,32 @@ export function addGroupRoomingListItem(
   );
 }
 
+export function updateGroupRoomingListItem(
+  propertyId: string,
+  groupHoldId: string,
+  itemId: string,
+  body: { adults: number; children: number; guestName: string; notes?: string; phone?: string },
+  signal?: AbortSignal,
+) {
+  return patch<GroupHoldDto>(
+    `/properties/${propertyId}/operations/group-holds/${groupHoldId}/rooming-list/${itemId}`,
+    body,
+    signal,
+  );
+}
+
+export function deleteGroupRoomingListItem(
+  propertyId: string,
+  groupHoldId: string,
+  itemId: string,
+  signal?: AbortSignal,
+) {
+  return del<GroupHoldDto>(
+    `/properties/${propertyId}/operations/group-holds/${groupHoldId}/rooming-list/${itemId}`,
+    signal,
+  );
+}
+
 export function assignGroupRoom(
   propertyId: string,
   groupHoldId: string,

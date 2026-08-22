@@ -14,7 +14,20 @@ import {
   GlobalSearchResultDto,
   GlobalSearchResultType,
 } from './dto/global-search-response.dto';
-import { calculateSearchPriority } from './global-search-ranking';
+import { CalculateSearchPriorityOptions, calculateSearchRank } from './global-search-ranking';
+
+function searchRankPayload(options: CalculateSearchPriorityOptions) {
+  const rank = calculateSearchRank(options);
+
+  return {
+    priority: rank.priority,
+    isExactMatch: rank.isExactMatch,
+  };
+}
+
+function guestCanonicalName(guest: GuestEntity): string {
+  return [guest.firstName, guest.lastName].filter(Boolean).join(' ');
+}
 
 @Injectable()
 export class GlobalSearchService {
@@ -54,6 +67,10 @@ export class GlobalSearchService {
       this.searchFolios(propertyId, term, likeTerm, startsWithTerm, normalizedDigits, limit),
       this.searchGroupBookings(propertyId, term, likeTerm, startsWithTerm, normalizedDigits, limit),
     ]);
+    const bestMatch = [stays, reservations, groupBookings, guests, rooms, folios]
+      .flat()
+      .filter((result) => result.isExactMatch)
+      .sort((a, b) => b.priority - a.priority || a.title.localeCompare(b.title))[0];
 
     return {
       query: term,
@@ -72,6 +89,7 @@ export class GlobalSearchService {
         folios,
         groupBookings,
       },
+      bestMatch,
     };
   }
 
@@ -89,6 +107,9 @@ export class GlobalSearchService {
       .andWhere(
         `(
           guest.displayName ILIKE :likeTerm
+          OR guest.firstName ILIKE :likeTerm
+          OR guest.lastName ILIKE :likeTerm
+          OR CONCAT_WS(' ', guest.firstName, guest.lastName) ILIKE :likeTerm
           OR guest.email ILIKE :likeTerm
           OR guest.phone ILIKE :likeTerm
           OR guest.alternatePhone ILIKE :likeTerm
@@ -121,10 +142,12 @@ export class GlobalSearchService {
       )
       .addSelect(
         `CASE
-          WHEN lower(guest.displayName) = lower(:term) THEN 1
-          WHEN lower(guest.displayName) LIKE lower(:startsWithTerm) THEN 2
-          WHEN guest.phone = :term THEN 3
-          ELSE 4
+          WHEN lower(CONCAT_WS(' ', guest.firstName, guest.lastName)) = lower(:term) THEN 1
+          WHEN lower(guest.displayName) = lower(:term) THEN 2
+          WHEN lower(CONCAT_WS(' ', guest.firstName, guest.lastName)) LIKE lower(:startsWithTerm) THEN 3
+          WHEN lower(guest.displayName) LIKE lower(:startsWithTerm) THEN 4
+          WHEN guest.phone = :term THEN 5
+          ELSE 6
         END`,
         'search_rank',
       )
@@ -139,26 +162,33 @@ export class GlobalSearchService {
     const guests = await queryBuilder.getMany();
 
     return guests
-      .map((guest) => ({
-        id: guest.id,
-        type: GlobalSearchResultType.GUEST,
-        title: guest.displayName,
-        subtitle: [guest.phone, guest.email].filter(Boolean).join(' · '),
-        description: guest.companyName ?? undefined,
-        badge: guest.vipStatus ? 'VIP' : 'GUEST',
-        route: `/guests/${guest.id}`,
-        priority: calculateSearchPriority({
-          query: term,
-          basePriority: 60,
-          fields: [
-            { value: guest.displayName, weight: 100 },
-            { value: guest.phone, weight: 90, normalizeDigits: true },
-            { value: guest.alternatePhone, weight: 80, normalizeDigits: true },
-            { value: guest.email, weight: 70 },
-            { value: guest.companyName, weight: 60 },
-          ],
-        }),
-      }))
+      .map((guest) => {
+        const canonicalName = guestCanonicalName(guest);
+
+        return {
+          id: guest.id,
+          type: GlobalSearchResultType.GUEST,
+          title: canonicalName || guest.displayName,
+          subtitle: [guest.phone, guest.email].filter(Boolean).join(' · '),
+          description: guest.companyName ?? undefined,
+          badge: guest.vipStatus ? 'VIP' : 'GUEST',
+          route: `/guests/${guest.id}`,
+          ...searchRankPayload({
+            query: term,
+            basePriority: 60,
+            fields: [
+              { value: canonicalName, weight: 120 },
+              { value: guest.firstName, weight: 110 },
+              { value: guest.lastName, weight: 110 },
+              { value: guest.displayName, weight: 100 },
+              { value: guest.phone, weight: 90, normalizeDigits: true },
+              { value: guest.alternatePhone, weight: 80, normalizeDigits: true },
+              { value: guest.email, weight: 70 },
+              { value: guest.companyName, weight: 60 },
+            ],
+          }),
+        };
+      })
       .sort((a, b) => b.priority - a.priority || a.title.localeCompare(b.title));
   }
 
@@ -236,7 +266,7 @@ export class GlobalSearchService {
           : reservation.roomType.name,
         badge: reservation.status,
         route: `/reservations/${reservation.id}`,
-        priority: calculateSearchPriority({
+        ...searchRankPayload({
           query: term,
           basePriority: 80,
           fields: [
@@ -325,7 +355,7 @@ export class GlobalSearchService {
         description: `${stay.reservationCode} · ${stay.guest.phone ?? ''}`,
         badge: 'IN HOUSE',
         route: `/guest-stay/${stay.id}`,
-        priority: calculateSearchPriority({
+        ...searchRankPayload({
           query: term,
           basePriority: 100,
           fields: [
@@ -390,7 +420,7 @@ export class GlobalSearchService {
         description: room.displayName ?? undefined,
         badge: room.operationalStatus,
         route: `/rooms/${room.id}`,
-        priority: calculateSearchPriority({
+        ...searchRankPayload({
           query: term,
           basePriority: 70,
           fields: [
@@ -474,7 +504,7 @@ export class GlobalSearchService {
           : undefined,
         badge: folio.status,
         route: `/billing/${folio.id}`,
-        priority: calculateSearchPriority({
+        ...searchRankPayload({
           query: term,
           basePriority: 75,
           fields: [
@@ -557,7 +587,7 @@ export class GlobalSearchService {
           `${groupBooking.leadName} · ` + `${groupBooking.adults + groupBooking.children} guests`,
         badge: groupBooking.status,
         route: `/reservations/group-holds/${groupBooking.id}`,
-        priority: calculateSearchPriority({
+        ...searchRankPayload({
           query: term,
           basePriority: 90,
           fields: [

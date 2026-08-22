@@ -37,6 +37,11 @@ export class GlobalSearchResultDto {
     description: 'Internal relevance score. Higher-value results are more important.',
   })
   priority!: number;
+
+  @ApiPropertyOptional({
+    description: 'True when the query exactly matches a searchable identifier or meaningful text field.',
+  })
+  isExactMatch?: boolean;
 }
 
 export class GlobalSearchGroupsDto {
@@ -68,4 +73,7 @@ export class GlobalSearchResponseDto {
 
   @ApiProperty({ type: GlobalSearchGroupsDto })
   results!: GlobalSearchGroupsDto;
+
+  @ApiPropertyOptional({ type: GlobalSearchResultDto })
+  bestMatch?: GlobalSearchResultDto;
 }

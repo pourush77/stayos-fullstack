@@ -1,7 +1,18 @@
 'use client';
 
 import Link from 'next/link';
-import { Alert, Box, Card, Group, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core';
+import {
+  Alert,
+  Badge,
+  Box,
+  Card,
+  Group,
+  SimpleGrid,
+  Stack,
+  Text,
+  ThemeIcon,
+  Title,
+} from '@mantine/core';
 import {
   BadgeIndianRupee,
   Building2,
@@ -15,7 +26,7 @@ import {
   ShieldCheck,
   Users,
 } from 'lucide-react';
-import { radius, spacing } from '@stayos/theme';
+import { radius } from '@stayos/theme';
 import { useAuth } from '../../features/auth/auth-context';
 
 type SettingsTile = {
@@ -24,6 +35,7 @@ type SettingsTile = {
   description: string;
   icon: React.ReactNode;
   href: string;
+  category?: 'access' | 'config' | 'system';
   permission?: string;
   disabled?: boolean;
   disabledLabel?: string;
@@ -35,62 +47,78 @@ function hasPermission(permissions: string[] | undefined, permission: string | u
   return Boolean(permissions?.includes(permission) || permissions?.includes('*'));
 }
 
-const cardStyle = {
-  background: '#ffffff',
-  border: '1px solid rgba(226, 232, 240, 0.9)',
-  boxShadow: '0 8px 24px rgba(15, 23, 42, 0.035)',
-  cursor: 'pointer',
-  transition: 'transform 160ms ease, box-shadow 160ms ease',
-} as const;
-
-const disabledCardStyle = {
-  ...cardStyle,
-  background: '#f8fafc',
-  cursor: 'not-allowed',
-  opacity: 0.7,
-} as const;
-
 function SettingsTileCard({ tile }: { tile: SettingsTile }) {
-  const content = (
+  const isEnabled = !tile.disabled;
+
+  const cardContent = (
     <Card
       data-testid={`settings-tile-${tile.key}`}
       radius={radius.lg}
-      p={20}
-      style={tile.disabled ? disabledCardStyle : cardStyle}
+      p="lg"
+      style={{
+        position: 'relative',
+        background: tile.disabled ? 'rgba(248, 250, 252, 0.7)' : '#ffffff',
+        border: tile.disabled ? '1px dashed #cbd5e1' : '1px solid rgba(226, 232, 240, 0.8)',
+        boxShadow: tile.disabled ? 'none' : '0 4px 12px rgba(15, 23, 42, 0.02)',
+        cursor: isEnabled ? 'pointer' : 'not-allowed',
+        transition: 'all 200ms cubic-bezier(0.4, 0, 0.2, 1)',
+        overflow: 'hidden',
+      }}
+      className={isEnabled ? 'settings-tile-hover' : undefined}
     >
       <Group justify="space-between" align="flex-start" wrap="nowrap">
-        <Group align="flex-start" gap={12} wrap="nowrap">
-          <ThemeIcon color="stayosBrand" variant="light" radius={radius.md} size={44}>
+        <Group align="flex-start" gap="md" wrap="nowrap">
+          <ThemeIcon
+            color={tile.disabled ? 'gray' : 'stayosBrand'}
+            variant={tile.disabled ? 'subtle' : 'light'}
+            radius="md"
+            size={46}
+            style={{
+              transition: 'transform 200ms ease, background-color 200ms ease',
+            }}
+            className="tile-icon"
+          >
             {tile.icon}
           </ThemeIcon>
 
-          <Box>
-            <Text c="#101828" fw={800} size="md">
-              {tile.title}
-            </Text>
+          <Box style={{ flex: 1 }}>
+            <Group gap="xs" align="center">
+              <Text c="#101828" fw={700} size="md" style={{ lineHeight: 1.3 }}>
+                {tile.title}
+              </Text>
+              {tile.disabled && (
+                <Badge variant="light" color="gray" size="xs">
+                  {tile.disabledLabel || 'Soon'}
+                </Badge>
+              )}
+            </Group>
 
-            <Text c="#64748b" size="sm" mt={4}>
+            <Text c="#64748b" size="sm" mt={4} style={{ lineHeight: 1.4 }}>
               {tile.description}
             </Text>
-
-            {tile.disabled && tile.disabledLabel ? (
-              <Text c="#94a3b8" size="xs" mt={6} fw={700}>
-                {tile.disabledLabel}
-              </Text>
-            ) : null}
           </Box>
         </Group>
 
-        {!tile.disabled ? <ChevronRight size={18} color="#94a3b8" /> : null}
+        {isEnabled && (
+          <ThemeIcon
+            variant="subtle"
+            color="gray"
+            size="sm"
+            className="arrow-icon"
+            style={{ transition: 'transform 200ms ease, color 200ms ease' }}
+          >
+            <ChevronRight size={18} color="#94a3b8" />
+          </ThemeIcon>
+        )}
       </Group>
     </Card>
   );
 
-  if (tile.disabled) return content;
+  if (tile.disabled) return cardContent;
 
   return (
     <Link href={tile.href} style={{ textDecoration: 'none' }}>
-      {content}
+      {cardContent}
     </Link>
   );
 }
@@ -119,7 +147,7 @@ export default function SettingsHomePage() {
     {
       key: 'room-types',
       title: 'Room Types',
-      description: 'Assign standard amenities to room categories.',
+      description: 'Assign standard amenities and capacity to room categories.',
       icon: <ListChecks size={22} />,
       href: '/settings/room-types',
       permission: 'rooms.manage',
@@ -127,7 +155,7 @@ export default function SettingsHomePage() {
     {
       key: 'rates',
       title: 'Rates & Guest Pricing',
-      description: 'Configure room pricing and child age-based pricing rules.',
+      description: 'Configure room pricing, occupancy, and child age-based rules.',
       icon: <BadgeIndianRupee size={22} />,
       href: '/settings/rates',
       permission: 'settings.view',
@@ -188,29 +216,53 @@ export default function SettingsHomePage() {
   const visibleTiles = tiles.filter((tile) => hasPermission(permissions, tile.permission));
 
   return (
-    <Stack gap={spacing[3]} data-testid="settings-home">
-      <Box>
-        <Title order={1} c="#101828" style={{ fontSize: 30, fontWeight: 750 }}>
-          Settings
-        </Title>
+    <>
+      {/* Micro Interactive Hover CSS */}
+      <style jsx global>{`
+        .settings-tile-hover:hover {
+          transform: translateY(-3px);
+          border-color: var(--mantine-color-stayosBrand-light-hover) !important;
+          box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08) !important;
+        }
 
-        <Text c="#64748b" mt={4} style={{ fontSize: 14 }}>
-          Configure how your property works, what staff can access and the rules StayOS should
-          follow.
-        </Text>
-      </Box>
+        .settings-tile-hover:hover .tile-icon {
+          transform: scale(1.05);
+          background-color: var(--mantine-color-stayosBrand-light);
+        }
 
-      {visibleTiles.length === 0 ? (
-        <Alert color="yellow" title="Nothing here yet">
-          Your role does not have access to any settings sections. Contact your administrator.
-        </Alert>
-      ) : (
-        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing={spacing[3]}>
-          {visibleTiles.map((tile) => (
-            <SettingsTileCard key={tile.key} tile={tile} />
-          ))}
-        </SimpleGrid>
-      )}
-    </Stack>
+        .settings-tile-hover:hover .arrow-icon {
+          transform: translateX(4px);
+          color: var(--mantine-color-stayosBrand-filled);
+        }
+      `}</style>
+
+      <Stack gap="lg" data-testid="settings-home" style={{ maxWidth: 1280 }}>
+        <Box>
+          <Group gap="xs" align="center">
+            <Title order={1} c="#101828" style={{ fontSize: 28, fontWeight: 800 }}>
+              Settings
+            </Title>
+          </Group>
+
+          <Text c="#64748b" mt={4} size="sm">
+            Configure how your property works, manage staff access levels, and set operational rules
+            for StayOS.
+          </Text>
+        </Box>
+
+        {visibleTiles.length === 0 ? (
+          <Alert color="yellow" title="Access Restricted" radius="md">
+            Your current user role does not have permission to view settings. Contact your system
+            administrator.
+          </Alert>
+        ) : (
+          <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+            {visibleTiles.map((tile) => (
+              <SettingsTileCard key={tile.key} tile={tile} />
+            ))}
+          </SimpleGrid>
+        )}
+      </Stack>
+    </>
   );
 }

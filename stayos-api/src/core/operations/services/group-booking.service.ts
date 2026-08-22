@@ -28,6 +28,7 @@ import {
   InHouseGroupDto,
   PostGroupMasterFolioChargeDto,
   PostGroupMasterFolioPaymentDto,
+  UpdateGroupRoomingListItemDto,
   UpdateGroupHoldDto,
 } from '../dto/operations.dto';
 import { GroupBookingRoomAssignmentEntity } from '../infrastructure/group-booking-room-assignment.entity';
@@ -131,10 +132,9 @@ export class GroupBookingService {
       const blockRepository = manager.getRepository(GroupBookingRoomBlockEntity);
       const groupCode = await this.nextGroupCode(propertyId);
       const pricedOption = await this.findPricedRoomMixOption(propertyId, dto);
-      const estimatedTotal = pricedOption?.estimatedTotal ?? dto.roomBlocks.reduce(
-        (sum, block) => sum + (block.estimatedTotal ?? 0),
-        0,
-      );
+      const estimatedTotal =
+        pricedOption?.estimatedTotal ??
+        dto.roomBlocks.reduce((sum, block) => sum + (block.estimatedTotal ?? 0), 0);
       const deposit = calculateGroupBookingDeposit(
         await this.resolveGroupDepositInput(propertyId),
         estimatedTotal,
@@ -172,7 +172,9 @@ export class GroupBookingService {
         dto.roomBlocks.map((block) =>
           blockRepository.create({
             adultsPerRoom: block.adultsPerRoom,
-            baseRate: String(pricedBlocksByRoomType.get(block.roomTypeId)?.baseRate ?? block.baseRate ?? 0),
+            baseRate: String(
+              pricedBlocksByRoomType.get(block.roomTypeId)?.baseRate ?? block.baseRate ?? 0,
+            ),
             childrenPerRoom: block.childrenPerRoom,
             estimatedTotal: String(
               pricedBlocksByRoomType.get(block.roomTypeId)?.estimatedTotal ??
@@ -304,6 +306,59 @@ export class GroupBookingService {
     return this.getHold(propertyId, id);
   }
 
+  async updateRoomingListItem(
+    propertyId: string,
+    id: string,
+    itemId: string,
+    dto: UpdateGroupRoomingListItemDto,
+  ): Promise<GroupHoldDto> {
+    await this.propertiesService.findOne(propertyId);
+    const group = await this.findGroup(propertyId, id);
+    this.ensureEditable(group);
+
+    const item = await this.roomingListRepository.findOne({
+      where: { groupBookingId: group.id, id: itemId },
+    });
+    if (!item) {
+      throw new NotFoundException({
+        code: ApiErrorCode.NOT_FOUND,
+        message: 'Rooming-list item not found.',
+      });
+    }
+
+    item.adults = dto.adults;
+    item.children = dto.children;
+    item.guestName = dto.guestName.trim();
+    item.notes = dto.notes?.trim() || null;
+    item.phone = dto.phone?.trim() || null;
+
+    await this.roomingListRepository.save(item);
+    return this.getHold(propertyId, id);
+  }
+
+  async deleteRoomingListItem(
+    propertyId: string,
+    id: string,
+    itemId: string,
+  ): Promise<GroupHoldDto> {
+    await this.propertiesService.findOne(propertyId);
+    const group = await this.findGroup(propertyId, id);
+    this.ensureEditable(group);
+
+    const item = await this.roomingListRepository.findOne({
+      where: { groupBookingId: group.id, id: itemId },
+    });
+    if (!item) {
+      throw new NotFoundException({
+        code: ApiErrorCode.NOT_FOUND,
+        message: 'Rooming-list item not found.',
+      });
+    }
+
+    await this.roomingListRepository.delete({ groupBookingId: group.id, id: itemId });
+    return this.getHold(propertyId, id);
+  }
+
   async assignRoom(propertyId: string, id: string, dto: AssignGroupRoomDto): Promise<GroupHoldDto> {
     await this.propertiesService.findOne(propertyId);
     const group = await this.findGroup(propertyId, id);
@@ -334,7 +389,9 @@ export class GroupBookingService {
       departureDate: group.departureDate,
       roomTypeId: room.roomTypeId,
     });
-    const roomIsAvailable = assignableRooms.some((availableRoom) => availableRoom.roomId === room.id);
+    const roomIsAvailable = assignableRooms.some(
+      (availableRoom) => availableRoom.roomId === room.id,
+    );
     if (!roomIsAvailable) {
       throw new BadRequestException({
         code: ApiErrorCode.VALIDATION_ERROR,
@@ -460,11 +517,7 @@ export class GroupBookingService {
       });
     }
 
-    await this.ensureRoomAvailableNowForActiveGroupReassignment(
-      propertyId,
-      group,
-      replacementRoom,
-    );
+    await this.ensureRoomAvailableNowForActiveGroupReassignment(propertyId, group, replacementRoom);
 
     const alreadyAssignedToThisGroup = await this.roomAssignmentsRepository.findOne({
       where: {
@@ -1261,7 +1314,10 @@ export class GroupBookingService {
         reference: dto.reference?.trim() || null,
       }),
     );
-    await this.groupMasterFoliosRepository.update({ id: folio.id, propertyId }, { updatedAt: new Date() });
+    await this.groupMasterFoliosRepository.update(
+      { id: folio.id, propertyId },
+      { updatedAt: new Date() },
+    );
 
     return this.getGroupMasterFolioDetail(propertyId, groupBookingId);
   }
@@ -1442,17 +1498,10 @@ export class GroupBookingService {
     const estimatedTotal = Number(folio.estimatedTotal || group.estimatedTotal || 0);
     const totalCharges =
       estimatedTotal + existingCharges.reduce((sum, charge) => sum + Number(charge.amount || 0), 0);
-    const paidAmount = payments.reduce(
-      (sum, payment) => sum + Number(payment.amount || 0),
-      0,
-    );
+    const paidAmount = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
     const balanceDue = Math.max(totalCharges - paidAmount, 0);
     const paymentStatus =
-      balanceDue <= 0.01 && paidAmount > 0
-        ? 'PAID'
-        : paidAmount > 0
-          ? 'PARTIALLY_PAID'
-          : 'UNPAID';
+      balanceDue <= 0.01 && paidAmount > 0 ? 'PAID' : paidAmount > 0 ? 'PARTIALLY_PAID' : 'UNPAID';
     const checkoutBlockers: string[] = [];
     if (!assignments.length) checkoutBlockers.push('No rooms assigned for checkout.');
     if (
@@ -1602,11 +1651,7 @@ export class GroupBookingService {
       depositRequired: Number(group.depositRequired || 0),
       estimatedTotal,
       paymentStatus:
-        balanceDue <= 0.01 && totalPaid > 0
-          ? 'PAID'
-          : totalPaid > 0
-            ? 'PARTIALLY_PAID'
-            : 'UNPAID',
+        balanceDue <= 0.01 && totalPaid > 0 ? 'PAID' : totalPaid > 0 ? 'PARTIALLY_PAID' : 'UNPAID',
       totalPaid,
     };
   }
@@ -1641,9 +1686,11 @@ export class GroupBookingService {
 
   private ensureRoomAssignmentChangeAllowed(group: GroupBookingEntity) {
     if (
-      ![GroupBookingStatus.ON_HOLD, GroupBookingStatus.CONFIRMED, GroupBookingStatus.CHECKED_IN].includes(
-        group.status,
-      )
+      ![
+        GroupBookingStatus.ON_HOLD,
+        GroupBookingStatus.CONFIRMED,
+        GroupBookingStatus.CHECKED_IN,
+      ].includes(group.status)
     ) {
       throw new BadRequestException({
         code: ApiErrorCode.VALIDATION_ERROR,
@@ -1718,9 +1765,11 @@ export class GroupBookingService {
 
   private isOperationallyActiveGroup(group: GroupBookingEntity): boolean {
     if (
-      [GroupBookingStatus.RELEASED, GroupBookingStatus.CANCELLED, GroupBookingStatus.CHECKED_OUT].includes(
-        group.status,
-      )
+      [
+        GroupBookingStatus.RELEASED,
+        GroupBookingStatus.CANCELLED,
+        GroupBookingStatus.CHECKED_OUT,
+      ].includes(group.status)
     ) {
       return false;
     }

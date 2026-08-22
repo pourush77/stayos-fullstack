@@ -25,6 +25,8 @@ describe('OperationsController', () => {
     listHolds: jest.fn(),
     listInHouseGroups: jest.fn(),
     releaseHold: jest.fn(),
+    deleteRoomingListItem: jest.fn(),
+    updateRoomingListItem: jest.fn(),
     updateHold: jest.fn(),
   };
   const groupRoomMixService = { suggestRoomMix: jest.fn() };
@@ -168,6 +170,45 @@ describe('OperationsController', () => {
       id: groupHoldId,
       status: 'CANCELLED',
     });
+  });
+
+  it('delegates group rooming-list item edit and delete requests', async () => {
+    const groupHoldId = 'c175c8fa-f36e-4f40-a3ef-2e9dbb1f0679';
+    const itemId = 'd175c8fa-f36e-4f40-a3ef-2e9dbb1f0679';
+    const dto = { adults: 2, children: 1, guestName: 'Updated Guest' };
+    groupBookingService.updateRoomingListItem.mockResolvedValue({
+      id: groupHoldId,
+      roomingList: [{ id: itemId, guestName: 'Updated Guest' }],
+    });
+    groupBookingService.deleteRoomingListItem.mockResolvedValue({
+      id: groupHoldId,
+      readiness: { roomingListStarted: false },
+      roomingList: [],
+    });
+
+    await expect(
+      controller.updateGroupRoomingListItem(propertyId, groupHoldId, itemId, dto),
+    ).resolves.toMatchObject({
+      roomingList: [{ id: itemId, guestName: 'Updated Guest' }],
+    });
+    expect(groupBookingService.updateRoomingListItem).toHaveBeenCalledWith(
+      propertyId,
+      groupHoldId,
+      itemId,
+      dto,
+    );
+
+    await expect(
+      controller.deleteGroupRoomingListItem(propertyId, groupHoldId, itemId),
+    ).resolves.toMatchObject({
+      readiness: { roomingListStarted: false },
+      roomingList: [],
+    });
+    expect(groupBookingService.deleteRoomingListItem).toHaveBeenCalledWith(
+      propertyId,
+      groupHoldId,
+      itemId,
+    );
   });
 
   it('delegates in-house group visibility requests', async () => {

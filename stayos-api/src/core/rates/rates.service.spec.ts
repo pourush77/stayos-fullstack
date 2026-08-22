@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, QueryFailedError, Repository } from 'typeorm';
 import { PropertiesService } from '../properties/properties.service';
+import { PropertyEntity } from '../properties/infrastructure/property.entity';
 import { RoomTypesService } from '../room-types/room-types.service';
 import { ChildPricingMode } from './domain/child-pricing-mode.enum';
 import { RatePlanStatus } from './domain/rate-plan-status.enum';
@@ -121,6 +122,8 @@ describe('RatesService', () => {
 
   let transactionalPolicyRepository: MockRepository<GuestPricingPolicyEntity>;
   let transactionalBandRepository: MockRepository<ChildAgeBandEntity>;
+  let transactionalRatePlanRepository: MockRepository<RatePlanEntity>;
+  let transactionalPropertyRepository: MockRepository<PropertyEntity>;
 
   const propertiesService = {
     findOne: jest.fn(),
@@ -178,6 +181,17 @@ describe('RatesService', () => {
       delete: jest.fn(),
     };
 
+    transactionalRatePlanRepository = {
+      findOne: jest.fn(),
+      update: jest.fn(),
+      merge: jest.fn(),
+      save: jest.fn(),
+    };
+
+    transactionalPropertyRepository = {
+      findOne: jest.fn(),
+    };
+
     propertiesService.findOne.mockReset();
     roomTypesService.findOne.mockReset();
     dataSource.transaction.mockReset();
@@ -202,6 +216,14 @@ describe('RatesService', () => {
 
             if (entity === ChildAgeBandEntity) {
               return transactionalBandRepository;
+            }
+
+            if (entity === RatePlanEntity) {
+              return transactionalRatePlanRepository;
+            }
+
+            if (entity === PropertyEntity) {
+              return transactionalPropertyRepository;
             }
 
             throw new Error('Unexpected repository requested');
@@ -411,6 +433,17 @@ describe('RatesService', () => {
   });
 
   describe('updateRatePlan (1C-b1)', () => {
+    beforeEach(() => {
+      transactionalPropertyRepository.findOne?.mockResolvedValue({ id: propertyId });
+      transactionalRatePlanRepository.findOne?.mockResolvedValue(ratePlanEntity);
+      transactionalRatePlanRepository.update?.mockResolvedValue({ affected: 1 });
+      transactionalRatePlanRepository.merge?.mockImplementation((base, patch) => ({
+        ...base,
+        ...patch,
+      }));
+      transactionalRatePlanRepository.save?.mockImplementation(async (value) => value);
+    });
+
     it('merges updatable fields and persists', async () => {
       ratePlansRepository.findOne?.mockResolvedValue(ratePlanEntity);
       ratePlansRepository.merge?.mockImplementation((base, patch) => ({ ...base, ...patch }));
@@ -422,6 +455,113 @@ describe('RatesService', () => {
       });
 
       expect(result).toMatchObject({ status: RatePlanStatus.INACTIVE, refundable: false });
+    });
+
+    it('switches the default plan atomically while keeping both plans active', async () => {
+      const targetPlan = {
+        ...ratePlanEntity,
+        id: 'bfast-plan',
+        code: 'BFAST',
+        name: 'Breakfast Included',
+        isDefault: false,
+        status: RatePlanStatus.ACTIVE,
+      };
+      transactionalRatePlanRepository.findOne?.mockResolvedValue(targetPlan);
+
+      const result = await service.updateRatePlan(propertyId, targetPlan.id, {
+        isDefault: true,
+        status: RatePlanStatus.ACTIVE,
+      });
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(transactionalPropertyRepository.findOne).toHaveBeenCalledWith({
+        where: { id: propertyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      expect(transactionalRatePlanRepository.update).toHaveBeenCalledWith(
+        { propertyId, id: expect.anything(), isDefault: true },
+        { isDefault: false },
+      );
+      expect(transactionalRatePlanRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: targetPlan.id,
+          isDefault: true,
+          status: RatePlanStatus.ACTIVE,
+        }),
+      );
+      expect(result).toMatchObject({
+        id: targetPlan.id,
+        isDefault: true,
+        status: RatePlanStatus.ACTIVE,
+      });
+    });
+
+    it('editing an already-default plan with isDefault true is idempotent', async () => {
+      const result = await service.updateRatePlan(propertyId, ratePlanId, {
+        name: 'Best Available Rate Updated',
+        isDefault: true,
+      });
+
+      expect(transactionalRatePlanRepository.update).toHaveBeenCalledWith(
+        { propertyId, id: expect.anything(), isDefault: true },
+        { isDefault: false },
+      );
+      expect(result).toMatchObject({
+        id: ratePlanId,
+        name: 'Best Available Rate Updated',
+        isDefault: true,
+      });
+    });
+
+    it('does not affect defaults from another property', async () => {
+      await service.updateRatePlan(propertyId, ratePlanId, { isDefault: true });
+
+      expect(transactionalRatePlanRepository.update).toHaveBeenCalledWith(
+        { propertyId, id: expect.anything(), isDefault: true },
+        { isDefault: false },
+      );
+      expect(transactionalRatePlanRepository.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({ propertyId: otherPropertyId }),
+        expect.anything(),
+      );
+    });
+
+    it('rolls back the default switch when saving the target fails', async () => {
+      const failure = new Error('save failed');
+      transactionalRatePlanRepository.save?.mockRejectedValue(failure);
+
+      await expect(
+        service.updateRatePlan(propertyId, ratePlanId, { isDefault: true }),
+      ).rejects.toThrow('save failed');
+
+      expect(transactionalRatePlanRepository.update).toHaveBeenCalled();
+      expect(transactionalRatePlanRepository.save).toHaveBeenCalled();
+    });
+
+    it('rejects making an inactive plan the default', async () => {
+      await expect(
+        service.updateRatePlan(propertyId, ratePlanId, {
+          isDefault: true,
+          status: RatePlanStatus.INACTIVE,
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(transactionalRatePlanRepository.update).not.toHaveBeenCalled();
+      expect(transactionalRatePlanRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('keeps the database uniqueness invariant protected', async () => {
+      const driverError = Object.assign(new Error('duplicate'), {
+        code: '23505',
+        constraint: 'UQ_rate_plans_property_default',
+      });
+      transactionalRatePlanRepository.save?.mockRejectedValue(
+        new QueryFailedError('', [], driverError),
+      );
+
+      await expect(
+        service.updateRatePlan(propertyId, ratePlanId, { isDefault: true }),
+      ).rejects.toBeInstanceOf(ConflictException);
     });
   });
 

@@ -1381,6 +1381,149 @@ describe('Operations services', () => {
     expect(roomsRepository.save).not.toHaveBeenCalled();
   });
 
+  it('updates a rooming-list item through a property-scoped group booking', async () => {
+    const group = {
+      id: 'group-booking-id',
+      adults: 2,
+      arrivalDate: dateKey(30),
+      children: 0,
+      departureDate: dateKey(32),
+      depositPolicyType: 'NONE',
+      depositPolicyValue: '0',
+      depositRequired: '0',
+      estimatedTotal: '2400',
+      groupCode: 'GRP-00001',
+      groupName: 'Edit Group',
+      leadEmail: null,
+      leadName: 'Lead Guest',
+      leadPhone: '+919999999999',
+      propertyId,
+      releaseAt: null,
+      source: 'PHONE',
+      status: GroupBookingStatus.CONFIRMED,
+      syncStatus: 'PMS_ONLY',
+    };
+    const item = {
+      id: 'rooming-item-id',
+      adults: 1,
+      assignedRoomId: null,
+      children: 0,
+      groupBookingId: group.id,
+      guestName: 'Old Guest',
+      notes: null,
+      phone: null,
+    };
+    const roomingListRepository = {
+      findOne: jest.fn().mockResolvedValue(item),
+      save: jest.fn().mockImplementation(async (value) => value),
+      find: jest.fn().mockResolvedValue([{ ...item, guestName: 'Updated Guest', adults: 2 }]),
+    };
+    const service = new GroupBookingService(
+      { findOne: jest.fn().mockResolvedValue(group) } as never,
+      {
+        find: jest.fn().mockResolvedValue([{ rooms: 1, roomTypeId, roomType: { name: 'Deluxe' } }]),
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      roomingListRepository as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      propertiesService as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(
+      service.updateRoomingListItem(propertyId, group.id, item.id, {
+        adults: 2,
+        children: 1,
+        guestName: ' Updated Guest ',
+        notes: ' Late arrival ',
+        phone: ' 9999999999 ',
+      }),
+    ).resolves.toMatchObject({
+      readiness: { roomingListStarted: true },
+      roomingList: [expect.objectContaining({ adults: 2, guestName: 'Updated Guest' })],
+    });
+    expect(roomingListRepository.findOne).toHaveBeenCalledWith({
+      where: { groupBookingId: group.id, id: item.id },
+    });
+    expect(roomingListRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adults: 2,
+        children: 1,
+        guestName: 'Updated Guest',
+        notes: 'Late arrival',
+        phone: '9999999999',
+      }),
+    );
+  });
+
+  it('deletes a rooming-list item and returns recalculated readiness', async () => {
+    const group = {
+      id: 'group-booking-id',
+      adults: 2,
+      arrivalDate: dateKey(30),
+      children: 0,
+      departureDate: dateKey(32),
+      depositPolicyType: 'NONE',
+      depositPolicyValue: '0',
+      depositRequired: '0',
+      estimatedTotal: '2400',
+      groupCode: 'GRP-00002',
+      groupName: 'Delete Group',
+      leadEmail: null,
+      leadName: 'Lead Guest',
+      leadPhone: '+919999999999',
+      propertyId,
+      releaseAt: null,
+      source: 'PHONE',
+      status: GroupBookingStatus.CONFIRMED,
+      syncStatus: 'PMS_ONLY',
+    };
+    const item = {
+      id: 'rooming-item-id',
+      groupBookingId: group.id,
+      guestName: 'Delete Guest',
+    };
+    const roomingListRepository = {
+      findOne: jest.fn().mockResolvedValue(item),
+      delete: jest.fn().mockResolvedValue({ affected: 1 }),
+      find: jest.fn().mockResolvedValue([]),
+    };
+    const service = new GroupBookingService(
+      { findOne: jest.fn().mockResolvedValue(group) } as never,
+      {
+        find: jest.fn().mockResolvedValue([{ rooms: 1, roomTypeId, roomType: { name: 'Deluxe' } }]),
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      roomingListRepository as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      propertiesService as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(
+      service.deleteRoomingListItem(propertyId, group.id, item.id),
+    ).resolves.toMatchObject({
+      readiness: { canConfirm: false, roomingListStarted: false },
+      roomingList: [],
+    });
+    expect(roomingListRepository.delete).toHaveBeenCalledWith({
+      groupBookingId: group.id,
+      id: item.id,
+    });
+  });
+
   it('marks assigned rooms occupied during actual group check-in', async () => {
     const group = {
       id: 'group-booking-id',
@@ -2145,7 +2288,14 @@ describe('Operations services', () => {
         id: 'room-1',
         roomNumber: '301',
         roomTypeId: 'dlx-id',
-        roomType: { id: 'dlx-id', code: 'DLX', name: 'Deluxe', maxOccupancy: 3, maxAdults: 2, maxChildren: 1 } as never,
+        roomType: {
+          id: 'dlx-id',
+          code: 'DLX',
+          name: 'Deluxe',
+          maxOccupancy: 3,
+          maxAdults: 2,
+          maxChildren: 1,
+        } as never,
       }),
     ]);
     reservationsRepository.find?.mockResolvedValue([]);
@@ -2153,8 +2303,12 @@ describe('Operations services', () => {
       asRepository(roomsRepository),
       asRepository(reservationsRepository),
       asRepository(groupBlocksRepository),
-      asRepository({ findOne: jest.fn().mockResolvedValue({ id: 'bar', isDefault: true, status: 'ACTIVE' }) }),
-      asRepository({ find: jest.fn().mockResolvedValue([{ roomTypeId: 'dlx-id', baseRate: '3500.00' }]) }),
+      asRepository({
+        findOne: jest.fn().mockResolvedValue({ id: 'bar', isDefault: true, status: 'ACTIVE' }),
+      }),
+      asRepository({
+        find: jest.fn().mockResolvedValue([{ roomTypeId: 'dlx-id', baseRate: '3500.00' }]),
+      }),
       asRepository({ find: jest.fn().mockResolvedValue([]) }),
       propertiesService,
       { calculateForProperty: jest.fn() } as never,
@@ -2175,7 +2329,9 @@ describe('Operations services', () => {
           };
         }),
       } as never,
-      { resolveGroupDepositInput: jest.fn().mockResolvedValue({ type: 'NONE', value: 0 }) } as never,
+      {
+        resolveGroupDepositInput: jest.fn().mockResolvedValue({ type: 'NONE', value: 0 }),
+      } as never,
     );
 
     const suggestion = await service.suggestRoomMix(propertyId, {

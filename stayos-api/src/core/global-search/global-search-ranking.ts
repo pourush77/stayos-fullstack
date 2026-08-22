@@ -10,23 +10,29 @@ export type CalculateSearchPriorityOptions = {
   fields: SearchRankField[];
 };
 
+export type SearchRank = {
+  priority: number;
+  isExactMatch: boolean;
+};
+
 const normalizeText = (value?: string | null): string => (value ?? '').trim().toLowerCase();
 
 const normalizeDigits = (value?: string | null): string => (value ?? '').replace(/\D/g, '');
 
-export function calculateSearchPriority({
+export function calculateSearchRank({
   query,
   basePriority,
   fields,
-}: CalculateSearchPriorityOptions): number {
+}: CalculateSearchPriorityOptions): SearchRank {
   const normalizedQuery = normalizeText(query);
   const digitQuery = normalizeDigits(query);
 
   if (!normalizedQuery) {
-    return basePriority;
+    return { priority: basePriority, isExactMatch: false };
   }
 
   let bestScore = basePriority;
+  let isExactMatch = false;
 
   for (const field of fields) {
     const normalizedValue = normalizeText(field.value);
@@ -39,6 +45,7 @@ export function calculateSearchPriority({
 
     if (normalizedValue === normalizedQuery) {
       score += 1000 + field.weight;
+      isExactMatch = true;
     } else if (normalizedValue.startsWith(normalizedQuery)) {
       score += 800 + field.weight;
     } else if (normalizedValue.includes(normalizedQuery)) {
@@ -50,6 +57,7 @@ export function calculateSearchPriority({
 
       if (digitValue === digitQuery) {
         score = Math.max(score, basePriority + 950 + field.weight);
+        isExactMatch = true;
       } else if (digitValue.startsWith(digitQuery)) {
         score = Math.max(score, basePriority + 750 + field.weight);
       } else if (digitValue.includes(digitQuery)) {
@@ -60,5 +68,9 @@ export function calculateSearchPriority({
     bestScore = Math.max(bestScore, score);
   }
 
-  return bestScore;
+  return { priority: bestScore, isExactMatch };
+}
+
+export function calculateSearchPriority(options: CalculateSearchPriorityOptions): number {
+  return calculateSearchRank(options).priority;
 }

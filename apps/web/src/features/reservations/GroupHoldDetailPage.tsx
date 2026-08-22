@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Alert,
+  ActionIcon,
   Badge,
   Box,
   Button,
@@ -19,8 +20,18 @@ import {
   Text,
   TextInput,
   Title,
+  Tooltip,
 } from '@mantine/core';
-import { ArrowRightLeft, BedDouble, CheckCircle2, Copy, Plus, Users } from 'lucide-react';
+import {
+  ArrowRightLeft,
+  BedDouble,
+  CheckCircle2,
+  Copy,
+  Pencil,
+  Plus,
+  Trash2,
+  Users,
+} from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
 import { BackendUnavailable, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
 import { getProperties } from '../../lib/inventory-api';
@@ -35,6 +46,8 @@ import {
   deleteGroupHold,
   getGroupHold,
   getGroupMasterFolio,
+  deleteGroupRoomingListItem,
+  updateGroupRoomingListItem,
   type GroupMasterFolioDetailDto,
   type GroupHoldDto,
 } from '../../lib/operations-api';
@@ -70,6 +83,7 @@ function voucherText(hold: GroupHoldDto) {
 }
 
 type RoomOption = { label: string; roomTypeId: string; value: string };
+type RoomingListItem = GroupHoldDto['roomingList'][number];
 
 function isAbortError(err: unknown) {
   return (
@@ -98,6 +112,13 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
   const [replacementRoomId, setReplacementRoomId] = useState<string | null>(null);
   const [isLoadingReplacementRooms, setIsLoadingReplacementRooms] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [editingGuest, setEditingGuest] = useState<RoomingListItem | null>(null);
+  const [deletingGuest, setDeletingGuest] = useState<RoomingListItem | null>(null);
+  const [editGuestName, setEditGuestName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editAdults, setEditAdults] = useState(1);
+  const [editChildren, setEditChildren] = useState(0);
+  const [editNotes, setEditNotes] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
   const [deleteOpened, setDeleteOpened] = useState(false);
@@ -205,6 +226,69 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
         color: 'red',
         message: err instanceof Error ? err.message : 'Unable to add guest.',
         title: 'Add failed',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const openEditGuest = (item: RoomingListItem) => {
+    setEditingGuest(item);
+    setEditGuestName(item.guestName);
+    setEditPhone(item.phone ?? '');
+    setEditAdults(item.adults);
+    setEditChildren(item.children);
+    setEditNotes(item.notes ?? '');
+  };
+
+  const closeEditGuest = () => {
+    if (isSaving) return;
+    setEditingGuest(null);
+  };
+
+  const saveGuest = async () => {
+    if (!propertyId || !editingGuest || !editGuestName.trim()) return;
+    setIsSaving(true);
+    try {
+      const updated = await updateGroupRoomingListItem(propertyId, groupHoldId, editingGuest.id, {
+        adults: editAdults,
+        children: editChildren,
+        guestName: editGuestName.trim(),
+        notes: editNotes.trim() || undefined,
+        phone: editPhone.trim() || undefined,
+      });
+      setHold(updated);
+      setEditingGuest(null);
+      showToast({ color: 'green', message: 'Rooming list updated.', title: 'Guest saved' });
+    } catch (err) {
+      showToast({
+        color: 'red',
+        message: err instanceof Error ? err.message : 'Unable to save guest.',
+        title: 'Save failed',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const closeDeleteGuest = () => {
+    if (isSaving) return;
+    setDeletingGuest(null);
+  };
+
+  const deleteGuest = async () => {
+    if (!propertyId || !deletingGuest) return;
+    setIsSaving(true);
+    try {
+      const updated = await deleteGroupRoomingListItem(propertyId, groupHoldId, deletingGuest.id);
+      setHold(updated);
+      setDeletingGuest(null);
+      showToast({ color: 'green', message: 'Rooming list updated.', title: 'Guest deleted' });
+    } catch (err) {
+      showToast({
+        color: 'red',
+        message: err instanceof Error ? err.message : 'Unable to delete guest.',
+        title: 'Delete failed',
       });
     } finally {
       setIsSaving(false);
@@ -768,15 +852,45 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
                       p={10}
                       style={{ background: '#f8fafc', border: '1px solid #eef2f7' }}
                     >
-                      <Group justify="space-between">
+                      <Group justify="space-between" align="center" wrap="nowrap">
                         <Box>
                           <Text fw={850}>{item.guestName}</Text>
                           <Text c="#64748b" size="sm">
                             {item.adults} adults, {item.children} children{' '}
                             {item.phone ? `- ${item.phone}` : ''}
                           </Text>
+                          {item.notes ? (
+                            <Text c="#64748b" size="xs">
+                              {item.notes}
+                            </Text>
+                          ) : null}
                         </Box>
-                        <Users size={16} />
+                        {canEditRoomAssignments ? (
+                          <Group gap={4} wrap="nowrap">
+                            <Tooltip label="Edit guest">
+                              <ActionIcon
+                                aria-label={`Edit ${item.guestName}`}
+                                variant="subtle"
+                                color="gray"
+                                onClick={() => openEditGuest(item)}
+                              >
+                                <Pencil size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                            <Tooltip label="Delete guest">
+                              <ActionIcon
+                                aria-label={`Delete ${item.guestName}`}
+                                variant="subtle"
+                                color="red"
+                                onClick={() => setDeletingGuest(item)}
+                              >
+                                <Trash2 size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                          </Group>
+                        ) : (
+                          <Users size={16} />
+                        )}
                       </Group>
                     </Paper>
                   ))}
@@ -868,6 +982,83 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
               disabled={!replacementRoomId || isLoadingReplacementRooms}
             >
               Change Room
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal centered opened={Boolean(editingGuest)} onClose={closeEditGuest} title="Edit Guest">
+        <Stack gap={spacing[3]}>
+          <TextInput
+            label="Guest/family name"
+            value={editGuestName}
+            onChange={(event) => setEditGuestName(event.currentTarget.value)}
+            disabled={isSaving}
+          />
+          <TextInput
+            label="Phone"
+            value={editPhone}
+            onChange={(event) => setEditPhone(event.currentTarget.value)}
+            disabled={isSaving}
+          />
+          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={spacing[2]}>
+            <NumberInput
+              label="Adults"
+              min={1}
+              value={editAdults}
+              onChange={(value) => setEditAdults(Number(value) || 1)}
+              disabled={isSaving}
+            />
+            <NumberInput
+              label="Children"
+              min={0}
+              value={editChildren}
+              onChange={(value) => setEditChildren(Number(value) || 0)}
+              disabled={isSaving}
+            />
+          </SimpleGrid>
+          <TextInput
+            label="Notes"
+            value={editNotes}
+            onChange={(event) => setEditNotes(event.currentTarget.value)}
+            disabled={isSaving}
+          />
+
+          <Group justify="flex-end" gap={8} wrap="wrap">
+            <Button variant="subtle" color="gray" onClick={closeEditGuest} disabled={isSaving}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void saveGuest()}
+              loading={isSaving}
+              disabled={!editGuestName.trim()}
+            >
+              Save Guest
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal
+        centered
+        opened={Boolean(deletingGuest)}
+        onClose={closeDeleteGuest}
+        title="Delete Guest"
+      >
+        <Stack gap={spacing[3]}>
+          <Alert color="red" variant="light" title="Permanent action">
+            This deletes {deletingGuest?.guestName ?? 'this guest'} from the rooming list.
+          </Alert>
+          <Text c="#64748b" size="sm">
+            The rooming-list count and readiness will update after deletion.
+          </Text>
+
+          <Group justify="flex-end" gap={8} wrap="wrap">
+            <Button variant="subtle" color="gray" onClick={closeDeleteGuest} disabled={isSaving}>
+              Keep Guest
+            </Button>
+            <Button color="red" onClick={() => void deleteGuest()} loading={isSaving}>
+              Delete Guest
             </Button>
           </Group>
         </Stack>
