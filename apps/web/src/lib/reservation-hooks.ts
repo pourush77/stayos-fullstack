@@ -384,6 +384,15 @@ function arrivalStatusIncluded(status: BookingStatus) {
   return status === 'Confirmed' || status === 'Pending';
 }
 
+function isActionableUnassignedReservation(reservation: Pick<Reservation, 'room' | 'status'>) {
+  return (
+    reservation.room === 'Unassigned' &&
+    (reservation.status === 'Pending' ||
+      reservation.status === 'Confirmed' ||
+      reservation.status === 'Checked-in')
+  );
+}
+
 function calculateSummary(reservations: Reservation[]): ReservationSummary {
   const today = dateKey(new Date());
   const tomorrow = tomorrowKey();
@@ -402,7 +411,7 @@ function calculateSummary(reservations: Reservation[]): ReservationSummary {
       (reservation) =>
         reservation.arrivalDate === today && arrivalStatusIncluded(reservation.status),
     ).length,
-    unassignedRooms: reservations.filter((reservation) => reservation.room === 'Unassigned').length,
+    unassignedRooms: reservations.filter(isActionableUnassignedReservation).length,
     vipBookings: reservations.filter((reservation) => reservation.isVip).length,
     checkedInToday: reservations.filter(
       (reservation) =>

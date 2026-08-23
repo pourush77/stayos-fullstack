@@ -298,6 +298,8 @@ export type GroupHoldDto = {
   adults: number;
   arrivalDate: string;
   children: number;
+  createdAt?: string;
+  created_at?: string;
   departureDate: string;
   depositRequired: number;
   deposit: GroupBookingDepositDto;
@@ -420,6 +422,8 @@ export type GroupCheckInResultDto = {
 
 export type InHouseGroupDto = {
   arrivalDate: string;
+  createdAt?: string;
+  created_at?: string;
   departureDate: string;
   groupBookingId: string;
   groupCode: string;
@@ -514,6 +518,19 @@ export function completeGroupCheckout(
   return post<GroupMasterFolioDetailDto>(
     `/properties/${propertyId}/operations/group-bookings/${groupBookingId}/master-folio/checkout`,
     {},
+    signal,
+  );
+}
+
+export function extendGroupStay(
+  propertyId: string,
+  groupBookingId: string,
+  departureDate: string,
+  signal?: AbortSignal,
+) {
+  return patch<GroupHoldDto>(
+    `/properties/${propertyId}/operations/group-bookings/${groupBookingId}/extend`,
+    { departureDate },
     signal,
   );
 }

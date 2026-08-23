@@ -20,6 +20,7 @@ import {
   ChangeGroupRoomDto,
   CreateGroupHoldDto,
   CreateWalkInGroupDto,
+  ExtendGroupStayDto,
   GroupCheckInPreviewDto,
   GroupCheckInResultDto,
   GroupHoldDto,
@@ -1409,6 +1410,143 @@ export class GroupBookingService {
     return this.buildGroupMasterFolioDetail(group, result, groupBookingId);
   }
 
+  async extendGroupStay(
+    propertyId: string,
+    groupBookingId: string,
+    dto: ExtendGroupStayDto,
+  ): Promise<GroupHoldDto> {
+    await this.propertiesService.findOne(propertyId);
+
+    const group = await this.groupBookingsRepository.findOne({
+      where: { id: groupBookingId, propertyId },
+    });
+    if (!group) {
+      throw new NotFoundException({
+        code: ApiErrorCode.NOT_FOUND,
+        message: 'Group booking not found.',
+      });
+    }
+    if (group.status !== GroupBookingStatus.CHECKED_IN) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: 'Only checked-in groups can be extended.',
+      });
+    }
+    if (dto.departureDate <= group.departureDate) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: 'New departure date must be after the current departure date.',
+      });
+    }
+
+    const assignments = await this.roomAssignmentsRepository.find({
+      where: { groupBookingId },
+      relations: { room: true },
+    });
+    if (!assignments.length) {
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: 'Group must have assigned rooms before extending stay.',
+      });
+    }
+
+    const roomIds = assignments.map((assignment) => assignment.roomId);
+    const blocks = await this.roomBlocksRepository.find({ where: { groupBookingId } });
+    const currentNights = this.nightsBetween(group.arrivalDate, group.departureDate);
+    const addedNights = this.nightsBetween(group.departureDate, dto.departureDate);
+    const addedEstimatedTotal = blocks.reduce((sum, block) => {
+      const blockTotal = Number(block.estimatedTotal || 0);
+      const nightlyBlockTotal =
+        currentNights > 0 ? blockTotal / currentNights : Number(block.baseRate || 0) * block.rooms;
+      return sum + nightlyBlockTotal * addedNights;
+    }, 0);
+    const reservationConflicts = await this.reservationsRepository.find({
+      where: {
+        propertyId,
+        roomId: In(roomIds),
+        status: In(activeReservationStatuses),
+        ...overlapsDateRange(group.departureDate, dto.departureDate),
+      },
+    });
+    if (reservationConflicts.length) {
+      const roomNumbers = reservationConflicts
+        .map((reservation) => {
+          const assignment = assignments.find((item) => item.roomId === reservation.roomId);
+          return assignment?.room?.roomNumber ?? 'unknown';
+        })
+        .join(', ');
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: `Rooms have conflicting reservations for the added nights: ${roomNumbers}.`,
+      });
+    }
+
+    const groupConflicts = await this.roomAssignmentsRepository
+      .createQueryBuilder('assignment')
+      .innerJoin('assignment.groupBooking', 'groupBooking')
+      .where('assignment.roomId IN (:...roomIds)', { roomIds })
+      .andWhere('assignment.groupBookingId != :groupBookingId', { groupBookingId })
+      .andWhere('groupBooking.status IN (:...statuses)', {
+        statuses: [
+          GroupBookingStatus.ON_HOLD,
+          GroupBookingStatus.CONFIRMED,
+          GroupBookingStatus.CHECKED_IN,
+        ],
+      })
+      .andWhere('groupBooking.arrivalDate < :departureDate', { departureDate: dto.departureDate })
+      .andWhere('groupBooking.departureDate > :arrivalDate', { arrivalDate: group.departureDate })
+      .getMany();
+    if (groupConflicts.length) {
+      const roomNumbers = groupConflicts
+        .map((assignment) => {
+          const current = assignments.find((item) => item.roomId === assignment.roomId);
+          return current?.room?.roomNumber ?? 'unknown';
+        })
+        .join(', ');
+      throw new BadRequestException({
+        code: ApiErrorCode.VALIDATION_ERROR,
+        message: `Rooms are already assigned to another active group for the added nights: ${roomNumbers}.`,
+      });
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const groupRepository = manager.getRepository(GroupBookingEntity);
+      const stayRepository = manager.getRepository(GroupStayEntity);
+      const folioRepository = manager.getRepository(GroupMasterFolioEntity);
+      const latestGroup = await groupRepository.findOne({
+        where: { id: groupBookingId, propertyId },
+      });
+      if (!latestGroup || latestGroup.status !== GroupBookingStatus.CHECKED_IN) {
+        throw new BadRequestException({
+          code: ApiErrorCode.VALIDATION_ERROR,
+          message: 'Only checked-in groups can be extended.',
+        });
+      }
+      latestGroup.departureDate = dto.departureDate;
+      latestGroup.estimatedTotal = String(
+        Number(latestGroup.estimatedTotal || 0) + addedEstimatedTotal,
+      );
+      await groupRepository.save(latestGroup);
+
+      const stay = await stayRepository.findOne({ where: { groupBookingId, propertyId } });
+      if (!stay || stay.status !== 'IN_HOUSE') {
+        throw new BadRequestException({
+          code: ApiErrorCode.VALIDATION_ERROR,
+          message: 'Group stay is not currently in house.',
+        });
+      }
+      await stayRepository.update({ id: stay.id, propertyId }, { updatedAt: new Date() });
+
+      const folio = await folioRepository.findOne({ where: { groupBookingId, propertyId } });
+      if (folio) {
+        folio.estimatedTotal = String(Number(folio.estimatedTotal || 0) + addedEstimatedTotal);
+        await folioRepository.save(folio);
+      }
+    });
+
+    return this.getHold(propertyId, groupBookingId);
+  }
+
   async listInHouseGroups(propertyId: string): Promise<InHouseGroupDto[]> {
     await this.propertiesService.findOne(propertyId);
     const stays = await this.groupStaysRepository.find({
@@ -1775,6 +1913,16 @@ export class GroupBookingService {
     }
 
     return group.status === GroupBookingStatus.CHECKED_IN;
+  }
+
+  private nightsBetween(arrivalDate: string, departureDate: string): number {
+    return Math.max(
+      0,
+      Math.round(
+        (new Date(departureDate).getTime() - new Date(arrivalDate).getTime()) /
+          (24 * 60 * 60 * 1000),
+      ),
+    );
   }
 
   private releaseSourceRoomAfterActiveGroupReassignment(room: RoomEntity | null): void {

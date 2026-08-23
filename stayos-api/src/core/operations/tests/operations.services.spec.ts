@@ -2240,6 +2240,122 @@ describe('Operations services', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('extends a checked-in group atomically after validating added-night conflicts', async () => {
+    const group = {
+      id: 'group-booking-id',
+      arrivalDate: '2026-07-01',
+      departureDate: '2026-07-03',
+      depositRequired: '0',
+      estimatedTotal: '2400',
+      groupCode: 'GRP-00001',
+      groupName: 'Hillston Family',
+      leadEmail: null,
+      leadName: 'Abhishek Agrawal',
+      leadPhone: '+919999999999',
+      releaseAt: null,
+      source: 'PHONE',
+      status: GroupBookingStatus.CHECKED_IN,
+      syncStatus: 'PMS_ONLY',
+    };
+    const groupBookingsRepository = {
+      findOne: jest.fn().mockResolvedValue(group),
+      save: jest.fn().mockImplementation(async (saved) => saved),
+    };
+    const groupStaysRepository = {
+      findOne: jest.fn().mockResolvedValue({ id: 'stay-id', status: 'IN_HOUSE' }),
+      update: jest.fn().mockResolvedValue({}),
+    };
+    const groupMasterFoliosRepository = {
+      findOne: jest.fn().mockResolvedValue({ estimatedTotal: '2400', groupBookingId: 'group-booking-id' }),
+      save: jest.fn().mockImplementation(async (saved) => saved),
+    };
+    const service = new GroupBookingService(
+      groupBookingsRepository as never,
+      {
+        find: jest.fn().mockResolvedValue([
+          { baseRate: '1200', estimatedTotal: '2400', rooms: 1 },
+        ]),
+      } as never,
+      {} as never,
+      {} as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      {
+        find: jest.fn().mockResolvedValue([{ roomId, room: { roomNumber: '204' } }]),
+        createQueryBuilder: jest.fn().mockReturnValue({
+          innerJoin: jest.fn().mockReturnThis(),
+          where: jest.fn().mockReturnThis(),
+          andWhere: jest.fn().mockReturnThis(),
+          getMany: jest.fn().mockResolvedValue([]),
+        }),
+      } as never,
+      groupStaysRepository as never,
+      groupMasterFoliosRepository as never,
+      {
+        transaction: jest.fn().mockImplementation(async (callback) =>
+          callback({
+            getRepository: (entity: unknown) => {
+              if (entity === GroupBookingEntity) return groupBookingsRepository;
+              if (entity === GroupStayEntity) return groupStaysRepository;
+              if (entity === GroupMasterFolioEntity) return groupMasterFoliosRepository;
+              return {};
+            },
+          }),
+        ),
+      } as never,
+      propertiesService as never,
+      {} as never,
+      {} as never,
+    );
+
+    const result = await service.extendGroupStay(propertyId, 'group-booking-id', {
+      departureDate: '2026-07-05',
+    });
+
+    expect(groupBookingsRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ departureDate: '2026-07-05', estimatedTotal: '4800' }),
+    );
+    expect(groupMasterFoliosRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ estimatedTotal: '4800' }),
+    );
+    expect(groupStaysRepository.update).toHaveBeenCalled();
+    expect(result.departureDate).toBe('2026-07-05');
+  });
+
+  it('rejects group extension when an added night has a room conflict before saving', async () => {
+    const group = {
+      id: 'group-booking-id',
+      arrivalDate: '2026-07-01',
+      departureDate: '2026-07-03',
+      groupCode: 'GRP-00001',
+      groupName: 'Hillston Family',
+      status: GroupBookingStatus.CHECKED_IN,
+    };
+    const save = jest.fn();
+    const service = new GroupBookingService(
+      { findOne: jest.fn().mockResolvedValue(group), save } as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      {} as never,
+      {} as never,
+      { find: jest.fn().mockResolvedValue([reservation({ roomId })]) } as never,
+      {} as never,
+      {
+        find: jest.fn().mockResolvedValue([{ roomId, room: { roomNumber: '204' } }]),
+      } as never,
+      {} as never,
+      {} as never,
+      { transaction: jest.fn() } as never,
+      propertiesService as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(
+      service.extendGroupStay(propertyId, 'group-booking-id', { departureDate: '2026-07-05' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(save).not.toHaveBeenCalled();
+  });
+
   it('suggests a feasible room mix for a family group', async () => {
     roomsRepository.find?.mockResolvedValue([
       room({ id: 'room-1', roomNumber: '301' }),

@@ -1,0 +1,376 @@
+.summaryCard {
+  border-left-width: 3px !important;
+  min-height: 78px;
+  min-width: 170px;
+  padding: 12px 14px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.summaryCard:hover {
+  background: color-mix(in srgb, var(--mantine-color-violet-0) 36%, #ffffff);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.055);
+}
+
+.summaryCard:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: 2px;
+}
+
+.summaryCardSelected {
+  border-width: 1px !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, currentColor 18%, transparent),
+    0 2px 8px rgba(15, 23, 42, 0.045);
+}
+
+.summaryCardAttention:hover {
+  background: color-mix(in srgb, var(--mantine-color-yellow-0) 42%, #ffffff);
+}
+
+.summaryCardInner {
+  height: 100%;
+}
+
+.summaryCardLabel {
+  letter-spacing: 0;
+  line-height: 1.1;
+}
+
+.summaryCardCount {
+  font-size: 25px;
+  line-height: 1;
+}
+
+.toolbar {
+  align-items: center;
+}
+
+.stickyToolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.stickyToolbar::after {
+  background: rgba(15, 23, 42, 0.08);
+  bottom: -1px;
+  content: '';
+  height: 1px;
+  left: 12px;
+  opacity: 0.75;
+  position: absolute;
+  right: 12px;
+}
+
+.searchControl {
+  flex: 1 1 280px;
+  min-width: 280px;
+}
+
+.toolbarDivider {
+  align-self: stretch;
+  background: rgba(226, 232, 240, 0.9);
+  min-height: 32px;
+  width: 1px;
+}
+
+.navigationControls {
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.paginationControl {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 8px;
+  display: inline-flex;
+  gap: 2px;
+  min-height: 36px;
+  padding: 2px;
+}
+
+.pageIndicator {
+  min-width: 104px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.dateScopeControls {
+  background: #f8fafc;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 8px;
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035);
+  width: fit-content;
+}
+
+.dateScopeButton,
+.operationalTab {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #475569;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 750;
+  gap: 6px;
+  line-height: 1;
+  min-height: 30px;
+  padding: 0 10px;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease;
+}
+
+.dateScopeButton:hover,
+.operationalTab:hover {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(203, 213, 225, 0.75);
+}
+
+.dateScopeButton:focus-visible,
+.operationalTab:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: 2px;
+}
+
+.dateScopeButtonSelected,
+.operationalTabSelected {
+  background: #ffffff;
+  border-color: rgba(124, 58, 237, 0.28);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    0 0 0 1px rgba(124, 58, 237, 0.04);
+  color: #5b21b6;
+}
+
+.operationalTabs {
+  background: #f8fafc;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 8px;
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035);
+  width: fit-content;
+}
+
+.operationalTabCount {
+  color: #64748b;
+  font-weight: 800;
+}
+
+.table {
+  table-layout: fixed;
+}
+
+.tableHeader {
+  background: #f6f8fb;
+  box-shadow: inset 0 -1px 0 rgba(226, 232, 240, 0.9);
+}
+
+.tableHeaderCell {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1.1;
+  padding-bottom: 10px;
+  padding-top: 10px;
+  text-transform: uppercase;
+}
+
+.bookingRow,
+.groupRow {
+  min-height: 58px;
+  transition: background-color 150ms ease;
+}
+
+.bookingRow:hover {
+  background: color-mix(in srgb, var(--mantine-color-violet-0) 28%, #ffffff);
+}
+
+.bookingRow:focus-within {
+  background: color-mix(in srgb, var(--mantine-color-violet-0) 36%, #ffffff);
+}
+
+.groupRow {
+  background: var(--mantine-color-violet-0);
+}
+
+.groupRow:hover {
+  background: color-mix(in srgb, var(--mantine-color-violet-1) 58%, #ffffff);
+}
+
+.groupRow:focus-within {
+  background: color-mix(in srgb, var(--mantine-color-violet-1) 68%, #ffffff);
+}
+
+.leadCell {
+  border-left: 4px solid #7c3aed;
+}
+
+.guestName {
+  color: #101828;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.guestIdentity {
+  min-width: 0;
+}
+
+.guestAvatar {
+  background: #f5f3ff;
+  border: 1px solid rgba(124, 58, 237, 0.16);
+  color: #5b21b6;
+  flex: 0 0 32px;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.groupIdentityBadge {
+  flex: 0 0 auto;
+  font-weight: 850;
+  height: 22px;
+}
+
+.secondaryText {
+  color: #64748b;
+  line-height: 1.25;
+}
+
+.sourceMeta {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.stayText,
+.roomText {
+  color: #1e293b;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.roomText {
+  color: #0f172a;
+}
+
+.roomReadiness {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+  line-height: 1.25;
+  margin-top: 2px;
+}
+
+.roomReadiness::before {
+  border-radius: 999px;
+  content: '';
+  display: inline-block;
+  height: 7px;
+  width: 7px;
+}
+
+.roomReadinessReady {
+  color: #15803d;
+}
+
+.roomReadinessReady::before {
+  background: #22c55e;
+}
+
+.roomReadinessWarning {
+  color: #b45309;
+}
+
+.roomReadinessWarning::before {
+  background: #f59e0b;
+}
+
+.roomReadinessNotReady {
+  color: #b91c1c;
+}
+
+.roomReadinessNotReady::before {
+  background: #ef4444;
+}
+
+.unassignedWarning {
+  align-items: center;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 999px;
+  color: #b45309;
+  display: inline-flex;
+  gap: 5px;
+  line-height: 1.2;
+  margin-top: 4px;
+  padding: 3px 7px;
+}
+
+.unassignedWarningUrgent {
+  align-items: center;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 999px;
+  color: #b91c1c;
+  display: inline-flex;
+  gap: 5px;
+  line-height: 1.2;
+  margin-top: 4px;
+  padding: 3px 7px;
+}
+
+.actionCell {
+  width: 176px;
+}
+
+.actionGroup {
+  justify-content: flex-end;
+  min-width: 156px;
+}
+
+.primaryAction {
+  min-width: 118px;
+}
+
+.kebabButton {
+  flex: 0 0 auto;
+  height: 30px;
+  width: 30px;
+}
+
+.emptyState {
+  padding: 34px 20px;
+}
+
+.paginationBar {
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+  padding: 10px 14px;
+}
+
+@media (max-width: 760px) {
+  .toolbarDivider {
+    display: none;
+  }
+
+  .navigationControls,
+  .searchControl {
+    flex: 1 1 100%;
+  }
+}

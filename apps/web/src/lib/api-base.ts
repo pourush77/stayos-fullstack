@@ -1,4 +1,4 @@
-export function getApiBaseUrl() {
+function getConfiguredApiBaseUrl() {
   return (
     process.env.NEXT_PUBLIC_API_BASE_URL ??
     process.env.NEXT_PUBLIC_API_URL ??
@@ -6,10 +6,8 @@ export function getApiBaseUrl() {
   ).replace(/\/+$/, '');
 }
 
-export const API_BASE_URL = getApiBaseUrl();
-
 export function getBrowserReachableApiBaseUrl() {
-  const configured = API_BASE_URL;
+  const configured = getConfiguredApiBaseUrl();
   const publicBaseUrl = process.env.NEXT_PUBLIC_API_PUBLIC_BASE_URL?.replace(/\/+$/, '');
   if (publicBaseUrl) return publicBaseUrl;
 
@@ -29,6 +27,13 @@ export function getBrowserReachableApiBaseUrl() {
 
   return configured;
 }
+
+export function getApiBaseUrl() {
+  if (typeof window !== 'undefined') return getBrowserReachableApiBaseUrl();
+  return getConfiguredApiBaseUrl();
+}
+
+export const API_BASE_URL = getApiBaseUrl();
 
 export function getPublicAppOrigin() {
   const publicOrigin = process.env.NEXT_PUBLIC_APP_PUBLIC_ORIGIN?.replace(/\/+$/, '');

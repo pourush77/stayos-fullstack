@@ -955,6 +955,12 @@ export class UpdateGroupHoldDto {
   notes?: string;
 }
 
+export class ExtendGroupStayDto {
+  @ApiProperty({ format: 'date', example: '2026-07-20' })
+  @IsDateString()
+  departureDate!: string;
+}
+
 export class AddGroupRoomingListItemDto {
   @ApiProperty()
   @IsString()

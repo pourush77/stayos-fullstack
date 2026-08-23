@@ -36,6 +36,7 @@ import {
   AvailableRoomsQueryDto,
   CreateGroupHoldDto,
   CreateWalkInGroupDto,
+  ExtendGroupStayDto,
   GroupCheckInPreviewDto,
   GroupCheckInResultDto,
   GroupHoldDto,
@@ -400,6 +401,23 @@ export class OperationsController {
     @Param('groupBookingId', ParseUUIDPipe) groupBookingId: string,
   ): Promise<GroupMasterFolioDetailDto> {
     return this.groupBookingService.completeGroupCheckout(propertyId, groupBookingId);
+  }
+
+  @Patch('operations/group-bookings/:groupBookingId/extend')
+  @RequirePermissions(Permissions.OperationsView, Permissions.RoomsView)
+  @ApiOperation({ summary: 'Extend a checked-in group stay' })
+  @ApiParam({ name: 'propertyId', format: 'uuid' })
+  @ApiParam({ name: 'groupBookingId', format: 'uuid' })
+  @ApiStandardOkResponse(GroupHoldDto)
+  @ApiBadRequestResponse({
+    description: 'Group cannot be extended because of status, date, or availability.',
+  })
+  extendGroupStay(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('groupBookingId', ParseUUIDPipe) groupBookingId: string,
+    @Body() dto: ExtendGroupStayDto,
+  ): Promise<GroupHoldDto> {
+    return this.groupBookingService.extendGroupStay(propertyId, groupBookingId, dto);
   }
 
   @Post('operations/group-holds/:groupHoldId/rooming-list')

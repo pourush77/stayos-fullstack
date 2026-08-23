@@ -2,7 +2,16 @@ import type { GuestDto } from '../../../lib/guest-api';
 import type { InventoryRoomTypeDto } from '../../../lib/inventory-api';
 import type { OperationsAvailableRoomDto } from '../../../lib/operations-api';
 import type { ReservationDto } from '../../../lib/reservation-api';
-import type { AvailableRoomOption, Booking, BookingFormValues, BookingPaymentStatus, BookingSource, BookingStatus, GuestOption, RoomTypeOption } from '../types/booking.types';
+import type {
+  AvailableRoomOption,
+  Booking,
+  BookingFormValues,
+  BookingPaymentStatus,
+  BookingSource,
+  BookingStatus,
+  GuestOption,
+  RoomTypeOption,
+} from '../types/booking.types';
 import { calculateNights } from './booking-formatters';
 
 function getString(record: Record<string, unknown> | undefined, keys: string[], fallback = '') {
@@ -20,7 +29,8 @@ function getNumber(record: Record<string, unknown> | undefined, keys: string[], 
   for (const key of keys) {
     const value = record[key];
     if (typeof value === 'number') return value;
-    if (typeof value === 'string' && value.trim() && !Number.isNaN(Number(value))) return Number(value);
+    if (typeof value === 'string' && value.trim() && !Number.isNaN(Number(value)))
+      return Number(value);
   }
   return fallback;
 }
@@ -38,7 +48,8 @@ function getBoolean(record: Record<string, unknown> | undefined, keys: string[])
 function getRecord(record: Record<string, unknown>, keys: string[]) {
   for (const key of keys) {
     const value = record[key];
-    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+    if (value && typeof value === 'object' && !Array.isArray(value))
+      return value as Record<string, unknown>;
   }
   return undefined;
 }
@@ -52,8 +63,7 @@ function mapBookedRatePlan(dto: ReservationDto): Booking['ratePlan'] {
     code: getString(bookedRatePlan, ['code']) || null,
     name: getString(bookedRatePlan, ['name']) || null,
     mealPlan: getString(bookedRatePlan, ['mealPlan']) || null,
-    refundable:
-      typeof bookedRatePlan.refundable === 'boolean' ? bookedRatePlan.refundable : null,
+    refundable: typeof bookedRatePlan.refundable === 'boolean' ? bookedRatePlan.refundable : null,
     nightlyRate: getString(bookedRatePlan, ['nightlyRate']) || null,
   };
 }
@@ -82,10 +92,17 @@ function normalizeSource(value: string): BookingSource {
 export function mapGuestOption(dto: GuestDto): GuestOption {
   const firstName = getString(dto, ['firstName']);
   const lastName = getString(dto, ['lastName']);
-  const label = getString(dto, ['displayName', 'fullName', 'name']) || [firstName, lastName].filter(Boolean).join(' ') || 'Unnamed guest';
+  const label =
+    getString(dto, ['displayName', 'fullName', 'name']) ||
+    [firstName, lastName].filter(Boolean).join(' ') ||
+    'Unnamed guest';
   return {
     email: getString(dto, ['email'], 'Not recorded'),
-    id: getString(dto, ['id', '_id', 'uuid', 'guestId'], label.toLowerCase().replace(/[^a-z0-9]+/g, '-')),
+    id: getString(
+      dto,
+      ['id', '_id', 'uuid', 'guestId'],
+      label.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    ),
     isVip: getBoolean(dto, ['vipStatus', 'vip', 'isVip']),
     label,
     nationality: getString(dto, ['nationality'], 'Not recorded'),
@@ -95,14 +112,22 @@ export function mapGuestOption(dto: GuestDto): GuestOption {
 
 export function mapRoomTypeOption(dto: InventoryRoomTypeDto): RoomTypeOption {
   const label = getString(dto, ['name', 'displayName', 'title', 'code'], 'Room Type');
-  const maxOccupancy = getNumber(dto, ['maxOccupancy', 'capacity', 'maxGuests', 'occupancy'], label.toLowerCase().includes('suite') ? 4 : 3);
+  const maxOccupancy = getNumber(
+    dto,
+    ['maxOccupancy', 'capacity', 'maxGuests', 'occupancy'],
+    label.toLowerCase().includes('suite') ? 4 : 3,
+  );
   return {
     // Rate is NOT carried on the room-type record. Authoritative pricing comes
     // from the backend reservation quote endpoint. baseRate is retained only as
     // a neutral 0 for legacy consumers and must never be shown as a price.
     baseRate: getNumber(dto, ['baseRate', 'base_rate', 'rate', 'nightlyRate', 'price'], 0),
     capacity: maxOccupancy,
-    id: getString(dto, ['id', '_id', 'uuid', 'roomTypeId'], label.toLowerCase().replace(/[^a-z0-9]+/g, '-')),
+    id: getString(
+      dto,
+      ['id', '_id', 'uuid', 'roomTypeId'],
+      label.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    ),
     label,
     maxAdults: getNumber(dto, ['maxAdults', 'adultCapacity'], Math.min(2, maxOccupancy)),
     maxChildren: getNumber(dto, ['maxChildren', 'childCapacity'], Math.max(0, maxOccupancy - 2)),
@@ -131,11 +156,21 @@ export function mapBooking(dto: ReservationDto): Booking {
   const guest = getRecord(dto, ['guest', 'guestProfile']);
   const room = getRecord(dto, ['room']);
   const roomType = getRecord(dto, ['roomType']);
-  const guestName = getString(dto, ['guestName'], getString(guest, ['displayName', 'fullName', 'name']) || [getString(guest, ['firstName']), getString(guest, ['lastName'])].filter(Boolean).join(' ') || 'Guest not connected');
+  const guestName = getString(
+    dto,
+    ['guestName'],
+    getString(guest, ['displayName', 'fullName', 'name']) ||
+      [getString(guest, ['firstName']), getString(guest, ['lastName'])].filter(Boolean).join(' ') ||
+      'Guest not connected',
+  );
   const arrivalDate = getString(dto, ['arrivalDate', 'checkInDate', 'startDate']).slice(0, 10);
   const departureDate = getString(dto, ['departureDate', 'checkOutDate', 'endDate']).slice(0, 10);
   const roomNumber = getString(dto, ['roomNumber'], getString(room, ['roomNumber', 'number']));
-  const roomTypeName = getString(dto, ['roomTypeName'], getString(roomType, ['name', 'label', 'title'], 'Room type not connected'));
+  const roomTypeName = getString(
+    dto,
+    ['roomTypeName'],
+    getString(roomType, ['name', 'label', 'title'], 'Room type not connected'),
+  );
 
   return {
     adults: getNumber(dto, ['adults', 'numAdults', 'adultCount'], 1),
@@ -144,20 +179,30 @@ export function mapBooking(dto: ReservationDto): Booking {
     bookingId: getString(dto, ['reservationCode', 'bookingCode', 'code', 'id'], 'Booking'),
     children: getNumber(dto, ['children', 'numChildren', 'childCount'], 0),
     childAges: getNumberArray(dto, ['childAges', 'child_ages']),
+    createdAt: getString(dto, ['createdAt', 'created_at', 'createdDate', 'createdOn']) || undefined,
     departureDate,
     email: getString(dto, ['guestEmail', 'email'], getString(guest, ['email'], 'Not recorded')),
     guestId: getString(dto, ['guestId'], getString(guest, ['id', '_id', 'uuid'])) || undefined,
     guestName,
     isVip: getBoolean(dto, ['isVip', 'vip']) || getBoolean(guest, ['vipStatus', 'vip', 'isVip']),
-    nationality: getString(dto, ['guestNationality', 'nationality'], getString(guest, ['nationality'], 'Indian')),
+    nationality: getString(
+      dto,
+      ['guestNationality', 'nationality'],
+      getString(guest, ['nationality'], 'Indian'),
+    ),
     nights: calculateNights(arrivalDate, departureDate),
     notes: getString(dto, ['notes', 'note'], 'No notes added.'),
     paymentStatus: normalizePayment(getString(dto, ['paymentStatus'], 'PAYMENT_DUE')),
-    phone: getString(dto, ['guestPhone', 'phone', 'mobile'], getString(guest, ['phone', 'mobile', 'phoneNumber'], 'Not recorded')),
+    phone: getString(
+      dto,
+      ['guestPhone', 'phone', 'mobile'],
+      getString(guest, ['phone', 'mobile', 'phoneNumber'], 'Not recorded'),
+    ),
     room: roomNumber ? `Room ${roomNumber}` : 'Unassigned',
     roomId: getString(dto, ['roomId'], getString(room, ['id', '_id', 'uuid'])) || undefined,
     roomType: roomTypeName,
-    roomTypeId: getString(dto, ['roomTypeId'], getString(roomType, ['id', '_id', 'uuid'])) || undefined,
+    roomTypeId:
+      getString(dto, ['roomTypeId'], getString(roomType, ['id', '_id', 'uuid'])) || undefined,
     ratePlan: mapBookedRatePlan(dto),
     source: normalizeSource(getString(dto, ['source'], 'DIRECT')),
     specialRequests: getString(dto, ['specialRequests', 'requests'], 'None'),
@@ -173,11 +218,11 @@ export function bookingToFormValues(booking?: Booking): BookingFormValues {
     childAges: booking?.childAges,
     departureDate: booking?.departureDate ?? '',
     guestId: booking?.guestId ?? '',
-    notes: booking?.notes === 'No notes added.' ? '' : booking?.notes ?? '',
+    notes: booking?.notes === 'No notes added.' ? '' : (booking?.notes ?? ''),
     paymentStatus: booking?.paymentStatus ?? 'PAYMENT_DUE',
     roomTypeId: booking?.roomTypeId ?? '',
     source: booking?.source ?? 'DIRECT',
-    specialRequests: booking?.specialRequests === 'None' ? '' : booking?.specialRequests ?? '',
+    specialRequests: booking?.specialRequests === 'None' ? '' : (booking?.specialRequests ?? ''),
   };
 }
 

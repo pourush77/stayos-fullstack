@@ -1,6 +1,17 @@
-export type BookingStatus = 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'CANCELLED' | 'NO_SHOW';
+export type BookingStatus =
+  'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'CANCELLED' | 'NO_SHOW';
 export type BookingPaymentStatus = 'PAID' | 'PAYMENT_DUE' | 'PARTIALLY_PAID';
 export type BookingSource = 'DIRECT' | 'WALK_IN' | 'OTA' | 'CORPORATE';
+export type RoomOperationalStatus =
+  | 'READY'
+  | 'NEEDS_CLEANING'
+  | 'INSPECTION'
+  | 'MAINTENANCE'
+  | 'OUT_OF_SERVICE'
+  | 'OUT_OF_ORDER'
+  | 'OCCUPIED'
+  | string;
+export type RoomReadinessLabel = 'Ready' | 'Cleaning' | 'Inspection' | 'Not ready';
 export type BookingFilter =
   | 'all'
   | 'arrivals-today'
@@ -9,6 +20,9 @@ export type BookingFilter =
   | 'confirmed'
   | 'checked-in'
   | 'unassigned'
+  | 'needs-attention'
+  | 'upcoming'
+  | 'groups'
   | 'payment-due'
   | 'vip'
   | 'cancelled';
@@ -20,6 +34,7 @@ export type Booking = {
   bookingId: string;
   children: number;
   childAges?: number[];
+  createdAt?: string;
   departureDate: string;
   email: string;
   guestId?: string;
@@ -32,6 +47,9 @@ export type Booking = {
   phone: string;
   room: string;
   roomId?: string;
+  roomOperationalStatus?: RoomOperationalStatus;
+  roomReadinessLabel?: RoomReadinessLabel;
+  roomReadyForCheckIn?: boolean;
   roomType: string;
   roomTypeId?: string;
   ratePlan?: {

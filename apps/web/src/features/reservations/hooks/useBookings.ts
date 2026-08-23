@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getPropertyGuests } from '../../../lib/guest-api';
 import { getPropertyRoomTypes } from '../../../lib/inventory-api';
-import { getAvailableRooms, getRoomBoard } from '../../../lib/operations-api';
+import {
+  getAvailableRooms,
+  getRoomBoard,
+  type OperationsRoomBoardItemDto,
+} from '../../../lib/operations-api';
 import {
   assignRoomToReservation,
   cancelReservation,
@@ -96,6 +100,71 @@ async function getLookups(propertyId: string, signal?: AbortSignal) {
   };
 }
 
+export function getRoomReadiness(status: string | undefined):
+  | Pick<Booking, 'roomOperationalStatus' | 'roomReadinessLabel' | 'roomReadyForCheckIn'>
+  | undefined {
+  if (!status) return undefined;
+
+  const normalized = status.toUpperCase().replace(/[\s-]/g, '_');
+  if (normalized === 'READY') {
+    return {
+      roomOperationalStatus: normalized,
+      roomReadinessLabel: 'Ready',
+      roomReadyForCheckIn: true,
+    };
+  }
+  if (normalized === 'NEEDS_CLEANING') {
+    return {
+      roomOperationalStatus: normalized,
+      roomReadinessLabel: 'Cleaning',
+      roomReadyForCheckIn: false,
+    };
+  }
+  if (normalized === 'INSPECTION') {
+    return {
+      roomOperationalStatus: normalized,
+      roomReadinessLabel: 'Inspection',
+      roomReadyForCheckIn: false,
+    };
+  }
+  if (normalized === 'OCCUPIED') {
+    return {
+      roomOperationalStatus: normalized,
+      roomReadyForCheckIn: false,
+    };
+  }
+  if (
+    normalized === 'MAINTENANCE' ||
+    normalized === 'OUT_OF_SERVICE' ||
+    normalized === 'OUT_OF_ORDER'
+  ) {
+    return {
+      roomOperationalStatus: normalized,
+      roomReadinessLabel: 'Not ready',
+      roomReadyForCheckIn: false,
+    };
+  }
+
+  return {
+    roomOperationalStatus: normalized,
+    roomReadinessLabel: 'Not ready',
+    roomReadyForCheckIn: false,
+  };
+}
+
+export function enrichBookingsWithRoomReadiness(
+  bookings: Booking[],
+  rooms: OperationsRoomBoardItemDto[],
+) {
+  const roomsById = new Map(rooms.map((room) => [room.roomId, room]));
+
+  return bookings.map((booking) => {
+    if (!booking.roomId || booking.room === 'Unassigned') return booking;
+    const readiness = getRoomReadiness(roomsById.get(booking.roomId)?.operationalStatus);
+    return readiness ? { ...booking, ...readiness } : booking;
+  });
+}
+
 export function friendlyBookingError(error: unknown) {
   const rawMessage = error instanceof Error ? error.message : '';
   const message = rawMessage.toLowerCase();
@@ -150,14 +219,19 @@ export function useBookings({
 
       try {
         const { propertyId, propertyName } = await getCurrentProperty(signal);
-        const [reservationDtos, lookups] = await Promise.all([
+        const [reservationDtos, lookups, roomBoard] = await Promise.all([
           getPropertyReservations(propertyId, signal),
           getLookups(propertyId, signal),
+          getRoomBoard(propertyId, signal).catch(() => [] as OperationsRoomBoardItemDto[]),
         ]);
+        const bookings = enrichBookingsWithRoomReadiness(
+          reservationDtos.map(mapBooking),
+          roomBoard,
+        );
 
         setState({
           activePropertyName: propertyName,
-          bookings: reservationDtos.map(mapBooking),
+          bookings,
           guests: lookups.guests,
           isFallback: false,
           isLoading: false,

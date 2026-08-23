@@ -13,6 +13,20 @@ import { ApiResponseInterceptor } from './common/interceptors/api-response.inter
 import { requestIdMiddleware } from './common/middleware/request-id.middleware';
 import { formatValidationErrors } from './common/validation/validation-error.formatter';
 
+function isLocalDevelopmentOrigin(origin?: string) {
+  if (!origin) return true;
+
+  try {
+    const url = new URL(origin);
+    return (
+      (url.hostname === 'localhost' || url.hostname === '127.0.0.1') &&
+      (url.protocol === 'http:' || url.protocol === 'https:')
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const configService = app.get(ConfigService);
@@ -22,15 +36,21 @@ async function bootstrap() {
   bootstrapLogger.log('Starting StayOS Platform API bootstrap');
   app.use(requestIdMiddleware);
   app.use(helmet());
+  const configuredCorsOrigins = process.env.CORS_ORIGINS;
   const corsOrigins = (
-    process.env.CORS_ORIGINS ??
-    'http://localhost:3000,http://127.0.0.1:3000'
+    configuredCorsOrigins ?? 'http://localhost:3000,http://127.0.0.1:3000'
   )
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
   app.enableCors({
-    origin: corsOrigins.length > 0 ? corsOrigins : true,
+    origin: configuredCorsOrigins
+      ? corsOrigins.length > 0
+        ? corsOrigins
+        : true
+      : (origin: string | undefined, callback: (error: Error | null, allow?: boolean) => void) => {
+          callback(null, isLocalDevelopmentOrigin(origin));
+        },
     credentials: true,
   });
   app.setGlobalPrefix('api/v1');
