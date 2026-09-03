@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddGuestServiceFields20260808163000 implements MigrationInterface {
-  name = 'AddGuestServiceFields20260808163000';
+export class AddGuestServiceFields1786776300000 implements MigrationInterface {
+  name = 'AddGuestServiceFields1786776300000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

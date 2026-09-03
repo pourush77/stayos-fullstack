@@ -8,8 +8,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * the canonical vocabulary; the create default moves to FRONT_DESK in code.
  * Backward compatible. PostgreSQL cannot drop enum values, so down() is a no-op.
  */
-export class AddCanonicalReservationSources20260826090000 implements MigrationInterface {
-  name = 'AddCanonicalReservationSources20260826090000';
+export class AddCanonicalReservationSources1786777620000 implements MigrationInterface {
+  name = 'AddCanonicalReservationSources1786777620000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     for (const value of ['FRONT_DESK', 'PHONE', 'CHANNEL', 'OTHER']) {

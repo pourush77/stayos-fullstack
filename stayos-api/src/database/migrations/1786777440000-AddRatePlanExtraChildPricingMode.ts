@@ -6,8 +6,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * extra_child_charge (single authoritative child-pricing mechanism). Additive
  * and backward compatible: existing bands keep their modes and pricing.
  */
-export class AddRatePlanExtraChildPricingMode20260823090000 implements MigrationInterface {
-  name = 'AddRatePlanExtraChildPricingMode20260823090000';
+export class AddRatePlanExtraChildPricingMode1786777440000 implements MigrationInterface {
+  name = 'AddRatePlanExtraChildPricingMode1786777440000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

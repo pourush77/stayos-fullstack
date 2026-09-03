@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class CreatePropertyBillingConfig20260817092000 implements MigrationInterface {
-  name = 'CreatePropertyBillingConfig20260817092000';
+export class CreatePropertyBillingConfig1786776900000 implements MigrationInterface {
+  name = 'CreatePropertyBillingConfig1786776900000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

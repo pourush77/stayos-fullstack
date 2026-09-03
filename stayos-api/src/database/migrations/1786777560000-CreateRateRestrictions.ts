@@ -4,8 +4,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * Phase 1C-c1: ARI sale restrictions. Additive only — no changes to existing
  * tables, no backfill. Existing reservations/inventory/pricing untouched.
  */
-export class CreateRateRestrictions20260825090000 implements MigrationInterface {
-  name = 'CreateRateRestrictions20260825090000';
+export class CreateRateRestrictions1786777560000 implements MigrationInterface {
+  name = 'CreateRateRestrictions1786777560000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

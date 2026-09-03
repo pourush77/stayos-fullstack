@@ -12,8 +12,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * allocated codes never collide with historical ones (count-based backfill
  * would be unsafe after deletions). Idempotent / backward compatible.
  */
-export class CreateReservationCodeCounters20260828090000 implements MigrationInterface {
-  name = 'CreateReservationCodeCounters20260828090000';
+export class CreateReservationCodeCounters1786777740000 implements MigrationInterface {
+  name = 'CreateReservationCodeCounters1786777740000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

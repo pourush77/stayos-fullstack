@@ -6,8 +6,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * (no data loss), then removes the legacy columns to eliminate the dual source
  * of truth.
  */
-export class MigrateGroupDepositToPolicies20260818090000 implements MigrationInterface {
-  name = 'MigrateGroupDepositToPolicies20260818090000';
+export class MigrateGroupDepositToPolicies1786777020000 implements MigrationInterface {
+  name = 'MigrateGroupDepositToPolicies1786777020000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

@@ -9,8 +9,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * same channel reservation id may recur across different providers/properties.
  * Additive and backward compatible (all columns nullable, no backfill).
  */
-export class AddReservationExternalIdentity20260827090000 implements MigrationInterface {
-  name = 'AddReservationExternalIdentity20260827090000';
+export class AddReservationExternalIdentity1786777680000 implements MigrationInterface {
+  name = 'AddReservationExternalIdentity1786777680000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(

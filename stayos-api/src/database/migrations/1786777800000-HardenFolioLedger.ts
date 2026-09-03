@@ -10,8 +10,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *   Backfilled from the MAX trailing-numeric suffix of existing folio_number so
  *   new numbers never collide with historical ones. Additive/backward compatible.
  */
-export class HardenFolioLedger20260829090000 implements MigrationInterface {
-  name = 'HardenFolioLedger20260829090000';
+export class HardenFolioLedger1786777800000 implements MigrationInterface {
+  name = 'HardenFolioLedger1786777800000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(

@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddBusinessDayCutOffToProperties20260817090000 implements MigrationInterface {
-  name = 'AddBusinessDayCutOffToProperties20260817090000';
+export class AddBusinessDayCutOffToProperties1786776780000 implements MigrationInterface {
+  name = 'AddBusinessDayCutOffToProperties1786776780000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

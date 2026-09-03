@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddRatePlanAndRateSnapshotToReservations20260822090000 implements MigrationInterface {
-  name = 'AddRatePlanAndRateSnapshotToReservations20260822090000';
+export class AddRatePlanAndRateSnapshotToReservations1786777260000 implements MigrationInterface {
+  name = 'AddRatePlanAndRateSnapshotToReservations1786777260000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`ALTER TABLE "reservations" ADD COLUMN "rate_plan_id" uuid`);

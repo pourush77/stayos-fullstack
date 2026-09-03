@@ -8,8 +8,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * recalculating historical commercial values. reservations.rate_snapshot /
  * rate_plan_id remain the backward-compatible mirror of the ACTIVE version.
  */
-export class CreateReservationRateSnapshots20260824090000 implements MigrationInterface {
-  name = 'CreateReservationRateSnapshots20260824090000';
+export class CreateReservationRateSnapshots1786777500000 implements MigrationInterface {
+  name = 'CreateReservationRateSnapshots1786777500000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

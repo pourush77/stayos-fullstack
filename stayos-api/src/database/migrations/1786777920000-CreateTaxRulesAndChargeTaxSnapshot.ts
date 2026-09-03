@@ -7,8 +7,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * posted). Additive and backward compatible: existing charges keep NULL tax
  * snapshot; the engine ships EMPTY (no rules) so GST is zero until configured.
  */
-export class CreateTaxRulesAndChargeTaxSnapshot20260901090000 implements MigrationInterface {
-  name = 'CreateTaxRulesAndChargeTaxSnapshot20260901090000';
+export class CreateTaxRulesAndChargeTaxSnapshot1786777920000 implements MigrationInterface {
+  name = 'CreateTaxRulesAndChargeTaxSnapshot1786777920000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

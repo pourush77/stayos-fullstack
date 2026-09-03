@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddRoomTypeOccupancyCapacityChecks20260814110000 implements MigrationInterface {
-  name = 'AddRoomTypeOccupancyCapacityChecks20260814110000';
+export class AddRoomTypeOccupancyCapacityChecks1786776540000 implements MigrationInterface {
+  name = 'AddRoomTypeOccupancyCapacityChecks1786776540000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

@@ -6,8 +6,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * unique per folio) to folio_payments. Additive/backward compatible: existing
  * rows default to type='PAYMENT' with NULL reversal/idempotency.
  */
-export class HardenFolioPaymentsLedger20260915090000 implements MigrationInterface {
-  name = 'HardenFolioPaymentsLedger20260915090000';
+export class HardenFolioPaymentsLedger1786777980000 implements MigrationInterface {
+  name = 'HardenFolioPaymentsLedger1786777980000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(

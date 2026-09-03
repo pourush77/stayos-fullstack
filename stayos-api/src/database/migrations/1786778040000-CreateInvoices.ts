@@ -7,8 +7,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * RETURNING) — never count()+1. A partial unique index enforces at most one
  * non-void TAX_INVOICE per folio (idempotent finalization).
  */
-export class CreateInvoices20260930090000 implements MigrationInterface {
-  name = 'CreateInvoices20260930090000';
+export class CreateInvoices1786778040000 implements MigrationInterface {
+  name = 'CreateInvoices1786778040000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

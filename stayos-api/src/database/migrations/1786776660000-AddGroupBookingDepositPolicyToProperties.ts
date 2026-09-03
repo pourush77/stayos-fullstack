@@ -1,9 +1,9 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddGroupBookingDepositPolicyToProperties20260816190000
+export class AddGroupBookingDepositPolicyToProperties1786776660000
   implements MigrationInterface
 {
-  name = 'AddGroupBookingDepositPolicyToProperties20260816190000';
+  name = 'AddGroupBookingDepositPolicyToProperties1786776660000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(

@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class CreateRoomTypeInventory20260819090000 implements MigrationInterface {
-  name = 'CreateRoomTypeInventory20260819090000';
+export class CreateRoomTypeInventory1786777080000 implements MigrationInterface {
+  name = 'CreateRoomTypeInventory1786777080000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

@@ -6,8 +6,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * therefore never treated as snapshot-driven (never reconciled/overwritten).
  * Additive, backward compatible, no historical recompute.
  */
-export class AddFolioChargeSnapshotLink20260830090000 implements MigrationInterface {
-  name = 'AddFolioChargeSnapshotLink20260830090000';
+export class AddFolioChargeSnapshotLink1786777860000 implements MigrationInterface {
+  name = 'AddFolioChargeSnapshotLink1786777860000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
