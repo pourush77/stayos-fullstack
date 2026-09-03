@@ -24,15 +24,22 @@ import { MaintenanceTicketCategory } from '../src/core/maintenance/domain/mainte
 import { MaintenanceTicketPriority } from '../src/core/maintenance/domain/maintenance-ticket-priority.enum';
 import { MaintenanceTicketStatus } from '../src/core/maintenance/domain/maintenance-ticket-status.enum';
 import { UserEntity } from '../src/core/auth/infrastructure/user.entity';
+import { BusinessDateService } from '../src/core/properties/services/business-date.service';
 
 const PROPERTY_CODE = 'HILLSTON_IND';
 const CONFIRM = 'SEED-HILLSTON-STAGING';
+const PREVIEW_FLAG = '--preview';
 
-function dateOnly(offset: number): string {
-  const d = new Date();
-  d.setHours(12, 0, 0, 0);
-  d.setDate(d.getDate() + offset);
-  return d.toISOString().slice(0, 10);
+function wantsPreview(): boolean {
+  return process.argv.includes(PREVIEW_FLAG);
+}
+
+function plusDays(baseDate: string, offset: number): string {
+  const [year, month, day] = baseDate.split('-').map(Number);
+  const d = new Date(Date.UTC(year, month - 1, day + offset));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(
+    d.getUTCDate(),
+  ).padStart(2, '0')}`;
 }
 
 function requireStagingSafety(): void {
@@ -66,6 +73,7 @@ async function main(): Promise<void> {
   const billing = app.get(BillingService);
   const rates = app.get(RatesService);
   const reconciliation = app.get(InventoryReconciliationService);
+  const businessDate = app.get(BusinessDateService);
 
   try {
     const propertyRepo = ds.getRepository(PropertyEntity);
@@ -80,6 +88,9 @@ async function main(): Promise<void> {
     if (!property) {
       throw new Error(`Property ${PROPERTY_CODE} not found.`);
     }
+
+    const today = businessDate.resolveForProperty(property);
+    const dateOnly = (offset: number) => plusDays(today, offset);
 
     const rooms = await roomRepo.find({
       where: { propertyId: property.id },
@@ -97,6 +108,110 @@ async function main(): Promise<void> {
 
     if (roomTypes.length < 2) {
       throw new Error('Expected at least two Hillston room types.');
+    }
+
+    /*
+     * ------------------------------------------------------------
+     * ROOM TYPES / ROOMS
+     * ------------------------------------------------------------
+     */
+
+    const roomTypesByCapacity = roomTypes
+      .map((roomType) => ({
+        roomType,
+        rooms: rooms.filter((room) => room.roomTypeId === roomType.id),
+      }))
+      .sort((a, b) => b.rooms.length - a.rooms.length);
+
+    const primaryType = roomTypesByCapacity[0].roomType;
+
+    const secondaryType = roomTypesByCapacity[1].roomType;
+
+    const primaryRooms = roomTypesByCapacity[0].rooms;
+
+    const secondaryRooms = roomTypesByCapacity[1].rooms;
+
+    if (primaryRooms.length < 7) {
+      throw new Error('Need at least 7 rooms in the primary room type for staging scenarios.');
+    }
+
+    if (secondaryRooms.length < 1) {
+      throw new Error('Need at least 1 room in the secondary room type for staging scenarios.');
+    }
+
+    if (wantsPreview()) {
+      console.log('Hillston staging seed preview');
+      console.log(`Property: ${property.name} (${property.code})`);
+      console.log(
+        `Business date: ${today} (${property.timezone}, cut-off ${property.businessDayCutOffTime})`,
+      );
+      console.log('DRY RUN ONLY - no data changed.');
+      console.table([
+        {
+          scenario: 'Arrival today - assigned READY room',
+          status: ReservationStatus.CONFIRMED,
+          arrivalDate: dateOnly(0),
+          departureDate: dateOnly(2),
+          room: primaryRooms[0].roomNumber,
+        },
+        {
+          scenario: 'Arrival today - unassigned',
+          status: ReservationStatus.CONFIRMED,
+          arrivalDate: dateOnly(0),
+          departureDate: dateOnly(1),
+          room: 'UNASSIGNED',
+        },
+        {
+          scenario: 'Pending future hold',
+          status: ReservationStatus.PENDING,
+          arrivalDate: dateOnly(1),
+          departureDate: dateOnly(3),
+          room: 'UNASSIGNED',
+        },
+        {
+          scenario: 'Future channel reservation',
+          status: ReservationStatus.CONFIRMED,
+          arrivalDate: dateOnly(2),
+          departureDate: dateOnly(4),
+          room: 'UNASSIGNED',
+        },
+        {
+          scenario: 'In-house due out today - unpaid folio',
+          status: ReservationStatus.CHECKED_IN,
+          arrivalDate: dateOnly(-2),
+          departureDate: dateOnly(0),
+          room: primaryRooms[2].roomNumber,
+        },
+        {
+          scenario: 'Same-day next arrival after turnover',
+          status: ReservationStatus.CONFIRMED,
+          arrivalDate: dateOnly(0),
+          departureDate: dateOnly(2),
+          room: primaryRooms[2].roomNumber,
+        },
+        {
+          scenario: 'In-house due out today - paid folio',
+          status: ReservationStatus.CHECKED_IN,
+          arrivalDate: dateOnly(-1),
+          departureDate: dateOnly(0),
+          room: primaryRooms[3].roomNumber,
+        },
+        {
+          scenario: 'Arrival today blocked by dirty room',
+          status: ReservationStatus.CONFIRMED,
+          arrivalDate: dateOnly(0),
+          departureDate: dateOnly(1),
+          room: primaryRooms[4].roomNumber,
+        },
+        {
+          scenario: 'Future arrival assigned to maintenance room',
+          status: ReservationStatus.CONFIRMED,
+          arrivalDate: dateOnly(1),
+          departureDate: dateOnly(3),
+          room: primaryRooms[5].roomNumber,
+        },
+      ]);
+      return;
     }
 
     const existingReservations = await reservationRepo.count({
@@ -165,35 +280,6 @@ async function main(): Promise<void> {
 
         extraChildCharge: suiteLike ? '900.00' : '700.00',
       });
-    }
-
-    /*
-     * ------------------------------------------------------------
-     * ROOM TYPES / ROOMS
-     * ------------------------------------------------------------
-     */
-
-    const roomTypesByCapacity = roomTypes
-      .map((roomType) => ({
-        roomType,
-        rooms: rooms.filter((room) => room.roomTypeId === roomType.id),
-      }))
-      .sort((a, b) => b.rooms.length - a.rooms.length);
-
-    const primaryType = roomTypesByCapacity[0].roomType;
-
-    const secondaryType = roomTypesByCapacity[1].roomType;
-
-    const primaryRooms = roomTypesByCapacity[0].rooms;
-
-    const secondaryRooms = roomTypesByCapacity[1].rooms;
-
-    if (primaryRooms.length < 7) {
-      throw new Error('Need at least 7 rooms in the primary room type for staging scenarios.');
-    }
-
-    if (secondaryRooms.length < 1) {
-      throw new Error('Need at least 1 room in the secondary room type for staging scenarios.');
     }
 
     /*
