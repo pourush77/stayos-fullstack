@@ -39,17 +39,23 @@ type WalkInAssignment = {
   guestName?: string;
 };
 
+function toLocalDateIso(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
 function todayIso() {
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  return now.toISOString().slice(0, 10);
+  return toLocalDateIso(new Date());
 }
 
 function tomorrowIso() {
-  const now = new Date();
-  now.setDate(now.getDate() + 1);
-  now.setHours(0, 0, 0, 0);
-  return now.toISOString().slice(0, 10);
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  return toLocalDateIso(tomorrow);
 }
 
 export function WalkInGroupModal({
@@ -63,10 +69,8 @@ export function WalkInGroupModal({
   propertyId: string;
   onCreated: (result: GroupCheckInResultDto) => Promise<void> | void;
 }) {
-  const [arrivalDate, setArrivalDate] = useState<Date | null>(new Date(`${todayIso()}T00:00:00`));
-  const [departureDate, setDepartureDate] = useState<Date | null>(
-    new Date(`${tomorrowIso()}T00:00:00`),
-  );
+  const [arrivalDate, setArrivalDate] = useState<string | null>(todayIso());
+  const [departureDate, setDepartureDate] = useState<string | null>(tomorrowIso());
   const [groupName, setGroupName] = useState('');
   const [leadName, setLeadName] = useState('');
   const [leadPhone, setLeadPhone] = useState('');
@@ -79,8 +83,8 @@ export function WalkInGroupModal({
   const [error, setError] = useState<string | undefined>(undefined);
   const [result, setResult] = useState<GroupCheckInResultDto | null>(null);
 
-  const arrivalIso = arrivalDate ? arrivalDate.toISOString().slice(0, 10) : '';
-  const departureIso = departureDate ? departureDate.toISOString().slice(0, 10) : '';
+  const arrivalIso = arrivalDate ?? '';
+  const departureIso = departureDate ?? '';
 
   const resetForm = useCallback(() => {
     setGroupName('');
@@ -96,8 +100,8 @@ export function WalkInGroupModal({
   useEffect(() => {
     if (!opened) return;
     resetForm();
-    setArrivalDate(new Date(`${todayIso()}T00:00:00`));
-    setDepartureDate(new Date(`${tomorrowIso()}T00:00:00`));
+    setArrivalDate(todayIso());
+    setDepartureDate(tomorrowIso());
   }, [opened, resetForm]);
 
   useEffect(() => {
@@ -340,8 +344,8 @@ export function WalkInGroupModal({
               label="Departure"
               disabled={isSaving}
               value={departureDate}
-              minDate={new Date(`${tomorrowIso()}T00:00:00`)}
-              onChange={(value) => setDepartureDate(value as Date | null)}
+              minDate={tomorrowIso()}
+              onChange={setDepartureDate}
               required
               data-testid="walk-in-departure"
             />

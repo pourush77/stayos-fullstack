@@ -1827,6 +1827,8 @@ describe('Operations services', () => {
         estimatedTotal: '2400',
         groupCode: 'GRP-00001',
         groupName: 'Hillston Family',
+        propertyId,
+        status: 'CHECKED_IN',
       }),
     };
     const groupStaysRepository = { findOne: jest.fn().mockResolvedValue({ status: 'IN_HOUSE' }) };
@@ -1901,6 +1903,7 @@ describe('Operations services', () => {
         estimatedTotal: '2400',
         groupCode: 'GRP-00001',
         groupName: 'Hillston Family',
+        propertyId,
         status: 'CHECKED_IN',
       }),
     };
@@ -1925,7 +1928,7 @@ describe('Operations services', () => {
       {} as never,
       {} as never,
       { find: jest.fn().mockResolvedValue([]) } as never,
-      { findOne: jest.fn().mockResolvedValue({}) } as never,
+      { findOne: jest.fn().mockResolvedValue({ status: 'IN_HOUSE' }) } as never,
       groupMasterFoliosRepository as never,
       {} as never,
       propertiesService as never,
@@ -2111,6 +2114,7 @@ describe('Operations services', () => {
       estimatedTotal: '2400',
       groupCode: 'GRP-00001',
       groupName: 'Hillston Family',
+      propertyId,
       status: 'CHECKED_IN',
       save: jest.fn().mockResolvedValue({}),
     };
@@ -2181,11 +2185,16 @@ describe('Operations services', () => {
     const result = await service.completeGroupCheckout(propertyId, 'group-booking-id');
 
     expect(result.status).toBe('SETTLED');
+    expect(result.checkoutSummary.occupiedRoomCount).toBe(0);
     expect(groupBookingsRepository.save).toHaveBeenCalled();
     expect(groupStaysRepository.save).toHaveBeenCalled();
     expect(roomRepository.update).toHaveBeenCalledWith(
       { id: In([roomId]), propertyId },
-      { operationalStatus: RoomOperationalStatus.NEEDS_CLEANING },
+      {
+        operationalStatus: RoomOperationalStatus.NEEDS_CLEANING,
+        operationalStatusNote: 'Room marked for cleaning after checkout.',
+        operationalStatusReason: 'CHECKOUT',
+      },
     );
   });
 

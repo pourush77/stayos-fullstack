@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Alert,
   Badge,
@@ -22,7 +23,7 @@ import {
 } from '@mantine/core';
 import { ArrowLeft, BedDouble, CheckCircle2, Receipt, Wallet } from 'lucide-react';
 import { radius, spacing } from '@stayos/theme';
-import { BackendUnavailable, ServerStarting, useBackendStatus } from '@stayos/ui';
+import { BackendUnavailable, ServerStarting, showToast, useBackendStatus } from '@stayos/ui';
 import {
   completeGroupCheckout,
   getGroupMasterFolio,
@@ -66,6 +67,7 @@ function isAbortError(err: unknown) {
 
 export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: string }) {
   const backend = useBackendStatus();
+  const router = useRouter();
   const [propertyId, setPropertyId] = useState('');
   const [folio, setFolio] = useState<GroupMasterFolioDetailDto | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -178,9 +180,17 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
     setCheckingOut(true);
     setError(undefined);
     try {
+      const checkedOutRoomCount = folio.checkoutSummary.occupiedRoomCount;
       const next = await completeGroupCheckout(propertyId, groupBookingId);
       setFolio(next);
       setCheckoutOpened(false);
+      showToast({
+        color: 'green',
+        message: `${next.groupName} · ${checkedOutRoomCount} rooms checked out`,
+        title: 'Checkout complete',
+      });
+      router.push('/reservations');
+      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to complete checkout.');
     } finally {
@@ -196,6 +206,10 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
     paymentAmount > 0 &&
     paymentAmount <= (folio?.checkoutSummary.balanceDue ?? 0);
   const folioClosed = folio?.status === 'CLOSED';
+  const canCompleteCheckout =
+    Boolean(folio) &&
+    folio.checkoutSummary.checkoutEligible &&
+    folio.checkoutSummary.balanceDue <= 0.01;
 
   if (!backend.isOnline && backend.status === 'SERVER_STARTING')
     return (
@@ -256,7 +270,7 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
                 leftSection={<CheckCircle2 size={15} />}
                 onClick={() => setCheckoutOpened(true)}
                 loading={checkingOut}
-                disabled={!folio.checkoutSummary.checkoutEligible || checkingOut || submitting}
+                disabled={!canCompleteCheckout || checkingOut || submitting}
               >
                 Complete checkout
               </Button>
@@ -627,9 +641,21 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
         title="Complete group checkout?"
       >
         <Stack gap={spacing[3]}>
-          <Alert color="green" variant="light">
-            The master folio is settled and the group is eligible for checkout.
-          </Alert>
+          {canCompleteCheckout ? (
+            <Alert color="green" variant="light">
+              The master folio is settled and the group is eligible for checkout.
+            </Alert>
+          ) : (
+            <Alert color="red" variant="light" title="Checkout blocked">
+              {folio && folio.checkoutSummary.balanceDue > 0.01
+                ? `Settle the remaining balance of ${formatCurrency(
+                    folio.checkoutSummary.balanceDue,
+                  )} before completing checkout.`
+                : folio?.checkoutSummary.checkoutBlockers.length
+                  ? folio.checkoutSummary.checkoutBlockers.join(' • ')
+                  : 'This group is not currently eligible for checkout.'}
+            </Alert>
+          )}
           <Box>
             <Text fw={800}>
               {folio?.groupCode} · {folio?.groupName}
@@ -651,7 +677,7 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
               color="green"
               leftSection={<CheckCircle2 size={15} />}
               loading={checkingOut}
-              disabled={!folio?.checkoutSummary.checkoutEligible}
+              disabled={!canCompleteCheckout || checkingOut}
               onClick={() => void handleCheckoutSubmit()}
             >
               Confirm checkout

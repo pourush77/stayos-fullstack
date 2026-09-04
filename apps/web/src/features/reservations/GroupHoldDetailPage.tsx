@@ -25,6 +25,7 @@ import {
 import {
   ArrowRightLeft,
   BedDouble,
+  CalendarPlus,
   CheckCircle2,
   Copy,
   Pencil,
@@ -41,6 +42,7 @@ import {
   changeGroupRoom,
   completeGroupCheckout,
   confirmGroupHold,
+  extendGroupStay,
   getAvailableRooms,
   getGroupRoomChangeCandidates,
   deleteGroupHold,
@@ -51,6 +53,7 @@ import {
   type GroupMasterFolioDetailDto,
   type GroupHoldDto,
 } from '../../lib/operations-api';
+import { GroupExtendStayModal } from './components/GroupExtendStayModal';
 
 const panelStyle = {
   background: '#ffffff',
@@ -123,6 +126,10 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
   const [error, setError] = useState<string | undefined>();
   const [deleteOpened, setDeleteOpened] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [extendOpened, setExtendOpened] = useState(false);
+  const [extendDepartureDate, setExtendDepartureDate] = useState('');
+  const [extendError, setExtendError] = useState('');
+  const [isExtending, setIsExtending] = useState(false);
   const hasValidGroupHoldId = Boolean(groupHoldId && groupHoldId !== 'undefined');
 
   const load = useCallback(
@@ -202,6 +209,29 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
     hold?.status === 'CHECKED_IN' &&
     Boolean(masterFolio?.checkoutSummary.checkoutEligible) &&
     Number(masterFolio?.checkoutSummary.balanceDue ?? 0) <= 0.01;
+  const canExtendStay = hold?.status === 'CHECKED_IN';
+
+  const openExtendStay = () => {
+    if (!hold) return;
+    setExtendError('');
+    setExtendDepartureDate(hold.departureDate);
+    setExtendOpened(true);
+  };
+
+  const submitExtendStay = async () => {
+    if (!propertyId || !hold || !extendDepartureDate) return;
+    setExtendError('');
+    setIsExtending(true);
+    try {
+      await extendGroupStay(propertyId, hold.id, extendDepartureDate);
+      setExtendOpened(false);
+      await load(propertyId);
+    } catch (err) {
+      setExtendError(err instanceof Error ? err.message : 'Unable to extend group stay.');
+    } finally {
+      setIsExtending(false);
+    }
+  };
 
   const addGuest = async () => {
     if (!propertyId || !guestName.trim()) return;
@@ -635,6 +665,16 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
                       disabled={!checkoutAllowed || isSaving}
                     >
                       Complete Checkout
+                    </Button>
+                  ) : null}
+                  {canExtendStay ? (
+                    <Button
+                      leftSection={<CalendarPlus size={14} />}
+                      variant="light"
+                      color="stayosBrand"
+                      onClick={openExtendStay}
+                    >
+                      Extend Stay
                     </Button>
                   ) : null}
                   {hold.status === 'CHECKED_IN' || hold.status === 'CHECKED_OUT' ? (
@@ -1084,6 +1124,27 @@ export function GroupHoldDetailPage({ groupHoldId }: { groupHoldId: string }) {
           </Group>
         </Stack>
       </Modal>
+
+      <GroupExtendStayModal
+        opened={extendOpened}
+        group={
+          hold
+            ? {
+                arrivalDate: hold.arrivalDate,
+                departureDate: hold.departureDate,
+                groupCode: hold.groupCode,
+                groupName: hold.groupName,
+                roomCount: hold.roomAssignments.length,
+              }
+            : null
+        }
+        departureDate={extendDepartureDate}
+        error={extendError}
+        isLoading={isExtending}
+        onClose={() => setExtendOpened(false)}
+        onDepartureDateChange={setExtendDepartureDate}
+        onSubmit={() => void submitExtendStay()}
+      />
     </Box>
   );
 }

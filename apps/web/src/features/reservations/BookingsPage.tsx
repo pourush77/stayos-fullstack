@@ -64,6 +64,7 @@ import {
   type InHouseGroupDto,
 } from '../../lib/operations-api';
 import { BookingStatusBadge, PaymentStatusBadge } from './components/BookingBadges';
+import { GroupExtendStayModal } from './components/GroupExtendStayModal';
 import { WalkInGroupModal } from './components/WalkInGroupModal';
 import { bookingFilterOptions } from './constants/booking.constants';
 import { useBookings } from './hooks/useBookings';
@@ -1088,44 +1089,16 @@ export default function BookingsPage() {
           await bookingState.refreshBookings();
         }}
       />
-      <Modal
+      <GroupExtendStayModal
         opened={Boolean(extendGroup)}
+        group={extendGroup}
+        departureDate={extendDepartureDate}
+        error={groupActionError}
+        isLoading={isGroupActionLoading}
         onClose={() => setExtendGroup(null)}
-        title="Extend group stay"
-      >
-        <Stack gap={spacing[3]}>
-          <Text fw={700}>
-            {extendGroup?.groupCode} - {extendGroup?.groupName}
-          </Text>
-          <Text size="sm" c="#475569">
-            {extendGroup?.roomCount ?? 0} rooms affected. Current stay:{' '}
-            {extendGroup ? formatStayDates(extendGroup.arrivalDate, extendGroup.departureDate) : ''}
-          </Text>
-          <TextInput
-            label="New departure date"
-            type="date"
-            value={extendDepartureDate}
-            onChange={(event) => setExtendDepartureDate(event.currentTarget.value)}
-          />
-          {groupActionError ? <Alert color="red">{groupActionError}</Alert> : null}
-          <Group justify="flex-end">
-            <Button variant="subtle" color="gray" onClick={() => setExtendGroup(null)}>
-              Cancel
-            </Button>
-            <Button
-              color="stayosBrand"
-              loading={isGroupActionLoading}
-              disabled={
-                !extendDepartureDate ||
-                (extendGroup ? extendDepartureDate <= extendGroup.departureDate : true)
-              }
-              onClick={() => void submitExtendGroup()}
-            >
-              Extend Stay
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
+        onDepartureDateChange={setExtendDepartureDate}
+        onSubmit={() => void submitExtendGroup()}
+      />
       <Modal
         opened={Boolean(checkoutGroup)}
         onClose={() => setCheckoutGroup(null)}

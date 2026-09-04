@@ -1395,7 +1395,11 @@ export class GroupBookingService {
       if (roomIds.length) {
         await roomRepository.update(
           { id: In(roomIds), propertyId },
-          { operationalStatus: RoomOperationalStatus.NEEDS_CLEANING },
+          {
+            operationalStatus: RoomOperationalStatus.NEEDS_CLEANING,
+            operationalStatusNote: 'Room marked for cleaning after checkout.',
+            operationalStatusReason: 'CHECKOUT',
+          },
         );
       }
 
@@ -1404,10 +1408,10 @@ export class GroupBookingService {
         status: 'SETTLED',
       } as GroupMasterFolioEntity);
 
-      return settledFolio;
+      return { group: latestGroup, folio: settledFolio };
     });
 
-    return this.buildGroupMasterFolioDetail(group, result, groupBookingId);
+    return this.buildGroupMasterFolioDetail(result.group, result.folio, groupBookingId);
   }
 
   async extendGroupStay(
@@ -1599,7 +1603,7 @@ export class GroupBookingService {
     folio: GroupMasterFolioEntity,
     groupBookingId: string,
   ): Promise<GroupMasterFolioDetailDto> {
-    const [blocks, assignments, payments] = await Promise.all([
+    const [blocks, assignments, payments, stay] = await Promise.all([
       this.roomBlocksRepository.find({ where: { groupBookingId }, relations: { roomType: true } }),
       this.roomAssignmentsRepository.find({
         where: { groupBookingId },
@@ -1609,7 +1613,12 @@ export class GroupBookingService {
         where: { groupMasterFolioId: folio.id },
         order: { receivedAt: 'ASC', createdAt: 'ASC' },
       }) ?? Promise.resolve([]),
+      this.groupStaysRepository.findOne({ where: { groupBookingId, propertyId: group.propertyId } }),
     ]);
+    const occupiedRoomCount =
+      group.status === GroupBookingStatus.CHECKED_IN && stay?.status === 'IN_HOUSE'
+        ? assignments.length
+        : 0;
 
     const baseCharges = blocks.map((block) => ({
       amount: Number(block.estimatedTotal || 0),
@@ -1656,7 +1665,7 @@ export class GroupBookingService {
         balanceDue,
         checkoutBlockers,
         checkoutEligible: checkoutBlockers.length === 0,
-        occupiedRoomCount: assignments.length,
+        occupiedRoomCount,
         paymentStatus,
         totalCharges,
         totalPaid: paidAmount,
