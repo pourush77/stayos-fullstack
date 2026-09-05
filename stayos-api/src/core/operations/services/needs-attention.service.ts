@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
 import { PropertiesService } from '../../properties/properties.service';
+import { BusinessDateService } from '../../properties/services/business-date.service';
 import { ReservationPaymentStatus } from '../../reservations/domain/reservation-payment-status.enum';
 import { ReservationStatus } from '../../reservations/domain/reservation-status.enum';
 import { ReservationEntity } from '../../reservations/infrastructure/reservation.entity';
@@ -9,7 +10,6 @@ import { RoomOperationalStatus } from '../../rooms/domain/room-operational-statu
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
 import { NeedsAttentionItemDto, OperationsPriority } from '../dto/operations.dto';
 import { OperationsMapper } from '../mappers/operations.mapper';
-import { todayIsoDate } from './operations-query.helpers';
 import { resolveCheckoutOperationalState } from './checkout-operational-state.resolver';
 
 @Injectable()
@@ -20,11 +20,12 @@ export class NeedsAttentionService {
     @InjectRepository(RoomEntity)
     private readonly roomsRepository: Repository<RoomEntity>,
     private readonly propertiesService: PropertiesService,
+    private readonly businessDateService: BusinessDateService = new BusinessDateService(),
   ) {}
 
   async getNeedsAttention(propertyId: string): Promise<NeedsAttentionItemDto[]> {
     const property = await this.propertiesService.findOne(propertyId);
-    const today = todayIsoDate(property.timezone ?? 'UTC');
+    const today = this.businessDateService.getCurrentBusinessDate(property);
     const cleaningThreshold = new Date(Date.now() - 3 * 60 * 60 * 1000);
     const [unassignedArrivals, vipUnassignedArrivals, rooms, checkedInDepartures, pendingPayments] =
       await Promise.all([

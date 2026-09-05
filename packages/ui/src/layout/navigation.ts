@@ -10,6 +10,7 @@ import {
   Settings,
   Users,
   Wrench,
+  Moon,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -30,6 +31,7 @@ export const primaryNavigation: ShellNavigationItem[] = [
   { label: 'Maintenance', icon: Wrench, href: '/maintenance' },
   { label: 'Employees', icon: ContactRound, href: '/settings/employees' },
   { label: 'Billing', icon: ReceiptText, href: '/billing', badge: '2' },
+  { label: 'Night Audit', icon: Moon, href: '/night-audit' },
   { label: 'Reports', icon: BarChart3, href: '/reports' },
   { label: 'Marketplace', icon: ShoppingBag, href: '/marketplace' },
   { label: 'Settings', icon: Settings, href: '/settings' },

@@ -53,6 +53,9 @@ export const Permissions = {
 
   SessionsView: 'sessions.view',
   SessionsManage: 'sessions.manage',
+
+  // Night Audit
+  NightAuditManage: 'night-audit.manage',
 } as const;
 
 export type Permission = (typeof Permissions)[keyof typeof Permissions];

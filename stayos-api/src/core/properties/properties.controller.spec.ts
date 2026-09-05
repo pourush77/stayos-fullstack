@@ -31,6 +31,7 @@ const propertyEntity: PropertyEntity = {
   checkInTime: '14:00',
   checkOutTime: '11:00',
   businessDayCutOffTime: '00:00:00',
+  currentBusinessDate: '2026-06-30',
   totalFloors: 6,
   totalRooms: 120,
   status: PropertyStatus.ACTIVE,

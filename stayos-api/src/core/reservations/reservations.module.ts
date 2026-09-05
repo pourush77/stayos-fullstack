@@ -28,6 +28,7 @@ import { ReservationQuoteService } from './services/reservation-quote.service';
 import { ReservationRateSnapshotService } from './services/reservation-rate-snapshot.service';
 import { StaysController } from './stays.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { FolioEntity } from '../billing/infrastructure/folio.entity';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
       GuestDocumentEntity,
       AuditEventEntity,
       ActivityEventEntity,
+      FolioEntity,
     ]),
     PropertiesModule,
     RatesModule,

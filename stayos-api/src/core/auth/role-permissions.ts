@@ -44,6 +44,9 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     // including rates and guest/child pricing policies.
     Permissions.SettingsView,
     Permissions.SettingsManage,
+
+    // Manager can run and manage night audit
+    Permissions.NightAuditManage,
   ],
 
   [UserRole.FRONT_DESK]: [

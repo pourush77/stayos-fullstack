@@ -158,6 +158,40 @@ test('individual row menu hides incompatible secondary actions by state', () => 
   );
 });
 
+test('eligible Front Desk arrivals expose Mark No-Show as contextual menu action', () => {
+  assert.match(bookingsPageSource, /import \{ NoShowConfirmationModal \}/);
+  assert.match(bookingsPageSource, /function canMarkBookingNoShow\(booking: Booking/);
+  assert.match(
+    bookingsPageSource,
+    /\(booking\.status === 'PENDING' \|\| booking\.status === 'CONFIRMED'\) &&[\s\S]*booking\.arrivalDate <= today/,
+  );
+  assert.match(bookingsPageSource, /canMarkBookingNoShow\(booking\) \? \(/);
+  assert.match(bookingsPageSource, /data-testid=\{`booking-mark-no-show-\$\{booking\.backendId\}`\}/);
+  assert.match(bookingsPageSource, />\s*Mark No-Show\s*</);
+});
+
+test('Front Desk Mark No-Show is hidden for invalid reservation statuses', () => {
+  const helperStart = bookingsPageSource.indexOf('function canMarkBookingNoShow');
+  const helperEnd = bookingsPageSource.indexOf('function isTodayGroupResult', helperStart);
+  const helperSource = bookingsPageSource.slice(helperStart, helperEnd);
+
+  assert.ok(helperStart >= 0);
+  assert.ok(helperEnd > helperStart);
+  assert.doesNotMatch(helperSource, /CHECKED_IN/);
+  assert.doesNotMatch(helperSource, /CHECKED_OUT/);
+  assert.doesNotMatch(helperSource, /CANCELLED/);
+  assert.doesNotMatch(helperSource, /NO_SHOW/);
+});
+
+test('Front Desk No-Show modal uses existing API flow and refreshes bookings after success', () => {
+  assert.match(bookingsPageSource, /const \[noShowBooking, setNoShowBooking\] = useState<Booking \| null>\(null\)/);
+  assert.match(bookingsPageSource, /reservationId: noShowBooking\.backendId/);
+  assert.match(bookingsPageSource, /reservationCode: noShowBooking\.bookingId/);
+  assert.match(bookingsPageSource, /propertyId: activePropertyId/);
+  assert.match(bookingsPageSource, /onSuccess=\{\(\) => bookingState\.refreshBookings\(\)\}/);
+  assert.doesNotMatch(bookingsPageSource, /filter\(\(booking\) => booking\.backendId !==/);
+});
+
 test('group rows use Open Group primary action and a state-aware kebab menu', () => {
   assert.match(bookingsPageSource, /data-testid=\{`group-booking-next-action-\$\{id\}`\}/);
   assert.match(bookingsPageSource, />\s*Open Group\s*</);

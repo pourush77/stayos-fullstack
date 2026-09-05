@@ -3,6 +3,7 @@ import { ReservationPaymentStatus } from '../reservations/domain/reservation-pay
 import { ReservationStatus } from '../reservations/domain/reservation-status.enum';
 import { ReservationSource } from '../reservations/domain/reservation-source.enum';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
+import { ReservationRateSnapshotEntity } from '../reservations/infrastructure/reservation-rate-snapshot.entity';
 import { PropertiesService } from '../properties/properties.service';
 import { FolioPaymentMethod } from './domain/folio-payment-method.enum';
 import { FolioStatus } from './domain/folio-status.enum';
@@ -66,6 +67,7 @@ describe('BillingService', () => {
   let chargesRepository: MockRepository<FolioChargeEntity>;
   let paymentsRepository: MockRepository<FolioPaymentEntity>;
   let reservationsRepository: MockRepository<ReservationEntity>;
+  let snapshotsRepository: MockRepository<ReservationRateSnapshotEntity>;
   let propertiesService: Pick<PropertiesService, 'findOne'>;
   let childPricingService: Pick<ChildPricingService, 'resolveChildPricing'>;
   let dataSource: { transaction: jest.Mock; query: jest.Mock };
@@ -74,6 +76,7 @@ describe('BillingService', () => {
   let managerChargesRepository: MockRepository<FolioChargeEntity>;
   let managerPaymentsRepository: MockRepository<FolioPaymentEntity>;
   let managerReservationsRepository: MockRepository<ReservationEntity>;
+  let managerSnapshotsRepository: MockRepository<ReservationRateSnapshotEntity>;
 
   beforeEach(() => {
     foliosRepository = {
@@ -88,6 +91,9 @@ describe('BillingService', () => {
     };
     reservationsRepository = {
       findOne: jest.fn().mockResolvedValue(reservation()),
+    };
+    snapshotsRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
     };
     propertiesService = {
       findOne: jest.fn().mockResolvedValue({ id: propertyId }),
@@ -112,8 +118,14 @@ describe('BillingService', () => {
     };
     managerFoliosRepository = {
       create: jest.fn((input) => input),
-      save: jest.fn(async (input) => ({ id: 'folio-1', createdAt: new Date(), updatedAt: new Date(), ...input })),
+      save: jest.fn(async (input) => ({
+        id: 'folio-1',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        ...input,
+      })),
       findOne: jest.fn(),
+      update: jest.fn().mockResolvedValue(undefined),
     };
     managerChargesRepository = {
       create: jest.fn((input) => input),
@@ -127,29 +139,40 @@ describe('BillingService', () => {
       findOne: jest.fn(),
     };
     managerReservationsRepository = {
+      findOne: jest.fn().mockResolvedValue(reservation()),
       update: jest.fn().mockResolvedValue(undefined),
     };
+    managerSnapshotsRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+    };
     dataSource = {
-      transaction: jest.fn(async (callback: (manager: { getRepository: (entity: unknown) => unknown }) => Promise<unknown>) => {
-        const manager = {
-          getRepository: (entity: unknown) => {
-            if (entity === FolioEntity) {
-              return managerFoliosRepository;
-            }
-            if (entity === FolioChargeEntity) {
-              return managerChargesRepository;
-            }
-            if (entity === FolioPaymentEntity) {
-              return managerPaymentsRepository;
-            }
-            if (entity === ReservationEntity) {
-              return managerReservationsRepository;
-            }
-            throw new Error('unexpected repository');
-          },
-        };
-        return callback(manager);
-      }),
+      transaction: jest.fn(
+        async (
+          callback: (manager: { getRepository: (entity: unknown) => unknown }) => Promise<unknown>,
+        ) => {
+          const manager = {
+            getRepository: (entity: unknown) => {
+              if (entity === FolioEntity) {
+                return managerFoliosRepository;
+              }
+              if (entity === FolioChargeEntity) {
+                return managerChargesRepository;
+              }
+              if (entity === FolioPaymentEntity) {
+                return managerPaymentsRepository;
+              }
+              if (entity === ReservationEntity) {
+                return managerReservationsRepository;
+              }
+              if (entity === ReservationRateSnapshotEntity) {
+                return managerSnapshotsRepository;
+              }
+              throw new Error('unexpected repository');
+            },
+          };
+          return callback(manager);
+        },
+      ),
       query: jest.fn().mockResolvedValue([{ last_value: 1 }]),
     };
 
@@ -158,7 +181,7 @@ describe('BillingService', () => {
       chargesRepository as unknown as Repository<FolioChargeEntity>,
       paymentsRepository as unknown as Repository<FolioPaymentEntity>,
       reservationsRepository as unknown as Repository<ReservationEntity>,
-      { findOne: jest.fn().mockResolvedValue(null) } as never,
+      snapshotsRepository as unknown as Repository<ReservationRateSnapshotEntity>,
       propertiesService as unknown as PropertiesService,
       dataSource as unknown as DataSource,
       childPricingService as ChildPricingService,
@@ -167,20 +190,17 @@ describe('BillingService', () => {
   });
 
   it('does NOT auto-post a payment when creating a folio for a paid reservation (1D-a de-coupling)', async () => {
-    foliosRepository.findOne = jest
-      .fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: 'folio-1',
-        propertyId,
-        reservationId,
-        guestId,
-        folioNumber: 'FO260803-00001',
-        status: FolioStatus.OPEN,
-        currency: 'INR',
-        charges: [],
-        payments: [],
-      });
+    foliosRepository.findOne = jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: 'folio-1',
+      propertyId,
+      reservationId,
+      guestId,
+      folioNumber: 'FO260803-00001',
+      status: FolioStatus.OPEN,
+      currency: 'INR',
+      charges: [],
+      payments: [],
+    });
 
     await service.getOrCreateFolioForReservation(propertyId, reservationId);
 
@@ -206,6 +226,99 @@ describe('BillingService', () => {
     await service.getOrCreateFolioForReservation(propertyId, reservationId);
 
     expect(paymentsRepository.save).not.toHaveBeenCalled();
+  });
+
+  it('posts a snapshot-linked full-stay ROOM charge when opening a folio for a priced reservation', async () => {
+    snapshotsRepository.findOne = jest.fn().mockResolvedValue({
+      id: 'snapshot-1',
+      version: 1,
+      snapshot: {
+        pricingStatus: 'PRICED',
+        ratePlan: { code: 'UAT_BAR', name: 'Hillston UAT BAR' },
+        nights: [
+          { date: '2026-08-03', nightTotal: '3600.00' },
+          { date: '2026-08-04', nightTotal: '3600.00' },
+          { date: '2026-08-05', nightTotal: '3600.00' },
+        ],
+        totals: { grandTotal: '10800.00' },
+      },
+    });
+    foliosRepository.findOne = jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: 'folio-1',
+      propertyId,
+      reservationId,
+      guestId,
+      folioNumber: 'FO260803-00001',
+      status: FolioStatus.OPEN,
+      currency: 'INR',
+      charges: [],
+      payments: [],
+    });
+
+    await service.getOrCreateFolioForReservation(propertyId, reservationId);
+
+    expect(managerChargesRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        folioId: 'folio-1',
+        type: 'ROOM',
+        status: 'POSTED',
+        rateSnapshotId: 'snapshot-1',
+        rateSnapshotVersion: 1,
+        quantity: 3,
+        unitAmount: '3600.00',
+        amount: '10800.00',
+      }),
+    );
+  });
+
+  it('reconciles an existing empty open folio by posting from the active priced snapshot', async () => {
+    managerFoliosRepository.findOne = jest.fn().mockResolvedValue({
+      id: 'folio-1',
+      propertyId,
+      reservationId,
+      guestId,
+      folioNumber: 'FO260803-00001',
+      status: FolioStatus.OPEN,
+      currency: 'INR',
+    });
+    managerSnapshotsRepository.findOne = jest.fn().mockResolvedValue({
+      id: 'snapshot-1',
+      version: 1,
+      snapshot: {
+        pricingStatus: 'PRICED',
+        ratePlan: { code: 'UAT_BAR', name: 'Hillston UAT BAR' },
+        nights: [{ date: '2026-08-03', nightTotal: '3600.00' }],
+        totals: { grandTotal: '3600.00' },
+      },
+    });
+    managerChargesRepository.find = jest.fn().mockResolvedValue([]);
+
+    await service.reconcileRoomChargesOnManager(
+      {
+        getRepository: (entity: unknown) => {
+          if (entity === FolioEntity) return managerFoliosRepository;
+          if (entity === FolioChargeEntity) return managerChargesRepository;
+          if (entity === ReservationEntity) return managerReservationsRepository;
+          if (entity === ReservationRateSnapshotEntity) return managerSnapshotsRepository;
+          throw new Error('unexpected repository');
+        },
+      } as never,
+      propertyId,
+      reservationId,
+    );
+
+    expect(managerChargesRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        folioId: 'folio-1',
+        type: 'ROOM',
+        status: 'POSTED',
+        rateSnapshotId: 'snapshot-1',
+        rateSnapshotVersion: 1,
+        quantity: 1,
+        unitAmount: '3600.00',
+        amount: '3600.00',
+      }),
+    );
   });
 
   describe('refunds', () => {
@@ -312,8 +425,7 @@ describe('BillingService', () => {
 
       const createPayment = managerPaymentsRepository.create as jest.Mock;
       const refund = createPayment.mock.calls[0][0];
-      const netPaid =
-        Math.round(Number('2000.00') * 100) + Math.round(Number(refund.amount) * 100);
+      const netPaid = Math.round(Number('2000.00') * 100) + Math.round(Number(refund.amount) * 100);
       expect(netPaid).toBe(0);
     });
   });

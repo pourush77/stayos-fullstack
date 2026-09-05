@@ -28,6 +28,7 @@ import configuration from './core/config/configuration';
 import { validateEnvironment } from './core/config/environment.validation';
 import { GlobalSearchModule } from './core/global-search/global-search.module';
 import { NotificationsModule } from './core/notifications/notifications.module';
+import { NightAuditModule } from './core/night-audit/night-audit.module';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { NotificationsModule } from './core/notifications/notifications.module';
     InventoryModule,
     GlobalSearchModule,
     NotificationsModule,
+    NightAuditModule,
   ],
 })
 export class AppModule {}

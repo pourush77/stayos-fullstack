@@ -47,13 +47,14 @@ export function ensureE2EPropertyFixture() {
       INSERT INTO properties (
         code, name, legal_name, gst_number, email, phone, address_line_1,
         city, state, state_code, country, postal_code, timezone, currency,
-        check_in_time, check_out_time, total_floors, total_rooms, status
+        check_in_time, check_out_time, total_floors, total_rooms, status, current_business_date
       )
       VALUES (
         '${E2E_PROPERTY_CODE}', 'StayOS E2E Hotel', 'StayOS E2E Hotel Pvt. Ltd.',
         '29ABCDE1234F1Z5', 'e2e@stayos.local', '+910000000000',
         'Local E2E Fixture', 'Bengaluru', 'Karnataka', '29', 'India',
-        '560001', 'Asia/Kolkata', 'INR', '14:00', '11:00', 1, 6, 'ACTIVE'
+        '560001', 'Asia/Kolkata', 'INR', '14:00', '11:00', 1, 6, 'ACTIVE',
+        ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date)
       )
       ON CONFLICT (code) DO UPDATE SET
         name = EXCLUDED.name,

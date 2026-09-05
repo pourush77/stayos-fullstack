@@ -535,11 +535,11 @@ export class CheckInService {
     const blockers: string[] = [];
     const property = parts.property;
 
-    // Arrival eligibility should follow the property's operational business date.
+    // Arrival eligibility follows the authoritative persisted business date.
     // If property data is unexpectedly unavailable, fall back to UTC rather than
     // the server's local timezone.
     const today = property
-      ? this.businessDateService.resolveForProperty(property)
+      ? this.businessDateService.getCurrentBusinessDate(property)
       : this.propertyLocalDate(new Date(), 'UTC');
 
     if (parts.reservation.status === 'CHECKED_IN') {

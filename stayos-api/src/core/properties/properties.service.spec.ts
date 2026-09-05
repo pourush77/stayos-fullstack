@@ -8,6 +8,7 @@ import { CreatePropertyDto } from './dto/create-property.dto';
 import { PropertyEntity } from './infrastructure/property.entity';
 import { PropertiesService } from './properties.service';
 import { PoliciesService } from '../policies/policies.service';
+import { BusinessDateService } from './services/business-date.service';
 
 type MockRepository<T extends object = object> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -50,6 +51,7 @@ const propertyEntity: PropertyEntity = {
   website: null,
   addressLine2: null,
   businessDayCutOffTime: '00:00:00',
+  currentBusinessDate: '2026-06-30',
   status: PropertyStatus.ACTIVE,
   emailNotificationsEnabled: false,
   createdAt: new Date('2026-06-30T00:00:00.000Z'),
@@ -76,6 +78,7 @@ describe('PropertiesService', () => {
           provide: PoliciesService,
           useValue: policiesService,
         },
+        BusinessDateService,
       ],
     }).compile();
 
@@ -129,19 +132,48 @@ describe('PropertiesService', () => {
     await expect(service.findOne(propertyEntity.id)).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('creates a property with nullable optional fields', async () => {
+  it('creates a property with nullable optional fields and initialized currentBusinessDate', async () => {
     repository.create?.mockReturnValue(propertyEntity);
     repository.save?.mockResolvedValue(propertyEntity);
 
     await expect(service.create(propertyPayload)).resolves.toEqual(propertyEntity);
     expect(repository.create).toHaveBeenCalledWith({
       ...propertyPayload,
+      businessDayCutOffTime: '00:00:00',
+      currentBusinessDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       panNumber: null,
       cinNumber: null,
       logoUrl: null,
       website: null,
       addressLine2: null,
     });
+  });
+
+  it('initializes currentBusinessDate respecting property timezone and cutoff semantics', async () => {
+    const mockBusinessDateService = {
+      resolveBusinessDate: jest.fn().mockReturnValue('2026-06-15'),
+    };
+    const customService = new PropertiesService(
+      repository as any,
+      policiesService as any,
+      mockBusinessDateService as any,
+    );
+
+    repository.create?.mockImplementation((dto) => ({ ...propertyEntity, ...dto }));
+    repository.save?.mockImplementation(async (entity) => entity);
+
+    const created = await customService.create({
+      ...propertyPayload,
+      timezone: 'Asia/Kolkata',
+      businessDayCutOffTime: '03:00',
+    });
+
+    expect(mockBusinessDateService.resolveBusinessDate).toHaveBeenCalledWith(
+      expect.any(Date),
+      'Asia/Kolkata',
+      '03:00',
+    );
+    expect(created.currentBusinessDate).toBe('2026-06-15');
   });
 
   it('maps unique code violations to conflict errors', async () => {

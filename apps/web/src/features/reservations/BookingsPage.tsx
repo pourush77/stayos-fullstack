@@ -65,6 +65,7 @@ import {
 } from '../../lib/operations-api';
 import { BookingStatusBadge, PaymentStatusBadge } from './components/BookingBadges';
 import { GroupExtendStayModal } from './components/GroupExtendStayModal';
+import { NoShowConfirmationModal } from './components/NoShowConfirmationModal';
 import { WalkInGroupModal } from './components/WalkInGroupModal';
 import { bookingFilterOptions } from './constants/booking.constants';
 import { useBookings } from './hooks/useBookings';
@@ -364,6 +365,13 @@ function isTodayBooking(booking: Booking, today = dateKey(new Date())) {
   return booking.arrivalDate === today || booking.status === 'CHECKED_IN';
 }
 
+function canMarkBookingNoShow(booking: Booking, today = dateKey(new Date())) {
+  return (
+    (booking.status === 'PENDING' || booking.status === 'CONFIRMED') &&
+    booking.arrivalDate <= today
+  );
+}
+
 function isTodayGroupResult(result: GroupBookingResult, today = dateKey(new Date())) {
   const status = groupResultStatus(result);
   if (isTerminalGroupStatus(status)) return false;
@@ -581,6 +589,7 @@ export default function BookingsPage() {
   const [groupActionError, setGroupActionError] = useState('');
   const [isGroupActionLoading, setIsGroupActionLoading] = useState(false);
   const [activePropertyId, setActivePropertyId] = useState<string>('');
+  const [noShowBooking, setNoShowBooking] = useState<Booking | null>(null);
   const [isLoadingGroups, setIsLoadingGroups] = useState(true);
   const didHydrateListState = useRef(false);
 
@@ -1098,6 +1107,21 @@ export default function BookingsPage() {
         onClose={() => setExtendGroup(null)}
         onDepartureDateChange={setExtendDepartureDate}
         onSubmit={() => void submitExtendGroup()}
+      />
+      <NoShowConfirmationModal
+        opened={Boolean(noShowBooking)}
+        target={
+          noShowBooking && activePropertyId
+            ? {
+                propertyId: activePropertyId,
+                reservationId: noShowBooking.backendId,
+                reservationCode: noShowBooking.bookingId,
+                guestName: noShowBooking.guestName,
+              }
+            : null
+        }
+        onClose={() => setNoShowBooking(null)}
+        onSuccess={() => bookingState.refreshBookings()}
       />
       <Modal
         opened={Boolean(checkoutGroup)}
@@ -1720,6 +1744,15 @@ export default function BookingsPage() {
                                   href={`/reservations/${booking.backendId}`}
                                 >
                                   View Stay History
+                                </Menu.Item>
+                              ) : null}
+                              {canMarkBookingNoShow(booking) ? (
+                                <Menu.Item
+                                  color="red"
+                                  onClick={() => setNoShowBooking(booking)}
+                                  data-testid={`booking-mark-no-show-${booking.backendId}`}
+                                >
+                                  Mark No-Show
                                 </Menu.Item>
                               ) : null}
                               {/* prettier-ignore */}

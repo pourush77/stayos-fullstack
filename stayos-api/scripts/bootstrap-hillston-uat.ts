@@ -24,10 +24,32 @@ import { FolioPaymentMethod } from '../src/core/billing/domain/folio-payment-met
 import { GroupBookingEntity } from '../src/core/operations/infrastructure/group-booking.entity';
 import { GroupBookingStatus } from '../src/core/operations/domain/group-booking-status.enum';
 import { GroupBookingSource } from '../src/core/operations/domain/group-booking-source.enum';
+import { RatePlanEntity } from '../src/core/rates/infrastructure/rate-plan.entity';
+import { RatePlanRoomTypeEntity } from '../src/core/rates/infrastructure/rate-plan-room-type.entity';
+import { RoomTypeDailyRateEntity } from '../src/core/rates/infrastructure/room-type-daily-rate.entity';
+import { GuestPricingPolicyEntity } from '../src/core/rates/infrastructure/guest-pricing-policy.entity';
+import { ChildAgeBandEntity } from '../src/core/rates/infrastructure/child-age-band.entity';
+import { TaxRuleEntity } from '../src/core/rates/infrastructure/tax-rule.entity';
+import { PropertyPolicyEntity } from '../src/core/policies/infrastructure/property-policy.entity';
+import { RatePlanStatus } from '../src/core/rates/domain/rate-plan-status.enum';
+import { MealPlan } from '../src/core/rates/domain/meal-plan.enum';
+import { PolicyResolverService } from '../src/core/policies/policy-resolver.service';
+import { ChildPricingService } from '../src/core/rates/child-pricing.service';
+import { RateResolverService } from '../src/core/rates/rate-resolver.service';
+import { ReservationPricingService } from '../src/core/reservations/services/reservation-pricing.service';
+import { ReservationRateSnapshotService } from '../src/core/reservations/services/reservation-rate-snapshot.service';
+import { ReservationRateSnapshotEntity } from '../src/core/reservations/infrastructure/reservation-rate-snapshot.entity';
+import { BillingService } from '../src/core/billing/billing.service';
+import { GstService } from '../src/core/rates/gst.service';
 import type { EntityManager } from 'typeorm';
 
-const UAT_PREFIX = 'UAT26';
+export const UAT_PREFIX = 'UAT26';
 const ALLOW_PRODUCTION_FLAG = 'ALLOW_HILLSTON_UAT_SEED';
+export const UAT_RATE_PLAN_CODE = 'UAT_BAR';
+export const UAT_DELUXE_SNAPSHOT_ROOM_TOTAL = 3600;
+export const DAVID_BROWN_MINIBAR_TOTAL = 682.5;
+export const DAVID_BROWN_EXPECTED_FOLIO_TOTAL =
+  UAT_DELUXE_SNAPSHOT_ROOM_TOTAL + DAVID_BROWN_MINIBAR_TOTAL;
 
 function dateOnly(offsetDays: number): string {
   const date = new Date();
@@ -220,7 +242,8 @@ type ReservationSeed = {
   specialRequests?: string;
   folio?: {
     status: FolioStatus;
-    roomAmount: number;
+    mode?: 'SNAPSHOT' | 'LEGACY_MANUAL';
+    roomAmount?: number;
     extraCharges?: Array<{
       type: FolioChargeType;
       description: string;
@@ -231,7 +254,7 @@ type ReservationSeed = {
   };
 };
 
-const reservationSeeds: ReservationSeed[] = [
+export const reservationSeeds: ReservationSeed[] = [
   // Arrivals today: staff can perform check-in.
   {
     code: `${UAT_PREFIX}-ARR-01`,
@@ -350,7 +373,7 @@ const reservationSeeds: ReservationSeed[] = [
     specialRequests: 'VIP; late checkout requested.',
     folio: {
       status: FolioStatus.OPEN,
-      roomAmount: 7200,
+      mode: 'SNAPSHOT',
       extraCharges: [
         {
           type: FolioChargeType.FOOD_AND_BEVERAGE,
@@ -376,7 +399,7 @@ const reservationSeeds: ReservationSeed[] = [
     paymentMethod: 'OTA Prepaid',
     folio: {
       status: FolioStatus.OPEN,
-      roomAmount: 4800,
+      mode: 'SNAPSHOT',
       extraCharges: [
         {
           type: FolioChargeType.MINIBAR,
@@ -385,7 +408,11 @@ const reservationSeeds: ReservationSeed[] = [
           tax: 32.5,
         },
       ],
-      payment: { method: FolioPaymentMethod.OTHER, amount: 5482.5, reference: 'OTA-UAT-002' },
+      payment: {
+        method: FolioPaymentMethod.OTHER,
+        amount: DAVID_BROWN_EXPECTED_FOLIO_TOTAL,
+        reference: 'OTA-UAT-002',
+      },
     },
   },
   {
@@ -401,7 +428,7 @@ const reservationSeeds: ReservationSeed[] = [
     paymentMethod: 'Corporate Credit',
     folio: {
       status: FolioStatus.OPEN,
-      roomAmount: 14400,
+      mode: 'SNAPSHOT',
       extraCharges: [
         { type: FolioChargeType.MISC, description: 'Airport pickup', amount: 1500, tax: 75 },
       ],
@@ -421,7 +448,7 @@ const reservationSeeds: ReservationSeed[] = [
     specialRequests: 'VIP; high floor; extra pillows.',
     folio: {
       status: FolioStatus.OPEN,
-      roomAmount: 11000,
+      mode: 'SNAPSHOT',
       extraCharges: [
         {
           type: FolioChargeType.FOOD_AND_BEVERAGE,
@@ -444,10 +471,11 @@ const reservationSeeds: ReservationSeed[] = [
     source: ReservationSource.CORPORATE,
     paymentStatus: ReservationPaymentStatus.PAYMENT_DUE,
     paymentMethod: 'Corporate Credit',
-    folio: { status: FolioStatus.OPEN, roomAmount: 9600 },
+    folio: { status: FolioStatus.OPEN, mode: 'SNAPSHOT' },
   },
 
-  // Checked-out history.
+  // Checked-out history: intentionally keeps legacy/manual room charges because
+  // these rows model past closed folios, not current snapshot-driven billing.
   {
     code: `${UAT_PREFIX}-OUT-01`,
     guestKey: 'EMILY',
@@ -461,6 +489,7 @@ const reservationSeeds: ReservationSeed[] = [
     paymentMethod: 'CARD',
     folio: {
       status: FolioStatus.SETTLED,
+      mode: 'LEGACY_MANUAL',
       roomAmount: 10800,
       extraCharges: [
         {
@@ -486,6 +515,7 @@ const reservationSeeds: ReservationSeed[] = [
     paymentMethod: 'UPI',
     folio: {
       status: FolioStatus.SETTLED,
+      mode: 'LEGACY_MANUAL',
       roomAmount: 10800,
       payment: { method: FolioPaymentMethod.UPI, amount: 10800, reference: 'UAT-UPI-OUT-02' },
     },
@@ -560,6 +590,140 @@ async function upsertGuests(
   return result;
 }
 
+function createSnapshotService(manager: EntityManager): ReservationRateSnapshotService {
+  const childPricingService = new ChildPricingService(
+    manager.getRepository(GuestPricingPolicyEntity),
+    manager.getRepository(ChildAgeBandEntity),
+  );
+  const policyResolver = new PolicyResolverService(manager.getRepository(PropertyPolicyEntity));
+  const rateResolver = new RateResolverService(
+    manager.getRepository(RatePlanEntity),
+    manager.getRepository(RatePlanRoomTypeEntity),
+    manager.getRepository(RoomTypeDailyRateEntity),
+    policyResolver,
+    childPricingService,
+  );
+  const ratesAdapter = {
+    findDefaultApplicableRatePlan: async (
+      propertyId: string,
+      roomTypeId: string,
+      scopedManager?: EntityManager,
+    ): Promise<RatePlanEntity | null> => {
+      const repoManager = scopedManager ?? manager;
+      const plan = await repoManager.getRepository(RatePlanEntity).findOne({
+        where: { propertyId, isDefault: true, status: RatePlanStatus.ACTIVE },
+      });
+      if (!plan) return null;
+      const applicable = await repoManager.getRepository(RatePlanRoomTypeEntity).findOne({
+        where: { propertyId, ratePlanId: plan.id, roomTypeId },
+      });
+      return applicable ? plan : null;
+    },
+  };
+  const pricingService = new ReservationPricingService(rateResolver, ratesAdapter as never);
+  return new ReservationRateSnapshotService(pricingService);
+}
+
+function createBillingService(manager: EntityManager): BillingService {
+  const childPricingService = new ChildPricingService(
+    manager.getRepository(GuestPricingPolicyEntity),
+    manager.getRepository(ChildAgeBandEntity),
+  );
+  const propertiesAdapter = {
+    findOne: async (propertyId: string) =>
+      manager.getRepository(PropertyEntity).findOneByOrFail({ id: propertyId }),
+  };
+  const dataSourceAdapter = {
+    query: dataSource.query.bind(dataSource),
+    transaction: dataSource.transaction.bind(dataSource),
+  };
+  const gstService = new GstService(
+    manager.getRepository(TaxRuleEntity),
+    propertiesAdapter as never,
+  );
+
+  return new BillingService(
+    manager.getRepository(FolioEntity),
+    manager.getRepository(FolioChargeEntity),
+    manager.getRepository(FolioPaymentEntity),
+    manager.getRepository(ReservationEntity),
+    manager.getRepository(ReservationRateSnapshotEntity),
+    propertiesAdapter as never,
+    dataSourceAdapter as never,
+    childPricingService,
+    gstService,
+  );
+}
+
+async function upsertUatRatePlan(
+  manager: EntityManager,
+  propertyId: string,
+  roomTypes: RoomTypeEntity[],
+): Promise<RatePlanEntity> {
+  const ratePlanRepository = manager.getRepository(RatePlanEntity);
+  const applicabilityRepository = manager.getRepository(RatePlanRoomTypeEntity);
+
+  let plan = await ratePlanRepository.findOne({ where: { propertyId, code: UAT_RATE_PLAN_CODE } });
+  plan = await ratePlanRepository.save(
+    ratePlanRepository.create({
+      ...(plan ?? {}),
+      propertyId,
+      code: UAT_RATE_PLAN_CODE,
+      name: 'Hillston UAT BAR',
+      description: 'UAT rate plan used to seed production-shaped pricing snapshots.',
+      isDefault: false,
+      status: RatePlanStatus.ACTIVE,
+      mealPlan: MealPlan.ROOM_ONLY,
+      refundable: true,
+    }),
+  );
+
+  for (const roomType of roomTypes) {
+    const suiteLike = /suite|ste/i.test(`${roomType.code} ${roomType.name}`);
+    const existing = await applicabilityRepository.findOne({
+      where: { propertyId, ratePlanId: plan.id, roomTypeId: roomType.id },
+    });
+    await applicabilityRepository.save(
+      applicabilityRepository.create({
+        ...(existing ?? {}),
+        propertyId,
+        ratePlanId: plan.id,
+        roomTypeId: roomType.id,
+        baseOccupancy: Math.max(1, Math.min(2, roomType.maxAdults ?? 2)),
+        baseRate: suiteLike ? '5500.00' : '3600.00',
+        extraAdultCharge: suiteLike ? '1500.00' : '1000.00',
+        extraChildCharge: suiteLike ? '900.00' : '700.00',
+      }),
+    );
+  }
+
+  return plan;
+}
+
+async function refreshPricingSnapshot(
+  manager: EntityManager,
+  snapshotService: ReservationRateSnapshotService,
+  reservation: ReservationEntity,
+  ratePlanId: string,
+): Promise<ReservationEntity> {
+  await manager
+    .getRepository(ReservationRateSnapshotEntity)
+    .delete({ reservationId: reservation.id });
+  reservation.ratePlanId = ratePlanId;
+  reservation.rateSnapshot = null;
+  reservation.rateSnapshotVersion = null;
+  await snapshotService.recordInitialVersion(manager, reservation, {
+    propertyId: reservation.propertyId,
+    ratePlanId,
+    roomTypeId: reservation.roomTypeId,
+    arrivalDate: reservation.arrivalDate,
+    departureDate: reservation.departureDate,
+    adults: reservation.adults,
+    childAges: reservation.childAges,
+  });
+  return manager.getRepository(ReservationEntity).save(reservation);
+}
+
 async function upsertFolio(
   manager: EntityManager,
   propertyId: string,
@@ -589,20 +753,31 @@ async function upsertFolio(
   await chargeRepository.delete({ folioId: folio.id });
   await paymentRepository.delete({ folioId: folio.id });
 
-  const roomTax = Number((seed.roomAmount * 0.05).toFixed(2));
-  await chargeRepository.save(
-    chargeRepository.create({
-      folioId: folio.id,
-      type: FolioChargeType.ROOM,
-      description: 'Room charges',
-      quantity: 1,
-      unitAmount: seed.roomAmount.toFixed(2),
-      amount: seed.roomAmount.toFixed(2),
-      taxAmount: roomTax.toFixed(2),
-      chargedAt: atLocalTime(-1, 9),
-      createdByUserId: null,
-    }),
-  );
+  if (seed.mode === 'LEGACY_MANUAL') {
+    if (seed.roomAmount == null) {
+      throw new Error(`Legacy UAT folio ${reservation.reservationCode} requires roomAmount`);
+    }
+    const roomTax = Number((seed.roomAmount * 0.05).toFixed(2));
+    await chargeRepository.save(
+      chargeRepository.create({
+        folioId: folio.id,
+        type: FolioChargeType.ROOM,
+        description: 'Legacy manual room charges',
+        quantity: 1,
+        unitAmount: seed.roomAmount.toFixed(2),
+        amount: seed.roomAmount.toFixed(2),
+        taxAmount: roomTax.toFixed(2),
+        chargedAt: atLocalTime(-1, 9),
+        createdByUserId: null,
+      }),
+    );
+  } else {
+    await createBillingService(manager).reconcileRoomChargesOnManager(
+      manager,
+      propertyId,
+      reservation.id,
+    );
+  }
 
   for (const extra of seed.extraCharges ?? []) {
     await chargeRepository.save(
@@ -635,6 +810,29 @@ async function upsertFolio(
   }
 }
 
+export async function reconcileExistingEmptySnapshotFolio(
+  manager: EntityManager,
+  propertyId: string,
+  reservationId: string,
+): Promise<boolean> {
+  const folio = await manager.getRepository(FolioEntity).findOne({
+    where: { propertyId, reservationId, status: FolioStatus.OPEN },
+  });
+  if (!folio) return false;
+
+  const roomChargeCount = await manager.getRepository(FolioChargeEntity).count({
+    where: { folioId: folio.id, type: FolioChargeType.ROOM },
+  });
+  if (roomChargeCount > 0) return false;
+
+  await createBillingService(manager).reconcileRoomChargesOnManager(
+    manager,
+    propertyId,
+    reservationId,
+  );
+  return true;
+}
+
 async function seedOperationalData(manager: EntityManager): Promise<void> {
   await bootstrapHillston(manager);
 
@@ -655,6 +853,8 @@ async function seedOperationalData(manager: EntityManager): Promise<void> {
   const roomByNumber = new Map(rooms.map((room) => [room.roomNumber, room]));
   const roomTypeByCode = new Map(roomTypes.map((roomType) => [roomType.code, roomType]));
   const guests = await upsertGuests(manager, property.id);
+  const uatRatePlan = await upsertUatRatePlan(manager, property.id, roomTypes);
+  const snapshotService = createSnapshotService(manager);
 
   const maintenanceReporter = await userRepository
     .createQueryBuilder('user')
@@ -691,7 +891,7 @@ async function seedOperationalData(manager: EntityManager): Promise<void> {
     const existing = await reservationRepository.findOne({
       where: { propertyId: property.id, reservationCode: seed.code },
     });
-    const reservation = await reservationRepository.save(
+    let reservation = await reservationRepository.save(
       reservationRepository.create({
         ...(existing ?? {}),
         propertyId: property.id,
@@ -715,6 +915,15 @@ async function seedOperationalData(manager: EntityManager): Promise<void> {
       }),
     );
 
+    if ([ReservationStatus.CONFIRMED, ReservationStatus.CHECKED_IN].includes(seed.status)) {
+      reservation = await refreshPricingSnapshot(
+        manager,
+        snapshotService,
+        reservation,
+        uatRatePlan.id,
+      );
+    }
+
     if (room && seed.status === ReservationStatus.CHECKED_IN) {
       room.operationalStatus = RoomOperationalStatus.OCCUPIED;
       room.operationalStatusReason = 'Occupied by UAT checked-in reservation';
@@ -724,6 +933,8 @@ async function seedOperationalData(manager: EntityManager): Promise<void> {
 
     if (seed.folio) {
       await upsertFolio(manager, property.id, reservation, seed.folio);
+    } else if ([ReservationStatus.CONFIRMED, ReservationStatus.CHECKED_IN].includes(seed.status)) {
+      await reconcileExistingEmptySnapshotFolio(manager, property.id, reservation.id);
     }
   }
 

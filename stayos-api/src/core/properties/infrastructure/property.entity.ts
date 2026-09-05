@@ -82,6 +82,9 @@ export class PropertyEntity {
   })
   businessDayCutOffTime!: string;
 
+  @Column({ type: 'date', name: 'current_business_date' })
+  currentBusinessDate!: string;
+
   @Column({ type: 'integer', name: 'total_floors', default: 0 })
   totalFloors!: number; //2;
 

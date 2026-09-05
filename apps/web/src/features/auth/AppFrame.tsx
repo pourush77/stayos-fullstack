@@ -30,6 +30,7 @@ const navigationPermissions: Record<string, string[]> = {
   '/rooms': ['rooms.view'],
   '/settings': ['settings.view'],
   '/settings/employees': ['employees.view'],
+  '/night-audit': ['night-audit.manage'],
 };
 
 const protectedRoutePermissions: Array<{ path: string; permissions: string[] }> = [
@@ -38,6 +39,7 @@ const protectedRoutePermissions: Array<{ path: string; permissions: string[] }> 
   { path: '/guest-stay', permissions: ['stay.view'] },
   { path: '/housekeeping', permissions: ['housekeeping.view'] },
   { path: '/maintenance', permissions: ['maintenance.view'] },
+  { path: '/night-audit', permissions: ['night-audit.manage'] },
   { path: '/reports', permissions: ['reports.view'] },
   { path: '/reservations', permissions: ['bookings.view'] },
   { path: '/rooms', permissions: ['rooms.view'] },
@@ -54,6 +56,7 @@ const navigationRoleAllowList: Record<string, string[]> = {
   '/rooms': ['OWNER', 'ADMIN', 'MANAGER', 'FRONT_DESK'],
 
   '/settings/employees': ['OWNER', 'ADMIN', 'MANAGER'],
+  '/night-audit': ['OWNER', 'ADMIN', 'MANAGER'],
 };
 
 function initials(name: string) {

@@ -327,7 +327,7 @@ function StayHeader({
               </Badge>
             ) : null}
             <Badge
-              color={stay.paymentStatus === 'Paid' ? 'green' : 'red'}
+              color={stay.financialState === 'CLEAR' ? 'green' : stay.financialState === 'CREDIT_DUE' ? 'yellow' : 'red'}
               variant="light"
               radius={radius.full}
             >
@@ -406,7 +406,7 @@ function StayHeader({
             leftSection={<DoorOpen size={16} />}
             onClick={onCheckOut}
           >
-            {stay.paymentStatus === 'Paid' ? 'Check Out' : 'Settle & Check Out'}
+            {stay.financialState === 'CLEAR' ? 'Check Out' : 'Settle & Check Out'}
           </Button>
         </Group>
       </Group>
@@ -1375,7 +1375,8 @@ export default function StayWorkspace() {
   if (!currentStay) return <StayWorkspaceSkeleton />;
 
   const stay = currentStay;
-  const hasOutstandingBalance = stay.paymentStatus !== 'Paid';
+  const hasCheckoutBalanceBlock = stay.financialState !== 'CLEAR';
+  const hasCreditBalance = stay.financialState === 'CREDIT_DUE';
   const relocationRequired = ['MAINTENANCE', 'UNAVAILABLE'].includes(
     (currentRoomUiStatus ?? '').toUpperCase(),
   );
@@ -1485,12 +1486,6 @@ export default function StayWorkspace() {
     setIsCheckingOut(true);
     try {
       await stayState.checkOutStay();
-      showToast({
-        autoClose: 9000,
-        color: 'green',
-        title: 'Checkout complete',
-        message: `${stay.guestName} checked out. Room ${stay.roomNumber} is ready for housekeeping follow-up.`,
-      });
       setCheckoutOpened(false);
       const query = new URLSearchParams({
         checkout: 'success',
@@ -1498,11 +1493,18 @@ export default function StayWorkspace() {
         room: `Room ${stay.roomNumber}`,
       });
       router.push(`/rooms?${query.toString()}`);
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      const creditMessage = message.toLowerCase().includes('unrefunded credit')
+        ? 'This folio has an unrefunded credit balance. Refund or resolve the credit before checkout.'
+        : undefined;
       showToast({
         color: 'red',
         title: 'Check out failed',
-        message: 'Collect the outstanding folio balance before checkout.',
+        message:
+          creditMessage ||
+          message ||
+          'Collect the outstanding folio balance before checkout.',
       });
     } finally {
       setIsCheckingOut(false);
@@ -1628,12 +1630,20 @@ export default function StayWorkspace() {
         closeOnEscape={!isCheckingOut}
         withCloseButton={!isCheckingOut}
         centered
-        title={hasOutstandingBalance ? 'Settle payment first' : 'Check out guest?'}
+        title={
+          hasCheckoutBalanceBlock
+            ? hasCreditBalance
+              ? 'Resolve credit first'
+              : 'Settle payment first'
+            : 'Check out guest?'
+        }
       >
         <Stack gap={spacing[4]} data-testid="stay-checkout-modal">
           <Text c="#64748b" size="sm">
-            {hasOutstandingBalance
-              ? 'This stay still has a folio balance. Collect payment from Billing & payments, then check out.'
+            {hasCheckoutBalanceBlock
+              ? hasCreditBalance
+                ? 'This stay has an unrefunded folio credit balance. Refund or resolve the credit in Billing & payments, then check out.'
+                : 'This stay still has a folio balance. Collect payment from Billing & payments, then check out.'
               : 'Confirm checkout. The room will be marked for cleaning and the stay will close.'}
           </Text>
           <Group justify="flex-end">
@@ -1645,7 +1655,7 @@ export default function StayWorkspace() {
             >
               Cancel
             </Button>
-            {hasOutstandingBalance ? (
+            {hasCheckoutBalanceBlock ? (
               <Button color="stayosBrand" onClick={goToBilling}>
                 Go to Billing
               </Button>

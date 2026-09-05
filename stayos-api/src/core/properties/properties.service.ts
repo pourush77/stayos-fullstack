@@ -17,6 +17,7 @@ import { PropertyPolicyType } from '../policies/domain/property-policy-type.enum
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { PropertyEntity } from './infrastructure/property.entity';
+import { BusinessDateService } from './services/business-date.service';
 
 export interface PaginatedProperties {
   data: PropertyEntity[];
@@ -37,6 +38,7 @@ export class PropertiesService {
     @InjectRepository(PropertyEntity)
     private readonly propertiesRepository: Repository<PropertyEntity>,
     private readonly policiesService: PoliciesService,
+    private readonly businessDateService: BusinessDateService = new BusinessDateService(),
   ) {}
 
   async findAll(query: PaginationQueryDto): Promise<PaginatedProperties> {
@@ -84,8 +86,19 @@ export class PropertiesService {
 
   async create(createPropertyDto: CreatePropertyDto): Promise<PropertyEntity> {
     try {
+      const cutOff = createPropertyDto.businessDayCutOffTime ?? '00:00:00';
+      const initialBusinessDate =
+        (createPropertyDto as any).currentBusinessDate ??
+        this.businessDateService.resolveBusinessDate(
+          new Date(),
+          createPropertyDto.timezone,
+          cutOff,
+        );
+
       const property = this.propertiesRepository.create({
         ...createPropertyDto,
+        businessDayCutOffTime: cutOff,
+        currentBusinessDate: initialBusinessDate,
         panNumber: createPropertyDto.panNumber ?? null,
         cinNumber: createPropertyDto.cinNumber ?? null,
         logoUrl: createPropertyDto.logoUrl ?? null,

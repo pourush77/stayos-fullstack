@@ -47,7 +47,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
 import {
   BackendUnavailable,
@@ -2344,6 +2344,7 @@ export default function RoomsPage() {
   const [isReportingMaintenance, setIsReportingMaintenance] = useState(false);
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
   const [isLoadingSidebar, setIsLoadingSidebar] = useState(true);
+  const consumedCheckoutSuccessRef = useRef<string | null>(null);
   const isAssignmentFocus = searchParams.get('mode') === 'assign';
   const assignmentReservationId = searchParams.get('reservationId') ?? undefined;
 
@@ -2351,6 +2352,11 @@ export default function RoomsPage() {
     if (searchParams.get('checkout') !== 'success') return;
     const guest = searchParams.get('guest') ?? 'Guest';
     const room = searchParams.get('room') ?? 'Room';
+    const checkoutSuccessKey = `${guest}|${room}`;
+    if (consumedCheckoutSuccessRef.current === checkoutSuccessKey) return;
+    consumedCheckoutSuccessRef.current = checkoutSuccessKey;
+
+    window.history.replaceState(null, '', '/rooms');
     showToast({
       autoClose: 8000,
       color: 'green',

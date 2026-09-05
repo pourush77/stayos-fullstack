@@ -33,6 +33,7 @@ export class PropertiesMapper {
       checkInTime: entity.checkInTime,
       checkOutTime: entity.checkOutTime,
       businessDayCutOffTime: entity.businessDayCutOffTime,
+      currentBusinessDate: entity.currentBusinessDate,
       totalFloors: entity.totalFloors,
       totalRooms: entity.totalRooms,
       status: entity.status,

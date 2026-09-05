@@ -1,4 +1,5 @@
-export type StayPaymentStatus = 'Paid' | 'Payment Due';
+export type StayPaymentStatus = 'Paid' | 'Payment Due' | 'Credit / Refund Due';
+export type StayFinancialState = 'BALANCE_DUE' | 'CLEAR' | 'CREDIT_DUE';
 
 export type StayTimelineItem = {
   detail: string;
@@ -38,10 +39,15 @@ export type StayLateCheckout = {
 
 export type StayBilling = {
   balance: string;
+  creditBalance?: string;
   deposit: string;
+  financialState: StayFinancialState;
   isConnected: boolean;
   outstandingAmount: string;
   paymentStatus: StayPaymentStatus;
+  source?: 'FOLIO' | 'RESERVATION';
+  total?: string;
+  paid?: string;
   roomCharges: string;
 };
 
@@ -71,6 +77,7 @@ export type Stay = {
   nights: number;
   outstandingAmount: string;
   paymentStatus: StayPaymentStatus;
+  financialState: StayFinancialState;
   preferences: string[];
   remainingNights: number;
   requests: string[];

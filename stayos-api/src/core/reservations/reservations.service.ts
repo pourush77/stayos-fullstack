@@ -40,6 +40,14 @@ import {
 import { reservationConsumesInventory } from './domain/reservation-inventory';
 import { ApiErrorCode } from '../../common/errors/api-error-code.enum';
 import { BillingService } from '../billing/billing.service';
+import { FolioEntity } from '../billing/infrastructure/folio.entity';
+import { calculateTotals } from '../billing/billing.mapper';
+
+enum StayFinancialState {
+  BALANCE_DUE = 'BALANCE_DUE',
+  CLEAR = 'CLEAR',
+  CREDIT_DUE = 'CREDIT_DUE',
+}
 
 export interface PaginatedReservations {
   data: ReservationEntity[];
@@ -78,6 +86,8 @@ export class ReservationsService {
     private readonly activityRepository: Repository<ActivityEventEntity>,
     @InjectRepository(GuestDocumentEntity)
     private readonly guestDocumentsRepository: Repository<GuestDocumentEntity>,
+    @InjectRepository(FolioEntity)
+    private readonly foliosRepository: Repository<FolioEntity>,
     private readonly propertiesService: PropertiesService,
     private readonly childPricingService: ChildPricingService,
     private readonly dataSource: DataSource,
@@ -171,7 +181,7 @@ export class ReservationsService {
       throw new NotFoundException(`Reservation ${id} was not found`);
     }
 
-    const [activity, documents] = await Promise.all([
+    const [activity, documents, folio] = await Promise.all([
       this.activityRepository.find({
         where: { propertyId, entityType: 'RESERVATION', entityId: reservation.id },
         order: { createdAt: 'DESC' },
@@ -181,7 +191,21 @@ export class ReservationsService {
         where: { propertyId, reservationId: reservation.id },
         order: { createdAt: 'ASC' },
       }),
+      this.foliosRepository.findOne({
+        where: { propertyId, reservationId: reservation.id },
+        relations: { charges: true, payments: true },
+      }),
     ]);
+    const folioTotals = folio ? calculateTotals(folio.charges ?? [], folio.payments ?? []) : null;
+    const financialState = folioTotals
+      ? Number(folioTotals.balance) > 0
+        ? StayFinancialState.BALANCE_DUE
+        : Number(folioTotals.balance) < 0
+          ? StayFinancialState.CREDIT_DUE
+          : StayFinancialState.CLEAR
+      : reservation.paymentStatus === ReservationPaymentStatus.PAID
+        ? StayFinancialState.CLEAR
+        : StayFinancialState.BALANCE_DUE;
 
     return {
       reservation,
@@ -206,6 +230,23 @@ export class ReservationsService {
       })),
       payment: {
         status: reservation.paymentStatus,
+        source: folio ? 'FOLIO' : 'RESERVATION',
+        financialState,
+        total: folioTotals?.total ?? null,
+        paid: folioTotals?.paid ?? null,
+        balance: folioTotals?.balance ?? null,
+        creditBalance: folioTotals?.creditBalance ?? null,
+        folio: folio
+          ? {
+              id: folio.id,
+              status: folio.status,
+              paymentStatus: folioTotals?.paymentStatus,
+              total: folioTotals?.total,
+              paid: folioTotals?.paid,
+              balance: folioTotals?.balance,
+              creditBalance: folioTotals?.creditBalance,
+            }
+          : null,
         reviewed: reservation.paymentReviewed ?? false,
         method: reservation.paymentMethod ?? null,
       },
@@ -214,7 +255,7 @@ export class ReservationsService {
         canExtendStay: reservation.status === ReservationStatus.CHECKED_IN,
         canMoveRoom: reservation.status === ReservationStatus.CHECKED_IN,
       },
-      warnings: this.getStayWorkspaceWarnings(reservation),
+      warnings: this.getStayWorkspaceWarnings(reservation, financialState),
     };
   }
 
@@ -704,14 +745,27 @@ export class ReservationsService {
     return sortColumn;
   }
 
-  private getStayWorkspaceWarnings(reservation: ReservationEntity): Record<string, unknown>[] {
+  private getStayWorkspaceWarnings(
+    reservation: ReservationEntity,
+    financialState?: StayFinancialState,
+  ): Record<string, unknown>[] {
     const warnings: Record<string, unknown>[] = [];
 
-    if (reservation.paymentStatus === ReservationPaymentStatus.PAYMENT_DUE) {
+    if (
+      financialState === StayFinancialState.BALANCE_DUE ||
+      (!financialState && reservation.paymentStatus === ReservationPaymentStatus.PAYMENT_DUE)
+    ) {
       warnings.push({
         type: 'PAYMENT_DUE',
         title: 'Payment due',
         description: 'This stay has an outstanding payment status.',
+      });
+    }
+    if (financialState === StayFinancialState.CREDIT_DUE) {
+      warnings.push({
+        type: 'CREDIT_DUE',
+        title: 'Credit / refund due',
+        description: 'This stay has an unrefunded folio credit balance.',
       });
     }
 

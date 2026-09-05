@@ -169,6 +169,7 @@ const property = (overrides: Partial<PropertyEntity> = {}): PropertyEntity => ({
   checkInTime: '14:00:00',
   checkOutTime: '11:00:00',
   businessDayCutOffTime: '00:00:00',
+  currentBusinessDate: '2026-07-01',
   totalFloors: 4,
   totalRooms: 24,
   status: PropertyStatus.ACTIVE,
@@ -223,6 +224,7 @@ describe('CheckInService', () => {
         resolve: jest.fn().mockResolvedValue(null),
       } as never,
       {
+        getCurrentBusinessDate: jest.fn().mockImplementation((property) => property.currentBusinessDate),
         resolveForProperty: jest.fn().mockReturnValue('2026-08-18'),
       } as never,
     );
@@ -427,5 +429,37 @@ describe('CheckInService', () => {
     });
 
     expect(workspace.operational.lateCheckout).toBe(false);
+  });
+
+  it('uses persisted business date for arrival check-in eligibility after night audit rollover', () => {
+    const workspace = service.toWorkspace({
+      reservation: reservation({
+        arrivalDate: '2026-09-06',
+        departureDate: '2026-09-07',
+      }),
+      guest: guest(),
+      room: room(),
+      identity: identity(),
+      property: property({ currentBusinessDate: '2026-09-06' }),
+    });
+
+    expect(workspace.finalChecklist.blockers).not.toContain('CHECKIN_BEFORE_ARRIVAL_DATE');
+    expect(workspace.finalChecklist.canCheckIn).toBe(true);
+  });
+
+  it('does not allow next-business-day arrivals after night audit rollover', () => {
+    const workspace = service.toWorkspace({
+      reservation: reservation({
+        arrivalDate: '2026-09-07',
+        departureDate: '2026-09-08',
+      }),
+      guest: guest(),
+      room: room(),
+      identity: identity(),
+      property: property({ currentBusinessDate: '2026-09-06' }),
+    });
+
+    expect(workspace.finalChecklist.blockers).toContain('CHECKIN_BEFORE_ARRIVAL_DATE');
+    expect(workspace.finalChecklist.canCheckIn).toBe(false);
   });
 });

@@ -5,6 +5,12 @@ import { ReservationPaymentStatus } from '../domain/reservation-payment-status.e
 import { ReservationSource } from '../domain/reservation-source.enum';
 import { ReservationStatus } from '../domain/reservation-status.enum';
 
+export enum StayFinancialState {
+  BALANCE_DUE = 'BALANCE_DUE',
+  CLEAR = 'CLEAR',
+  CREDIT_DUE = 'CREDIT_DUE',
+}
+
 export class CheckInBookingDto {
   @ApiProperty({ format: 'uuid' })
   reservationId!: string;
@@ -119,6 +125,18 @@ export class CheckInForeignGuestDto {
 export class CheckInPaymentDto {
   @ApiProperty({ enum: ReservationPaymentStatus })
   paymentStatus!: ReservationPaymentStatus;
+  @ApiPropertyOptional({ enum: StayFinancialState })
+  financialState?: StayFinancialState;
+  @ApiPropertyOptional()
+  source?: 'FOLIO' | 'RESERVATION';
+  @ApiPropertyOptional()
+  total?: string | null;
+  @ApiPropertyOptional()
+  paid?: string | null;
+  @ApiPropertyOptional()
+  balance?: string | null;
+  @ApiPropertyOptional()
+  creditBalance?: string | null;
   @ApiProperty()
   outstandingAmount!: number;
   @ApiPropertyOptional()

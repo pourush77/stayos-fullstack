@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PropertiesService } from '../../properties/properties.service';
+import { BusinessDateService } from '../../properties/services/business-date.service';
 import { ReservationEntity } from '../../reservations/infrastructure/reservation.entity';
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
 import { GroupBookingRoomAssignmentEntity } from '../infrastructure/group-booking-room-assignment.entity';
@@ -12,7 +13,6 @@ import { OperationsMapper } from '../mappers/operations.mapper';
 import {
   findCurrentRoomStays,
   findRoomsWithInventory,
-  todayIsoDate,
 } from './operations-query.helpers';
 
 @Injectable()
@@ -27,15 +27,13 @@ export class RoomBoardService {
     @InjectRepository(GroupMasterFolioEntity)
     private readonly groupMasterFoliosRepository: Repository<GroupMasterFolioEntity>,
     private readonly propertiesService: PropertiesService,
+    private readonly businessDateService: BusinessDateService = new BusinessDateService(),
   ) {}
 
   async getRoomBoard(propertyId: string): Promise<RoomBoardItemDto[]> {
     const property = await this.propertiesService.findOne(propertyId);
 
-    // Room-board date boundaries must follow the hotel's local calendar date,
-    // not UTC/server time. This keeps arrivals, in-house stays and assignments
-    // correct around midnight for the property's configured timezone.
-    const today = todayIsoDate(property.timezone ?? 'UTC');
+    const today = this.businessDateService.getCurrentBusinessDate(property);
 
     const [rooms, currentStays, assignedReservations, groupAssignments, folios] = await Promise.all(
       [

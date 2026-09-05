@@ -4,6 +4,7 @@ import { FloorStatus } from '../src/core/floors/domain/floor-status.enum';
 import { FloorEntity } from '../src/core/floors/infrastructure/floor.entity';
 import { PropertyStatus } from '../src/core/properties/domain/property-status.enum';
 import { PropertyEntity } from '../src/core/properties/infrastructure/property.entity';
+import { BusinessDateService } from '../src/core/properties/services/business-date.service';
 import { RoomTypeStatus } from '../src/core/room-types/domain/room-type-status.enum';
 import { RoomTypeEntity } from '../src/core/room-types/infrastructure/room-type.entity';
 import { RoomOperationalStatus } from '../src/core/rooms/domain/room-operational-status.enum';
@@ -320,9 +321,19 @@ const upsertProperty = async (
   const existing = await repository.findOne({
     where: { code: HILLSTON_PROPERTY_CODE },
   });
+  const businessDateService = new BusinessDateService();
+  const currentBusinessDate =
+    existing?.currentBusinessDate ??
+    businessDateService.resolveBusinessDate(
+      new Date(),
+      hillstonBootstrapData.property.timezone,
+      '00:00:00',
+    );
+
   const entity = repository.create({
     ...(existing ?? {}),
     ...hillstonBootstrapData.property,
+    currentBusinessDate,
     panNumber: null,
     cinNumber: null,
     logoUrl: null,

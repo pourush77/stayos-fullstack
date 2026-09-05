@@ -5,6 +5,7 @@ import { ApiErrorCode } from '../../../common/errors/api-error-code.enum';
 import { ActivityEventEntity } from '../../activity/infrastructure/activity-event.entity';
 import { AuditEventEntity } from '../../audit/infrastructure/audit-event.entity';
 import { PropertiesService } from '../../properties/properties.service';
+import { BusinessDateService } from '../../properties/services/business-date.service';
 import { ReservationStatus } from '../../reservations/domain/reservation-status.enum';
 import { ReservationEntity } from '../../reservations/infrastructure/reservation.entity';
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
@@ -13,7 +14,6 @@ import { GroupMasterFolioEntity } from '../infrastructure/group-master-folio.ent
 import { RoomDrawerDto } from '../dto/operations.dto';
 import { GroupBookingStatus } from '../domain/group-booking-status.enum';
 import { OperationsMapper } from '../mappers/operations.mapper';
-import { todayIsoDate } from './operations-query.helpers';
 
 @Injectable()
 export class RoomDetailsService {
@@ -31,11 +31,12 @@ export class RoomDetailsService {
     @InjectRepository(GroupMasterFolioEntity)
     private readonly groupMasterFoliosRepository: Repository<GroupMasterFolioEntity>,
     private readonly propertiesService: PropertiesService,
+    private readonly businessDateService: BusinessDateService = new BusinessDateService(),
   ) {}
 
   async getRoomDetails(propertyId: string, roomId: string): Promise<RoomDrawerDto> {
     const property = await this.propertiesService.findOne(propertyId);
-    const today = todayIsoDate(property.timezone ?? 'UTC');
+    const today = this.businessDateService.getCurrentBusinessDate(property);
     const room = await this.roomsRepository.findOne({
       where: { id: roomId, propertyId },
       relations: { floor: true, roomType: true },

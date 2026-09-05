@@ -1,9 +1,10 @@
 import type { GuestDto } from '../../../lib/guest-api';
 import type { OperationsActivityItemDto, OperationsRoomBoardItemDto } from '../../../lib/operations-api';
 import type { ReservationDto } from '../../../lib/reservation-api';
-import type { Stay, StayAllowedActions, StayAttentionItem, StayDocument, StayPaymentStatus, StayTimelineItem } from '../types/stay.types';
+import type { Stay, StayAllowedActions, StayAttentionItem, StayDocument, StayFinancialState, StayPaymentStatus, StayTimelineItem } from '../types/stay.types';
 import type { StayWorkspaceDto } from '../api/stay-api';
 import { calculateNights, calculateRemainingNights, dateKey } from '../utils/stay-formatters';
+import { financialStateFromBalance, paymentLabelForFinancialState } from './stay-financial-state';
 
 const documentLabels = ['Passport', 'Aadhaar', 'Driving Licence', 'Visa'];
 
@@ -73,6 +74,18 @@ function fullGuestName(guest: GuestDto | Record<string, unknown> | undefined, re
 
 function mapPaymentStatus(value: string): StayPaymentStatus {
   return value.toUpperCase().replace(/[\s-]/g, '_') === 'PAID' ? 'Paid' : 'Payment Due';
+}
+
+function mapFinancialState(payment: Record<string, unknown> | undefined, reservation: ReservationDto): StayFinancialState {
+  const explicit = getString(payment, ['financialState']).toUpperCase().replace(/[\s-]/g, '_');
+  if (explicit === 'CLEAR' || explicit === 'BALANCE_DUE' || explicit === 'CREDIT_DUE') return explicit;
+  const balance = getNumber(payment, ['balance', 'balanceAmount'], Number.NaN);
+  if (!Number.isNaN(balance)) {
+    return financialStateFromBalance(balance);
+  }
+  return mapPaymentStatus(getString(payment, ['status', 'paymentStatus'], getString(reservation, ['paymentStatus'], 'PAYMENT_DUE'))) === 'Paid'
+    ? 'CLEAR'
+    : 'BALANCE_DUE';
 }
 
 function normalizeStatus(value: string) {
@@ -255,9 +268,8 @@ export function mapStayWorkspace(dto: StayWorkspaceDto): Stay {
   const payment = dto.payment;
   const arrivalDate = getString(reservation, ['arrivalDate', 'checkInDate', 'startDate']).slice(0, 10);
   const departureDate = getString(reservation, ['departureDate', 'checkOutDate', 'endDate']).slice(0, 10);
-  const paymentStatus = mapPaymentStatus(
-    getString(payment, ['status', 'paymentStatus'], getString(reservation, ['paymentStatus'], 'PAYMENT_DUE')),
-  );
+  const financialState = mapFinancialState(payment, reservation);
+  const paymentStatus = paymentLabelForFinancialState(financialState);
   const outstandingAmount =
     getString(payment, ['outstandingAmount', 'balance', 'balanceAmount']) ||
     (paymentStatus === 'Payment Due'
@@ -308,11 +320,16 @@ export function mapStayWorkspace(dto: StayWorkspaceDto): Stay {
     arrivalDate,
     billing: {
       balance: getString(payment, ['balance', 'balanceAmount'], outstandingAmount),
+      creditBalance: getString(payment, ['creditBalance']),
       deposit: getString(payment, ['deposit', 'depositAmount'], 'Not recorded'),
+      financialState,
       isConnected: Boolean(payment) || Boolean(getString(reservation, ['paymentStatus', 'amount', 'totalAmount', 'balanceAmount'])),
       outstandingAmount,
+      paid: getString(payment, ['paid']),
       paymentStatus,
+      source: getString(payment, ['source']) === 'FOLIO' ? 'FOLIO' : getString(payment, ['source']) === 'RESERVATION' ? 'RESERVATION' : undefined,
       roomCharges: getString(payment, ['roomCharges', 'roomChargeAmount'], getString(reservation, ['amount', 'totalAmount'], 'Not recorded')),
+      total: getString(payment, ['total']),
     },
     blacklistStatus: getBoolean(guest, ['blacklistStatus', 'blacklisted', 'isBlacklisted']),
     bookingId: getString(reservation, ['reservationCode', 'bookingCode', 'code', 'id'], 'Booking ID not recorded'),
@@ -343,6 +360,7 @@ export function mapStayWorkspace(dto: StayWorkspaceDto): Stay {
     nights: calculateNights(arrivalDate, departureDate),
     outstandingAmount,
     paymentStatus,
+    financialState,
     preferences,
     remainingNights: calculateRemainingNights(departureDate),
     requests: splitList(getString(reservation, ['specialRequests', 'requests'])),

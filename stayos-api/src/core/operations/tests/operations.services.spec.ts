@@ -4,6 +4,7 @@ import { ActivityEventEntity } from '../../activity/infrastructure/activity-even
 import { AuditEventEntity } from '../../audit/infrastructure/audit-event.entity';
 import { FolioChargeType } from '../../billing/domain/folio-charge-type.enum';
 import { FolioPaymentMethod } from '../../billing/domain/folio-payment-method.enum';
+import { BusinessDateService } from '../../properties/services/business-date.service';
 import { PropertiesService } from '../../properties/properties.service';
 import { ReservationPaymentStatus } from '../../reservations/domain/reservation-payment-status.enum';
 import { ReservationSource } from '../../reservations/domain/reservation-source.enum';
@@ -160,6 +161,11 @@ describe('Operations services', () => {
   let activityRepository: MockRepository<ActivityEventEntity>;
   let auditRepository: MockRepository<AuditEventEntity>;
   const propertiesService = { findOne: jest.fn() } as unknown as jest.Mocked<PropertiesService>;
+  const businessDateService = {
+    getCurrentBusinessDate: jest.fn((property: { currentBusinessDate?: string | null }) =>
+      property.currentBusinessDate ?? dateKey(),
+    ),
+  } as unknown as jest.Mocked<BusinessDateService>;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -200,7 +206,15 @@ describe('Operations services', () => {
     groupMasterFoliosRepository = { find: jest.fn().mockResolvedValue([]) };
     activityRepository = { find: jest.fn().mockResolvedValue([]) };
     auditRepository = { find: jest.fn().mockResolvedValue([]) };
-    propertiesService.findOne.mockResolvedValue({ id: propertyId } as never);
+    propertiesService.findOne.mockResolvedValue({
+      id: propertyId,
+      timezone: 'UTC',
+      currentBusinessDate: dateKey(),
+    } as never);
+    businessDateService.getCurrentBusinessDate.mockImplementation(
+      (property: { currentBusinessDate?: string | null }) =>
+        property.currentBusinessDate ?? dateKey(),
+    );
   });
 
   it('returns room board data', async () => {
@@ -407,6 +421,51 @@ describe('Operations services', () => {
       },
       primaryAction: 'Check In',
     });
+  });
+
+  it('uses persisted business date for assigned arrivals on the room board after night audit rollover', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-09-05T12:00:00.000Z'));
+    try {
+      propertiesService.findOne.mockResolvedValue({
+        id: propertyId,
+        timezone: 'UTC',
+        currentBusinessDate: '2026-09-06',
+      } as never);
+      reservationsRepository.find?.mockResolvedValue([]);
+      reservationsRepository.createQueryBuilder?.mockReturnValue({
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([
+          reservation({
+            arrivalDate: '2026-09-06',
+            departureDate: '2026-09-07',
+            status: ReservationStatus.CONFIRMED,
+          }),
+        ]),
+      });
+      const service = new RoomBoardService(
+        asRepository(roomsRepository),
+        asRepository(reservationsRepository),
+        asRepository(groupAssignmentsRepository),
+        asRepository(groupMasterFoliosRepository),
+        propertiesService,
+        businessDateService,
+      );
+
+      const result = await service.getRoomBoard(propertyId);
+
+      expect(result[0]).toMatchObject({
+        currentStay: {
+          arrivalDate: '2026-09-06',
+          status: ReservationStatus.CONFIRMED,
+        },
+        primaryAction: 'Check In',
+      });
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('keeps an on-hold group room allocation visible without making it occupied', async () => {
@@ -2775,6 +2834,7 @@ describe('Operations services', () => {
       asRepository(reservationsRepository),
       asRepository(roomsRepository),
       propertiesService,
+      businessDateService,
     );
 
     await expect(service.getAssignableReservations(propertyId, {})).resolves.toMatchObject([
@@ -2787,6 +2847,66 @@ describe('Operations services', () => {
         totalGuestCount: 2,
       },
     ]);
+  });
+
+  it('keeps business-date arrivals assignable when the physical date is still previous day', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-09-05T12:00:00.000Z'));
+    try {
+      propertiesService.findOne.mockResolvedValue({
+        id: propertyId,
+        timezone: 'UTC',
+        currentBusinessDate: '2026-09-06',
+      } as never);
+      reservationsRepository.find?.mockResolvedValue([
+        assignableReservation({
+          arrivalDate: '2026-09-06',
+          departureDate: '2026-09-07',
+        }),
+      ]);
+      const service = new AssignableReservationsService(
+        asRepository(reservationsRepository),
+        asRepository(roomsRepository),
+        propertiesService,
+        businessDateService,
+      );
+
+      await expect(service.getAssignableReservations(propertyId, {})).resolves.toMatchObject([
+        {
+          arrivalDate: '2026-09-06',
+          arrivingToday: true,
+          guestName: 'Daniel Lee',
+        },
+      ]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not make next-business-day arrivals assignable after night audit rollover', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-09-05T12:00:00.000Z'));
+    try {
+      propertiesService.findOne.mockResolvedValue({
+        id: propertyId,
+        timezone: 'UTC',
+        currentBusinessDate: '2026-09-06',
+      } as never);
+      reservationsRepository.find?.mockResolvedValue([
+        assignableReservation({
+          arrivalDate: '2026-09-07',
+          departureDate: '2026-09-08',
+        }),
+      ]);
+      const service = new AssignableReservationsService(
+        asRepository(reservationsRepository),
+        asRepository(roomsRepository),
+        propertiesService,
+        businessDateService,
+      );
+
+      await expect(service.getAssignableReservations(propertyId, {})).resolves.toEqual([]);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it.each([
@@ -2805,6 +2925,7 @@ describe('Operations services', () => {
       asRepository(reservationsRepository),
       asRepository(roomsRepository),
       propertiesService,
+      businessDateService,
     );
 
     await expect(service.getAssignableReservations(propertyId, {})).resolves.toEqual([]);
@@ -2817,6 +2938,7 @@ describe('Operations services', () => {
       asRepository(reservationsRepository),
       asRepository(roomsRepository),
       propertiesService,
+      businessDateService,
     );
 
     await expect(service.getAssignableReservations(propertyId, { roomId })).resolves.toEqual([]);
@@ -2828,6 +2950,7 @@ describe('Operations services', () => {
       asRepository(reservationsRepository),
       asRepository(roomsRepository),
       propertiesService,
+      businessDateService,
     );
 
     await expect(service.getAssignableReservations(propertyId, { roomId })).resolves.toEqual([]);
@@ -2841,6 +2964,7 @@ describe('Operations services', () => {
       asRepository(reservationsRepository),
       asRepository(roomsRepository),
       propertiesService,
+      businessDateService,
     );
 
     await expect(service.getAssignableReservations(propertyId, { roomId })).rejects.toBeInstanceOf(
@@ -2848,10 +2972,11 @@ describe('Operations services', () => {
     );
   });
 
-  it('sorts assignable reservations by today arrival, then arrival date, then guest name', async () => {
+  it('sorts assignable reservations by business-date arrival, then arrival date, then guest name', async () => {
     reservationsRepository.find?.mockResolvedValue([
       assignableReservation({
-        arrivalDate: dateKey(2),
+        arrivalDate: dateKey(-2),
+        departureDate: dateKey(1),
         guest: { displayName: 'Zara Khan' } as never,
         id: 'upcoming-zara',
       }),
@@ -2866,7 +2991,8 @@ describe('Operations services', () => {
         id: 'today-daniel',
       }),
       assignableReservation({
-        arrivalDate: dateKey(1),
+        arrivalDate: dateKey(-1),
+        departureDate: dateKey(1),
         guest: { displayName: 'Amit Patel' } as never,
         id: 'upcoming-amit',
       }),
@@ -2875,6 +3001,7 @@ describe('Operations services', () => {
       asRepository(reservationsRepository),
       asRepository(roomsRepository),
       propertiesService,
+      businessDateService,
     );
 
     const result = await service.getAssignableReservations(propertyId, {});
@@ -2882,8 +3009,8 @@ describe('Operations services', () => {
     expect(result.map((item) => item.guestName)).toEqual([
       'Daniel Lee',
       'Nidhi Agrawal',
-      'Amit Patel',
       'Zara Khan',
+      'Amit Patel',
     ]);
   });
 });

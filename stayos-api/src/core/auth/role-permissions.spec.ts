@@ -31,4 +31,26 @@ describe('role billing permissions', () => {
     expect(permissions).toContain(Permissions.BillingRefund);
     expect(permissions).toContain(Permissions.BillingSettle);
   });
+
+  describe('role night audit permissions', () => {
+    it('grants night-audit.manage to OWNER, ADMIN, and MANAGER', () => {
+      expect(getPermissionsForRole(UserRole.OWNER)).toContain(Permissions.NightAuditManage);
+      expect(getPermissionsForRole(UserRole.ADMIN)).toContain(Permissions.NightAuditManage);
+      expect(getPermissionsForRole(UserRole.MANAGER)).toContain(Permissions.NightAuditManage);
+    });
+
+    it('does NOT grant night-audit.manage to FRONT_DESK, ACCOUNTS, HOUSEKEEPING, MAINTENANCE, or READ_ONLY', () => {
+      expect(getPermissionsForRole(UserRole.FRONT_DESK)).not.toContain(
+        Permissions.NightAuditManage,
+      );
+      expect(getPermissionsForRole(UserRole.ACCOUNTS)).not.toContain(Permissions.NightAuditManage);
+      expect(getPermissionsForRole(UserRole.HOUSEKEEPING)).not.toContain(
+        Permissions.NightAuditManage,
+      );
+      expect(getPermissionsForRole(UserRole.MAINTENANCE)).not.toContain(
+        Permissions.NightAuditManage,
+      );
+      expect(getPermissionsForRole(UserRole.READ_ONLY)).not.toContain(Permissions.NightAuditManage);
+    });
+  });
 });

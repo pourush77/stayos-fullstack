@@ -72,6 +72,9 @@ export class PropertyResponseDto {
   @ApiProperty({ example: '03:00:00' })
   businessDayCutOffTime!: string;
 
+  @ApiProperty({ example: '2026-06-30', description: 'Authoritative persisted business date for the property.' })
+  currentBusinessDate!: string;
+
   @ApiProperty()
   totalFloors!: number;
 

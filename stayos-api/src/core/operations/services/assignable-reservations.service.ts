@@ -6,11 +6,11 @@ import { ReservationStatus } from '../../reservations/domain/reservation-status.
 import { ReservationEntity } from '../../reservations/infrastructure/reservation.entity';
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
 import { RoomEntity } from '../../rooms/infrastructure/room.entity';
+import { BusinessDateService } from '../../properties/services/business-date.service';
 import {
   AssignableReservationDto,
   AssignableReservationsQueryDto,
 } from '../dto/operations.dto';
-import { todayIsoDate } from './operations-query.helpers';
 
 const eligibleReservationStatuses = [ReservationStatus.CONFIRMED, ReservationStatus.PENDING];
 const activeAssignmentStatuses = [
@@ -35,6 +35,7 @@ export class AssignableReservationsService {
     @InjectRepository(RoomEntity)
     private readonly roomsRepository: Repository<RoomEntity>,
     private readonly propertiesService: PropertiesService,
+    private readonly businessDateService: BusinessDateService = new BusinessDateService(),
   ) {}
 
   async getAssignableReservations(
@@ -44,7 +45,7 @@ export class AssignableReservationsService {
     const property = await this.propertiesService.findOne(propertyId);
 
     const room = query.roomId ? await this.getAssignableRoom(propertyId, query.roomId) : undefined;
-    const today = todayIsoDate(property.timezone ?? 'UTC');
+    const today = this.businessDateService.getCurrentBusinessDate(property);
     const reservations = await this.reservationsRepository.find({
       where: {
         propertyId,
@@ -89,6 +90,7 @@ export class AssignableReservationsService {
     if (reservation.roomId) return false;
     if (!reservation.guestId || !guestName(reservation)) return false;
     if (!reservation.roomTypeId || !reservation.roomType) return false;
+    if (reservation.arrivalDate > today) return false;
     if (reservation.departureDate < today) return false;
     return true;
   }

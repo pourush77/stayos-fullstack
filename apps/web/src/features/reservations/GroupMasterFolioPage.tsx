@@ -206,10 +206,11 @@ export function GroupMasterFolioPage({ groupBookingId }: { groupBookingId: strin
     paymentAmount > 0 &&
     paymentAmount <= (folio?.checkoutSummary.balanceDue ?? 0);
   const folioClosed = folio?.status === 'CLOSED';
-  const canCompleteCheckout =
-    Boolean(folio) &&
-    folio.checkoutSummary.checkoutEligible &&
-    folio.checkoutSummary.balanceDue <= 0.01;
+  const canCompleteCheckout = Boolean(
+    folio &&
+      folio.checkoutSummary.checkoutEligible &&
+      folio.checkoutSummary.balanceDue <= 0.01,
+  );
 
   if (!backend.isOnline && backend.status === 'SERVER_STARTING')
     return (

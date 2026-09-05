@@ -8,13 +8,14 @@ async function run(client, ctx) {
         code, name, legal_name, gst_number, pan_number, cin_number, logo_url, email, phone,
         website, address_line_1, address_line_2, city, state, state_code, country,
         postal_code, timezone, currency, check_in_time, check_out_time, total_floors,
-        total_rooms, status
+        total_rooms, status, current_business_date
       )
       VALUES (
         $1, 'Hillston Hotel', 'Hillston Hotel Pvt. Ltd.', '23AABCH1234H1Z9', NULL, NULL,
         NULL, 'reservations@hillston.local', '+917314000000', NULL, 'Ralamandal Road',
         'Near Hillston Convention Centre', 'Indore', 'Madhya Pradesh', '23', 'India',
-        '452020', 'Asia/Kolkata', 'INR', '14:00', '12:00', 2, 24, 'ACTIVE'
+        '452020', 'Asia/Kolkata', 'INR', '14:00', '12:00', 2, 24, 'ACTIVE',
+        ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date)
       )
       ON CONFLICT (code) DO UPDATE SET
         name = EXCLUDED.name,

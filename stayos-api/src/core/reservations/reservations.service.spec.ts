@@ -23,6 +23,8 @@ import { ReservationPricingService } from './services/reservation-pricing.servic
 import { ReservationRateSnapshotService } from './services/reservation-rate-snapshot.service';
 import { RestrictionService } from '../rates/restriction.service';
 import { BillingService } from '../billing/billing.service';
+import { FolioEntity } from '../billing/infrastructure/folio.entity';
+import { FolioStatus } from '../billing/domain/folio-status.enum';
 
 type MockRepository<T extends object = object> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -128,6 +130,7 @@ describe('ReservationsService', () => {
   let roomsRepository: MockRepository<RoomEntity>;
   let activityRepository: MockRepository<ActivityEventEntity>;
   let guestDocumentsRepository: MockRepository<GuestDocumentEntity>;
+  let foliosRepository: MockRepository<FolioEntity>;
   const propertiesService = { findOne: jest.fn() };
   const childPricingService = { validateReservationChildAges: jest.fn() };
   const availabilityService = { reserve: jest.fn(), restore: jest.fn(), applyDelta: jest.fn(), read: jest.fn() };
@@ -180,6 +183,7 @@ describe('ReservationsService', () => {
     roomsRepository = { findOne: jest.fn().mockResolvedValue(roomEntity) };
     activityRepository = { find: jest.fn().mockResolvedValue([]) };
     guestDocumentsRepository = { find: jest.fn().mockResolvedValue([]) };
+    foliosRepository = { findOne: jest.fn().mockResolvedValue(null) };
     propertiesService.findOne.mockResolvedValue({ id: propertyId });
     childPricingService.validateReservationChildAges.mockResolvedValue(undefined);
     availabilityService.reserve.mockResolvedValue([]);
@@ -210,6 +214,7 @@ describe('ReservationsService', () => {
         { provide: getRepositoryToken(RoomEntity), useValue: roomsRepository },
         { provide: getRepositoryToken(ActivityEventEntity), useValue: activityRepository },
         { provide: getRepositoryToken(GuestDocumentEntity), useValue: guestDocumentsRepository },
+        { provide: getRepositoryToken(FolioEntity), useValue: foliosRepository },
         { provide: PropertiesService, useValue: propertiesService },
         { provide: ChildPricingService, useValue: childPricingService },
         { provide: DataSource, useValue: dataSource },
@@ -1000,6 +1005,67 @@ describe('ReservationsService', () => {
       where: { propertyId, entityType: 'RESERVATION', entityId: reservationId },
       order: { createdAt: 'DESC' },
       take: 20,
+    });
+  });
+
+  it.each([
+    ['positive balance', '1200.00', '200.00', '1000.00', 'BALANCE_DUE'],
+    ['zero balance', '1200.00', '1200.00', '0.00', 'CLEAR'],
+    ['negative balance', '1200.00', '1400.00', '-200.00', 'CREDIT_DUE'],
+  ])(
+    'uses authoritative folio totals for stay workspace payment state with %s',
+    async (_label, chargeAmount, paymentAmount, expectedBalance, expectedState) => {
+      reservationsRepository.findOne?.mockResolvedValue({
+        ...reservationEntity,
+        paymentStatus: ReservationPaymentStatus.PAID,
+        status: ReservationStatus.CHECKED_IN,
+      });
+      foliosRepository.findOne?.mockResolvedValue({
+        id: 'f075c8fa-f36e-4f40-a3ef-2e9dbb1f0678',
+        propertyId,
+        reservationId,
+        status: FolioStatus.OPEN,
+        charges: [
+          {
+            amount: chargeAmount,
+            taxAmount: '0.00',
+            taxSnapshot: null,
+          },
+        ],
+        payments: [{ amount: paymentAmount }],
+      });
+
+      await expect(service.getStayWorkspace(propertyId, reservationId)).resolves.toMatchObject({
+        payment: {
+          source: 'FOLIO',
+          financialState: expectedState,
+          total: chargeAmount,
+          paid: paymentAmount,
+          balance: expectedBalance,
+          folio: {
+            status: FolioStatus.OPEN,
+            balance: expectedBalance,
+          },
+        },
+      });
+    },
+  );
+
+  it('falls back to reservation payment status when no folio exists', async () => {
+    reservationsRepository.findOne?.mockResolvedValue({
+      ...reservationEntity,
+      paymentStatus: ReservationPaymentStatus.PAID,
+      status: ReservationStatus.CHECKED_IN,
+    });
+    foliosRepository.findOne?.mockResolvedValue(null);
+
+    await expect(service.getStayWorkspace(propertyId, reservationId)).resolves.toMatchObject({
+      payment: {
+        source: 'RESERVATION',
+        financialState: 'CLEAR',
+        status: ReservationPaymentStatus.PAID,
+        folio: null,
+      },
     });
   });
 
