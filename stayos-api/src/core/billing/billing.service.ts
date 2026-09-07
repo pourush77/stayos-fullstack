@@ -535,6 +535,20 @@ export class BillingService {
       (await this.findLiveNightlyRoomCharge(chargeRepo, folio.id, serviceDate));
     if (existing) return existing;
 
+    // E3 past business-date guard. Runs AFTER the authoritative existing-charge
+    // lookup (so an idempotent/cross-snapshot retry of an already-posted night
+    // stays a safe success) and BEFORE any tax computation or ledger write, so a
+    // NEW posting into an already-closed hotel accounting day is rejected with
+    // zero side effects. serviceDate == businessDate (normal Night Audit) and
+    // future serviceDate keep their existing behavior.
+    const authoritativeBusinessDate = this.businessDateService.getAuthoritativeDate(property);
+    if (serviceDate < authoritativeBusinessDate) {
+      throw new ConflictException({
+        code: 'NIGHTLY_POSTING_SERVICE_DATE_BEFORE_BUSINESS_DATE',
+        message: `Cannot post a nightly accommodation charge for service date ${serviceDate}, which is earlier than the current business date ${authoritativeBusinessDate}.`,
+      });
+    }
+
     const gst = await this.gstService.computeTax(
       {
         propertyId,
@@ -561,7 +575,7 @@ export class BillingService {
       hsnSac: gst.hsnSac,
       taxSnapshot: gst.applied ? this.toStoredSnapshot(gst) : null,
       chargedAt: new Date(),
-      businessDate: this.businessDateService.getAuthoritativeDate(property),
+      businessDate: authoritativeBusinessDate,
       serviceDate,
       idempotencyKey,
       createdByUserId: actorUserId ?? null,

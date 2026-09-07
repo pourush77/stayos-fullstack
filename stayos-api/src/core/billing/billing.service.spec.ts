@@ -1,4 +1,5 @@
 import { DataSource, Repository } from 'typeorm';
+import { ConflictException } from '@nestjs/common';
 import { ReservationPaymentStatus } from '../reservations/domain/reservation-payment-status.enum';
 import { ReservationStatus } from '../reservations/domain/reservation-status.enum';
 import { ReservationSource } from '../reservations/domain/reservation-source.enum';
@@ -737,8 +738,8 @@ describe('BillingService', () => {
     function seedNightlyPoster() {
       propertiesService.findOne = jest
         .fn()
-        .mockResolvedValue({ id: propertyId, currentBusinessDate: '2026-09-08' });
-      businessDateService.getAuthoritativeDate = jest.fn(() => '2026-09-08');
+        .mockResolvedValue({ id: propertyId, currentBusinessDate: '2026-08-03' });
+      businessDateService.getAuthoritativeDate = jest.fn(() => '2026-08-03');
       managerReservationsRepository.findOne = jest.fn().mockResolvedValue(nightlyReservation());
       managerSnapshotsRepository.findOne = jest.fn().mockResolvedValue(activeSnapshot);
       managerFoliosRepository.findOne = jest.fn().mockResolvedValue({
@@ -747,7 +748,7 @@ describe('BillingService', () => {
         reservationId,
         guestId,
         status: FolioStatus.OPEN,
-        property: { id: propertyId, currentBusinessDate: '2026-09-08' },
+        property: { id: propertyId, currentBusinessDate: '2026-08-03' },
         guest: { state: null },
       });
       // ON CONFLICT DO NOTHING insert path (E2). Capture the values passed to the
@@ -785,7 +786,7 @@ describe('BillingService', () => {
           unitAmount: '4750.00',
           amount: '4750.00',
           serviceDate,
-          businessDate: '2026-09-08',
+          businessDate: '2026-08-03',
           rateSnapshotId: 'snapshot-1',
           rateSnapshotVersion: 7,
           idempotencyKey:
@@ -937,6 +938,82 @@ describe('BillingService', () => {
       expect(nightlyInsertValues).toHaveBeenCalledTimes(1);
       expect(nightlyInsertValues).toHaveBeenCalledWith(
         expect.objectContaining({ serviceDate: '2026-08-03', type: FolioChargeType.ROOM }),
+      );
+    });
+
+    it('E3 blocks a NEW nightly posting whose serviceDate is before the current business date (no writes)', async () => {
+      seedNightlyPoster();
+      // serviceDate 2026-08-04 is now historical relative to business date 2026-08-05.
+      businessDateService.getAuthoritativeDate = jest.fn(() => '2026-08-05');
+      managerChargesRepository.findOne = jest.fn().mockResolvedValue(null); // no existing live charge
+
+      const err = await service
+        .postNightlyAccommodationCharge(propertyId, reservationId, serviceDate)
+        .catch((e) => e);
+
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(err.getResponse()).toMatchObject({
+        code: 'NIGHTLY_POSTING_SERVICE_DATE_BEFORE_BUSINESS_DATE',
+      });
+      // Rejected before any tax computation or ledger write.
+      expect(gstService.computeTax).not.toHaveBeenCalled();
+      expect(managerChargesRepository.createQueryBuilder).not.toHaveBeenCalled();
+    });
+
+    it('E3 allows an idempotent retry of an already-posted historical night (returns existing, no error, no write)', async () => {
+      seedNightlyPoster();
+      businessDateService.getAuthoritativeDate = jest.fn(() => '2026-08-10');
+      const existing = {
+        id: 'charge-hist',
+        folioId: 'folio-1',
+        serviceDate,
+        amount: '4750.00',
+        rateSnapshotVersion: 7,
+      };
+      managerChargesRepository.findOne = jest.fn().mockResolvedValueOnce(null).mockResolvedValue(existing);
+
+      const result = await service.postNightlyAccommodationCharge(propertyId, reservationId, serviceDate);
+
+      expect(result).toBe(existing);
+      // Existing-charge lookup precedes the business-date guard, so no error/write.
+      expect(gstService.computeTax).not.toHaveBeenCalled();
+      expect(managerChargesRepository.createQueryBuilder).not.toHaveBeenCalled();
+    });
+
+    it('E3 cross-snapshot historical retry returns the original charge unchanged (no repricing, no second insert)', async () => {
+      seedNightlyPoster(); // current ACTIVE snapshot is v7
+      businessDateService.getAuthoritativeDate = jest.fn(() => '2026-08-10');
+      const existingV1 = {
+        id: 'charge-v1',
+        folioId: 'folio-1',
+        serviceDate,
+        amount: '5000.00',
+        rateSnapshotId: 'snapshot-old',
+        rateSnapshotVersion: 1,
+      };
+      managerChargesRepository.findOne = jest.fn().mockResolvedValueOnce(null).mockResolvedValue(existingV1);
+
+      const result = await service.postNightlyAccommodationCharge(propertyId, reservationId, serviceDate);
+
+      expect(result).toBe(existingV1);
+      expect(result.amount).toBe('5000.00');
+      expect(result.rateSnapshotVersion).toBe(1);
+      expect(managerChargesRepository.createQueryBuilder).not.toHaveBeenCalled();
+    });
+
+    it('E3 permits the normal Night Audit path where serviceDate equals the current business date', async () => {
+      seedNightlyPoster();
+      businessDateService.getAuthoritativeDate = jest.fn(() => serviceDate); // serviceDate === businessDate
+
+      await service.postNightlyAccommodationCharge(propertyId, reservationId, serviceDate);
+
+      expect(nightlyInsertValues).toHaveBeenCalledTimes(1);
+      expect(nightlyInsertValues).toHaveBeenCalledWith(
+        expect.objectContaining({
+          serviceDate,
+          businessDate: serviceDate,
+          type: FolioChargeType.ROOM,
+        }),
       );
     });
 
