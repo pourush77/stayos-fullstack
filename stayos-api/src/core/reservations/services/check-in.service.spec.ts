@@ -12,6 +12,7 @@ import { IdentityDocumentType } from '../domain/identity-document-type.enum';
 import { ReservationPaymentStatus } from '../domain/reservation-payment-status.enum';
 import { ReservationSource } from '../domain/reservation-source.enum';
 import { ReservationStatus } from '../domain/reservation-status.enum';
+import { AccommodationPostingMode } from '../domain/accommodation-posting-mode.enum';
 import { PropertyStatus } from '../../properties/domain/property-status.enum';
 import { PropertyEntity } from '../../properties/infrastructure/property.entity';
 import { GuestIdentityDocumentEntity } from '../infrastructure/guest-identity-document.entity';
@@ -79,6 +80,7 @@ const reservation = (overrides: Partial<ReservationEntity> = {}): ReservationEnt
   inventoryReserved: true,
   ratePlanId: null,
   rateSnapshot: null,
+  accommodationPostingMode: AccommodationPostingMode.UPFRONT_FULL_STAY,
   source: ReservationSource.DIRECT,
   status: ReservationStatus.CONFIRMED,
   paymentStatus: ReservationPaymentStatus.PAYMENT_DUE,

@@ -1,6 +1,7 @@
 import { ReservationPaymentStatus } from '../../reservations/domain/reservation-payment-status.enum';
 import { ReservationSource } from '../../reservations/domain/reservation-source.enum';
 import { ReservationStatus } from '../../reservations/domain/reservation-status.enum';
+import { AccommodationPostingMode } from '../../reservations/domain/accommodation-posting-mode.enum';
 import { ReservationEntity } from '../../reservations/infrastructure/reservation.entity';
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
 import { RoomStatus } from '../../rooms/domain/room-status.enum';
@@ -50,6 +51,7 @@ const reservation = (departureDate = '2026-07-03'): ReservationEntity => ({
   inventoryReserved: true,
   ratePlanId: null,
   rateSnapshot: null,
+  accommodationPostingMode: AccommodationPostingMode.UPFRONT_FULL_STAY,
   source: ReservationSource.DIRECT,
   status: ReservationStatus.CHECKED_IN,
   paymentStatus: ReservationPaymentStatus.PAID,

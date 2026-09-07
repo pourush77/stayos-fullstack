@@ -4,7 +4,10 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, EntityManager, QueryFailedError, Repository } from 'typeorm';
 import { AuditEventEntity } from '../audit/infrastructure/audit-event.entity';
 import { PropertyEntity } from '../properties/infrastructure/property.entity';
-import { advanceCalendarDay, BusinessDateService } from '../properties/services/business-date.service';
+import {
+  advanceCalendarDay,
+  BusinessDateService,
+} from '../properties/services/business-date.service';
 import { NightAuditFolioExceptionsCollector } from './collectors/night-audit-folio-exceptions.collector';
 import { NightAuditGroupReviewCollector } from './collectors/night-audit-group-review.collector';
 import { NightAuditPendingArrivalsCollector } from './collectors/night-audit-pending-arrivals.collector';
@@ -22,6 +25,8 @@ import {
 import { NightAuditRunEntity } from './infrastructure/night-audit-run.entity';
 import { NightAuditService } from './night-audit.service';
 import { NightAuditPreCloseValidator } from './validators/night-audit-pre-close.validator';
+import { BillingService } from '../billing/billing.service';
+import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 
 type MockRepository<T extends object = object> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -62,6 +67,8 @@ describe('NightAuditService', () => {
     completedByUserId: null,
     completedAt: null,
     summary: null,
+    completionSnapshot: null,
+    completionSnapshotVersion: null,
     createdAt: new Date('2026-09-04T12:00:00Z'),
     updatedAt: new Date('2026-09-04T12:00:00Z'),
   };
@@ -325,6 +332,15 @@ describe('NightAuditService', () => {
       save: jest.fn((entity) => Promise.resolve(entity)),
     };
 
+    const txReservationRepo = {
+      createQueryBuilder: jest.fn(() => ({
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([]),
+      })),
+    };
+
     dataSource = {
       transaction: jest.fn(async (callback: (manager: EntityManager) => unknown) => {
         const fakeManager = {
@@ -332,6 +348,7 @@ describe('NightAuditService', () => {
             if (entity === NightAuditRunEntity) return txRunRepo;
             if (entity === AuditEventEntity) return txAuditRepo;
             if (entity === PropertyEntity) return txPropertyRepo;
+            if (entity === ReservationEntity) return txReservationRepo;
             throw new Error(`Unexpected entity in transaction: ${entity}`);
           },
         } as unknown as EntityManager;
@@ -386,6 +403,12 @@ describe('NightAuditService', () => {
         {
           provide: DataSource,
           useValue: dataSource,
+        },
+        {
+          provide: BillingService,
+          useValue: {
+            postNightlyAccommodationChargeOnManager: jest.fn().mockResolvedValue(undefined),
+          },
         },
         {
           provide: NightAuditPendingArrivalsCollector,
@@ -550,9 +573,7 @@ describe('NightAuditService', () => {
     });
 
     it('emits NIGHT_AUDIT_STARTED once when creating a new run', async () => {
-      nightAuditRunRepo.findOne
-        ?.mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(null);
+      nightAuditRunRepo.findOne?.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
 
       await service.getOrCreateOpenRun(mockPropertyId, mockUserId);
 
@@ -584,7 +605,11 @@ describe('NightAuditService', () => {
         ?.mockResolvedValueOnce(null) // first check: no open run
         .mockResolvedValueOnce(null); // second check: no run for date
 
-      const duplicateKeyError = new QueryFailedError('INSERT INTO...', [], new Error('duplicate key'));
+      const duplicateKeyError = new QueryFailedError(
+        'INSERT INTO...',
+        [],
+        new Error('duplicate key'),
+      );
       (duplicateKeyError as unknown as { driverError: { code: string } }).driverError = {
         code: '23505',
       };
@@ -626,11 +651,13 @@ describe('NightAuditService', () => {
     });
 
     it('concurrent creation failure throws ConflictException if re-read does not match businessDate', async () => {
-      nightAuditRunRepo.findOne
-        ?.mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(null);
+      nightAuditRunRepo.findOne?.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
 
-      const duplicateKeyError = new QueryFailedError('INSERT INTO...', [], new Error('duplicate key'));
+      const duplicateKeyError = new QueryFailedError(
+        'INSERT INTO...',
+        [],
+        new Error('duplicate key'),
+      );
       (duplicateKeyError as unknown as { driverError: { code: string } }).driverError = {
         code: '23505',
       };
@@ -653,11 +680,13 @@ describe('NightAuditService', () => {
     });
 
     it('unrelated database errors are not swallowed and rethrow', async () => {
-      nightAuditRunRepo.findOne
-        ?.mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(null);
+      nightAuditRunRepo.findOne?.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
 
-      const foreignKeyError = new QueryFailedError('INSERT INTO...', [], new Error('foreign key constraint'));
+      const foreignKeyError = new QueryFailedError(
+        'INSERT INTO...',
+        [],
+        new Error('foreign key constraint'),
+      );
       (foreignKeyError as unknown as { driverError: { code: string } }).driverError = {
         code: '23503',
       };
@@ -674,9 +703,7 @@ describe('NightAuditService', () => {
     });
 
     it('general non-database errors are not swallowed and rethrow', async () => {
-      nightAuditRunRepo.findOne
-        ?.mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(null);
+      nightAuditRunRepo.findOne?.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
 
       const genericError = new Error('Database connection reset');
       dataSource.transaction.mockRejectedValueOnce(genericError);
@@ -741,9 +768,7 @@ describe('NightAuditService', () => {
     });
 
     it('currentBusinessDate is never modified or advanced', async () => {
-      nightAuditRunRepo.findOne
-        ?.mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(null);
+      nightAuditRunRepo.findOne?.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
 
       await service.getOrCreateOpenRun(mockPropertyId, mockUserId);
 
@@ -864,11 +889,11 @@ describe('NightAuditService', () => {
             businessDate: persistedBusinessDate,
             completedByUserId: mockUserId,
           }),
-          metadata: {
+          metadata: expect.objectContaining({
             businessDate: persistedBusinessDate,
             nextBusinessDate: '2026-09-05',
             totalBlockingCount: 0,
-          },
+          }),
         }),
       );
       expect(txAuditRepo.save).toHaveBeenCalledTimes(1);

@@ -4,6 +4,7 @@ import { DataSource, In, LessThanOrEqual, MoreThanOrEqual, Repository } from 'ty
 import { ApiErrorCode } from '../../../common/errors/api-error-code.enum';
 import { FolioPaymentEntity } from '../../billing/infrastructure/folio-payment.entity';
 import { PropertiesService } from '../../properties/properties.service';
+import { BusinessDateService } from '../../properties/services/business-date.service';
 import { ReservationStatus } from '../../reservations/domain/reservation-status.enum';
 import { ReservationEntity } from '../../reservations/infrastructure/reservation.entity';
 import { RoomTypeEntity } from '../../room-types/infrastructure/room-type.entity';
@@ -79,6 +80,7 @@ export class GroupBookingService {
     private readonly propertiesService: PropertiesService,
     private readonly groupRoomMixService: GroupRoomMixService,
     private readonly roomAvailabilityService: RoomAvailabilityService,
+    private readonly businessDateService: BusinessDateService,
     @InjectRepository(FolioPaymentEntity)
     private readonly folioPaymentsRepository?: Repository<FolioPaymentEntity>,
     @Optional()
@@ -1260,7 +1262,7 @@ export class GroupBookingService {
     groupBookingId: string,
     dto: PostGroupMasterFolioPaymentDto,
   ): Promise<GroupMasterFolioDetailDto> {
-    await this.propertiesService.findOne(propertyId);
+    const property = await this.propertiesService.findOne(propertyId);
 
     const group = await this.groupBookingsRepository.findOne({
       where: { id: groupBookingId, propertyId },
@@ -1307,6 +1309,7 @@ export class GroupBookingService {
     await this.folioPaymentsRepository.save(
       this.folioPaymentsRepository.create({
         amount: amount.toFixed(2),
+        businessDate: this.businessDateService.getAuthoritativeDate(property),
         folioId: null,
         groupMasterFolioId: folio.id,
         method: (dto.method || FolioPaymentMethod.CASH) as FolioPaymentMethod,

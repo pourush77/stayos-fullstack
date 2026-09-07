@@ -4,6 +4,7 @@ import { CheckoutInvoiceEmailService } from '../notifications/email/checkout-inv
 import { ReservationPaymentStatus } from './domain/reservation-payment-status.enum';
 import { ReservationSource } from './domain/reservation-source.enum';
 import { ReservationStatus } from './domain/reservation-status.enum';
+import { AccommodationPostingMode } from './domain/accommodation-posting-mode.enum';
 import { ReservationEntity } from './infrastructure/reservation.entity';
 import { ReservationsController } from './reservations.controller';
 import { ReservationsService } from './reservations.service';
@@ -36,6 +37,7 @@ const reservationEntity: ReservationEntity = {
   inventoryReserved: true,
   ratePlanId: null,
   rateSnapshot: null,
+  accommodationPostingMode: AccommodationPostingMode.UPFRONT_FULL_STAY,
   source: ReservationSource.DIRECT,
   status: ReservationStatus.CONFIRMED,
   paymentStatus: ReservationPaymentStatus.PAYMENT_DUE,

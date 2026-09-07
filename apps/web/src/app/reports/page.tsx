@@ -3,6 +3,7 @@
 import {
   Alert,
   Box,
+  Button,
   Card,
   Group,
   Loader,
@@ -18,11 +19,13 @@ import {
 import {
   BarChart3,
   CalendarDays,
+  ClipboardList,
   IndianRupee,
   Percent,
   TrendingUp,
   UsersRound,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import {
   Bar,
@@ -303,6 +306,10 @@ export default function ReportsPage() {
           <Tabs.Tab value="operations" leftSection={<UsersRound size={15} />}>
             Operations
           </Tabs.Tab>
+
+          <Tabs.Tab value="night-audit-history" leftSection={<ClipboardList size={15} />}>
+            Night Audit History
+          </Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="occupancy" pt={spacing[4]}>
@@ -389,6 +396,24 @@ export default function ReportsPage() {
               title="Top Guests"
             />
           </SimpleGrid>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="night-audit-history" pt={spacing[4]}>
+          <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
+            <Group justify="space-between" align="center" wrap="wrap">
+              <Box>
+                <Title order={3} c="#101828" style={{ fontSize: 18, fontWeight: 700 }}>
+                  Night Audit History
+                </Title>
+                <Text c="#64748b" size="sm" mt={4}>
+                  Review completed Night Audits and immutable operational snapshots.
+                </Text>
+              </Box>
+              <Button component={Link} href="/reports/night-audit-history" leftSection={<ClipboardList size={16} />}>
+                Open History
+              </Button>
+            </Group>
+          </Card>
         </Tabs.Panel>
       </Tabs>
     </Stack>

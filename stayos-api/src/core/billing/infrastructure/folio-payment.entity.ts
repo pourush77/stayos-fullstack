@@ -70,6 +70,9 @@ export class FolioPaymentEntity {
   @Column({ type: 'uuid', name: 'received_by_user_id', nullable: true })
   receivedByUserId!: string | null;
 
+  @Column({ type: 'date', name: 'business_date', nullable: true })
+  businessDate!: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt!: Date;
 }

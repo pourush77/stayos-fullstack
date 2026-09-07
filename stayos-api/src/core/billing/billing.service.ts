@@ -7,11 +7,13 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { PropertiesService } from '../properties/properties.service';
+import { BusinessDateService } from '../properties/services/business-date.service';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 import { ReservationRateSnapshotEntity } from '../reservations/infrastructure/reservation-rate-snapshot.entity';
 import { ReservationRateSnapshotStatus } from '../reservations/domain/reservation-rate-snapshot-status.enum';
 import { ReservationStatus } from '../reservations/domain/reservation-status.enum';
 import { ReservationPaymentStatus } from '../reservations/domain/reservation-payment-status.enum';
+import { AccommodationPostingMode } from '../reservations/domain/accommodation-posting-mode.enum';
 import { FolioChargeEntity } from './infrastructure/folio-charge.entity';
 import { FolioPaymentEntity } from './infrastructure/folio-payment.entity';
 import { FolioEntity } from './infrastructure/folio.entity';
@@ -45,6 +47,7 @@ export class BillingService {
     private readonly propertiesService: PropertiesService,
     private readonly dataSource: DataSource,
     private readonly childPricingService: ChildPricingService,
+    private readonly businessDateService: BusinessDateService,
     private readonly gstService: GstService,
   ) {}
 
@@ -107,13 +110,15 @@ export class BillingService {
           currency: 'INR',
         }),
       );
-      await this.generateRoomChargesFromSnapshot(
-        manager,
-        created.id,
-        propertyId,
-        reservation,
-        activeSnapshot,
-      );
+      if (this.usesUpfrontFullStayPosting(reservation)) {
+        await this.generateRoomChargesFromSnapshot(
+          manager,
+          created.id,
+          propertyId,
+          reservation,
+          activeSnapshot,
+        );
+      }
       return created;
     });
 
@@ -126,6 +131,20 @@ export class BillingService {
     return this.snapshotsRepository.findOne({
       where: { reservationId, status: ReservationRateSnapshotStatus.ACTIVE },
     });
+  }
+
+  private usesUpfrontFullStayPosting(reservation: ReservationEntity): boolean {
+    return reservation.accommodationPostingMode === AccommodationPostingMode.UPFRONT_FULL_STAY;
+  }
+
+  private assertCanUseFullStayRoomChargeFlow(reservation: ReservationEntity): void {
+    if (reservation.accommodationPostingMode === AccommodationPostingMode.NIGHTLY_V1) {
+      throw new ConflictException({
+        code: 'NIGHTLY_POSTING_MODE_FULL_STAY_RECONCILE_BLOCKED',
+        message:
+          'NIGHTLY_V1 reservations cannot use legacy full-stay room-charge reconciliation before nightly posting is implemented.',
+      });
+    }
   }
 
   /**
@@ -194,6 +213,9 @@ export class BillingService {
         hsnSac: gst.hsnSac,
         taxSnapshot: gst.applied ? this.toStoredSnapshot(gst) : null,
         chargedAt: new Date(),
+        businessDate: this.businessDateService.getAuthoritativeDate(
+          await this.propertiesService.findOne(propertyId),
+        ),
         createdByUserId: actorUserId ?? null,
       }),
     );
@@ -276,6 +298,7 @@ export class BillingService {
       // Nothing to repost from; leave existing charges untouched.
       return folio;
     }
+    this.assertCanUseFullStayRoomChargeFlow(reservation);
     await this.dataSource.transaction((manager) =>
       this.reconcileRoomChargesOnManager(manager, propertyId, reservationId, actorUserId),
     );
@@ -305,6 +328,7 @@ export class BillingService {
       .getRepository(ReservationEntity)
       .findOne({ where: { id: reservationId, propertyId } });
     if (!reservation) return;
+    this.assertCanUseFullStayRoomChargeFlow(reservation);
 
     const active = await manager.getRepository(ReservationRateSnapshotEntity).findOne({
       where: { reservationId, status: ReservationRateSnapshotStatus.ACTIVE },
@@ -345,6 +369,9 @@ export class BillingService {
           hsnSac: original.hsnSac,
           taxSnapshot: this.negateTaxSnapshot(original.taxSnapshot),
           chargedAt: new Date(),
+          businessDate: this.businessDateService.getAuthoritativeDate(
+            await this.propertiesService.findOne(propertyId),
+          ),
           createdByUserId: actorUserId ?? null,
         }),
       );
@@ -359,6 +386,183 @@ export class BillingService {
       actorUserId,
     );
     await folioRepo.update({ id: existingFolio.id }, { updatedAt: new Date() });
+  }
+
+  async postNightlyAccommodationCharge(
+    propertyId: string,
+    reservationId: string,
+    serviceDate: string,
+    actorUserId?: string | null,
+  ): Promise<FolioChargeEntity> {
+    return this.dataSource.transaction((manager) =>
+      this.postNightlyAccommodationChargeOnManager(
+        manager,
+        propertyId,
+        reservationId,
+        serviceDate,
+        actorUserId,
+      ),
+    );
+  }
+
+  async postNightlyAccommodationChargeOnManager(
+    manager: EntityManager,
+    propertyId: string,
+    reservationId: string,
+    serviceDate: string,
+    actorUserId?: string | null,
+  ): Promise<FolioChargeEntity> {
+    this.assertCalendarDate(serviceDate, 'serviceDate');
+    const property = await this.propertiesService.findOne(propertyId);
+    const reservationRepo = manager.getRepository(ReservationEntity);
+    const folioRepo = manager.getRepository(FolioEntity);
+    const snapshotRepo = manager.getRepository(ReservationRateSnapshotEntity);
+    const chargeRepo = manager.getRepository(FolioChargeEntity);
+
+    const reservation = await reservationRepo.findOne({ where: { id: reservationId, propertyId } });
+    if (!reservation) throw new NotFoundException(`Reservation ${reservationId} was not found`);
+    if (reservation.accommodationPostingMode !== AccommodationPostingMode.NIGHTLY_V1) {
+      throw new BadRequestException('Nightly accommodation posting requires NIGHTLY_V1 mode');
+    }
+    if (reservation.status !== ReservationStatus.CHECKED_IN) {
+      throw new BadRequestException('Nightly accommodation posting requires CHECKED_IN status');
+    }
+    if (serviceDate < reservation.arrivalDate || serviceDate >= reservation.departureDate) {
+      throw new BadRequestException('serviceDate must be within the reservation stay dates');
+    }
+
+    const activeSnapshot = await snapshotRepo.findOne({
+      where: { reservationId, status: ReservationRateSnapshotStatus.ACTIVE },
+    });
+    if (
+      !activeSnapshot ||
+      (activeSnapshot.snapshot as { pricingStatus?: string })?.pricingStatus !== 'PRICED'
+    ) {
+      throw new BadRequestException('Active priced rate snapshot is required');
+    }
+
+    const snap = activeSnapshot.snapshot as {
+      ratePlan?: { code?: string; name?: string };
+      nights?: Array<{
+        date?: string;
+        roomRate?: string;
+        extraAdultCharge?: string;
+        childCharge?: string;
+        nightTotal?: string;
+      }>;
+    };
+    const night = Array.isArray(snap.nights)
+      ? snap.nights.find((candidate) => candidate.date === serviceDate)
+      : undefined;
+    if (!night) throw new BadRequestException('Active rate snapshot has no matching service night');
+
+    const nightTotalCents = this.parsePositiveCents(String(night.nightTotal ?? ''), 'Nightly amount');
+    const componentTotalCents =
+      toCents(night.roomRate ?? '0') +
+      toCents(night.extraAdultCharge ?? '0') +
+      toCents(night.childCharge ?? '0');
+    if (componentTotalCents !== nightTotalCents) {
+      throw new BadRequestException('Snapshot nightly amount is inconsistent with nightly components');
+    }
+
+    let folio = await folioRepo.findOne({
+      where: { reservationId, propertyId },
+      relations: { property: true, guest: true },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (folio && folio.status !== FolioStatus.OPEN) {
+      throw new BadRequestException('Cannot post nightly accommodation to a folio that is not OPEN');
+    }
+    if (!folio) {
+      const folioNumber = await this.nextFolioNumber(propertyId);
+      folio = await folioRepo.save(
+        folioRepo.create({
+          propertyId,
+          reservationId,
+          guestId: reservation.guestId,
+          folioNumber,
+          status: FolioStatus.OPEN,
+          currency: 'INR',
+        }),
+      );
+      folio = await folioRepo.findOne({
+        where: { id: folio.id },
+        relations: { property: true, guest: true },
+      });
+    }
+    if (!folio) throw new NotFoundException('Unable to obtain folio for reservation');
+
+    const idempotencyKey = this.buildNightlyAccommodationIdempotencyKey(
+      propertyId,
+      reservationId,
+      activeSnapshot.id,
+      activeSnapshot.version,
+      serviceDate,
+    );
+    const existing = await chargeRepo.findOne({ where: { folioId: folio.id, idempotencyKey } });
+    if (existing) return existing;
+
+    const gst = await this.gstService.computeTax(
+      {
+        propertyId,
+        chargeType: FolioChargeType.ROOM,
+        taxableAmountCents: nightTotalCents,
+        slabBasisAmount: nightTotalCents / 100,
+        placeOfSupply: PlaceOfSupply.INTRA_STATE,
+        chargeDate: new Date(serviceDate),
+      },
+      manager,
+    );
+
+    const charge = chargeRepo.create({
+      folioId: folio.id,
+      type: FolioChargeType.ROOM,
+      status: FolioChargeStatus.POSTED,
+      rateSnapshotId: activeSnapshot.id,
+      rateSnapshotVersion: activeSnapshot.version,
+      description: this.buildNightlyRoomChargeDescription(snap, serviceDate, activeSnapshot.version),
+      quantity: 1,
+      unitAmount: fromCents(nightTotalCents),
+      amount: fromCents(nightTotalCents),
+      taxAmount: gst.totalTax,
+      hsnSac: gst.hsnSac,
+      taxSnapshot: gst.applied ? this.toStoredSnapshot(gst) : null,
+      chargedAt: new Date(),
+      businessDate: this.businessDateService.getAuthoritativeDate(property),
+      serviceDate,
+      idempotencyKey,
+      createdByUserId: actorUserId ?? null,
+    });
+
+    try {
+      const saved = await chargeRepo.save(charge);
+      await folioRepo.update({ id: folio.id }, { updatedAt: new Date() });
+      return saved;
+    } catch (error) {
+      if (this.isUniqueViolation(error)) {
+        const duplicate = await chargeRepo.findOne({ where: { folioId: folio.id, idempotencyKey } });
+        if (duplicate) return duplicate;
+      }
+      throw error;
+    }
+  }
+
+  private buildNightlyAccommodationIdempotencyKey(
+    propertyId: string,
+    reservationId: string,
+    rateSnapshotId: string,
+    rateSnapshotVersion: number,
+    serviceDate: string,
+  ): string {
+    return `room-night:v1:property:${propertyId}:reservation:${reservationId}:snapshot:${rateSnapshotId}:version:${rateSnapshotVersion}:night:${serviceDate}`;
+  }
+
+  private buildNightlyRoomChargeDescription(
+    snap: { ratePlan?: { code?: string; name?: string } },
+    serviceDate: string,
+    snapshotVersion: number,
+  ): string {
+    return `${this.buildRoomChargeDescription(snap, 1, snapshotVersion)} - ${serviceDate}`;
   }
 
   /**
@@ -451,6 +655,7 @@ export class BillingService {
       hsnSac,
       taxSnapshot,
       chargedAt,
+      businessDate: this.businessDateService.getAuthoritativeDate(folio.property),
       createdByUserId: actorUserId ?? null,
     });
     await this.chargesRepository.save(charge);
@@ -503,13 +708,15 @@ export class BillingService {
           currency: 'INR',
         }),
       );
-      await this.generateRoomChargesFromSnapshot(
-        manager,
-        folio.id,
-        propertyId,
-        reservation,
-        activeSnapshot,
-      );
+      if (this.usesUpfrontFullStayPosting(reservation)) {
+        await this.generateRoomChargesFromSnapshot(
+          manager,
+          folio.id,
+          propertyId,
+          reservation,
+          activeSnapshot,
+        );
+      }
       folio = await folioRepo.findOne({
         where: { id: folio.id },
         relations: { property: true, guest: true },
@@ -556,6 +763,7 @@ export class BillingService {
         hsnSac: gst.hsnSac,
         taxSnapshot: gst.applied ? this.toStoredSnapshot(gst) : null,
         chargedAt: new Date(),
+        businessDate: this.businessDateService.getAuthoritativeDate(folio!.property),
         createdByUserId: actorUserId ?? null,
       }),
     );
@@ -608,6 +816,7 @@ export class BillingService {
           hsnSac: original.hsnSac,
           taxSnapshot: this.negateTaxSnapshot(original.taxSnapshot),
           chargedAt: new Date(),
+          businessDate: this.businessDateService.getAuthoritativeDate(folio.property),
           createdByUserId: actorUserId ?? null,
         }),
       );
@@ -623,7 +832,7 @@ export class BillingService {
     dto: CreateFolioPaymentDto,
     actorUserId?: string | null,
   ): Promise<FolioEntity> {
-    await this.propertiesService.findOne(propertyId);
+    const property = await this.propertiesService.findOne(propertyId);
     const amountCents = this.parsePositiveCents(dto.amount, 'Payment amount');
     const receivedAt = dto.receivedAt ? new Date(dto.receivedAt) : new Date();
 
@@ -671,6 +880,8 @@ export class BillingService {
         );
       }
 
+      const paymentBusinessDate = this.businessDateService.getAuthoritativeDate(property);
+
       const payment = paymentsRepo.create({
         folioId,
         type: FolioPaymentType.PAYMENT,
@@ -680,6 +891,7 @@ export class BillingService {
         notes: dto.notes ?? null,
         idempotencyKey: dto.idempotencyKey ?? null,
         receivedAt,
+        businessDate: paymentBusinessDate,
         receivedByUserId: actorUserId ?? null,
       });
 
@@ -705,7 +917,7 @@ export class BillingService {
     dto: CreateFolioRefundDto,
     actorUserId?: string | null,
   ): Promise<FolioEntity> {
-    await this.propertiesService.findOne(propertyId);
+    const property = await this.propertiesService.findOne(propertyId);
     const amountCents = this.parsePositiveCents(dto.amount, 'Refund amount');
     const receivedAt = dto.receivedAt ? new Date(dto.receivedAt) : new Date();
 
@@ -717,6 +929,7 @@ export class BillingService {
         );
       }
       const paymentsRepo = manager.getRepository(FolioPaymentEntity);
+      const refundBusinessDate = this.businessDateService.getAuthoritativeDate(property);
 
       if (dto.idempotencyKey) {
         const existing = await paymentsRepo.findOne({
@@ -759,6 +972,7 @@ export class BillingService {
         notes: dto.notes ?? null,
         idempotencyKey: dto.idempotencyKey ?? null,
         receivedAt,
+        businessDate: refundBusinessDate,
         receivedByUserId: actorUserId ?? null,
       });
       try {
@@ -881,6 +1095,16 @@ export class BillingService {
       throw new BadRequestException(`${label} must be positive`);
     }
     return Math.round(amount * 100);
+  }
+
+  private assertCalendarDate(value: string, label: string): void {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      throw new BadRequestException(`${label} must be a YYYY-MM-DD date`);
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+      throw new BadRequestException(`${label} must be a valid calendar date`);
+    }
   }
 
   private isUniqueViolation(error: unknown): boolean {

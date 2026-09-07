@@ -13,6 +13,8 @@ import { PropertyEntity } from '../../properties/infrastructure/property.entity'
 import { UserEntity } from '../../auth/infrastructure/user.entity';
 import { NightAuditRunStatus } from '../domain/night-audit-run-status.enum';
 
+import type { NightAuditCompletionSnapshot } from '../snapshots/night-audit-completion-snapshot';
+
 @Entity({ name: 'night_audit_runs' })
 @Unique('UQ_night_audit_runs_property_business_date', ['propertyId', 'businessDate'])
 @Index('UQ_night_audit_runs_property_open', ['propertyId'], {
@@ -62,6 +64,12 @@ export class NightAuditRunEntity {
 
   @Column({ type: 'jsonb', nullable: true })
   summary!: Record<string, unknown> | null;
+
+  @Column({ type: 'jsonb', name: 'completion_snapshot', nullable: true })
+  completionSnapshot!: NightAuditCompletionSnapshot | null;
+
+  @Column({ type: 'varchar', name: 'completion_snapshot_version', nullable: true })
+  completionSnapshotVersion!: string | null;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt!: Date;

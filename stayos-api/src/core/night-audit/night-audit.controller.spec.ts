@@ -26,6 +26,8 @@ describe('NightAuditController', () => {
     completedByUserId: null,
     completedAt: null,
     summary: null,
+    completionSnapshot: null,
+    completionSnapshotVersion: null,
     createdAt: new Date('2026-09-04T12:00:00Z'),
     updatedAt: new Date('2026-09-04T12:00:00Z'),
   };
@@ -58,6 +60,8 @@ describe('NightAuditController', () => {
         groupReview: 0,
       },
     },
+    completionSnapshot: null,
+    completionSnapshotVersion: null,
     createdAt: new Date('2026-09-04T12:00:00Z'),
     updatedAt: new Date('2026-09-04T23:59:00Z'),
   };

@@ -4,6 +4,7 @@ import { ApiStandardListResponse, ApiStandardOkResponse } from '../../common/dec
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
 import { Permissions } from '../auth/permissions';
 import { ReportsOccupancyDto, ReportsOperationsDto, ReportsOverviewDto, ReportsRangeQueryDto, ReportsRevenueDto, TopGuestDto } from './dto/reports.dto';
+import { NightAuditHistoryService } from './night-audit-history.service';
 import { ReportsService } from './reports.service';
 
 @ApiTags('Reports')
@@ -11,7 +12,10 @@ import { ReportsService } from './reports.service';
 @Controller('properties/:propertyId/reports')
 @RequirePermissions(Permissions.ReportsView)
 export class ReportsController {
-  constructor(private readonly reportsService: ReportsService) {}
+  constructor(
+    private readonly reportsService: ReportsService,
+    private readonly nightAuditHistoryService: NightAuditHistoryService,
+  ) {}
 
   @Get('overview')
   @ApiOperation({ summary: 'Get reports overview KPIs' })
@@ -44,9 +48,22 @@ export class ReportsController {
     return this.reportsService.getTopGuests(propertyId, query.from, query.to);
   }
 
+  @Get('night-audit-history')
+  getNightAuditHistory(@Param('propertyId', ParseUUIDPipe) propertyId: string, @Query() query: ReportsRangeQueryDto) {
+    return this.nightAuditHistoryService.list(propertyId, query.from, query.to);
+  }
+
   @Get('export.csv')
   @Header('Content-Type', 'text/csv')
   exportCsv(@Param('propertyId', ParseUUIDPipe) propertyId: string, @Query() query: ReportsRangeQueryDto) {
     return this.reportsService.exportCsv(propertyId, query.from, query.to);
+  }
+
+  @Get('night-audit-history/:runId')
+  getNightAuditHistoryDetail(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('runId', ParseUUIDPipe) runId: string,
+  ) {
+    return this.nightAuditHistoryService.getDetail(propertyId, runId);
   }
 }

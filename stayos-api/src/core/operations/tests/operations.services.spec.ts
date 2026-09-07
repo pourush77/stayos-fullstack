@@ -9,6 +9,7 @@ import { PropertiesService } from '../../properties/properties.service';
 import { ReservationPaymentStatus } from '../../reservations/domain/reservation-payment-status.enum';
 import { ReservationSource } from '../../reservations/domain/reservation-source.enum';
 import { ReservationStatus } from '../../reservations/domain/reservation-status.enum';
+import { AccommodationPostingMode } from '../../reservations/domain/accommodation-posting-mode.enum';
 import { ReservationEntity } from '../../reservations/infrastructure/reservation.entity';
 import { RoomOperationalStatus } from '../../rooms/domain/room-operational-status.enum';
 import { RoomStatus } from '../../rooms/domain/room-status.enum';
@@ -74,6 +75,7 @@ const reservation = (overrides: Partial<ReservationEntity> = {}): ReservationEnt
   inventoryReserved: true,
   ratePlanId: null,
   rateSnapshot: null,
+  accommodationPostingMode: AccommodationPostingMode.UPFRONT_FULL_STAY,
   source: ReservationSource.DIRECT,
   status: ReservationStatus.CHECKED_IN,
   paymentStatus: ReservationPaymentStatus.PAID,
@@ -162,6 +164,9 @@ describe('Operations services', () => {
   let auditRepository: MockRepository<AuditEventEntity>;
   const propertiesService = { findOne: jest.fn() } as unknown as jest.Mocked<PropertiesService>;
   const businessDateService = {
+    getAuthoritativeDate: jest.fn((property: { currentBusinessDate?: string | null }) =>
+      property.currentBusinessDate ?? dateKey(),
+    ),
     getCurrentBusinessDate: jest.fn((property: { currentBusinessDate?: string | null }) =>
       property.currentBusinessDate ?? dateKey(),
     ),
@@ -212,6 +217,10 @@ describe('Operations services', () => {
       currentBusinessDate: dateKey(),
     } as never);
     businessDateService.getCurrentBusinessDate.mockImplementation(
+      (property: { currentBusinessDate?: string | null }) =>
+        property.currentBusinessDate ?? dateKey(),
+    );
+    businessDateService.getAuthoritativeDate.mockImplementation(
       (property: { currentBusinessDate?: string | null }) =>
         property.currentBusinessDate ?? dateKey(),
     );
@@ -973,6 +982,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       roomAvailabilityService as never,
+      businessDateService as never,
     );
 
     await expect(
@@ -1015,6 +1025,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       { getAvailableRooms: jest.fn() } as never,
+      businessDateService as never,
     );
 
     await expect(
@@ -1075,6 +1086,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       roomAvailabilityService as never,
+      businessDateService as never,
     );
 
     await expect(
@@ -1135,6 +1147,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       { getAvailableRooms: jest.fn().mockResolvedValue([{ roomId: replacementRoomId }]) } as never,
+      businessDateService as never,
     );
 
     await expect(
@@ -1193,6 +1206,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       { getAvailableRooms: jest.fn().mockResolvedValue([{ roomId: replacementRoomId }]) } as never,
+      businessDateService as never,
     );
 
     await expect(
@@ -1285,6 +1299,7 @@ describe('Operations services', () => {
           { roomId: alreadyAssignedRoomId, roomNumber: '209', roomType: { id: roomTypeId } },
         ]),
       } as never,
+      businessDateService as never,
     );
 
     await expect(
@@ -1348,6 +1363,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       { getAvailableRooms: jest.fn().mockResolvedValue([{ roomId: replacementRoomId }]) } as never,
+      businessDateService as never,
     );
     jest.spyOn(service, 'getHold').mockResolvedValue({
       roomAssignments: [{ id: assignment.id, roomId: replacementRoomId }],
@@ -1425,6 +1441,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       { getAvailableRooms: jest.fn().mockResolvedValue([{ roomId: replacementRoomId }]) } as never,
+      businessDateService as never,
     );
     jest.spyOn(service, 'getHold').mockResolvedValue({
       roomAssignments: [{ id: assignment.id, roomId: replacementRoomId }],
@@ -1493,6 +1510,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       {} as never,
+      businessDateService as never,
     );
 
     await expect(
@@ -1569,6 +1587,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       {} as never,
+      businessDateService as never,
     );
 
     await expect(
@@ -1635,6 +1654,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       {} as never,
+      businessDateService as never,
     );
     jest.spyOn(service, 'getCheckInPreview').mockResolvedValue({
       canCheckIn: true,
@@ -1679,6 +1699,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       {} as never,
+      businessDateService as never,
     );
     jest.spyOn(service, 'getHold').mockResolvedValue({
       adults: 2,
@@ -1740,6 +1761,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       {} as never,
+      businessDateService as never,
     );
     jest.spyOn(service, 'getHold').mockResolvedValue({
       adults: 2,
@@ -1792,6 +1814,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       {} as never,
+      businessDateService as never,
     );
     jest.spyOn(service, 'getHold').mockResolvedValue({
       adults: 2,
@@ -1860,6 +1883,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       roomAvailabilityService as never,
+      businessDateService as never,
     );
 
     await expect(
@@ -1933,6 +1957,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       {} as never,
+      businessDateService as never,
     );
 
     await expect(
@@ -1993,6 +2018,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       {} as never,
+      businessDateService as never,
     );
 
     const result = await service.postGroupMasterFolioCharge(propertyId, 'group-booking-id', {
@@ -2042,6 +2068,13 @@ describe('Operations services', () => {
       save: jest.fn().mockResolvedValue(persistedPayment),
       find: jest.fn().mockResolvedValue([persistedPayment]),
     };
+    const authoritativeProperty = {
+      id: propertyId,
+      timezone: 'Asia/Kolkata',
+      currentBusinessDate: '2026-09-07',
+    };
+    propertiesService.findOne.mockResolvedValueOnce(authoritativeProperty as never);
+    businessDateService.getAuthoritativeDate.mockReturnValueOnce('2026-09-07');
 
     const service = new GroupBookingService(
       groupBookingsRepository as never,
@@ -2057,14 +2090,17 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       {} as never,
+      businessDateService as never,
       folioPaymentsRepository as never,
+      undefined,
     );
 
     const result = await service.postGroupMasterFolioPayment(propertyId, 'group-booking-id', {
       amount: 500,
+      businessDate: '2026-09-08',
       method: FolioPaymentMethod.CARD,
       reference: 'TXN-001',
-    });
+    } as never);
 
     expect(result.payments).toHaveLength(1);
     expect(result.payments[0]).toMatchObject({
@@ -2083,11 +2119,13 @@ describe('Operations services', () => {
     expect(folioPaymentsRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({
         amount: '500.00',
+        businessDate: '2026-09-07',
         folioId: null,
         groupMasterFolioId: 'folio-id',
         reference: 'TXN-001',
       }),
     );
+    expect(businessDateService.getAuthoritativeDate).toHaveBeenCalledWith(authoritativeProperty);
   });
 
   it('aggregates multiple persisted group folio payments and enables checkout after full settlement', async () => {
@@ -2144,6 +2182,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       {} as never,
+      businessDateService as never,
       folioPaymentsRepository as never,
     );
 
@@ -2238,6 +2277,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       {} as never,
+      businessDateService as never,
       folioPaymentsRepository as never,
     );
 
@@ -2290,6 +2330,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       {} as never,
+      businessDateService as never,
       {
         find: jest.fn().mockResolvedValue([
           {
@@ -2374,6 +2415,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       {} as never,
+      businessDateService as never,
     );
 
     const result = await service.extendGroupStay(propertyId, 'group-booking-id', {
@@ -2416,6 +2458,7 @@ describe('Operations services', () => {
       propertiesService as never,
       {} as never,
       {} as never,
+      businessDateService as never,
     );
 
     await expect(

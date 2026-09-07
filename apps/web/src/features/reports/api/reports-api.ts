@@ -43,6 +43,87 @@ export type TopGuestDto = {
   revenue: number;
 };
 
+export type NightAuditHistorySectionKey =
+  | 'pendingArrivals'
+  | 'stayReview'
+  | 'folioExceptions'
+  | 'groupReview';
+
+export type NightAuditHistorySectionCounts = Record<
+  NightAuditHistorySectionKey,
+  {
+    count: number | null;
+    blockingCount: number | null;
+  }
+>;
+
+export type NightAuditCompletionSnapshot = {
+  version: string;
+  propertyId: string;
+  runId: string;
+  businessDate: string;
+  nextBusinessDate: string;
+  startedAt: string;
+  startedByUserId: string;
+  completedAt: string;
+  completedByUserId: string;
+  validation: {
+    canClose: true;
+    totalBlockingCount: number;
+    blockers: Record<NightAuditHistorySectionKey, number>;
+  };
+  sections: {
+    pendingArrivals: { count: number; blockingCount: number; refs: Array<Record<string, unknown>> };
+    stayReview: {
+      count: number;
+      blockingCount: number;
+      summary: Record<string, number>;
+      refs: Array<Record<string, unknown>>;
+    };
+    folioExceptions: {
+      count: number;
+      blockingCount: number;
+      summary: Record<string, number>;
+      refs: Array<Record<string, unknown>>;
+    };
+    groupReview: {
+      count: number;
+      blockingCount: number;
+      summary: Record<string, number>;
+      refs: Array<Record<string, unknown>>;
+    };
+  };
+  inHouseSummary: Record<string, number>;
+};
+
+export type NightAuditHistoryRowDto = {
+  runId: string;
+  businessDate: string;
+  nextBusinessDate: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  completedByUserId: string | null;
+  completionSnapshotVersion: string | null;
+  hasSnapshot: boolean;
+  totalBlockingCount: number | null;
+  sectionCounts: NightAuditHistorySectionCounts;
+};
+
+export type NightAuditHistoryDetailDto = {
+  runId: string;
+  propertyId: string;
+  businessDate: string;
+  nextBusinessDate: string | null;
+  startedAt: string;
+  startedByUserId: string;
+  completedAt: string | null;
+  completedByUserId: string | null;
+  completionSnapshotVersion: string | null;
+  hasSnapshot: boolean;
+  completionSnapshot: NightAuditCompletionSnapshot | null;
+  legacySummary: Record<string, unknown> | null;
+};
+
 async function get<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, { cache: 'no-store', headers: { Accept: 'application/json' } });
   const payload = (await response.json().catch(() => undefined)) as ApiResponse<T> | undefined;
@@ -73,4 +154,16 @@ export async function getReports(propertyId: string, from: string, to: string) {
     get<TopGuestDto[]>(`/properties/${propertyId}/reports/top-guests${suffix}`),
   ]);
   return { overview, occupancy, revenue, operations, topGuests };
+}
+
+export async function getNightAuditHistory(propertyId: string, from: string, to: string) {
+  return get<NightAuditHistoryRowDto[]>(
+    `/properties/${encodeURIComponent(propertyId)}/reports/night-audit-history${qs(from, to)}`,
+  );
+}
+
+export async function getNightAuditHistoryDetail(propertyId: string, runId: string) {
+  return get<NightAuditHistoryDetailDto>(
+    `/properties/${encodeURIComponent(propertyId)}/reports/night-audit-history/${encodeURIComponent(runId)}`,
+  );
 }

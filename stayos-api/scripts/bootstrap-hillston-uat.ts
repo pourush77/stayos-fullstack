@@ -41,6 +41,7 @@ import { ReservationRateSnapshotService } from '../src/core/reservations/service
 import { ReservationRateSnapshotEntity } from '../src/core/reservations/infrastructure/reservation-rate-snapshot.entity';
 import { BillingService } from '../src/core/billing/billing.service';
 import { GstService } from '../src/core/rates/gst.service';
+import { BusinessDateService } from '../src/core/properties/services/business-date.service';
 import type { EntityManager } from 'typeorm';
 
 export const UAT_PREFIX = 'UAT26';
@@ -641,6 +642,7 @@ function createBillingService(manager: EntityManager): BillingService {
     manager.getRepository(TaxRuleEntity),
     propertiesAdapter as never,
   );
+  const businessDateService = new BusinessDateService();
 
   return new BillingService(
     manager.getRepository(FolioEntity),
@@ -651,6 +653,7 @@ function createBillingService(manager: EntityManager): BillingService {
     propertiesAdapter as never,
     dataSourceAdapter as never,
     childPricingService,
+    businessDateService,
     gstService,
   );
 }

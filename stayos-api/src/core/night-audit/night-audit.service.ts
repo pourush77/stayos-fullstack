@@ -1,8 +1,4 @@
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, QueryFailedError, Repository } from 'typeorm';
 import { AuditEventEntity } from '../audit/infrastructure/audit-event.entity';
@@ -16,7 +12,12 @@ import { NightAuditValidationDto } from './dto/night-audit-validation.dto';
 import { NightAuditWorkspaceDto } from './dto/night-audit-workspace.dto';
 import { NightAuditRunStatus } from './domain/night-audit-run-status.enum';
 import { NightAuditRunEntity } from './infrastructure/night-audit-run.entity';
+import { NightAuditCompletionSnapshotBuilder } from './snapshots/night-audit-completion-snapshot';
 import { NightAuditPreCloseValidator } from './validators/night-audit-pre-close.validator';
+import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
+import { ReservationStatus } from '../reservations/domain/reservation-status.enum';
+import { AccommodationPostingMode } from '../reservations/domain/accommodation-posting-mode.enum';
+import { BillingService } from '../billing/billing.service';
 
 export interface NightAuditRunResult {
   run: NightAuditRunEntity;
@@ -31,6 +32,8 @@ export interface NightAuditCloseResult {
 
 @Injectable()
 export class NightAuditService {
+  private readonly completionSnapshotBuilder = new NightAuditCompletionSnapshotBuilder();
+
   constructor(
     @InjectRepository(NightAuditRunEntity)
     private readonly nightAuditRunRepository: Repository<NightAuditRunEntity>,
@@ -40,6 +43,7 @@ export class NightAuditService {
     private readonly auditRepository: Repository<AuditEventEntity>,
     private readonly businessDateService: BusinessDateService,
     private readonly dataSource: DataSource,
+    private readonly billingService: BillingService,
     private readonly pendingArrivalsCollector: NightAuditPendingArrivalsCollector,
     private readonly stayReviewCollector: NightAuditStayReviewCollector,
     private readonly folioExceptionsCollector: NightAuditFolioExceptionsCollector,
@@ -292,16 +296,59 @@ export class NightAuditService {
 
       const oldBusinessDate = lockedRun.businessDate;
       const newBusinessDate = this.businessDateService.advanceBusinessDate(oldBusinessDate);
+      const completedAt = new Date();
+
+      if (lockedRun.completionSnapshot || lockedRun.completionSnapshotVersion) {
+        throw new ConflictException({
+          code: 'NIGHT_AUDIT_COMPLETION_SNAPSHOT_EXISTS',
+          message: `Night audit run ${lockedRun.id} already has a completion snapshot.`,
+        });
+      }
+
+      // NIGHTLY_V1 posting: find eligible individual reservations and post nightly ROOM charges
+      const reservationRepo = manager.getRepository(ReservationEntity);
+      const eligibleReservations = await reservationRepo
+        .createQueryBuilder('r')
+        .where('r.propertyId = :propertyId', { propertyId })
+        .andWhere('r.accommodationPostingMode = :mode', {
+          mode: AccommodationPostingMode.NIGHTLY_V1,
+        })
+        .andWhere('r.status = :status', { status: ReservationStatus.CHECKED_IN })
+        .andWhere('r.arrivalDate <= :serviceDate AND r.departureDate > :serviceDate', {
+          serviceDate: lockedRun.businessDate,
+        })
+        .orderBy('r.id', 'ASC')
+        .getMany();
+
+      for (const reservation of eligibleReservations) {
+        await this.billingService.postNightlyAccommodationChargeOnManager(
+          manager,
+          propertyId,
+          reservation.id,
+          lockedRun.businessDate,
+          actorUserId,
+        );
+      }
+
+      const completionSnapshot = this.completionSnapshotBuilder.build({
+        run: lockedRun,
+        workspace,
+        validation,
+        nextBusinessDate: newBusinessDate,
+        completedAt,
+        actorUserId,
+      });
 
       // 1. Advance property currentBusinessDate
       lockedProperty.currentBusinessDate = newBusinessDate;
       await propertyRepo.save(lockedProperty);
 
       // 2. Complete NightAuditRun
-      const completedAt = new Date();
       lockedRun.status = NightAuditRunStatus.COMPLETED;
       lockedRun.completedAt = completedAt;
       lockedRun.completedByUserId = actorUserId;
+      lockedRun.completionSnapshot = completionSnapshot;
+      lockedRun.completionSnapshotVersion = completionSnapshot.version;
       lockedRun.summary = {
         businessDate: oldBusinessDate,
         nextBusinessDate: newBusinessDate,
@@ -340,6 +387,7 @@ export class NightAuditService {
             businessDate: oldBusinessDate,
             nextBusinessDate: newBusinessDate,
             totalBlockingCount: 0,
+            snapshotVersion: completionSnapshot.version,
           },
         }),
       );

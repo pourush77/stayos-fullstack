@@ -81,6 +81,15 @@ export class FolioChargeEntity {
   @Column({ type: 'uuid', name: 'created_by_user_id', nullable: true })
   createdByUserId!: string | null;
 
+  @Column({ type: 'date', name: 'business_date', nullable: true })
+  businessDate!: Date | null;
+
+  @Column({ type: 'date', name: 'service_date', nullable: true })
+  serviceDate!: Date | null;
+
+  @Column({ type: 'varchar', length: 240, name: 'idempotency_key', nullable: true })
+  idempotencyKey!: string | null;
+
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt!: Date;
 }

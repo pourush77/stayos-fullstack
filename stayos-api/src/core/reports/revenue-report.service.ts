@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, Repository } from 'typeorm';
+import { Between, Repository, IsNull } from 'typeorm';
 import { FolioChargeEntity } from '../billing/infrastructure/folio-charge.entity';
 import { FolioPaymentEntity } from '../billing/infrastructure/folio-payment.entity';
 import { ReportsRevenueDto } from './dto/reports.dto';
@@ -10,14 +10,50 @@ import { ReportRange, round } from './reports-range';
 @Injectable()
 export class RevenueReportService {
   constructor(
-    @InjectRepository(FolioChargeEntity) private readonly chargesRepository: Repository<FolioChargeEntity>,
-    @InjectRepository(FolioPaymentEntity) private readonly paymentsRepository: Repository<FolioPaymentEntity>,
+    @InjectRepository(FolioChargeEntity)
+    private readonly chargesRepository: Repository<FolioChargeEntity>,
+    @InjectRepository(FolioPaymentEntity)
+    private readonly paymentsRepository: Repository<FolioPaymentEntity>,
   ) {}
 
-  async getRevenue(propertyId: string, range: ReportRange, occupancy: ReportsOccupancyDto): Promise<ReportsRevenueDto> {
+  async getRevenue(
+    propertyId: string,
+    range: ReportRange,
+    occupancy: ReportsOccupancyDto,
+  ): Promise<ReportsRevenueDto> {
+    // Query logic:
+    // - Prefer authoritative `businessDate` when present (new rows).
+    // - For legacy rows where `businessDate` IS NULL, fall back to wall-clock
+    //   timestamps (`chargedAt` / `receivedAt`). Do NOT backfill data.
     const [charges, payments] = await Promise.all([
-      this.chargesRepository.find({ where: { folio: { propertyId }, chargedAt: Between(range.from, range.to) }, relations: ['folio'] }),
-      this.paymentsRepository.find({ where: { folio: { propertyId }, receivedAt: Between(range.from, range.to) }, relations: ['folio'] }),
+      this.chargesRepository.find({
+        where: [
+          { folio: { propertyId }, businessDate: Between(range.from, range.to) },
+          {
+            folio: { propertyId },
+            businessDate: IsNull(),
+            chargedAt: Between(range.from, range.to),
+          },
+        ],
+        relations: ['folio'],
+      }),
+      this.paymentsRepository.find({
+        where: [
+          { folio: { propertyId }, businessDate: Between(range.from, range.to) },
+          {
+            folio: { propertyId },
+            businessDate: IsNull(),
+            receivedAt: Between(range.from, range.to),
+          },
+          { groupMasterFolio: { propertyId }, businessDate: Between(range.from, range.to) },
+          {
+            groupMasterFolio: { propertyId },
+            businessDate: IsNull(),
+            receivedAt: Between(range.from, range.to),
+          },
+        ],
+        relations: ['folio', 'groupMasterFolio'],
+      }),
     ]);
     const byChargeType = new Map<string, number>();
     const byPaymentMethod = new Map<string, number>();
@@ -28,11 +64,16 @@ export class RevenueReportService {
     }, 0);
     const totalPayments = payments.reduce((sum, payment) => {
       const amount = Number(payment.amount);
-      byPaymentMethod.set(payment.method, round((byPaymentMethod.get(payment.method) ?? 0) + amount));
+      byPaymentMethod.set(
+        payment.method,
+        round((byPaymentMethod.get(payment.method) ?? 0) + amount),
+      );
       return sum + amount;
     }, 0);
-    const adr = occupancy.roomNightsOccupied === 0 ? 0 : totalRevenue / occupancy.roomNightsOccupied;
-    const revPar = occupancy.roomNightsAvailable === 0 ? 0 : totalRevenue / occupancy.roomNightsAvailable;
+    const adr =
+      occupancy.roomNightsOccupied === 0 ? 0 : totalRevenue / occupancy.roomNightsOccupied;
+    const revPar =
+      occupancy.roomNightsAvailable === 0 ? 0 : totalRevenue / occupancy.roomNightsAvailable;
 
     return {
       totalRevenue: round(totalRevenue),

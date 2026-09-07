@@ -17,6 +17,7 @@ import { ReservationPaymentStatus } from '../domain/reservation-payment-status.e
 import { ReservationSource } from '../domain/reservation-source.enum';
 import { ReservationStatus } from '../domain/reservation-status.enum';
 import { CFormStatus } from '../domain/c-form-status.enum';
+import { AccommodationPostingMode } from '../domain/accommodation-posting-mode.enum';
 
 @Entity({ name: 'reservations' })
 @Index('UQ_reservations_property_code', ['propertyId', 'reservationCode'], { unique: true })
@@ -207,6 +208,14 @@ export class ReservationEntity {
 
   @Column({ type: 'jsonb', name: 'tax_snapshot', nullable: true })
   taxSnapshot?: Record<string, unknown> | null;
+
+  @Column({
+    type: 'enum',
+    enum: AccommodationPostingMode,
+    name: 'accommodation_posting_mode',
+    default: AccommodationPostingMode.UPFRONT_FULL_STAY,
+  })
+  accommodationPostingMode!: AccommodationPostingMode;
 
   @Column({ type: 'varchar', length: 32, name: 'late_checkout_approved_until', nullable: true })
   lateCheckoutApprovedUntil?: string | null;
