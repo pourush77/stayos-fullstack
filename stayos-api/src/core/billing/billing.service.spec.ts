@@ -700,6 +700,93 @@ describe('BillingService', () => {
     });
   });
 
+  describe('assertNightlyAccommodationCompleteForCheckoutOnManager (V2.3F checkout guard)', () => {
+    const guardManager = () =>
+      ({
+        getRepository: (entity: unknown) => {
+          if (entity === FolioEntity) return managerFoliosRepository;
+          if (entity === FolioChargeEntity) return managerChargesRepository;
+          if (entity === ReservationEntity) return managerReservationsRepository;
+          if (entity === ReservationRateSnapshotEntity) return managerSnapshotsRepository;
+          throw new Error('unexpected repository');
+        },
+      }) as never;
+
+    const postedRoom = (date: string) => ({
+      id: `charge-${date}`,
+      folioId: 'folio-1',
+      type: FolioChargeType.ROOM,
+      status: FolioChargeStatus.POSTED,
+      serviceDate: date,
+    });
+
+    beforeEach(() => {
+      propertiesService.findOne = jest.fn().mockResolvedValue({ id: propertyId });
+      managerFoliosRepository.findOne = jest.fn().mockResolvedValue({ id: 'folio-1', propertyId, reservationId });
+    });
+
+    it('resolves for a NIGHTLY_V1 due-out stay when every required service night is posted', async () => {
+      businessDateService.getAuthoritativeDate = jest.fn(() => '2026-08-06'); // due out; required = 03,04,05
+      managerReservationsRepository.findOne = jest
+        .fn()
+        .mockResolvedValue(reservation({ accommodationPostingMode: AccommodationPostingMode.NIGHTLY_V1 }));
+      managerChargesRepository.find = jest
+        .fn()
+        .mockResolvedValue([postedRoom('2026-08-03'), postedRoom('2026-08-04'), postedRoom('2026-08-05')]);
+
+      await expect(
+        service.assertNightlyAccommodationCompleteForCheckoutOnManager(guardManager(), propertyId, reservationId),
+      ).resolves.toBeUndefined();
+    });
+
+    it('blocks checkout listing the EXACT missing service dates when a required night is unposted', async () => {
+      businessDateService.getAuthoritativeDate = jest.fn(() => '2026-08-06');
+      managerReservationsRepository.findOne = jest
+        .fn()
+        .mockResolvedValue(reservation({ accommodationPostingMode: AccommodationPostingMode.NIGHTLY_V1 }));
+      managerChargesRepository.find = jest
+        .fn()
+        .mockResolvedValue([postedRoom('2026-08-03'), postedRoom('2026-08-04')]); // 05 missing
+
+      const err = await service
+        .assertNightlyAccommodationCompleteForCheckoutOnManager(guardManager(), propertyId, reservationId)
+        .catch((e) => e);
+
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(err.getResponse()).toMatchObject({
+        code: 'NIGHTLY_ACCOMMODATION_NOT_READY_FOR_CHECKOUT',
+        missingServiceDates: ['2026-08-05'],
+        businessDate: '2026-08-06',
+      });
+    });
+
+    it('is a no-op for UPFRONT_FULL_STAY (never inspects folio charges)', async () => {
+      businessDateService.getAuthoritativeDate = jest.fn(() => '2026-08-06');
+      managerReservationsRepository.findOne = jest
+        .fn()
+        .mockResolvedValue(reservation({ accommodationPostingMode: AccommodationPostingMode.UPFRONT_FULL_STAY }));
+      managerChargesRepository.find = jest.fn();
+
+      await expect(
+        service.assertNightlyAccommodationCompleteForCheckoutOnManager(guardManager(), propertyId, reservationId),
+      ).resolves.toBeUndefined();
+      expect(managerChargesRepository.find).not.toHaveBeenCalled();
+    });
+
+    it('only requires nights already DUE (< business date): an extended tail with future unposted nights still passes', async () => {
+      // Stay 03..06, business date 04 -> only night 03 is due; 04 (tonight) & 05 are not yet required.
+      businessDateService.getAuthoritativeDate = jest.fn(() => '2026-08-04');
+      managerReservationsRepository.findOne = jest
+        .fn()
+        .mockResolvedValue(reservation({ accommodationPostingMode: AccommodationPostingMode.NIGHTLY_V1 }));
+      managerChargesRepository.find = jest.fn().mockResolvedValue([postedRoom('2026-08-03')]);
+
+      await expect(
+        service.assertNightlyAccommodationCompleteForCheckoutOnManager(guardManager(), propertyId, reservationId),
+      ).resolves.toBeUndefined();
+    });
+  });
+
   describe('nightly accommodation posting', () => {
     const serviceDate = '2026-08-04';
     let nightlyInsertValues: jest.Mock;

@@ -264,7 +264,7 @@ describe('ReservationsService', () => {
         roomTypeId,
         roomId,
         childAges: null,
-        accommodationPostingMode: AccommodationPostingMode.UPFRONT_FULL_STAY,
+        accommodationPostingMode: AccommodationPostingMode.NIGHTLY_V1,
       }),
     );
   });

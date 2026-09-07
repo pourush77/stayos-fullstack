@@ -571,6 +571,14 @@ export class ReservationWorkflowService {
         guestRepository.findOne({ where: { id: reservation.guestId, propertyId } }),
       ]);
       this.ensureRoomBelongsToProperty(room, propertyId);
+      // V2.3F: block CHECKED_IN -> CHECKED_OUT while a required nightly ROOM night
+      // is unposted (NIGHTLY_V1 only; no-op for UPFRONT_FULL_STAY). Runs before any
+      // settlement / invoice finalization / irreversible lifecycle write.
+      await this.billingService.assertNightlyAccommodationCompleteForCheckoutOnManager(
+        manager,
+        propertyId,
+        reservation.id,
+      );
       await this.ensureFolioSettledForCheckout(manager, reservation);
       await this.settleFolioForCheckout(manager, reservation);
       await this.finalizeInvoiceForCheckout(manager, reservation);

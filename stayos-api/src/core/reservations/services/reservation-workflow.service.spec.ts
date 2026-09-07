@@ -158,6 +158,7 @@ describe('ReservationWorkflowService', () => {
     reconcileRoomChargesOnManager: jest.Mock;
     reconcileAccommodationRoomChargesOnManager: jest.Mock;
     assertCommercialAmendmentAllowedOnManager: jest.Mock;
+    assertNightlyAccommodationCompleteForCheckoutOnManager: jest.Mock;
   };
 
   beforeEach(() => {
@@ -169,6 +170,7 @@ describe('ReservationWorkflowService', () => {
       reconcileRoomChargesOnManager: jest.fn().mockResolvedValue(undefined),
       reconcileAccommodationRoomChargesOnManager: jest.fn().mockResolvedValue(undefined),
       assertCommercialAmendmentAllowedOnManager: jest.fn().mockResolvedValue(undefined),
+      assertNightlyAccommodationCompleteForCheckoutOnManager: jest.fn().mockResolvedValue(undefined),
     };
     reservationsRepository = {
       findOne: jest.fn().mockResolvedValue(reservationEntity()),
@@ -534,6 +536,42 @@ describe('ReservationWorkflowService', () => {
       expect(activityRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'GUEST_CHECKED_OUT' }),
       );
+    });
+
+    it('V2.3F invokes the nightly accommodation completeness guard before settlement', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ roomId, status: ReservationStatus.CHECKED_IN }),
+      );
+
+      await service.checkOut(propertyId, reservationId);
+
+      expect(
+        billingService.assertNightlyAccommodationCompleteForCheckoutOnManager,
+      ).toHaveBeenCalledWith(expect.anything(), propertyId, reservationId);
+    });
+
+    it('V2.3F blocks checkout (and skips lifecycle/settlement writes) when a required nightly night is missing', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({ roomId, status: ReservationStatus.CHECKED_IN }),
+      );
+      billingService.assertNightlyAccommodationCompleteForCheckoutOnManager.mockRejectedValueOnce(
+        new ConflictException({
+          code: 'NIGHTLY_ACCOMMODATION_NOT_READY_FOR_CHECKOUT',
+          message: 'not ready',
+          missingServiceDates: ['2026-08-05'],
+        }),
+      );
+
+      const err = await service.checkOut(propertyId, reservationId).catch((e) => e);
+
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(err.getResponse()).toMatchObject({
+        code: 'NIGHTLY_ACCOMMODATION_NOT_READY_FOR_CHECKOUT',
+      });
+      // Guard runs before any settlement/lifecycle write.
+      expect(foliosRepository.update).not.toHaveBeenCalled();
+      expect(roomsRepository.save).not.toHaveBeenCalled();
+      expect(reservationsRepository.save).not.toHaveBeenCalled();
     });
   });
 

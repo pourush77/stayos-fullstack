@@ -803,7 +803,7 @@ export class ReservationsService {
       externalConfirmationId: dto.externalConfirmationId ?? null,
       children: dto.children ?? 0,
       childAges: dto.children && dto.children > 0 ? (dto.childAges ?? null) : null,
-      accommodationPostingMode: AccommodationPostingMode.UPFRONT_FULL_STAY,
+      accommodationPostingMode: AccommodationPostingMode.NIGHTLY_V1,
       roomId: dto.roomId ?? null,
       notes: dto.notes ?? null,
       specialRequests: dto.specialRequests?.trim() || 'None',

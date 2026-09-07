@@ -30,6 +30,7 @@ import { ChildPricingService } from '../rates/child-pricing.service';
 import { FolioChargeType } from './domain/folio-charge-type.enum';
 import { GstService } from '../rates/gst.service';
 import { PlaceOfSupply, TaxSnapshot } from '../rates/domain/gst.types';
+import { expandStayNights } from '../inventory/domain/inventory-nights';
 
 @Injectable()
 export class BillingService {
@@ -417,6 +418,72 @@ export class BillingService {
       return;
     }
     await this.reconcileRoomChargesOnManager(manager, propertyId, reservationId, actorUserId);
+  }
+
+  /**
+   * Checkout completeness guard for nightly accommodation (V2.3F). For
+   * UPFRONT_FULL_STAY this is a no-op (behavior unchanged). For NIGHTLY_V1 it
+   * asserts that every consumed accommodation night already DUE as of the
+   * property's authoritative business date has a live POSTED ROOM charge, so a
+   * reservation can never transition CHECKED_IN -> CHECKED_OUT while a required
+   * nightly ROOM charge is missing (which E3 would otherwise make un-postable).
+   * Required nights = { d : arrivalDate <= d < departureDate AND d < businessDate }.
+   * The current-business-date night (d == businessDate) is tonight's not-yet-due
+   * night (posted by that day's Night Audit) and is intentionally excluded.
+   * Runs on the caller's EntityManager and opens no transaction. Correctness uses
+   * the EXACT expected serviceDate set vs the exact live posted serviceDate set
+   * (not a count), even though E2 already prevents duplicates.
+   */
+  async assertNightlyAccommodationCompleteForCheckoutOnManager(
+    manager: EntityManager,
+    propertyId: string,
+    reservationId: string,
+  ): Promise<void> {
+    const reservation = await manager
+      .getRepository(ReservationEntity)
+      .findOne({ where: { id: reservationId, propertyId } });
+    if (!reservation) return;
+    if (reservation.accommodationPostingMode !== AccommodationPostingMode.NIGHTLY_V1) return;
+
+    const property = await this.propertiesService.findOne(propertyId);
+    const businessDate = this.businessDateService.getAuthoritativeDate(property);
+    const requiredServiceDates = expandStayNights(
+      reservation.arrivalDate,
+      reservation.departureDate,
+    ).filter((night) => night < businessDate);
+    if (requiredServiceDates.length === 0) return;
+
+    const folio = await manager
+      .getRepository(FolioEntity)
+      .findOne({ where: { reservationId, propertyId } });
+    const postedRoomCharges = folio
+      ? await manager.getRepository(FolioChargeEntity).find({
+          where: {
+            folioId: folio.id,
+            type: FolioChargeType.ROOM,
+            status: FolioChargeStatus.POSTED,
+          },
+        })
+      : [];
+    const postedServiceDates = new Set(
+      postedRoomCharges
+        .map((charge) => (charge.serviceDate ? String(charge.serviceDate) : null))
+        .filter((date): date is string => date !== null),
+    );
+    const missingServiceDates = requiredServiceDates.filter(
+      (date) => !postedServiceDates.has(date),
+    );
+    if (missingServiceDates.length > 0) {
+      throw new ConflictException({
+        code: 'NIGHTLY_ACCOMMODATION_NOT_READY_FOR_CHECKOUT',
+        message:
+          `Cannot check out: nightly accommodation is not posted for service date(s) ` +
+          `${missingServiceDates.join(', ')}. Current business date is ${businessDate}. ` +
+          `Run Night Audit before checkout.`,
+        missingServiceDates,
+        businessDate,
+      });
+    }
   }
 
   async postNightlyAccommodationCharge(
