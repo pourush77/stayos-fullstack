@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, QueryDeepPartialEntity, Repository } from 'typeorm';
 import { PropertiesService } from '../properties/properties.service';
 import { BusinessDateService } from '../properties/services/business-date.service';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
@@ -530,7 +530,9 @@ export class BillingService {
       activeSnapshot.version,
       serviceDate,
     );
-    const existing = await chargeRepo.findOne({ where: { folioId: folio.id, idempotencyKey } });
+    const existing =
+      (await chargeRepo.findOne({ where: { folioId: folio.id, idempotencyKey } })) ??
+      (await this.findLiveNightlyRoomCharge(chargeRepo, folio.id, serviceDate));
     if (existing) return existing;
 
     const gst = await this.gstService.computeTax(
@@ -565,17 +567,49 @@ export class BillingService {
       createdByUserId: actorUserId ?? null,
     });
 
-    try {
-      const saved = await chargeRepo.save(charge);
-      await folioRepo.update({ id: folio.id }, { updatedAt: new Date() });
-      return saved;
-    } catch (error) {
-      if (this.isUniqueViolation(error)) {
-        const duplicate = await chargeRepo.findOne({ where: { folioId: folio.id, idempotencyKey } });
-        if (duplicate) return duplicate;
-      }
-      throw error;
+    // Insert with ON CONFLICT DO NOTHING so a concurrent or cross-snapshot
+    // duplicate never aborts the (possibly Night Audit) transaction. The partial
+    // unique index on live nightly (folio_id, service_date) is the final
+    // authority; on any conflict we return the authoritative existing charge.
+    await chargeRepo
+      .createQueryBuilder()
+      .insert()
+      .into(FolioChargeEntity)
+      .values(charge as QueryDeepPartialEntity<FolioChargeEntity>)
+      .orIgnore()
+      .execute();
+    await folioRepo.update({ id: folio.id }, { updatedAt: new Date() });
+    const persisted =
+      (await this.findLiveNightlyRoomCharge(chargeRepo, folio.id, serviceDate)) ??
+      (await chargeRepo.findOne({ where: { folioId: folio.id, idempotencyKey } }));
+    if (!persisted) {
+      throw new ConflictException({
+        code: 'NIGHTLY_ACCOMMODATION_POSTING_FAILED',
+        message: 'Failed to persist nightly accommodation charge for the service night',
+      });
     }
+    return persisted;
+  }
+
+  /**
+   * Finds the single LIVE nightly accommodation ROOM charge for a folio+service
+   * night, if any. "Live" = an original POSTED ROOM charge for that service date
+   * (reversal/reversed rows and NULL-serviceDate aggregate/legacy/manual charges
+   * are excluded). Backs the cross-snapshot service-night uniqueness invariant.
+   */
+  private async findLiveNightlyRoomCharge(
+    chargeRepo: Repository<FolioChargeEntity>,
+    folioId: string,
+    serviceDate: string,
+  ): Promise<FolioChargeEntity | null> {
+    return chargeRepo.findOne({
+      where: {
+        folioId,
+        type: FolioChargeType.ROOM,
+        status: FolioChargeStatus.POSTED,
+        serviceDate: serviceDate as unknown as Date,
+      },
+    });
   }
 
   private buildNightlyAccommodationIdempotencyKey(

@@ -701,6 +701,8 @@ describe('BillingService', () => {
 
   describe('nightly accommodation posting', () => {
     const serviceDate = '2026-08-04';
+    let nightlyInsertValues: jest.Mock;
+    let seededPersistedNightly: Record<string, unknown>;
     const nightlyReservation = () =>
       reservation({
         status: ReservationStatus.CHECKED_IN,
@@ -748,16 +750,33 @@ describe('BillingService', () => {
         property: { id: propertyId, currentBusinessDate: '2026-09-08' },
         guest: { state: null },
       });
-      managerChargesRepository.findOne = jest.fn().mockResolvedValue(null);
+      // ON CONFLICT DO NOTHING insert path (E2). Capture the values passed to the
+      // insert builder and model the transaction-safe post-insert re-query.
+      nightlyInsertValues = jest.fn().mockReturnThis();
+      managerChargesRepository.createQueryBuilder = jest.fn(() => ({
+        insert: jest.fn().mockReturnThis(),
+        into: jest.fn().mockReturnThis(),
+        values: nightlyInsertValues,
+        orIgnore: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ identifiers: [{ id: 'charge-1' }], raw: [] }),
+      })) as never;
+      seededPersistedNightly = { id: 'charge-1', folioId: 'folio-1', serviceDate };
+      // 1st findOne = idempotency-key pre-check (miss), 2nd = service-date
+      // pre-check (miss), 3rd = authoritative post-insert re-query (hit).
+      managerChargesRepository.findOne = jest
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue(seededPersistedNightly);
     }
 
     it('posts exactly one checked-in NIGHTLY_V1 room night from the matching snapshot night', async () => {
       seedNightlyPoster();
 
-      await service.postNightlyAccommodationCharge(propertyId, reservationId, serviceDate, 'actor-1');
+      const result = await service.postNightlyAccommodationCharge(propertyId, reservationId, serviceDate, 'actor-1');
 
-      expect(managerChargesRepository.save).toHaveBeenCalledTimes(1);
-      expect(managerChargesRepository.save).toHaveBeenCalledWith(
+      expect(nightlyInsertValues).toHaveBeenCalledTimes(1);
+      expect(nightlyInsertValues).toHaveBeenCalledWith(
         expect.objectContaining({
           folioId: 'folio-1',
           type: FolioChargeType.ROOM,
@@ -774,6 +793,8 @@ describe('BillingService', () => {
             `:snapshot:snapshot-1:version:7:night:${serviceDate}`,
         }),
       );
+      // Returns the authoritative persisted row from the post-insert re-query.
+      expect(result).toBe(seededPersistedNightly);
     });
 
     it('calculates and freezes GST for the one service night using serviceDate', async () => {
@@ -804,7 +825,7 @@ describe('BillingService', () => {
         }),
         expect.anything(),
       );
-      expect(managerChargesRepository.save).toHaveBeenCalledWith(
+      expect(nightlyInsertValues).toHaveBeenCalledWith(
         expect.objectContaining({
           taxAmount: '570.00',
           hsnSac: '996311',
@@ -828,14 +849,20 @@ describe('BillingService', () => {
       );
 
       expect(result).toMatchObject({ id: 'charge-existing' });
-      expect(managerChargesRepository.save).not.toHaveBeenCalled();
+      expect(managerChargesRepository.createQueryBuilder).not.toHaveBeenCalled();
     });
 
-    it('treats a duplicate-key insert race as the existing successful nightly charge', async () => {
+    it('treats a concurrent / cross-snapshot duplicate as the existing live nightly charge via ON CONFLICT DO NOTHING', async () => {
       seedNightlyPoster();
-      const existing = { id: 'charge-raced', folioId: 'folio-1' };
-      managerChargesRepository.findOne = jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(existing);
-      managerChargesRepository.save = jest.fn().mockRejectedValue({ code: '23505' });
+      const existing = { id: 'charge-raced', folioId: 'folio-1', serviceDate, rateSnapshotVersion: 1 };
+      // Both pre-checks miss (a racing tx commits after them, and/or a different
+      // snapshot key), the insert is ignored on conflict (transaction NOT aborted),
+      // and the authoritative existing live night is returned by the re-query.
+      managerChargesRepository.findOne = jest
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue(existing);
 
       const result = await service.postNightlyAccommodationCharge(
         propertyId,
@@ -844,7 +871,73 @@ describe('BillingService', () => {
       );
 
       expect(result).toBe(existing);
-      expect(managerChargesRepository.save).toHaveBeenCalledTimes(1);
+      // Insert was attempted exactly once with ON CONFLICT DO NOTHING semantics.
+      expect(managerChargesRepository.createQueryBuilder).toHaveBeenCalledTimes(1);
+    });
+
+    it('E2 cross-snapshot: an existing live nightly night is returned unchanged with no repricing and no second insert', async () => {
+      seedNightlyPoster(); // current ACTIVE snapshot is v7
+      const existingV1 = {
+        id: 'charge-v1',
+        folioId: 'folio-1',
+        serviceDate,
+        amount: '3600.00',
+        rateSnapshotId: 'snapshot-old',
+        rateSnapshotVersion: 1,
+      };
+      // idempotency-key pre-check (v7 key) misses; service-date pre-check finds v1.
+      managerChargesRepository.findOne = jest
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue(existingV1);
+
+      const result = await service.postNightlyAccommodationCharge(propertyId, reservationId, serviceDate);
+
+      expect(result).toBe(existingV1);
+      expect(result.amount).toBe('3600.00');
+      expect(result.rateSnapshotVersion).toBe(1);
+      // No second charge inserted for the already-posted night.
+      expect(managerChargesRepository.createQueryBuilder).not.toHaveBeenCalled();
+    });
+
+    it("E2 service-night lookup only matches LIVE (POSTED) ROOM charges, so reversal rows aren't treated as duplicates", async () => {
+      seedNightlyPoster();
+      managerChargesRepository.findOne = jest
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue({ id: 'charge-1', folioId: 'folio-1', serviceDate });
+
+      await service.postNightlyAccommodationCharge(propertyId, reservationId, serviceDate);
+
+      // The (folio, serviceDate) pre-check is constrained to type ROOM + status POSTED,
+      // which excludes REVERSAL/REVERSED rows and NULL-serviceDate legacy/aggregate rows.
+      expect(managerChargesRepository.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            folioId: 'folio-1',
+            type: FolioChargeType.ROOM,
+            status: FolioChargeStatus.POSTED,
+            serviceDate,
+          }),
+        }),
+      );
+    });
+
+    it('E2 allows distinct service nights on the same folio without a false conflict', async () => {
+      seedNightlyPoster();
+      managerChargesRepository.findOne = jest
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue({ id: 'charge-0803', folioId: 'folio-1', serviceDate: '2026-08-03' });
+
+      await service.postNightlyAccommodationCharge(propertyId, reservationId, '2026-08-03');
+
+      expect(nightlyInsertValues).toHaveBeenCalledTimes(1);
+      expect(nightlyInsertValues).toHaveBeenCalledWith(
+        expect.objectContaining({ serviceDate: '2026-08-03', type: FolioChargeType.ROOM }),
+      );
     });
 
     it('rejects UPFRONT_FULL_STAY without posting', async () => {
