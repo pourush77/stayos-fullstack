@@ -46,6 +46,14 @@ describe('NightAuditService', () => {
   let txRunRepo: MockRepository<NightAuditRunEntity>;
   let txAuditRepo: MockRepository<AuditEventEntity>;
   let txPropertyRepo: MockRepository<PropertyEntity>;
+  let txReservationQueryBuilder: {
+    where: jest.Mock;
+    andWhere: jest.Mock;
+    orderBy: jest.Mock;
+    getMany: jest.Mock;
+  };
+  let txReservationRepo: { createQueryBuilder: jest.Mock };
+  let billingService: { postNightlyAccommodationChargeOnManager: jest.Mock };
 
   const mockPropertyId = '11111111-1111-1111-1111-111111111111';
   const mockUserId = '99999999-9999-9999-9999-999999999999';
@@ -332,13 +340,18 @@ describe('NightAuditService', () => {
       save: jest.fn((entity) => Promise.resolve(entity)),
     };
 
-    const txReservationRepo = {
-      createQueryBuilder: jest.fn(() => ({
-        where: jest.fn().mockReturnThis(),
-        andWhere: jest.fn().mockReturnThis(),
-        orderBy: jest.fn().mockReturnThis(),
-        getMany: jest.fn().mockResolvedValue([]),
-      })),
+    txReservationQueryBuilder = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    };
+    txReservationRepo = {
+      createQueryBuilder: jest.fn(() => txReservationQueryBuilder),
+    };
+
+    billingService = {
+      postNightlyAccommodationChargeOnManager: jest.fn().mockResolvedValue(undefined),
     };
 
     dataSource = {
@@ -406,9 +419,7 @@ describe('NightAuditService', () => {
         },
         {
           provide: BillingService,
-          useValue: {
-            postNightlyAccommodationChargeOnManager: jest.fn().mockResolvedValue(undefined),
-          },
+          useValue: billingService,
         },
         {
           provide: NightAuditPendingArrivalsCollector,
@@ -1185,6 +1196,89 @@ describe('NightAuditService', () => {
       expect(propertiesRepo.save).not.toHaveBeenCalled();
       expect(nightAuditRunRepo.save).not.toHaveBeenCalled();
       expect(auditRepo.save).not.toHaveBeenCalled();
+    });
+
+    describe('V2.3D nightly accommodation posting integration', () => {
+      const eligibleReservation = (id: string) => ({ id }) as unknown as ReservationEntity;
+
+      it('1. ELIGIBLE POST: a single eligible NIGHTLY_V1/CHECKED_IN reservation results in exactly one manager-aware nightly post', async () => {
+        txReservationQueryBuilder.getMany.mockResolvedValueOnce([eligibleReservation('res-nightly-1')]);
+
+        const result = await service.closeRun(mockPropertyId, mockUserId);
+
+        expect(billingService.postNightlyAccommodationChargeOnManager).toHaveBeenCalledTimes(1);
+        expect(result.run.status).toBe(NightAuditRunStatus.COMPLETED);
+      });
+
+      it('2. ARGUMENT CONTRACT: poster receives the SAME transaction manager, propertyId, reservationId and serviceDate === run.businessDate', async () => {
+        txReservationQueryBuilder.getMany.mockResolvedValueOnce([eligibleReservation('res-nightly-1')]);
+
+        await service.closeRun(mockPropertyId, mockUserId);
+
+        const [managerArg, propertyIdArg, reservationIdArg, serviceDateArg, actorArg] =
+          billingService.postNightlyAccommodationChargeOnManager.mock.calls[0];
+        // Same EntityManager reused: resolving ReservationEntity on it yields the exact tx repo used for eligibility
+        expect(typeof (managerArg as EntityManager).getRepository).toBe('function');
+        expect((managerArg as EntityManager).getRepository(ReservationEntity)).toBe(txReservationRepo);
+        expect(propertyIdArg).toBe(mockPropertyId);
+        expect(reservationIdArg).toBe('res-nightly-1');
+        expect(serviceDateArg).toBe(mockRun.businessDate);
+        expect(actorArg).toBe(mockUserId);
+      });
+
+      it('3. MULTIPLE RESERVATIONS: every eligible reservation is posted once in deterministic id ASC order', async () => {
+        txReservationQueryBuilder.getMany.mockResolvedValueOnce([
+          eligibleReservation('res-a'),
+          eligibleReservation('res-b'),
+          eligibleReservation('res-c'),
+        ]);
+
+        await service.closeRun(mockPropertyId, mockUserId);
+
+        expect(txReservationQueryBuilder.orderBy).toHaveBeenCalledWith('r.id', 'ASC');
+        expect(billingService.postNightlyAccommodationChargeOnManager).toHaveBeenCalledTimes(3);
+        const postedReservationIds =
+          billingService.postNightlyAccommodationChargeOnManager.mock.calls.map((call) => call[2]);
+        expect(postedReservationIds).toEqual(['res-a', 'res-b', 'res-c']);
+      });
+
+      it('4. ZERO ELIGIBLE: no eligible reservations => poster never called and close still succeeds', async () => {
+        txReservationQueryBuilder.getMany.mockResolvedValueOnce([]);
+
+        const result = await service.closeRun(mockPropertyId, mockUserId);
+
+        expect(billingService.postNightlyAccommodationChargeOnManager).not.toHaveBeenCalled();
+        expect(result.run.status).toBe(NightAuditRunStatus.COMPLETED);
+        expect(txPropertyRepo.save).toHaveBeenCalledTimes(1);
+      });
+
+      it('5. BLOCKED CLOSE: pre-close validation blocks => zero nightly poster calls and no transaction entered', async () => {
+        preCloseValidator.validate.mockReturnValueOnce(mockValidation); // canClose === false
+
+        await expect(service.closeRun(mockPropertyId, mockUserId)).rejects.toBeInstanceOf(
+          ConflictException,
+        );
+
+        expect(billingService.postNightlyAccommodationChargeOnManager).not.toHaveBeenCalled();
+        expect(dataSource.transaction).not.toHaveBeenCalled();
+      });
+
+      it('6. POSTING FAILURE: poster throws => closeRun rejects and completion + business-date advance are never reached', async () => {
+        txReservationQueryBuilder.getMany.mockResolvedValueOnce([eligibleReservation('res-nightly-1')]);
+        billingService.postNightlyAccommodationChargeOnManager.mockRejectedValueOnce(
+          new Error('nightly posting failed'),
+        );
+
+        await expect(service.closeRun(mockPropertyId, mockUserId)).rejects.toThrow(
+          'nightly posting failed',
+        );
+
+        // Control-flow proof (real DB transaction provides atomic rollback of any inserted rows):
+        // run completion save, property business-date advance save and audit event save are never reached.
+        expect(txRunRepo.save).not.toHaveBeenCalled();
+        expect(txPropertyRepo.save).not.toHaveBeenCalled();
+        expect(txAuditRepo.save).not.toHaveBeenCalled();
+      });
     });
   });
 });

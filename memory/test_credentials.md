@@ -25,8 +25,8 @@ All demo users share the password **`Password123!`**.
 - Frontend Next.js: `localhost:3000` (supervisor: `frontend`)
 
 ## URLs
-- Frontend: `https://pms-integration-fix.preview.emergentagent.com`
-- API: `https://pms-integration-fix.preview.emergentagent.com/api/v1`
+- Frontend: `https://stay-audit-flow.preview.emergentagent.com`
+- API: `https://stay-audit-flow.preview.emergentagent.com/api/v1`
 
 ## Recovering after a DB reset
 ```bash
@@ -45,7 +45,7 @@ sudo supervisorctl restart stayos_api
 - QA baseline config seeded via `cd /app/stayos-api && npx ts-node -r tsconfig-paths/register -r dotenv/config scripts/seed-qa-config.ts` (idempotent).
 
 ## F3 session (2026-08-17) — UI browser-reachable setup
-- Nest API now on **:8001** (ingress `/api` → 8001); preview `https://0c9a02a5-a776-4fec-8e1d-b4f6511c9382.preview.emergentagent.com/api/v1/health` works.
+- Nest API now on **:8001** (ingress `/api` → 8001); preview `https://stay-audit-flow.preview.emergentagent.com/api/v1/health` works.
 - Frontend served via `next dev` on :3000 (supervisor frontend stopped). `apps/web/.env.local` sets NEXT_PUBLIC_API_PUBLIC_BASE_URL to the preview `/api/v1`.
 - Start API: `cd /app/stayos-api && PORT=8001 npx nest start`. Start web: `cd /app/apps/web && PORT=3000 npx next dev`.
 - F3 test reservations (guest Karan Gill, DLX 2026-11-10→12): PENDING `HS260817-01000`, CONFIRMED `HS260817-01001`.

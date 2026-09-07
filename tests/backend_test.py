@@ -14,7 +14,7 @@ import requests
 
 REPO = "/app"
 API_LOCAL = "http://localhost:8001/api/v1"
-PREVIEW = "https://pms-integration-fix.preview.emergentagent.com"
+PREVIEW = "https://stay-audit-flow.preview.emergentagent.com"
 FRONTEND = "http://localhost:3000"
 
 
