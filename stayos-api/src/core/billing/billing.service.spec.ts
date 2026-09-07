@@ -622,6 +622,83 @@ describe('BillingService', () => {
     expect(managerFoliosRepository.update).not.toHaveBeenCalled();
   });
 
+  describe('reconcileAccommodationRoomChargesOnManager (V2.3E1 mode-aware amendment seam)', () => {
+    const managerFor = () =>
+      ({
+        getRepository: (entity: unknown) => {
+          if (entity === FolioEntity) return managerFoliosRepository;
+          if (entity === FolioChargeEntity) return managerChargesRepository;
+          if (entity === ReservationEntity) return managerReservationsRepository;
+          if (entity === ReservationRateSnapshotEntity) return managerSnapshotsRepository;
+          throw new Error('unexpected repository');
+        },
+      }) as never;
+
+    it('UPFRONT_FULL_STAY delegates to the legacy full-stay reconciliation (posts from the active snapshot)', async () => {
+      managerReservationsRepository.findOne = jest
+        .fn()
+        .mockResolvedValue(
+          reservation({ accommodationPostingMode: AccommodationPostingMode.UPFRONT_FULL_STAY }),
+        );
+      managerFoliosRepository.findOne = jest.fn().mockResolvedValue({
+        id: 'folio-1',
+        propertyId,
+        reservationId,
+        guestId,
+        folioNumber: 'FO260803-00001',
+        status: FolioStatus.OPEN,
+        currency: 'INR',
+      });
+      managerSnapshotsRepository.findOne = jest.fn().mockResolvedValue({
+        id: 'snapshot-1',
+        version: 1,
+        snapshot: {
+          pricingStatus: 'PRICED',
+          nights: [{ date: '2026-08-03', nightTotal: '3600.00' }],
+          totals: { grandTotal: '3600.00' },
+        },
+      });
+      managerChargesRepository.find = jest.fn().mockResolvedValue([]);
+
+      await service.reconcileAccommodationRoomChargesOnManager(
+        managerFor(),
+        propertyId,
+        reservationId,
+      );
+
+      // Identical legacy behavior: aggregate full-stay ROOM charge reposted.
+      expect(managerChargesRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          folioId: 'folio-1',
+          type: 'ROOM',
+          status: 'POSTED',
+          rateSnapshotId: 'snapshot-1',
+          rateSnapshotVersion: 1,
+        }),
+      );
+    });
+
+    it('NIGHTLY_V1 is a financial no-op: no reversal, no aggregate/nightly posting, no folio mutation, no throw, no nightly poster call', async () => {
+      managerReservationsRepository.findOne = jest
+        .fn()
+        .mockResolvedValue(
+          reservation({ accommodationPostingMode: AccommodationPostingMode.NIGHTLY_V1 }),
+        );
+      const nightlyPosterSpy = jest.spyOn(service, 'postNightlyAccommodationChargeOnManager');
+
+      await expect(
+        service.reconcileAccommodationRoomChargesOnManager(managerFor(), propertyId, reservationId),
+      ).resolves.toBeUndefined();
+
+      // No legacy full-stay path was entered => no charge scan/write, no folio touch.
+      expect(managerChargesRepository.find).not.toHaveBeenCalled();
+      expect(managerChargesRepository.save).not.toHaveBeenCalled();
+      expect(managerFoliosRepository.update).not.toHaveBeenCalled();
+      // Night Audit remains the sole nightly posting authority.
+      expect(nightlyPosterSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('nightly accommodation posting', () => {
     const serviceDate = '2026-08-04';
     const nightlyReservation = () =>

@@ -146,6 +146,7 @@ describe('ReservationsService', () => {
   };
   const billingService = {
     reconcileRoomChargesOnManager: jest.fn().mockResolvedValue(undefined),
+    reconcileAccommodationRoomChargesOnManager: jest.fn().mockResolvedValue(undefined),
     assertCommercialAmendmentAllowedOnManager: jest.fn().mockResolvedValue(undefined),
   };
   const reservationRateSnapshotService = {
@@ -815,7 +816,7 @@ describe('ReservationsService', () => {
     expect(restrictionService.assertAmendmentSellable).toHaveBeenCalledTimes(1);
     // commercial amendment created a new ACTIVE snapshot version -> the OPEN
     // folio's snapshot-driven ROOM charges are auto-reconciled in the same txn.
-    expect(billingService.reconcileRoomChargesOnManager).toHaveBeenCalledTimes(1);
+    expect(billingService.reconcileAccommodationRoomChargesOnManager).toHaveBeenCalledTimes(1);
     // settled-folio accounting-integrity guard runs before the amend.
     expect(billingService.assertCommercialAmendmentAllowedOnManager).toHaveBeenCalledTimes(1);
     expect(billingService.assertCommercialAmendmentAllowedOnManager).toHaveBeenCalledWith(
@@ -823,7 +824,7 @@ describe('ReservationsService', () => {
       propertyId,
       reservationId,
     );
-    expect(billingService.reconcileRoomChargesOnManager).toHaveBeenCalledWith(
+    expect(billingService.reconcileAccommodationRoomChargesOnManager).toHaveBeenCalledWith(
       expect.anything(),
       propertyId,
       reservationId,
@@ -831,13 +832,13 @@ describe('ReservationsService', () => {
 
     // operational-only edit -> no restriction validation
     restrictionService.assertAmendmentSellable.mockClear();
-    billingService.reconcileRoomChargesOnManager.mockClear();
+    billingService.reconcileAccommodationRoomChargesOnManager.mockClear();
     billingService.assertCommercialAmendmentAllowedOnManager.mockClear();
     reservationsRepository.findOne?.mockResolvedValue(res);
     await service.update(propertyId, reservationId, { notes: 'front desk note' });
     expect(restrictionService.assertAmendmentSellable).not.toHaveBeenCalled();
     // operational no-op -> no folio reconciliation triggered.
-    expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
+    expect(billingService.reconcileAccommodationRoomChargesOnManager).not.toHaveBeenCalled();
     // operational-only edit does not create a snapshot -> settled-folio guard skipped.
     expect(billingService.assertCommercialAmendmentAllowedOnManager).not.toHaveBeenCalled();
   });
@@ -856,7 +857,7 @@ describe('ReservationsService', () => {
     expect(err.getStatus()).toBe(422);
     expect(reservationRateSnapshotService.amend).not.toHaveBeenCalled();
     // restriction gate fails before amend -> no folio reconciliation.
-    expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
+    expect(billingService.reconcileAccommodationRoomChargesOnManager).not.toHaveBeenCalled();
   });
 
   it('blocks a commercial amendment with a controlled 409 when the folio is settled (no amend, no reconcile)', async () => {
@@ -874,7 +875,7 @@ describe('ReservationsService', () => {
     expect(err.getResponse().code).toBe('FOLIO_SETTLED_AMENDMENT_BLOCKED');
     // guard fails before amend -> neither snapshot version nor folio changes.
     expect(reservationRateSnapshotService.amend).not.toHaveBeenCalled();
-    expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
+    expect(billingService.reconcileAccommodationRoomChargesOnManager).not.toHaveBeenCalled();
   });
 
   it('validates restrictions on a PENDING commercial amendment even without an existing snapshot version (no amend)', async () => {
@@ -896,7 +897,7 @@ describe('ReservationsService', () => {
     expect(restrictionService.assertAmendmentSellable).toHaveBeenCalledTimes(1);
     expect(reservationRateSnapshotService.amend).not.toHaveBeenCalled();
     // no amend on PENDING (no ACTIVE snapshot) -> no folio reconciliation.
-    expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
+    expect(billingService.reconcileAccommodationRoomChargesOnManager).not.toHaveBeenCalled();
   });
 
   describe('externalConfirmationId write-once (1C-d3)', () => {

@@ -156,6 +156,7 @@ describe('ReservationWorkflowService', () => {
   };
   let billingService: {
     reconcileRoomChargesOnManager: jest.Mock;
+    reconcileAccommodationRoomChargesOnManager: jest.Mock;
     assertCommercialAmendmentAllowedOnManager: jest.Mock;
   };
 
@@ -166,6 +167,7 @@ describe('ReservationWorkflowService', () => {
     };
     billingService = {
       reconcileRoomChargesOnManager: jest.fn().mockResolvedValue(undefined),
+      reconcileAccommodationRoomChargesOnManager: jest.fn().mockResolvedValue(undefined),
       assertCommercialAmendmentAllowedOnManager: jest.fn().mockResolvedValue(undefined),
     };
     reservationsRepository = {
@@ -565,8 +567,8 @@ describe('ReservationWorkflowService', () => {
       expect(folioChargesRepository.save).not.toHaveBeenCalled();
       // A new ACTIVE snapshot version was created -> the OPEN folio's
       // snapshot-driven ROOM charges are auto-reconciled in the same txn.
-      expect(billingService.reconcileRoomChargesOnManager).toHaveBeenCalledTimes(1);
-      expect(billingService.reconcileRoomChargesOnManager).toHaveBeenCalledWith(
+      expect(billingService.reconcileAccommodationRoomChargesOnManager).toHaveBeenCalledTimes(1);
+      expect(billingService.reconcileAccommodationRoomChargesOnManager).toHaveBeenCalledWith(
         expect.anything(),
         propertyId,
         reservationId,
@@ -585,7 +587,7 @@ describe('ReservationWorkflowService', () => {
       await service.extendStay(propertyId, reservationId, { departureDate: '2026-07-18' });
 
       expect(rateSnapshotService.amend).toHaveBeenCalledTimes(1);
-      expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
+      expect(billingService.reconcileAccommodationRoomChargesOnManager).not.toHaveBeenCalled();
     });
 
     it('blocks the extension with a controlled 409 when the folio is settled (no amend, no reconcile)', async () => {
@@ -608,7 +610,7 @@ describe('ReservationWorkflowService', () => {
       expect(err.getResponse().code).toBe('FOLIO_SETTLED_AMENDMENT_BLOCKED');
       // guard runs before amend -> neither snapshot version nor folio changes.
       expect(rateSnapshotService.amend).not.toHaveBeenCalled();
-      expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
+      expect(billingService.reconcileAccommodationRoomChargesOnManager).not.toHaveBeenCalled();
     });
 
     it('runs the change-aware restriction gate on the added nights + new departure', async () => {
@@ -649,7 +651,7 @@ describe('ReservationWorkflowService', () => {
       expect(availabilityService.applyDelta).not.toHaveBeenCalled();
       expect(rateSnapshotService.amend).not.toHaveBeenCalled();
       // Gate fails before amend -> no folio reconciliation.
-      expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
+      expect(billingService.reconcileAccommodationRoomChargesOnManager).not.toHaveBeenCalled();
     });
 
     it('rejects a departure date that is not later than the current departure', async () => {
@@ -660,6 +662,40 @@ describe('ReservationWorkflowService', () => {
       await expect(
         service.extendStay(propertyId, reservationId, { departureDate: '2026-07-17' }),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('V2.3E1 NIGHTLY_V1: extends a checked-in stay without the full-stay reconcile block, creating a new snapshot and posting no folio charges', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        reservationEntity({
+          roomId,
+          status: ReservationStatus.CHECKED_IN,
+          accommodationPostingMode: AccommodationPostingMode.NIGHTLY_V1,
+        }),
+      );
+      roomsRepository.findOne?.mockResolvedValue(
+        roomEntity({ operationalStatus: RoomOperationalStatus.OCCUPIED }),
+      );
+
+      // Previously this rolled back with NIGHTLY_POSTING_MODE_FULL_STAY_RECONCILE_BLOCKED.
+      await expect(
+        service.extendStay(propertyId, reservationId, { departureDate: '2026-07-18' }),
+      ).resolves.toMatchObject({
+        reservation: { id: reservationId, departureDate: '2026-07-18' },
+      });
+
+      // A new immutable snapshot version is created through the existing amend flow.
+      expect(rateSnapshotService.amend).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ id: reservationId, departureDate: '2026-07-18' }),
+        expect.objectContaining({ departureDate: '2026-07-18' }),
+        ReservationRateSnapshotTrigger.STAY_EXTENSION,
+      );
+      // Extension routes through the mode-aware seam, NOT the legacy full-stay reconcile.
+      expect(billingService.reconcileAccommodationRoomChargesOnManager).toHaveBeenCalledTimes(1);
+      expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
+      // Extension itself posts/reverses NO folio ROOM charges (Night Audit is the poster).
+      expect(folioChargesRepository.create).not.toHaveBeenCalled();
+      expect(folioChargesRepository.save).not.toHaveBeenCalled();
     });
   });
 

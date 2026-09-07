@@ -1196,7 +1196,7 @@ export class ReservationWorkflowService {
     );
     await manager.getRepository(ReservationEntity).save(reservation);
     if (amendResult?.changed) {
-      await this.billingService.reconcileRoomChargesOnManager(
+      await this.billingService.reconcileAccommodationRoomChargesOnManager(
         manager,
         reservation.propertyId,
         reservation.id,

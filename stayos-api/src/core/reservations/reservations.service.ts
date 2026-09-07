@@ -608,7 +608,7 @@ export class ReservationsService {
           // Auto-reconcile an OPEN folio to the new ACTIVE snapshot version, in
           // THIS transaction (reverse+repost). No-op when nothing changed.
           if (amendResult?.changed) {
-            await this.billingService.reconcileRoomChargesOnManager(manager, propertyId, id);
+            await this.billingService.reconcileAccommodationRoomChargesOnManager(manager, propertyId, id);
           }
         }
       });

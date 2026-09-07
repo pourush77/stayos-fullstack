@@ -388,6 +388,37 @@ export class BillingService {
     await folioRepo.update({ id: existingFolio.id }, { updatedAt: new Date() });
   }
 
+  /**
+   * Accommodation-posting-mode-aware reconciliation seam for INTERNAL reservation
+   * amendments (commercial update + stay extension). Dispatches on the
+   * reservation's posting mode:
+   *  - UPFRONT_FULL_STAY: existing legacy reverse+repost full-stay reconciliation
+   *    (behavior unchanged).
+   *  - NIGHTLY_V1: financial NO-OP. Already-posted nightly ROOM charges are
+   *    accounting history and must never be reversed/mutated/regenerated here; the
+   *    amendment only supersedes the rate snapshot, and future service nights are
+   *    posted by Night Audit from the new ACTIVE snapshot. Never posts nightly
+   *    charges (Night Audit is the sole posting authority).
+   * Deliberately NOT wired into the public manual reconcile endpoint, which keeps
+   * failing fast for NIGHTLY_V1 via reconcileRoomChargesOnManager.
+   */
+  async reconcileAccommodationRoomChargesOnManager(
+    manager: EntityManager,
+    propertyId: string,
+    reservationId: string,
+    actorUserId?: string | null,
+  ): Promise<void> {
+    const reservation = await manager
+      .getRepository(ReservationEntity)
+      .findOne({ where: { id: reservationId, propertyId } });
+    if (!reservation) return;
+    if (reservation.accommodationPostingMode === AccommodationPostingMode.NIGHTLY_V1) {
+      // Nightly history is immutable; amendment performs no ROOM ledger mutation.
+      return;
+    }
+    await this.reconcileRoomChargesOnManager(manager, propertyId, reservationId, actorUserId);
+  }
+
   async postNightlyAccommodationCharge(
     propertyId: string,
     reservationId: string,
