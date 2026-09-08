@@ -15,6 +15,7 @@ import { NightAuditRunStatus } from './domain/night-audit-run-status.enum';
 import { NightAuditRunEntity } from './infrastructure/night-audit-run.entity';
 import { NightAuditCompletionSnapshotBuilder } from './snapshots/night-audit-completion-snapshot';
 import { NightAuditPreCloseValidator } from './validators/night-audit-pre-close.validator';
+import { NightAuditReportPdfService } from './night-audit-report-pdf.service';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 import { ReservationStatus } from '../reservations/domain/reservation-status.enum';
 import { AccommodationPostingMode } from '../reservations/domain/accommodation-posting-mode.enum';
@@ -51,6 +52,7 @@ export class NightAuditService {
     private readonly groupReviewCollector: NightAuditGroupReviewCollector,
     private readonly preCloseValidator: NightAuditPreCloseValidator,
     private readonly financialSummaryCollector: NightAuditFinancialSummaryCollector,
+    private readonly reportPdfService: NightAuditReportPdfService,
   ) {}
 
   /**
@@ -199,7 +201,11 @@ export class NightAuditService {
    * 9. Emits NIGHT_AUDIT_COMPLETED audit event in the same transaction.
    * 10. Does NOT post nightly accommodation charges, settle folios, or modify reservations/rooms.
    */
-  async closeRun(propertyId: string, actorUserId: string): Promise<NightAuditCloseResult> {
+  async closeRun(
+    propertyId: string,
+    actorUserId: string,
+    auditorNote?: string | null,
+  ): Promise<NightAuditCloseResult> {
     const property = await this.propertiesRepository.findOne({ where: { id: propertyId } });
     if (!property) {
       throw new NotFoundException(`Property ${propertyId} was not found`);
@@ -350,6 +356,7 @@ export class NightAuditService {
         completedAt,
         actorUserId,
         financial,
+        auditorNote,
       });
 
       // 1. Advance property currentBusinessDate
@@ -410,5 +417,49 @@ export class NightAuditService {
         nextBusinessDate: newBusinessDate,
       };
     });
+  }
+
+  /**
+   * Generates the immutable Daily Night Audit Report PDF for a COMPLETED run.
+   * Strictly property-scoped. Renders ONLY from the immutable completion
+   * snapshot (never recomputes live operational/financial state). Legacy runs
+   * with a NULL snapshot are rejected with a clear, supported error.
+   */
+  async generateReportPdf(
+    propertyId: string,
+    runId: string,
+  ): Promise<{ buffer: Buffer; filename: string }> {
+    const run = await this.nightAuditRunRepository.findOne({
+      where: { id: runId, propertyId, status: NightAuditRunStatus.COMPLETED },
+    });
+    if (!run) {
+      throw new NotFoundException({
+        code: 'NIGHT_AUDIT_RUN_NOT_FOUND',
+        message: 'Completed Night Audit run was not found for this property',
+      });
+    }
+
+    const snapshot = run.completionSnapshot;
+    if (!snapshot) {
+      throw new ConflictException({
+        code: 'NIGHT_AUDIT_REPORT_UNSUPPORTED',
+        message:
+          'This Night Audit predates immutable closing snapshots; a PDF report cannot be generated for it.',
+      });
+    }
+
+    const property = await this.propertiesRepository.findOne({ where: { id: propertyId } });
+    if (!property) {
+      throw new NotFoundException(`Property ${propertyId} was not found`);
+    }
+
+    const buffer = await this.reportPdfService.generate({
+      snapshot,
+      property: { name: property.name, legalName: property.legalName },
+      completedAt: run.completedAt,
+      completedByUserId: run.completedByUserId,
+    });
+
+    return { buffer, filename: `night-audit-${run.businessDate}.pdf` };
   }
 }

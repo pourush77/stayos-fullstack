@@ -26,6 +26,7 @@ import { NightAuditRunEntity } from './infrastructure/night-audit-run.entity';
 import { NightAuditService } from './night-audit.service';
 import { NightAuditPreCloseValidator } from './validators/night-audit-pre-close.validator';
 import { NightAuditFinancialSummaryCollector } from './collectors/night-audit-financial-summary.collector';
+import { NightAuditReportPdfService } from './night-audit-report-pdf.service';
 import { BillingService } from '../billing/billing.service';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 
@@ -43,6 +44,7 @@ describe('NightAuditService', () => {
   let groupReviewCollector: { collect: jest.Mock };
   let preCloseValidator: { validate: jest.Mock };
   let financialSummaryCollector: { collect: jest.Mock };
+  let reportPdfService: { generate: jest.Mock };
   let dataSource: { transaction: jest.Mock };
 
   let txRunRepo: MockRepository<NightAuditRunEntity>;
@@ -428,6 +430,10 @@ describe('NightAuditService', () => {
       }),
     };
 
+    reportPdfService = {
+      generate: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4 mock')),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         NightAuditService,
@@ -478,6 +484,10 @@ describe('NightAuditService', () => {
         {
           provide: NightAuditFinancialSummaryCollector,
           useValue: financialSummaryCollector,
+        },
+        {
+          provide: NightAuditReportPdfService,
+          useValue: reportPdfService,
         },
       ],
     }).compile();
@@ -1356,6 +1366,113 @@ describe('NightAuditService', () => {
         );
 
         expect(financialSummaryCollector.collect).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('auditor note + report PDF', () => {
+      const eligibleReservation = (id: string) => ({ id }) as unknown as ReservationEntity;
+      const completedRun = {
+        ...mockRun,
+        id: 'run-completed-1',
+        status: NightAuditRunStatus.COMPLETED,
+        completedAt: new Date('2026-09-05T02:00:00Z'),
+        completedByUserId: mockUserId,
+      } as unknown as NightAuditRunEntity;
+
+      it('1 & 2. persists the exact auditor note into the completed immutable snapshot', async () => {
+        txReservationQueryBuilder.getMany.mockResolvedValueOnce([eligibleReservation('r1')]);
+
+        const result = await service.closeRun(mockPropertyId, mockUserId, '  Room 204 late checkout  ');
+
+        expect(
+          (result.run.completionSnapshot as unknown as { auditorNote: string }).auditorNote,
+        ).toBe('Room 204 late checkout');
+      });
+
+      it('1. close without a note still succeeds (note null)', async () => {
+        txReservationQueryBuilder.getMany.mockResolvedValueOnce([]);
+
+        const result = await service.closeRun(mockPropertyId, mockUserId);
+
+        expect(result.nextBusinessDate).toBe('2026-09-05');
+        expect(
+          (result.run.completionSnapshot as unknown as { auditorNote: string | null }).auditorNote,
+        ).toBeNull();
+      });
+
+      it('4. blocked close never creates a completed-note snapshot', async () => {
+        preCloseValidator.validate.mockReturnValueOnce(mockValidation); // blocked (totalBlockingCount = 5)
+
+        await expect(
+          service.closeRun(mockPropertyId, mockUserId, 'note that must not persist'),
+        ).rejects.toBeInstanceOf(ConflictException);
+        expect(txRunRepo.save).not.toHaveBeenCalled();
+      });
+
+      it('6. PDF rejects a non-completed / missing run', async () => {
+        nightAuditRunRepo.findOne?.mockResolvedValueOnce(null);
+
+        await expect(service.generateReportPdf(mockPropertyId, mockRun.id)).rejects.toMatchObject({
+          response: expect.objectContaining({ code: 'NIGHT_AUDIT_RUN_NOT_FOUND' }),
+        });
+        expect(reportPdfService.generate).not.toHaveBeenCalled();
+      });
+
+      it('7. PDF is strictly property-scoped (queried with the propertyId + COMPLETED status)', async () => {
+        nightAuditRunRepo.findOne?.mockResolvedValueOnce({
+          ...completedRun,
+          completionSnapshot: { version: 'NA-V2.4', businessDate: '2026-09-04', auditorNote: null },
+        });
+        propertiesRepo.findOne?.mockResolvedValueOnce({ ...mockProperty, name: 'Grand', legalName: 'Grand LLP' });
+
+        await service.generateReportPdf(mockPropertyId, completedRun.id);
+
+        expect(nightAuditRunRepo.findOne).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              propertyId: mockPropertyId,
+              status: NightAuditRunStatus.COMPLETED,
+            }),
+          }),
+        );
+      });
+
+      it('8, 11 & 12. PDF renders from the immutable snapshot (incl. note) and never recomputes live financials', async () => {
+        const snapshot = {
+          version: 'NA-V2.4',
+          businessDate: '2026-09-04',
+          auditorNote: 'Handover: corporate payment expected',
+          financial: { financialSummary: { currency: 'INR', roomRevenue: 5000 } },
+        };
+        nightAuditRunRepo.findOne?.mockResolvedValueOnce({
+          ...completedRun,
+          completionSnapshot: snapshot,
+        });
+        propertiesRepo.findOne?.mockResolvedValueOnce({ ...mockProperty, name: 'Grand', legalName: 'Grand LLP' });
+
+        const { buffer, filename } = await service.generateReportPdf(mockPropertyId, completedRun.id);
+
+        expect(filename).toBe('night-audit-2026-09-04.pdf');
+        expect(Buffer.isBuffer(buffer)).toBe(true);
+        // Report source is the immutable snapshot; no live collectors are invoked.
+        expect(reportPdfService.generate).toHaveBeenCalledWith(
+          expect.objectContaining({ snapshot }),
+        );
+        expect(financialSummaryCollector.collect).not.toHaveBeenCalled();
+      });
+
+      it('10. legacy NULL-snapshot run is rejected with a clear supported error', async () => {
+        nightAuditRunRepo.findOne?.mockResolvedValueOnce({
+          ...completedRun,
+          completionSnapshot: null,
+        });
+
+        await expect(service.generateReportPdf(mockPropertyId, completedRun.id)).rejects.toMatchObject(
+          {
+            response: expect.objectContaining({ code: 'NIGHT_AUDIT_REPORT_UNSUPPORTED' }),
+          },
+        );
+        expect(reportPdfService.generate).not.toHaveBeenCalled();
       });
     });
 

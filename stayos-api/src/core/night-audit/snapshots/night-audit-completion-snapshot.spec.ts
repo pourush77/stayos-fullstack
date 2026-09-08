@@ -173,6 +173,14 @@ describe('NightAuditCompletionSnapshotBuilder', () => {
     expect(snapshot.financial.groupSummary.accommodationRevenueIncluded).toBe(false);
   });
 
+  it('persists a trimmed auditor note when provided, and null when absent/blank', () => {
+    expect(builder.build({ ...baseInput(), auditorNote: '  Room 310 AC pending  ' }).auditorNote).toBe(
+      'Room 310 AC pending',
+    );
+    expect(builder.build({ ...baseInput(), auditorNote: '   ' }).auditorNote).toBeNull();
+    expect(builder.build(baseInput()).auditorNote).toBeNull();
+  });
+
   it('refuses to build when close validation contains blockers', () => {
     const validation = successfulValidation();
     validation.canClose = false;

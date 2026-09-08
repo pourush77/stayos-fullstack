@@ -177,6 +177,8 @@ export interface NightAuditCompletionSnapshotV21 {
   validation: NightAuditCompletionSnapshotValidation;
   sections: NightAuditCompletionSnapshotSections;
   inHouseSummary: NightAuditCompletionSnapshotInHouseSummary;
+  /** Optional immutable night-auditor / shift-handover note (additive). */
+  auditorNote?: string | null;
 }
 
 /**
@@ -204,11 +206,12 @@ export interface BuildNightAuditCompletionSnapshotInput {
   completedAt: Date;
   actorUserId: string;
   financial: NightAuditCompletionSnapshotFinancialSummary;
+  auditorNote?: string | null;
 }
 
 export class NightAuditCompletionSnapshotBuilder {
   build(input: BuildNightAuditCompletionSnapshotInput): NightAuditCompletionSnapshotV24 {
-    const { run, workspace, validation, nextBusinessDate, completedAt, actorUserId, financial } =
+    const { run, workspace, validation, nextBusinessDate, completedAt, actorUserId, financial, auditorNote } =
       input;
 
     if (validation.canClose !== true || validation.totalBlockingCount !== 0) {
@@ -324,6 +327,7 @@ export class NightAuditCompletionSnapshotBuilder {
         groupStayoverCount: workspace.groupReview.summary.stayover,
       },
       financial,
+      auditorNote: auditorNote?.trim() ? auditorNote.trim() : null,
     };
   }
 }

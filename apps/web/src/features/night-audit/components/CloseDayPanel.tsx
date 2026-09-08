@@ -1,6 +1,6 @@
 'use client';
 
-import { Box, Button, Group, Paper, Stack, Text } from '@mantine/core';
+import { Box, Button, Group, Paper, Stack, Text, Textarea } from '@mantine/core';
 import { AlertCircle, CheckCircle2, Lock } from 'lucide-react';
 import { radius } from '@stayos/theme';
 import type { NightAuditValidationDto } from '../types/night-audit.types';
@@ -8,12 +8,16 @@ import type { NightAuditValidationDto } from '../types/night-audit.types';
 export interface CloseDayPanelProps {
   validation?: NightAuditValidationDto;
   isClosing?: boolean;
+  auditorNote?: string;
+  onAuditorNoteChange?: (value: string) => void;
   onOpenCloseModal: () => void;
 }
 
 export function CloseDayPanel({
   validation,
   isClosing = false,
+  auditorNote = '',
+  onAuditorNoteChange,
   onOpenCloseModal,
 }: CloseDayPanelProps) {
   const canClose = validation?.canClose ?? false;
@@ -30,6 +34,19 @@ export function CloseDayPanel({
         boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05)',
       }}
     >
+      <Textarea
+        data-testid="auditor-note-input"
+        label="Night Auditor Note"
+        description="Optional handover note saved with this business day's Night Audit."
+        placeholder="e.g. Room 204 late checkout; Room 310 AC complaint pending; corporate payment expected tomorrow."
+        value={auditorNote}
+        onChange={(e) => onAuditorNoteChange?.(e.currentTarget.value)}
+        maxLength={2000}
+        autosize
+        minRows={2}
+        maxRows={5}
+        mb={16}
+      />
       <Group justify="space-between" align="center" wrap="wrap" gap={16}>
         <Group gap={12} align="center">
           {canClose ? (

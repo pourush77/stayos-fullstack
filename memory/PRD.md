@@ -534,3 +534,22 @@ Frontend (existing Booking Details UX; additive, small): `EarlyDepartureModal` +
 
 Tests (focused): reservation-workflow.service.spec — B (shorten+waive+no charge/fee), inventory release for exact waived nights, audit metadata, F (invalid new departure x2), G (UPFRONT rejection, no mutation), not-checked-in rejection; reservations.controller.spec — delegation + E (bookings.manage RBAC metadata). Scenario A (normal checkout unchanged) covered by untouched checkout tests; C (guard uses shortened stay) satisfied by design (guard keys on departureDate). All reservation suites GREEN (131 tests). `npm run build` (nest) PASS. Frontend build/typecheck NOT runnable in this backend-only pod (no `next`; tsconfig requires TS6, installed 5.9.3) — all changed FE files transpile-clean (syntax/JSX valid).
 Non-goals kept out: configurable cancellation policies, %/fixed fees, refund automation, groups, V2.4 reporting changes, migrations.
+
+
+## Night Audit Final UX — Auditor Notes + Printable PDF Closing Report (2026-06) — COMPLETE (backend tests + build green; FE transpile-clean)
+Presentation/auditability only. NO accounting/eligibility/posting/close-semantics change.
+
+A. Night Auditor / Shift-Handover Note:
+- Additive optional `auditorNote?: string|null` on the completion snapshot (NO version bump; both NA-V2.1 & NA-V2.4 union carry it; legacy NULL snapshots unaffected). Builder trims and stores (blank -> null).
+- Threaded via `closeRun(propertyId, actorUserId, auditorNote?)`; controller `POST .../night-audit/close` now takes `CloseNightAuditDto { auditorNote?: string (max 2000) }` (server-side validated). Immutable once written at successful close; blocked/failed close never persists a note (whole close aborts). NightAuditManage permission (existing).
+- Appears in Reports → Night Audit History → Detail automatically (history service returns snapshot verbatim).
+
+B. Printable PDF (reuses existing pdfkit conventions from receipt-pdf.service):
+- New `NightAuditReportPdfService` renders DAILY NIGHT AUDIT REPORT purely from the immutable snapshot (never recomputes live state). Sections: Header (property name/legalName, business date, CLOSED, completed timestamp, closed-by), Financial Summary, Payment Breakdown, Operations, Groups (accommodationRevenueIncluded=false note), Night Auditor Note (only when present), Footer. NA-V2.1 renders operational/in-house only (no fabricated financials). Legacy NULL snapshot -> ConflictException NIGHT_AUDIT_REPORT_UNSUPPORTED.
+- `NightAuditService.generateReportPdf(propertyId, runId)` — COMPLETED + property-scoped only (404 NIGHT_AUDIT_RUN_NOT_FOUND otherwise). Endpoint `GET .../night-audit/history/:runId/pdf`, NightAuditManage, application/pdf, filename `night-audit-<businessDate>.pdf`.
+
+Frontend: CloseDayPanel gains "Night Auditor Note" textarea (optional, 2000 max) wired through NightAuditPage close mutation (reset on success). History detail shows the note card when present + "Download PDF" secondary action (blob download via downloadNightAuditReportPdf).
+
+Backend tests (focused, all green — 142 night-audit suite): builder note trim/null; service close-with-note persists exact note, close-without-note succeeds, blocked close persists nothing; PDF rejects non-completed, property isolation, renders from immutable snapshot incl note, no live recompute, legacy NULL rejected; PDF-service renders V2.4 (with note) + V2.1 to valid %PDF buffers; history spec confirms NA-V2.1 compat. Backend build PASS.
+Frontend: ENVIRONMENT NOT AVAILABLE for full build (backend-only pod: no `next`; tsconfig needs TS6 vs 5.9.3). All 5 changed FE files transpile-clean (syntax/JSX valid).
+No migration (jsonb snapshot reused). No production Night Audit financial/posting behavior changed.

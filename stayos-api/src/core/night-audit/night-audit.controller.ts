@@ -1,10 +1,12 @@
-import { Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Header, Param, ParseUUIDPipe, Post, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { ApiBearerAuth, ApiOperation, ApiProduces, ApiTags } from '@nestjs/swagger';
 import { ApiStandardOkResponse } from '../../common/decorators/api-standard-response.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
 import { Permissions } from '../auth/permissions';
 import { AuthenticatedRequest } from '../auth/types/authenticated-request';
+import { CloseNightAuditDto } from './dto/close-night-audit.dto';
 import { NightAuditRunResponseDto } from './dto/night-audit-run-response.dto';
 import { NightAuditMapper } from './night-audit.mapper';
 import { NightAuditService } from './night-audit.service';
@@ -37,13 +39,31 @@ export class NightAuditController {
   @ApiStandardOkResponse(NightAuditRunResponseDto)
   async closeRun(
     @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Body() dto: CloseNightAuditDto,
     @CurrentUser() user?: AuthenticatedRequest['currentUser'],
   ): Promise<NightAuditRunResponseDto> {
     const actorUserId = user?.id ?? '00000000-0000-0000-0000-000000000001';
     const { run, nextBusinessDate } = await this.nightAuditService.closeRun(
       propertyId,
       actorUserId,
+      dto?.auditorNote,
     );
     return NightAuditMapper.toResponse(run, undefined, undefined, nextBusinessDate);
+  }
+
+  @Get('history/:runId/pdf')
+  @RequirePermissions(Permissions.NightAuditManage)
+  @ApiOperation({ summary: 'Download the immutable Daily Night Audit Report PDF for a completed run' })
+  @ApiProduces('application/pdf')
+  @Header('Content-Type', 'application/pdf')
+  async downloadReportPdf(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('runId', ParseUUIDPipe) runId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { buffer, filename } = await this.nightAuditService.generateReportPdf(propertyId, runId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
   }
 }

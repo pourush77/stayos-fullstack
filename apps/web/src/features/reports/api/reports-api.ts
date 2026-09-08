@@ -94,6 +94,7 @@ export type NightAuditCompletionSnapshot = {
     };
   };
   inHouseSummary: Record<string, number>;
+  auditorNote?: string | null;
   financial?: {
     financialSummary: {
       currency: string | null;
@@ -195,4 +196,27 @@ export async function getNightAuditHistoryDetail(propertyId: string, runId: stri
   return get<NightAuditHistoryDetailDto>(
     `/properties/${encodeURIComponent(propertyId)}/reports/night-audit-history/${encodeURIComponent(runId)}`,
   );
+}
+
+export async function downloadNightAuditReportPdf(
+  propertyId: string,
+  runId: string,
+  businessDate: string,
+) {
+  const response = await fetch(
+    `${API_BASE_URL}/properties/${encodeURIComponent(propertyId)}/night-audit/history/${encodeURIComponent(
+      runId,
+    )}/pdf`,
+    { cache: 'no-store', headers: { Accept: 'application/pdf' } },
+  );
+  if (!response.ok) throw new Error(`PDF request failed: ${response.status}`);
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `night-audit-${businessDate}.pdf`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }

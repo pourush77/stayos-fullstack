@@ -177,12 +177,14 @@ export async function getNightAudit(
  */
 export async function closeNightAudit(
   propertyId: string,
+  auditorNote?: string,
   signal?: AbortSignal,
 ): Promise<NightAuditRunResponseDto> {
   return request<NightAuditRunResponseDto>(
     `/properties/${encodeURIComponent(propertyId)}/night-audit/close`,
     {
       method: 'POST',
+      body: auditorNote && auditorNote.trim() ? JSON.stringify({ auditorNote: auditorNote.trim() }) : undefined,
       signal,
     },
   );

@@ -15,13 +15,15 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
-import { ArrowLeft, ClipboardList, Eye, RotateCcw } from 'lucide-react';
+import { ArrowLeft, ClipboardList, Download, Eye, RotateCcw, StickyNote } from 'lucide-react';
 import Link from 'next/link';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { radius, spacing } from '@stayos/theme';
+import { showToast } from '@stayos/ui';
 import { useAuth } from '../../auth/auth-context';
 import {
+  downloadNightAuditReportPdf,
   getNightAuditHistory,
   getNightAuditHistoryDetail,
   type NightAuditCompletionSnapshot,
@@ -342,6 +344,7 @@ function NightAuditHistoryDetail({ detail }: { detail: NightAuditHistoryDetailDt
 
   const snapshot = detail.completionSnapshot;
   const financial = snapshot.financial;
+  const auditorNote = snapshot.auditorNote?.trim();
   const operationalSummary = [
     ['Pending Arrivals', compactStatus(snapshot.sections.pendingArrivals.count)],
     ['In-House', compactStatus(valueOf(snapshot.inHouseSummary, ['totalInHouse', 'inHouse', 'checkedIn', 'occupied']))],
@@ -371,11 +374,41 @@ function NightAuditHistoryDetail({ detail }: { detail: NightAuditHistoryDetailDt
             ['Closed by / time', `${userLabel(snapshot as unknown as Record<string, unknown>, 'completed')} / ${formatDateTime(snapshot.completedAt)}`],
           ]}
         />
+        <Group mt={spacing[3]}>
+          <Button
+            size="sm"
+            variant="light"
+            color="grape"
+            leftSection={<Download size={16} />}
+            data-testid="night-audit-download-pdf"
+            onClick={() => {
+              void downloadNightAuditReportPdf(detail.propertyId, detail.runId, snapshot.businessDate).catch(
+                () =>
+                  showToast({
+                    color: 'red',
+                    title: 'Download failed',
+                    message: 'Unable to generate the Night Audit PDF. Please try again.',
+                  }),
+              );
+            }}
+          >
+            Download PDF
+          </Button>
+        </Group>
       </Card>
       <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
         <Title order={3} style={{ fontSize: 18 }}>Operational Summary</Title>
         <SimpleFacts rows={operationalSummary} />
       </Card>
+      {auditorNote ? (
+        <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }} data-testid="night-audit-auditor-note">
+          <Group gap={8} mb={spacing[2]}>
+            <StickyNote size={18} color="#b45309" />
+            <Title order={3} style={{ fontSize: 18 }}>Night Auditor Note</Title>
+          </Group>
+          <Text c="#344054" size="sm" style={{ whiteSpace: 'pre-wrap' }}>{auditorNote}</Text>
+        </Card>
+      ) : null}
       {financial ? <FinancialClosingSummary financial={financial} /> : null}
       <Card p={spacing[4]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
         <Group justify="space-between">

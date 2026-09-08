@@ -245,9 +245,9 @@ describe('NightAuditController', () => {
     it('delegates closeRun to service and returns mapped response with nextBusinessDate and summary', async () => {
       const mockUser = { id: mockUserId } as AuthenticatedRequest['currentUser'];
 
-      const response = await controller.closeRun(mockPropertyId, mockUser);
+      const response = await controller.closeRun(mockPropertyId, { auditorNote: 'Room 204 late checkout' }, mockUser);
 
-      expect(service.closeRun).toHaveBeenCalledWith(mockPropertyId, mockUserId);
+      expect(service.closeRun).toHaveBeenCalledWith(mockPropertyId, mockUserId, 'Room 204 late checkout');
       expect(response).toEqual({
         id: mockCompletedRun.id,
         propertyId: mockCompletedRun.propertyId,
@@ -265,11 +265,12 @@ describe('NightAuditController', () => {
     });
 
     it('uses default fallback uuid if user is undefined', async () => {
-      await controller.closeRun(mockPropertyId, undefined);
+      await controller.closeRun(mockPropertyId, {}, undefined);
 
       expect(service.closeRun).toHaveBeenCalledWith(
         mockPropertyId,
         '00000000-0000-0000-0000-000000000001',
+        undefined,
       );
     });
 

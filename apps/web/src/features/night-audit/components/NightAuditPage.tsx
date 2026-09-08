@@ -161,6 +161,7 @@ export function NightAuditPage() {
   const [isClosing, setIsClosing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isCloseModalOpen, setIsCloseModalOpen] = useState(false);
+  const [auditorNote, setAuditorNote] = useState('');
 
   const loadData = useCallback(
     async (signal?: AbortSignal, isExplicitRefresh = false) => {
@@ -218,7 +219,7 @@ export function NightAuditPage() {
 
     setIsClosing(true);
     try {
-      const result = await closeNightAudit(propertyId);
+      const result = await closeNightAudit(propertyId, auditorNote);
       const prevDateFormatted = formatBusinessDate(data.businessDate);
       const nextDateFormatted = formatBusinessDate(
         result.nextBusinessDate ?? advanceCalendarDay(data.businessDate),
@@ -231,6 +232,7 @@ export function NightAuditPage() {
       });
 
       setIsCloseModalOpen(false);
+      setAuditorNote('');
 
       // Existing backend creates or resumes next day's OPEN run on GET
       await loadData();
@@ -366,6 +368,8 @@ export function NightAuditPage() {
         <CloseDayPanel
           validation={validation}
           isClosing={isClosing}
+          auditorNote={auditorNote}
+          onAuditorNoteChange={setAuditorNote}
           onOpenCloseModal={() => setIsCloseModalOpen(true)}
         />
 

@@ -12,6 +12,7 @@ import { PropertiesModule } from '../properties/properties.module';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 import { NightAuditFolioExceptionsCollector } from './collectors/night-audit-folio-exceptions.collector';
 import { NightAuditFinancialSummaryCollector } from './collectors/night-audit-financial-summary.collector';
+import { NightAuditReportPdfService } from './night-audit-report-pdf.service';
 import { NightAuditGroupReviewCollector } from './collectors/night-audit-group-review.collector';
 import { NightAuditPendingArrivalsCollector } from './collectors/night-audit-pending-arrivals.collector';
 import { NightAuditStayReviewCollector } from './collectors/night-audit-stay-review.collector';
@@ -47,6 +48,7 @@ import { BillingModule } from '../billing/billing.module';
     NightAuditGroupReviewCollector,
     NightAuditPreCloseValidator,
     NightAuditFinancialSummaryCollector,
+    NightAuditReportPdfService,
   ],
   exports: [
     NightAuditService,
