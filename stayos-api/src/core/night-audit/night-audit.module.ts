@@ -18,6 +18,7 @@ import { NightAuditRunEntity } from './infrastructure/night-audit-run.entity';
 import { NightAuditController } from './night-audit.controller';
 import { NightAuditService } from './night-audit.service';
 import { NightAuditPreCloseValidator } from './validators/night-audit-pre-close.validator';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { NightAuditPreCloseValidator } from './validators/night-audit-pre-close.
       FolioPaymentEntity,
     ]),
     PropertiesModule,
+    BillingModule,
   ],
   controllers: [NightAuditController],
   providers: [
