@@ -700,6 +700,69 @@ describe('BillingService', () => {
     });
   });
 
+  describe('ensureOpenFolioOnManager (V2.3F1 check-in folio bootstrap)', () => {
+    const managerFor = () =>
+      ({
+        getRepository: (entity: unknown) => {
+          if (entity === FolioEntity) return managerFoliosRepository;
+          if (entity === FolioChargeEntity) return managerChargesRepository;
+          if (entity === ReservationEntity) return managerReservationsRepository;
+          if (entity === ReservationRateSnapshotEntity) return managerSnapshotsRepository;
+          throw new Error('unexpected repository');
+        },
+      }) as never;
+
+    it('NIGHTLY_V1: creates an OPEN folio with ZERO ROOM charges', async () => {
+      managerFoliosRepository.findOne = jest.fn().mockResolvedValue(null);
+      managerReservationsRepository.findOne = jest
+        .fn()
+        .mockResolvedValue(reservation({ accommodationPostingMode: AccommodationPostingMode.NIGHTLY_V1 }));
+      managerChargesRepository.save = jest.fn();
+
+      const folio = await service.ensureOpenFolioOnManager(managerFor(), propertyId, reservationId);
+
+      expect(folio.status).toBe(FolioStatus.OPEN);
+      expect(managerFoliosRepository.save).toHaveBeenCalledTimes(1);
+      expect(managerChargesRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('UPFRONT_FULL_STAY: creates an OPEN folio and generates the aggregate ROOM charge (unchanged behavior)', async () => {
+      managerFoliosRepository.findOne = jest.fn().mockResolvedValue(null);
+      managerReservationsRepository.findOne = jest
+        .fn()
+        .mockResolvedValue(reservation({ accommodationPostingMode: AccommodationPostingMode.UPFRONT_FULL_STAY }));
+      managerSnapshotsRepository.findOne = jest.fn().mockResolvedValue({
+        id: 'snapshot-1',
+        version: 1,
+        snapshot: {
+          pricingStatus: 'PRICED',
+          nights: [{ date: '2026-08-03', nightTotal: '3600.00' }],
+          totals: { grandTotal: '3600.00' },
+        },
+      });
+      managerChargesRepository.find = jest.fn().mockResolvedValue([]);
+      managerChargesRepository.save = jest.fn(async (i) => ({ id: 'charge-1', ...i }));
+
+      await service.ensureOpenFolioOnManager(managerFor(), propertyId, reservationId);
+
+      expect(managerFoliosRepository.save).toHaveBeenCalledTimes(1);
+      expect(managerChargesRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'ROOM', status: 'POSTED' }),
+      );
+    });
+
+    it('is idempotent: returns the existing folio without creating a duplicate', async () => {
+      const existing = { id: 'folio-existing', propertyId, reservationId, status: FolioStatus.OPEN };
+      managerFoliosRepository.findOne = jest.fn().mockResolvedValue(existing);
+      managerFoliosRepository.save = jest.fn();
+
+      const folio = await service.ensureOpenFolioOnManager(managerFor(), propertyId, reservationId);
+
+      expect(folio).toBe(existing);
+      expect(managerFoliosRepository.save).not.toHaveBeenCalled();
+    });
+  });
+
   describe('assertNightlyAccommodationCompleteForCheckoutOnManager (V2.3F checkout guard)', () => {
     const guardManager = () =>
       ({

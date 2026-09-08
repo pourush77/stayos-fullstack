@@ -159,6 +159,7 @@ describe('ReservationWorkflowService', () => {
     reconcileAccommodationRoomChargesOnManager: jest.Mock;
     assertCommercialAmendmentAllowedOnManager: jest.Mock;
     assertNightlyAccommodationCompleteForCheckoutOnManager: jest.Mock;
+    ensureOpenFolioOnManager: jest.Mock;
   };
 
   beforeEach(() => {
@@ -171,6 +172,7 @@ describe('ReservationWorkflowService', () => {
       reconcileAccommodationRoomChargesOnManager: jest.fn().mockResolvedValue(undefined),
       assertCommercialAmendmentAllowedOnManager: jest.fn().mockResolvedValue(undefined),
       assertNightlyAccommodationCompleteForCheckoutOnManager: jest.fn().mockResolvedValue(undefined),
+      ensureOpenFolioOnManager: jest.fn().mockResolvedValue({ id: 'folio-checkin', status: 'OPEN' }),
     };
     reservationsRepository = {
       findOne: jest.fn().mockResolvedValue(reservationEntity()),
@@ -374,6 +376,18 @@ describe('ReservationWorkflowService', () => {
         reservation: { id: reservationId, status: ReservationStatus.CHECKED_IN },
         room: { id: roomId, operationalStatus: RoomOperationalStatus.OCCUPIED },
       });
+    });
+
+    it('V2.3F1 ensures an OPEN folio exists at check-in (same transaction manager)', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(reservationEntity({ roomId }));
+
+      await service.checkIn(propertyId, reservationId);
+
+      expect(billingService.ensureOpenFolioOnManager).toHaveBeenCalledWith(
+        expect.anything(),
+        propertyId,
+        reservationId,
+      );
     });
 
     it('rejects pending reservation', async () => {

@@ -511,6 +511,11 @@ export class ReservationWorkflowService {
         actorId: actorContext.actorId ?? null,
       });
 
+      // V2.3F1: every CHECKED_IN individual reservation must have an OPEN folio.
+      // NIGHTLY_V1 => empty folio (zero ROOM charges); UPFRONT => aggregate charge
+      // as before. Same transaction manager; Night Audit still posts nightly ROOM.
+      await this.billingService.ensureOpenFolioOnManager(manager, propertyId, reservation.id);
+
       return this.toWorkflowResponse(updatedReservation, updatedRoom);
     });
   }

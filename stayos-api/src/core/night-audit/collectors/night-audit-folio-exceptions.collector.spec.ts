@@ -674,4 +674,42 @@ describe('NightAuditFolioExceptionsCollector', () => {
     expect(zeroItem.actions).toContainEqual({ type: 'SETTLE_FOLIO' });
     expect(zeroItem.actions).not.toContainEqual({ type: 'RECORD_PAYMENT' });
   });
+
+  it('N. V2.3F1: CHECKED_IN NIGHTLY_V1 stayover with an empty OPEN folio (bootstrapped at check-in) is NOT a MISSING_FOLIO blocker', async () => {
+    const resId = 'res-nightly-empty-folio';
+    reservationRepo.find?.mockResolvedValue([
+      {
+        id: resId,
+        propertyId,
+        reservationCode: 'RES-NIGHTLY',
+        arrivalDate: auditBusinessDate,
+        departureDate: '2026-09-07', // STAYOVER (departure after business date)
+        status: ReservationStatus.CHECKED_IN,
+        guest: { displayName: 'Nightly Guest' },
+        createdAt: new Date(),
+      },
+    ]);
+
+    // Post-fix: check-in bootstrapped an OPEN folio with ZERO charges/payments.
+    folioRepo.find?.mockResolvedValue([
+      mockFolio({
+        id: 'folio-nightly-empty',
+        propertyId,
+        reservationId: resId,
+        status: FolioStatus.OPEN,
+        charges: [],
+        payments: [],
+      }),
+    ]);
+
+    const result = await collector.collect(propertyId, auditBusinessDate);
+
+    expect(result.summary.missingFolio).toBe(0);
+    expect(result.blockingCount).toBe(0);
+    expect(
+      result.items.some(
+        (i) => i.exceptionType === NightAuditFolioExceptionType.MISSING_FOLIO,
+      ),
+    ).toBe(false);
+  });
 });

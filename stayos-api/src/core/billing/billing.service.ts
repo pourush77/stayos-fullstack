@@ -126,6 +126,55 @@ export class BillingService {
     return this.getFolio(propertyId, folio.id);
   }
 
+  /**
+   * Manager-aware idempotent folio bootstrap used inside the check-in transaction
+   * (V2.3F1). Ensures every successfully CHECKED_IN individual reservation has an
+   * OPEN folio. UPFRONT_FULL_STAY generates the aggregate full-stay ROOM charge
+   * exactly as the lazy getOrCreateFolioForReservation path does; NIGHTLY_V1
+   * creates an EMPTY OPEN folio with ZERO ROOM charges (Night Audit remains the
+   * sole authority that posts nightly accommodation revenue). Runs on the caller's
+   * EntityManager; opens no independent transaction.
+   */
+  async ensureOpenFolioOnManager(
+    manager: EntityManager,
+    propertyId: string,
+    reservationId: string,
+  ): Promise<FolioEntity> {
+    const folioRepo = manager.getRepository(FolioEntity);
+    const existing = await folioRepo.findOne({ where: { reservationId, propertyId } });
+    if (existing) return existing;
+
+    const reservation = await manager
+      .getRepository(ReservationEntity)
+      .findOne({ where: { id: reservationId, propertyId } });
+    if (!reservation) throw new NotFoundException(`Reservation ${reservationId} was not found`);
+
+    const folioNumber = await this.nextFolioNumber(propertyId);
+    const created = await folioRepo.save(
+      folioRepo.create({
+        propertyId,
+        reservationId,
+        guestId: reservation.guestId,
+        folioNumber,
+        status: FolioStatus.OPEN,
+        currency: 'INR',
+      }),
+    );
+    if (this.usesUpfrontFullStayPosting(reservation)) {
+      const activeSnapshot = await manager
+        .getRepository(ReservationRateSnapshotEntity)
+        .findOne({ where: { reservationId, status: ReservationRateSnapshotStatus.ACTIVE } });
+      await this.generateRoomChargesFromSnapshot(
+        manager,
+        created.id,
+        propertyId,
+        reservation,
+        activeSnapshot,
+      );
+    }
+    return created;
+  }
+
   private async loadActiveSnapshot(
     reservationId: string,
   ): Promise<ReservationRateSnapshotEntity | null> {
