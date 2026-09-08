@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ReservationPaymentStatus } from '../domain/reservation-payment-status.enum';
 import { ReservationSource } from '../domain/reservation-source.enum';
 import { ReservationStatus } from '../domain/reservation-status.enum';
+import { AccommodationPostingMode } from '../domain/accommodation-posting-mode.enum';
 
 export class BookedRatePlanResponseDto {
   @ApiPropertyOptional({ format: 'uuid' })
@@ -74,6 +75,9 @@ export class ReservationResponseDto {
 
   @ApiProperty({ enum: ReservationPaymentStatus })
   paymentStatus!: ReservationPaymentStatus;
+
+  @ApiProperty({ enum: AccommodationPostingMode })
+  accommodationPostingMode!: AccommodationPostingMode;
 
   @ApiPropertyOptional()
   notes!: string | null;

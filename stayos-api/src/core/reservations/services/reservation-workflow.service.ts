@@ -20,11 +20,14 @@ import { TaxService } from '../../rates/tax.service';
 import { AssignRoomDto } from '../dto/assign-room.dto';
 import { ApproveLateCheckoutDto } from '../dto/approve-late-checkout.dto';
 import { ExtendReservationDto } from '../dto/extend-reservation.dto';
+import { EarlyDepartureDto } from '../dto/early-departure.dto';
+import { EarlyDepartureResponseDto } from '../dto/early-departure-response.dto';
 import { MoveRoomDto } from '../dto/move-room.dto';
 import { ReservationWorkflowResponseDto } from '../dto/reservation-workflow-response.dto';
 import { PropertyEntity } from '../../properties/infrastructure/property.entity';
 import { ReservationPaymentStatus } from '../domain/reservation-payment-status.enum';
 import { ReservationStatus } from '../domain/reservation-status.enum';
+import { AccommodationPostingMode } from '../domain/accommodation-posting-mode.enum';
 import { ReservationEntity } from '../infrastructure/reservation.entity';
 import { ReservationsMapper } from '../reservations.mapper';
 import { RoomsMapper } from '../../rooms/rooms.mapper';
@@ -725,6 +728,140 @@ export class ReservationWorkflowService {
       });
 
       return this.toWorkflowResponse(updatedReservation, room);
+    });
+  }
+
+  /**
+   * Early Departure V1 (NIGHTLY_V1 only). Explicit, authorized action that
+   * shortens a CHECKED_IN stay's departure to an effective earlier date and
+   * WAIVES the future unconsumed accommodation nights. It never reverses/
+   * reprices already-posted historical ROOM nights, never posts ROOM charges
+   * for the waived nights, and never auto-creates a fee/refund/credit. The
+   * shortened departure makes the checkout completeness guard (V2.3F) demand
+   * only the consumed nights so legitimately waived nights do not block
+   * checkout. UPFRONT_FULL_STAY is explicitly rejected (no safe waiver path).
+   */
+  async earlyDeparture(
+    propertyId: string,
+    reservationId: string,
+    dto: EarlyDepartureDto,
+    actorContext: WorkflowActorContext = {},
+  ): Promise<EarlyDepartureResponseDto> {
+    return this.dataSource.transaction(async (manager) => {
+      const reservationRepository = manager.getRepository(ReservationEntity);
+      const roomRepository = manager.getRepository(RoomEntity);
+
+      const reservation = await this.findReservation(
+        reservationRepository,
+        propertyId,
+        reservationId,
+      );
+      this.ensureReservationStatus(
+        reservation,
+        ReservationStatus.CHECKED_IN,
+        ApiErrorCode.RESERVATION_NOT_CHECKED_IN,
+        'Only checked-in reservations can be processed for early departure',
+      );
+
+      if (reservation.accommodationPostingMode !== AccommodationPostingMode.NIGHTLY_V1) {
+        throw this.badRequest(
+          ApiErrorCode.VALIDATION_ERROR,
+          'Early departure with future-night waiver is only supported for nightly-posted (NIGHTLY_V1) reservations',
+        );
+      }
+
+      const originalDepartureDate = reservation.departureDate;
+      const effectiveDepartureDate = dto.newDepartureDate;
+
+      if (effectiveDepartureDate >= originalDepartureDate) {
+        throw this.badRequest(
+          ApiErrorCode.VALIDATION_ERROR,
+          'Early departure date must be before the current booked departure date',
+        );
+      }
+      if (effectiveDepartureDate <= reservation.arrivalDate) {
+        throw this.badRequest(
+          ApiErrorCode.VALIDATION_ERROR,
+          'Early departure date must be after the arrival date',
+        );
+      }
+
+      if (!reservation.roomId) {
+        throw this.badRequest(
+          ApiErrorCode.ROOM_NOT_FOUND,
+          'Reservation must have an assigned room before early departure',
+        );
+      }
+
+      const room = await this.findRoom(roomRepository, reservation.roomId);
+      this.ensureRoomBelongsToProperty(room, propertyId);
+
+      const nightsWaived = this.calculateNights(effectiveDepartureDate, originalDepartureDate);
+      const previousState = this.workflowAuditState(reservation, room);
+
+      reservation.departureDate = effectiveDepartureDate;
+      const updatedReservation = await reservationRepository.save(reservation);
+
+      // Release inventory for the waived future nights [effective, original).
+      // Same amendment mechanism used by extendStay (reversed direction). No
+      // ROOM charge is posted or reversed here — nightly posting authority and
+      // historical serviceDate charges are untouched.
+      if (updatedReservation.inventoryReserved) {
+        const entitlementDiff = diffEntitlements(
+          {
+            consuming: true,
+            roomTypeId: updatedReservation.roomTypeId,
+            nights: expandStayNights(updatedReservation.arrivalDate, originalDepartureDate),
+          },
+          {
+            consuming: true,
+            roomTypeId: updatedReservation.roomTypeId,
+            nights: expandStayNights(updatedReservation.arrivalDate, effectiveDepartureDate),
+          },
+        );
+        await this.availabilityService.applyDelta(
+          {
+            propertyId,
+            toRelease: entitlementDiff.toRelease,
+            toReserve: entitlementDiff.toReserve,
+            units: 1,
+          },
+          manager,
+        );
+      }
+
+      const financialConsequence =
+        `${nightsWaived} future unconsumed night(s) waived. Already posted room charges are unchanged; ` +
+        'no cancellation fee, refund or credit was applied.';
+
+      await this.createEvents(manager, {
+        propertyId,
+        action: 'RESERVATION_EARLY_DEPARTURE',
+        previousState,
+        nextState: this.workflowAuditState(updatedReservation, room),
+        activityType: 'EARLY_DEPARTURE',
+        activityTitle: 'Early departure processed',
+        activityDescription: `Reservation ${reservation.reservationCode} early departure: ${originalDepartureDate} → ${effectiveDepartureDate}. ${financialConsequence}`,
+        reservation: updatedReservation,
+        room,
+        actorId: actorContext.actorId ?? null,
+        metadata: {
+          originalDepartureDate,
+          effectiveDepartureDate,
+          nightsWaived,
+          futureNightsWaived: true,
+          reason: dto.reason?.trim() || null,
+        },
+      });
+
+      return {
+        reservation: ReservationsMapper.toResponse(updatedReservation),
+        room: RoomsMapper.toResponse(room),
+        originalDepartureDate,
+        effectiveDepartureDate,
+        nightsWaived,
+        financialConsequence,
+      };
     });
   }
 

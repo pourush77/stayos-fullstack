@@ -7,6 +7,8 @@ import { ReservationStatus } from './domain/reservation-status.enum';
 import { AccommodationPostingMode } from './domain/accommodation-posting-mode.enum';
 import { ReservationEntity } from './infrastructure/reservation.entity';
 import { ReservationsController } from './reservations.controller';
+import { REQUIRED_PERMISSIONS_KEY } from '../auth/decorators/require-permissions.decorator';
+import { Permissions } from '../auth/permissions';
 import { ReservationsService } from './reservations.service';
 import { CheckInService } from './services/check-in.service';
 import { ReservationQuoteService } from './services/reservation-quote.service';
@@ -63,6 +65,7 @@ describe('ReservationsController', () => {
     assignRoom: jest.fn(),
     unassignRoom: jest.fn(),
     extendStay: jest.fn(),
+    earlyDeparture: jest.fn(),
     moveRoom: jest.fn(),
     confirm: jest.fn(),
     checkIn: jest.fn(),
@@ -276,6 +279,38 @@ describe('ReservationsController', () => {
       { approvedUntil: '14:00', notes: 'Late flight' },
       { actorId: null },
     );
+  });
+
+  it('delegates early-departure workflow requests', async () => {
+    const workflowResponse = {
+      reservation: { ...reservationResponse, departureDate: '2026-09-10' },
+      room: { id: 'room-id' },
+      originalDepartureDate: '2026-09-12',
+      effectiveDepartureDate: '2026-09-10',
+      nightsWaived: 2,
+      financialConsequence: 'waived',
+    };
+
+    reservationWorkflowService.earlyDeparture.mockResolvedValue(workflowResponse);
+
+    await expect(
+      controller.earlyDeparture(propertyId, reservationId, { newDepartureDate: '2026-09-10' }),
+    ).resolves.toEqual(workflowResponse);
+
+    expect(reservationWorkflowService.earlyDeparture).toHaveBeenCalledWith(
+      propertyId,
+      reservationId,
+      { newDepartureDate: '2026-09-10' },
+      { actorId: null },
+    );
+  });
+
+  it('E. early-departure is guarded by the bookings.manage manager permission', () => {
+    const permissions = Reflect.getMetadata(
+      REQUIRED_PERMISSIONS_KEY,
+      ReservationsController.prototype.earlyDeparture,
+    );
+    expect(permissions).toEqual([Permissions.BookingsManage]);
   });
 
   it('queues booking confirmation after successful reservation confirmation', async () => {

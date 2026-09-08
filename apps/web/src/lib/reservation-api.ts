@@ -383,6 +383,27 @@ export function approveLateCheckout(
   );
 }
 
+export function earlyDepartureReservation(
+  propertyId: string,
+  reservationId: string,
+  newDepartureDate: string,
+  reason?: string,
+  signal?: AbortSignal,
+) {
+  return request<{
+    reservation: ReservationWorkflowResponseDto['reservation'];
+    room: ReservationWorkflowResponseDto['room'];
+    originalDepartureDate: string;
+    effectiveDepartureDate: string;
+    nightsWaived: number;
+    financialConsequence: string;
+  }>(`/properties/${propertyId}/reservations/${reservationId}/early-departure`, {
+    body: JSON.stringify({ newDepartureDate, ...(reason ? { reason } : {}) }),
+    method: 'PATCH',
+    signal,
+  });
+}
+
 export function moveReservationRoom(
   propertyId: string,
   reservationId: string,

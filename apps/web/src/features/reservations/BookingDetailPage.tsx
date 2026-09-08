@@ -30,6 +30,7 @@ import {
   CalendarDays,
   ChevronLeft,
   CreditCard,
+  DoorOpen,
   Edit,
   IdCard,
   Mail,
@@ -57,6 +58,7 @@ import type { AvailableRoomOption, Booking } from './types/booking.types';
 import { bookingStatusLabel, paymentStatusLabel, sourceLabel } from './utils/booking-formatters';
 import { CheckoutModal } from './components/CheckoutModal';
 import { ExtendStayModal } from './components/ExtendStayModal';
+import { EarlyDepartureModal } from './components/EarlyDepartureModal';
 import { getFolioForReservation } from '../billing/api/billing-api';
 import {
   moveReservationRoom,
@@ -776,6 +778,7 @@ export default function BookingDetailPage() {
   const [changeOpened, setChangeOpened] = useState(false);
   const [checkoutOpened, setCheckoutOpened] = useState(false);
   const [extendOpened, setExtendOpened] = useState(false);
+  const [earlyDepartureOpened, setEarlyDepartureOpened] = useState(false);
   const [moveOpened, setMoveOpened] = useState(false);
   const [folioSummary, setFolioSummary] = useState<FolioSummary | undefined>(undefined);
   const [folioId, setFolioId] = useState<string | undefined>(undefined);
@@ -1258,6 +1261,20 @@ export default function BookingDetailPage() {
               </Button>
             ) : null}
 
+            {booking.status === 'CHECKED_IN' &&
+            booking.accommodationPostingMode === 'NIGHTLY_V1' ? (
+              <Button
+                variant="light"
+                color="orange"
+                leftSection={<DoorOpen size={16} />}
+                disabled={isActing}
+                onClick={() => setEarlyDepartureOpened(true)}
+                data-testid="early-departure-open"
+              >
+                Early Departure
+              </Button>
+            ) : null}
+
             {booking.status === 'CONFIRMED' || booking.status === 'CHECKED_OUT' ? (
               <Menu position="bottom-end" shadow="md" width={245}>
                 <Menu.Target>
@@ -1710,6 +1727,20 @@ export default function BookingDetailPage() {
           reservationId={booking.backendId}
           currentDeparture={booking.departureDate}
           onExtended={async () => {
+            await bookingState.refreshBooking();
+          }}
+        />
+      ) : null}
+      {bookingState.propertyId && booking.status === 'CHECKED_IN' &&
+      booking.accommodationPostingMode === 'NIGHTLY_V1' ? (
+        <EarlyDepartureModal
+          opened={earlyDepartureOpened}
+          onClose={() => setEarlyDepartureOpened(false)}
+          propertyId={bookingState.propertyId}
+          reservationId={booking.backendId}
+          arrivalDate={booking.arrivalDate}
+          currentDeparture={booking.departureDate}
+          onProcessed={async () => {
             await bookingState.refreshBooking();
           }}
         />

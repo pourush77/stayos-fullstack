@@ -1107,4 +1107,119 @@ describe('ReservationWorkflowService', () => {
       ).rejects.toThrow('Approved late checkout time must be later than standard checkout time (11:00 AM).');
     });
   });
+
+  describe('earlyDeparture', () => {
+    const nightlyCheckedIn = (overrides: Partial<ReservationEntity> = {}) =>
+      reservationEntity({
+        roomId,
+        status: ReservationStatus.CHECKED_IN,
+        accommodationPostingMode: AccommodationPostingMode.NIGHTLY_V1,
+        arrivalDate: '2026-09-08',
+        departureDate: '2026-09-12',
+        inventoryReserved: true,
+        ...overrides,
+      });
+
+    it('B & D. shortens the stay, waives future nights, and posts NO room charge/refund/fee', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(nightlyCheckedIn());
+
+      const result = await service.earlyDeparture(propertyId, reservationId, {
+        newDepartureDate: '2026-09-10',
+      });
+
+      expect(result.originalDepartureDate).toBe('2026-09-12');
+      expect(result.effectiveDepartureDate).toBe('2026-09-10');
+      expect(result.nightsWaived).toBe(2);
+      // departure shortened on the saved reservation
+      const saved = reservationsRepository.save?.mock.calls[0][0] as ReservationEntity;
+      expect(saved.departureDate).toBe('2026-09-10');
+      // NO ROOM charge posted/reversed, NO fee, NO reconcile
+      expect(folioChargesRepository.save).not.toHaveBeenCalled();
+      expect(billingService.reconcileAccommodationRoomChargesOnManager).not.toHaveBeenCalled();
+      expect(billingService.reconcileRoomChargesOnManager).not.toHaveBeenCalled();
+      // audit + activity recorded
+      expect(auditRepository.save).toHaveBeenCalled();
+      expect(activityRepository.save).toHaveBeenCalled();
+    });
+
+    it('B. releases inventory for exactly the waived future nights', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(nightlyCheckedIn());
+
+      await service.earlyDeparture(propertyId, reservationId, { newDepartureDate: '2026-09-10' });
+
+      expect(availabilityService.applyDelta).toHaveBeenCalledTimes(1);
+      const delta = availabilityService.applyDelta.mock.calls[0][0];
+      // waived nights are 2026-09-10 and 2026-09-11 (checkout day 12 is never a night)
+      expect(delta.toRelease.map((n: { date: string }) => n.date).sort()).toEqual([
+        '2026-09-10',
+        '2026-09-11',
+      ]);
+      expect(delta.toReserve).toEqual([]);
+    });
+
+    it('records an audit event containing original, effective departure and waived-night count', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(nightlyCheckedIn());
+
+      await service.earlyDeparture(propertyId, reservationId, {
+        newDepartureDate: '2026-09-10',
+        reason: 'Flight moved up',
+      });
+
+      const auditCall = auditRepository.create?.mock.calls.find(
+        (c) => c[0].action === 'RESERVATION_EARLY_DEPARTURE',
+      );
+      expect(auditCall).toBeDefined();
+      expect(auditCall?.[0].metadata).toEqual(
+        expect.objectContaining({
+          originalDepartureDate: '2026-09-12',
+          effectiveDepartureDate: '2026-09-10',
+          nightsWaived: 2,
+          futureNightsWaived: true,
+          reason: 'Flight moved up',
+        }),
+      );
+    });
+
+    it('F. rejects a new departure not before the current departure', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(nightlyCheckedIn());
+
+      await expect(
+        service.earlyDeparture(propertyId, reservationId, { newDepartureDate: '2026-09-12' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(reservationsRepository.save).not.toHaveBeenCalled();
+      expect(availabilityService.applyDelta).not.toHaveBeenCalled();
+    });
+
+    it('F. rejects a new departure on or before the arrival date', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(nightlyCheckedIn());
+
+      await expect(
+        service.earlyDeparture(propertyId, reservationId, { newDepartureDate: '2026-09-08' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(reservationsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('G. UPFRONT safety: rejects early-departure waiver for UPFRONT_FULL_STAY (no mutation)', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        nightlyCheckedIn({ accommodationPostingMode: AccommodationPostingMode.UPFRONT_FULL_STAY }),
+      );
+
+      await expect(
+        service.earlyDeparture(propertyId, reservationId, { newDepartureDate: '2026-09-10' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(reservationsRepository.save).not.toHaveBeenCalled();
+      expect(availabilityService.applyDelta).not.toHaveBeenCalled();
+      expect(folioChargesRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the reservation is not checked in', async () => {
+      reservationsRepository.findOne?.mockResolvedValue(
+        nightlyCheckedIn({ status: ReservationStatus.CONFIRMED }),
+      );
+
+      await expect(
+        service.earlyDeparture(propertyId, reservationId, { newDepartureDate: '2026-09-10' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
 });

@@ -34,6 +34,7 @@ export class ReservationsMapper {
       externalConfirmationId: entity.externalConfirmationId ?? null,
       status: entity.status,
       paymentStatus: entity.paymentStatus,
+      accommodationPostingMode: entity.accommodationPostingMode,
       notes: entity.notes,
       specialRequests: entity.specialRequests,
       createdAt: entity.createdAt,

@@ -204,6 +204,7 @@ export function mapBooking(dto: ReservationDto): Booking {
     roomTypeId:
       getString(dto, ['roomTypeId'], getString(roomType, ['id', '_id', 'uuid'])) || undefined,
     ratePlan: mapBookedRatePlan(dto),
+    accommodationPostingMode: getString(dto, ['accommodationPostingMode']) || undefined,
     source: normalizeSource(getString(dto, ['source'], 'DIRECT')),
     specialRequests: getString(dto, ['specialRequests', 'requests'], 'None'),
     status: normalizeStatus(getString(dto, ['status'], 'CONFIRMED')),

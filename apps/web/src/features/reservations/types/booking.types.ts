@@ -62,6 +62,7 @@ export type Booking = {
   } | null;
   source: BookingSource;
   specialRequests: string;
+  accommodationPostingMode?: string;
   status: BookingStatus;
 };
 

@@ -35,6 +35,8 @@ import { AssignRoomDto } from './dto/assign-room.dto';
 import { CheckInWorkspaceResponseDto } from './dto/check-in-workspace-response.dto';
 import { ApproveLateCheckoutDto } from './dto/approve-late-checkout.dto';
 import { ExtendReservationDto } from './dto/extend-reservation.dto';
+import { EarlyDepartureDto } from './dto/early-departure.dto';
+import { EarlyDepartureResponseDto } from './dto/early-departure-response.dto';
 import { MoveRoomDto } from './dto/move-room.dto';
 import { PaymentReviewDto } from './dto/payment-review.dto';
 import { ReservationResponseDto } from './dto/reservation-response.dto';
@@ -215,6 +217,23 @@ export class ReservationsController {
     @CurrentUser() user?: AuthenticatedRequest['currentUser'],
   ): Promise<ReservationWorkflowResponseDto> {
     return this.reservationWorkflowService.extendStay(propertyId, reservationId, dto, {
+      actorId: user?.id ?? null,
+    });
+  }
+
+  @Patch(':reservationId/early-departure')
+  @RequirePermissions(Permissions.BookingsManage)
+  @ApiOperation({ summary: 'Process early departure (waive future nights) for a checked-in NIGHTLY_V1 reservation' })
+  @ApiStandardOkResponse(EarlyDepartureResponseDto)
+  @ApiBadRequestResponse({ description: 'Invalid new departure date, unsupported posting mode, or reservation state' })
+  @ApiNotFoundResponse({ description: 'Reservation or room not found' })
+  async earlyDeparture(
+    @Param('propertyId', ParseUUIDPipe) propertyId: string,
+    @Param('reservationId', ParseUUIDPipe) reservationId: string,
+    @Body() dto: EarlyDepartureDto,
+    @CurrentUser() user?: AuthenticatedRequest['currentUser'],
+  ): Promise<EarlyDepartureResponseDto> {
+    return this.reservationWorkflowService.earlyDeparture(propertyId, reservationId, dto, {
       actorId: user?.id ?? null,
     });
   }
