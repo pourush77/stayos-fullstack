@@ -1358,5 +1358,80 @@ describe('NightAuditService', () => {
         expect(financialSummaryCollector.collect).not.toHaveBeenCalled();
       });
     });
+
+    describe('missed business-date recovery (sequential catch-up)', () => {
+      const eligibleReservation = (id: string) => ({ id }) as unknown as ReservationEntity;
+
+      const configureForDate = (businessDate: string) => {
+        const run = { ...mockRun, businessDate };
+        const property = { ...mockProperty, currentBusinessDate: businessDate };
+        nightAuditRunRepo.findOne?.mockResolvedValueOnce(run);
+        propertiesRepo.findOne?.mockResolvedValueOnce(property);
+        txRunRepo.findOne?.mockResolvedValueOnce(run);
+        txPropertyRepo.findOne?.mockResolvedValueOnce(property);
+        txReservationQueryBuilder.getMany.mockResolvedValueOnce([eligibleReservation('res-nightly-1')]);
+      };
+
+      it('closes two missed days sequentially, advancing exactly one day each, posting nightly + snapshot per serviceDate, never jumping', async () => {
+        // Stale authoritative businessDate 2026-09-08 (physical/wall-clock is later
+        // and irrelevant — closeRun reads the persisted currentBusinessDate).
+        configureForDate('2026-09-08');
+        const first = await service.closeRun(mockPropertyId, mockUserId);
+
+        expect(first.nextBusinessDate).toBe('2026-09-09'); // exactly +1, never 08 -> 10
+        expect(billingService.postNightlyAccommodationChargeOnManager.mock.calls.at(-1)?.[3]).toBe(
+          '2026-09-08',
+        );
+        expect(financialSummaryCollector.collect.mock.calls.at(-1)?.[2]).toBe('2026-09-08');
+        expect((first.run.completionSnapshot as unknown as { businessDate: string }).businessDate).toBe(
+          '2026-09-08',
+        );
+        expect(txPropertyRepo.save).toHaveBeenLastCalledWith(
+          expect.objectContaining({ currentBusinessDate: '2026-09-09' }),
+        );
+
+        // Second manual close now operates on the newly advanced authoritative date.
+        configureForDate('2026-09-09');
+        const second = await service.closeRun(mockPropertyId, mockUserId);
+
+        expect(second.nextBusinessDate).toBe('2026-09-10'); // exactly +1 again
+        expect(billingService.postNightlyAccommodationChargeOnManager.mock.calls.at(-1)?.[3]).toBe(
+          '2026-09-09',
+        );
+        expect(financialSummaryCollector.collect.mock.calls.at(-1)?.[2]).toBe('2026-09-09');
+        expect((second.run.completionSnapshot as unknown as { businessDate: string }).businessDate).toBe(
+          '2026-09-09',
+        );
+
+        // Distinct service dates -> one nightly post each, no skipped/duplicated date.
+        const serviceDates = billingService.postNightlyAccommodationChargeOnManager.mock.calls.map(
+          (c) => c[3],
+        );
+        expect(serviceDates).toEqual(['2026-09-08', '2026-09-09']);
+      });
+
+      it('cannot jump multiple days: an OPEN run whose date lags the property date is rejected (no advance)', async () => {
+        // Property already advanced to 09 but the OPEN run is still for 08.
+        nightAuditRunRepo.findOne?.mockResolvedValueOnce({ ...mockRun, businessDate: '2026-09-08' });
+        propertiesRepo.findOne?.mockResolvedValueOnce({
+          ...mockProperty,
+          currentBusinessDate: '2026-09-09',
+        });
+
+        let thrown: any;
+        try {
+          await service.closeRun(mockPropertyId, mockUserId);
+        } catch (err) {
+          thrown = err;
+        }
+
+        expect(thrown).toBeInstanceOf(ConflictException);
+        expect(thrown.getResponse()).toEqual(
+          expect.objectContaining({ code: 'NIGHT_AUDIT_DATE_MISMATCH' }),
+        );
+        expect(dataSource.transaction).not.toHaveBeenCalled();
+        expect(txPropertyRepo.save).not.toHaveBeenCalled();
+      });
+    });
   });
 });
