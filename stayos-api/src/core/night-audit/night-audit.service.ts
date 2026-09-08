@@ -5,6 +5,7 @@ import { AuditEventEntity } from '../audit/infrastructure/audit-event.entity';
 import { PropertyEntity } from '../properties/infrastructure/property.entity';
 import { BusinessDateService } from '../properties/services/business-date.service';
 import { NightAuditFolioExceptionsCollector } from './collectors/night-audit-folio-exceptions.collector';
+import { NightAuditFinancialSummaryCollector } from './collectors/night-audit-financial-summary.collector';
 import { NightAuditGroupReviewCollector } from './collectors/night-audit-group-review.collector';
 import { NightAuditPendingArrivalsCollector } from './collectors/night-audit-pending-arrivals.collector';
 import { NightAuditStayReviewCollector } from './collectors/night-audit-stay-review.collector';
@@ -49,6 +50,7 @@ export class NightAuditService {
     private readonly folioExceptionsCollector: NightAuditFolioExceptionsCollector,
     private readonly groupReviewCollector: NightAuditGroupReviewCollector,
     private readonly preCloseValidator: NightAuditPreCloseValidator,
+    private readonly financialSummaryCollector: NightAuditFinancialSummaryCollector,
   ) {}
 
   /**
@@ -330,6 +332,16 @@ export class NightAuditService {
         );
       }
 
+      // V2.4: immutable financial closing summary captured AFTER nightly posting,
+      // BEFORE the run is finalized and the business date advances.
+      const financial = await this.financialSummaryCollector.collect(
+        manager,
+        propertyId,
+        lockedRun.businessDate,
+        workspace,
+        lockedProperty.currency ?? null,
+      );
+
       const completionSnapshot = this.completionSnapshotBuilder.build({
         run: lockedRun,
         workspace,
@@ -337,6 +349,7 @@ export class NightAuditService {
         nextBusinessDate: newBusinessDate,
         completedAt,
         actorUserId,
+        financial,
       });
 
       // 1. Advance property currentBusinessDate

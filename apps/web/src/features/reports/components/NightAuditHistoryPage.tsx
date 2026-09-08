@@ -341,6 +341,7 @@ function NightAuditHistoryDetail({ detail }: { detail: NightAuditHistoryDetailDt
   }
 
   const snapshot = detail.completionSnapshot;
+  const financial = snapshot.financial;
   const operationalSummary = [
     ['Pending Arrivals', compactStatus(snapshot.sections.pendingArrivals.count)],
     ['In-House', compactStatus(valueOf(snapshot.inHouseSummary, ['totalInHouse', 'inHouse', 'checkedIn', 'occupied']))],
@@ -375,6 +376,7 @@ function NightAuditHistoryDetail({ detail }: { detail: NightAuditHistoryDetailDt
         <Title order={3} style={{ fontSize: 18 }}>Operational Summary</Title>
         <SimpleFacts rows={operationalSummary} />
       </Card>
+      {financial ? <FinancialClosingSummary financial={financial} /> : null}
       <Card p={spacing[4]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
         <Group justify="space-between">
           <Text fw={700} c="#101828">Close Result</Text>
@@ -389,6 +391,82 @@ function NightAuditHistoryDetail({ detail }: { detail: NightAuditHistoryDetailDt
       <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
         <Title order={3} style={{ fontSize: 18 }}>In-House Summary</Title>
         <SimpleFacts rows={friendlyInHouseRows(snapshot.inHouseSummary)} />
+      </Card>
+    </Stack>
+  );
+}
+
+function FinancialClosingSummary({
+  financial,
+}: {
+  financial: NonNullable<NightAuditCompletionSnapshot['financial']>;
+}) {
+  const { financialSummary: fin, paymentBreakdown, operationalSummary: ops, groupSummary } = financial;
+  const currency = fin.currency ?? 'INR';
+  const money = (value: number) =>
+    new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 2 }).format(value);
+
+  return (
+    <Stack gap={spacing[3]} data-testid="night-audit-financial-summary">
+      <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
+        <Group justify="space-between">
+          <Title order={3} style={{ fontSize: 18 }}>Financial Summary</Title>
+          <Badge size="sm" variant="light" color="grape">Closing figures</Badge>
+        </Group>
+        <SimpleFacts
+          rows={[
+            ['Room Revenue', money(fin.roomRevenue)],
+            ['Other Charges', money(fin.otherChargeRevenue)],
+            ['Tax', money(fin.taxAmount)],
+            ['Gross Charges', money(fin.grossCharges)],
+            ['Payments Collected', money(fin.paymentsCollected)],
+            ['Refunds', money(fin.refunds)],
+            ['Net Collections', money(fin.netCollections)],
+            ['Outstanding Balance', money(fin.outstandingBalance)],
+          ]}
+        />
+      </Card>
+
+      <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
+        <Title order={3} style={{ fontSize: 18 }}>Payment Breakdown</Title>
+        {paymentBreakdown.length === 0 ? (
+          <Text c="#64748b" size="sm" mt={spacing[3]} data-testid="night-audit-payment-breakdown-empty">
+            No payments recorded for this business date.
+          </Text>
+        ) : (
+          <SimpleFacts
+            rows={paymentBreakdown.map((entry) => [labelize(entry.method.toLowerCase()), money(entry.amount)])}
+          />
+        )}
+      </Card>
+
+      <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
+        <Title order={3} style={{ fontSize: 18 }}>Operations</Title>
+        <SimpleFacts
+          rows={[
+            ['Total Rooms', ops.totalRooms],
+            ['In-House Rooms', ops.inHouseRooms],
+            ['Stayovers', ops.stayovers],
+            ['Arrivals', ops.arrivals],
+            ['Departures', ops.departures],
+            ['No-Shows', ops.noShows],
+          ]}
+        />
+      </Card>
+
+      <Card p={spacing[5]} radius={radius.lg} shadow="xs" style={{ border: 'none' }}>
+        <Title order={3} style={{ fontSize: 18 }}>Groups</Title>
+        <SimpleFacts
+          rows={[
+            ['In-House Groups', groupSummary.inHouseGroups],
+            ['Group Stayovers', groupSummary.stayoverGroups],
+            ['Master Folio Payments', money(groupSummary.masterFolioPaymentsCollected)],
+            ['Master Folio Refunds', money(groupSummary.masterFolioRefunds)],
+          ]}
+        />
+        <Text c="#94a3b8" size="xs" mt={spacing[3]}>
+          Group accommodation revenue is tracked separately and is not included in room revenue.
+        </Text>
       </Card>
     </Stack>
   );

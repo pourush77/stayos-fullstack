@@ -10,8 +10,61 @@ import { GroupBookingStatus } from '../../operations/domain/group-booking-status
 
 export const NIGHT_AUDIT_COMPLETION_SNAPSHOT_VERSION = 'NA-V2.1' as const;
 
+/**
+ * V2.4 introduces an immutable manager-level FINANCIAL CLOSING SUMMARY captured
+ * during the close transaction (after nightly posting, before finalization).
+ * NA-V2.1 snapshots remain valid and are never rewritten.
+ */
+export const NIGHT_AUDIT_FINANCIAL_SNAPSHOT_VERSION = 'NA-V2.4' as const;
+
 export type NightAuditCompletionSnapshotVersion =
   typeof NIGHT_AUDIT_COMPLETION_SNAPSHOT_VERSION;
+
+export type NightAuditFinancialSnapshotVersion =
+  typeof NIGHT_AUDIT_FINANCIAL_SNAPSHOT_VERSION;
+
+export interface NightAuditFinancialSummaryFinancials {
+  currency: string | null;
+  roomRevenue: number;
+  otherChargeRevenue: number;
+  grossCharges: number;
+  taxAmount: number;
+  paymentsCollected: number;
+  refunds: number;
+  netCollections: number;
+  outstandingBalance: number;
+}
+
+export interface NightAuditFinancialPaymentBreakdownEntry {
+  method: string;
+  amount: number;
+}
+
+export interface NightAuditFinancialOperationalSummary {
+  totalRooms: number;
+  inHouseRooms: number;
+  stayovers: number;
+  arrivals: number;
+  departures: number;
+  noShows: number;
+}
+
+export interface NightAuditFinancialGroupSummary {
+  inHouseGroups: number;
+  stayoverGroups: number;
+  masterFolioPaymentsCollected: number;
+  masterFolioRefunds: number;
+  /** Group accommodation revenue is NOT unified into folio_charges and is
+   * intentionally never fabricated as ROOM revenue. Master-folio payments only. */
+  accommodationRevenueIncluded: false;
+}
+
+export interface NightAuditCompletionSnapshotFinancialSummary {
+  financialSummary: NightAuditFinancialSummaryFinancials;
+  paymentBreakdown: NightAuditFinancialPaymentBreakdownEntry[];
+  operationalSummary: NightAuditFinancialOperationalSummary;
+  groupSummary: NightAuditFinancialGroupSummary;
+}
 
 export interface NightAuditCompletionSnapshotSectionCounts {
   count: number;
@@ -126,7 +179,19 @@ export interface NightAuditCompletionSnapshotV21 {
   inHouseSummary: NightAuditCompletionSnapshotInHouseSummary;
 }
 
-export type NightAuditCompletionSnapshot = NightAuditCompletionSnapshotV21;
+/**
+ * NA-V2.4 extends the immutable V2.1 operational snapshot additively with a
+ * manager-level financial closing summary. Every V2.1 field is preserved.
+ */
+export interface NightAuditCompletionSnapshotV24
+  extends Omit<NightAuditCompletionSnapshotV21, 'version'> {
+  version: NightAuditFinancialSnapshotVersion;
+  financial: NightAuditCompletionSnapshotFinancialSummary;
+}
+
+export type NightAuditCompletionSnapshot =
+  | NightAuditCompletionSnapshotV21
+  | NightAuditCompletionSnapshotV24;
 
 export interface BuildNightAuditCompletionSnapshotInput {
   run: Pick<
@@ -138,11 +203,13 @@ export interface BuildNightAuditCompletionSnapshotInput {
   nextBusinessDate: string;
   completedAt: Date;
   actorUserId: string;
+  financial: NightAuditCompletionSnapshotFinancialSummary;
 }
 
 export class NightAuditCompletionSnapshotBuilder {
-  build(input: BuildNightAuditCompletionSnapshotInput): NightAuditCompletionSnapshotV21 {
-    const { run, workspace, validation, nextBusinessDate, completedAt, actorUserId } = input;
+  build(input: BuildNightAuditCompletionSnapshotInput): NightAuditCompletionSnapshotV24 {
+    const { run, workspace, validation, nextBusinessDate, completedAt, actorUserId, financial } =
+      input;
 
     if (validation.canClose !== true || validation.totalBlockingCount !== 0) {
       throw new Error(
@@ -163,7 +230,7 @@ export class NightAuditCompletionSnapshotBuilder {
     }
 
     return {
-      version: NIGHT_AUDIT_COMPLETION_SNAPSHOT_VERSION,
+      version: NIGHT_AUDIT_FINANCIAL_SNAPSHOT_VERSION,
       propertyId: run.propertyId,
       runId: run.id,
       businessDate: run.businessDate,
@@ -256,6 +323,7 @@ export class NightAuditCompletionSnapshotBuilder {
         ).length,
         groupStayoverCount: workspace.groupReview.summary.stayover,
       },
+      financial,
     };
   }
 }

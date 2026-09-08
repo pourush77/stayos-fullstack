@@ -501,3 +501,21 @@ Verified: focused live API (reservations/quote, group-room-mix-suggestions, tax 
 Cause: the 72 discrepancies were entirely stale QA test residue in room_type_inventory — 68 ORPHAN_SOLD (stored sold>0 but expected 0) + 4 SOLD_MISMATCH (stored sold > expected), all pure OVER-count. Safety gate confirmed ZERO under-count (stored<expected) and ZERO capacity mismatches, i.e. no real domain defect / no oversell masking — so lifecycle & inventory rules were NOT changed.
 Repair (QA-safe, property-scoped, idempotent; driven by the reconciliation service's own expected values): deleted 68 orphan inventory rows (expectedSold=0) and clamped 4 rows down to service-computed expected sold. No reservations/folios/payments/invoices/config touched. Post-repair reconciliation = 0 discrepancies, consistent=true; invariant check 0 rows with sold<0 or sold>capacity; all reservations preserved (62 CONFIRMED / 1 PENDING / 6 CHECKED_IN / 23 CHECKED_OUT / 6 NO_SHOW / 219 CANCELLED). Cleanup script removed (zero residue). Baseline for F11 is now clean (0).
 
+
+
+## Night Audit V2.4 — Financial Closing Summary (2026-06) — COMPLETE (focused tests + backend build green)
+Goal: extend the existing immutable Night Audit completion snapshot so a closed business day yields a manager-level FINANCIAL CLOSING SUMMARY. No parallel reporting architecture; additive/version-aware on the existing snapshot.
+
+Snapshot version: added `NA-V2.4` (`NIGHT_AUDIT_FINANCIAL_SNAPSHOT_VERSION`) alongside legacy `NA-V2.1` (`NIGHT_AUDIT_COMPLETION_SNAPSHOT_VERSION`, unchanged). `NightAuditCompletionSnapshot` is now a union (V2.1 | V2.4); builder emits V2.4 with an additive `financial` block. Historical NA-V2.1 snapshots never rewritten; legacy NULL-snapshot runs still supported.
+
+New: `NightAuditFinancialSummaryCollector` (collectors/night-audit-financial-summary.collector.ts). Runs on the CLOSE transaction EntityManager so it captures state AFTER nightly posting, BEFORE finalize/date-advance. Charge/payment scoping mirrors RevenueReportService business-date semantics (prefer businessDate; legacy NULL falls back to chargedAt/receivedAt within the day). Read-only, no row mutation.
+- financialSummary: roomRevenue, otherChargeRevenue, grossCharges, taxAmount, paymentsCollected, refunds, netCollections, outstandingBalance (open-folio balances via calculateTotals), currency.
+- paymentBreakdown: net amount per FolioPaymentMethod (CASH/CARD/UPI/BANK_TRANSFER/WALLET/OTHER).
+- operationalSummary: totalRooms, inHouseRooms, stayovers, arrivals, departures, noShows.
+- groupSummary: inHouseGroups, stayoverGroups, masterFolioPaymentsCollected, masterFolioRefunds, accommodationRevenueIncluded=false (group accommodation revenue NOT fabricated as ROOM; master-folio payments counted once, never double-counted).
+Wired into NightAuditService.closeRun (after nightly posting loop, before builder) + registered/exported in NightAuditModule. No migration (jsonb completion_snapshot column reused). No change to close idempotency/atomicity — summary failure aborts the whole close.
+
+Frontend (additive, existing Reports → Night Audit History detail): reports-api NightAuditCompletionSnapshot gained optional `financial`; NightAuditHistoryDetail renders Financial Summary / Payment Breakdown / Operations / Groups cards only for NA-V2.4. NA-V2.1 detail unchanged.
+
+Tests (focused): new collector spec (room-vs-other, tax, reversal netting, payments/refunds/net, method breakdown, outstanding, property isolation, group master single-count, no fabricated group revenue); builder spec updated to NA-V2.4 + financial embed; service spec adds capture-AFTER-posting ordering + blocked-close no-capture; history spec confirms NA-V2.1 backward compat. All affected suites GREEN; `npm run build` (nest) PASS. Frontend build/typecheck NOT runnable in this backend-only pod (no `next` installed; tsconfig requires TS6, installed 5.9.3) — both changed FE files transpile-clean (syntax/JSX valid); full FE build unverified here.
+Deferred (unchanged non-goals): Early-Departure policy, missed-audit recovery, auto night audit, PDF/export/email, group accommodation ledger unification.

@@ -25,6 +25,7 @@ import {
 import { NightAuditRunEntity } from './infrastructure/night-audit-run.entity';
 import { NightAuditService } from './night-audit.service';
 import { NightAuditPreCloseValidator } from './validators/night-audit-pre-close.validator';
+import { NightAuditFinancialSummaryCollector } from './collectors/night-audit-financial-summary.collector';
 import { BillingService } from '../billing/billing.service';
 import { ReservationEntity } from '../reservations/infrastructure/reservation.entity';
 
@@ -41,6 +42,7 @@ describe('NightAuditService', () => {
   let folioExceptionsCollector: { collect: jest.Mock };
   let groupReviewCollector: { collect: jest.Mock };
   let preCloseValidator: { validate: jest.Mock };
+  let financialSummaryCollector: { collect: jest.Mock };
   let dataSource: { transaction: jest.Mock };
 
   let txRunRepo: MockRepository<NightAuditRunEntity>;
@@ -394,6 +396,38 @@ describe('NightAuditService', () => {
       validate: jest.fn().mockReturnValue(mockValidation),
     };
 
+    financialSummaryCollector = {
+      collect: jest.fn().mockResolvedValue({
+        financialSummary: {
+          currency: 'INR',
+          roomRevenue: 0,
+          otherChargeRevenue: 0,
+          grossCharges: 0,
+          taxAmount: 0,
+          paymentsCollected: 0,
+          refunds: 0,
+          netCollections: 0,
+          outstandingBalance: 0,
+        },
+        paymentBreakdown: [],
+        operationalSummary: {
+          totalRooms: 0,
+          inHouseRooms: 0,
+          stayovers: 0,
+          arrivals: 0,
+          departures: 0,
+          noShows: 0,
+        },
+        groupSummary: {
+          inHouseGroups: 0,
+          stayoverGroups: 0,
+          masterFolioPaymentsCollected: 0,
+          masterFolioRefunds: 0,
+          accommodationRevenueIncluded: false,
+        },
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         NightAuditService,
@@ -440,6 +474,10 @@ describe('NightAuditService', () => {
         {
           provide: NightAuditPreCloseValidator,
           useValue: preCloseValidator,
+        },
+        {
+          provide: NightAuditFinancialSummaryCollector,
+          useValue: financialSummaryCollector,
         },
       ],
     }).compile();
@@ -1278,6 +1316,46 @@ describe('NightAuditService', () => {
         expect(txRunRepo.save).not.toHaveBeenCalled();
         expect(txPropertyRepo.save).not.toHaveBeenCalled();
         expect(txAuditRepo.save).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('V2.4 financial closing summary capture', () => {
+      const eligibleReservation = (id: string) => ({ id }) as unknown as ReservationEntity;
+
+      it('captures the financial summary AFTER nightly posting and embeds it in the NA-V2.4 snapshot', async () => {
+        txReservationQueryBuilder.getMany.mockResolvedValueOnce([eligibleReservation('res-nightly-1')]);
+
+        const result = await service.closeRun(mockPropertyId, mockUserId);
+
+        expect(financialSummaryCollector.collect).toHaveBeenCalledTimes(1);
+        // Ordering invariant: nightly posting happens BEFORE the summary is captured
+        const posterOrder =
+          billingService.postNightlyAccommodationChargeOnManager.mock.invocationCallOrder[0];
+        const collectorOrder = financialSummaryCollector.collect.mock.invocationCallOrder[0];
+        expect(collectorOrder).toBeGreaterThan(posterOrder);
+
+        // Same transaction manager, propertyId, closing business date and workspace passed
+        const [managerArg, propertyIdArg, businessDateArg, workspaceArg, currencyArg] =
+          financialSummaryCollector.collect.mock.calls[0];
+        expect((managerArg as EntityManager).getRepository(ReservationEntity)).toBe(txReservationRepo);
+        expect(propertyIdArg).toBe(mockPropertyId);
+        expect(businessDateArg).toBe(mockRun.businessDate);
+        expect(workspaceArg).toEqual(mockCleanWorkspace);
+        expect(currencyArg).toBeDefined();
+
+        // Snapshot persisted at NA-V2.4 with the financial block
+        expect(result.run.completionSnapshotVersion).toBe('NA-V2.4');
+        expect((result.run.completionSnapshot as unknown as Record<string, unknown>).financial).toBeDefined();
+      });
+
+      it('does not capture the summary when close is blocked', async () => {
+        preCloseValidator.validate.mockReturnValueOnce(mockValidation);
+
+        await expect(service.closeRun(mockPropertyId, mockUserId)).rejects.toBeInstanceOf(
+          ConflictException,
+        );
+
+        expect(financialSummaryCollector.collect).not.toHaveBeenCalled();
       });
     });
   });

@@ -7,9 +7,45 @@ import {
   NightAuditWorkspaceDto,
 } from '../dto/night-audit-workspace.dto';
 import {
-  NIGHT_AUDIT_COMPLETION_SNAPSHOT_VERSION,
+  NIGHT_AUDIT_FINANCIAL_SNAPSHOT_VERSION,
   NightAuditCompletionSnapshotBuilder,
+  type NightAuditCompletionSnapshotFinancialSummary,
 } from './night-audit-completion-snapshot';
+
+function representativeFinancial(): NightAuditCompletionSnapshotFinancialSummary {
+  return {
+    financialSummary: {
+      currency: 'INR',
+      roomRevenue: 5000,
+      otherChargeRevenue: 1200,
+      grossCharges: 7316,
+      taxAmount: 1116,
+      paymentsCollected: 4000,
+      refunds: 500,
+      netCollections: 3500,
+      outstandingBalance: 3816,
+    },
+    paymentBreakdown: [
+      { method: 'CASH', amount: 1500 },
+      { method: 'CARD', amount: 2000 },
+    ],
+    operationalSummary: {
+      totalRooms: 40,
+      inHouseRooms: 3,
+      stayovers: 1,
+      arrivals: 2,
+      departures: 1,
+      noShows: 0,
+    },
+    groupSummary: {
+      inHouseGroups: 2,
+      stayoverGroups: 1,
+      masterFolioPaymentsCollected: 800,
+      masterFolioRefunds: 0,
+      accommodationRevenueIncluded: false,
+    },
+  };
+}
 
 const run = {
   id: 'run-1',
@@ -23,7 +59,7 @@ const completedAt = new Date('2026-09-06T19:15:00.000Z');
 describe('NightAuditCompletionSnapshotBuilder', () => {
   const builder = new NightAuditCompletionSnapshotBuilder();
 
-  it('builds a deterministic NA-V2.1 snapshot from representative workspace', () => {
+  it('builds a deterministic NA-V2.4 snapshot from representative workspace', () => {
     const workspace = representativeWorkspace();
     const validation = successfulValidation();
     const input = {
@@ -33,10 +69,11 @@ describe('NightAuditCompletionSnapshotBuilder', () => {
       nextBusinessDate: '2026-09-07',
       completedAt,
       actorUserId: 'closer-1',
+      financial: representativeFinancial(),
     };
 
     expect(builder.build(input)).toEqual(builder.build(input));
-    expect(builder.build(input).version).toBe(NIGHT_AUDIT_COMPLETION_SNAPSHOT_VERSION);
+    expect(builder.build(input).version).toBe(NIGHT_AUDIT_FINANCIAL_SNAPSHOT_VERSION);
   });
 
   it('maps identity, business dates, and actors from supplied inputs', () => {
@@ -47,6 +84,7 @@ describe('NightAuditCompletionSnapshotBuilder', () => {
       nextBusinessDate: '2026-09-07',
       completedAt,
       actorUserId: 'closer-1',
+      financial: representativeFinancial(),
     });
 
     expect(snapshot).toMatchObject({
@@ -127,15 +165,12 @@ describe('NightAuditCompletionSnapshotBuilder', () => {
     ]);
   });
 
-  it('does not introduce financial business-date reporting metrics', () => {
-    const snapshotJson = JSON.stringify(builder.build(baseInput()));
+  it('embeds the NA-V2.4 financial closing summary verbatim from input', () => {
+    const financial = representativeFinancial();
+    const snapshot = builder.build({ ...baseInput(), financial });
 
-    expect(snapshotJson).not.toContain('revenue');
-    expect(snapshotJson).not.toContain('roomRevenue');
-    expect(snapshotJson).not.toContain('taxes');
-    expect(snapshotJson).not.toContain('paymentsCollected');
-    expect(snapshotJson).not.toContain('refunds');
-    expect(snapshotJson).not.toContain('chargesPosted');
+    expect(snapshot.financial).toEqual(financial);
+    expect(snapshot.financial.groupSummary.accommodationRevenueIncluded).toBe(false);
   });
 
   it('refuses to build when close validation contains blockers', () => {
@@ -170,6 +205,7 @@ function baseInput() {
     nextBusinessDate: '2026-09-07',
     completedAt,
     actorUserId: 'closer-1',
+    financial: representativeFinancial(),
   };
 }
 

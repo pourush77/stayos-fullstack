@@ -94,6 +94,35 @@ export type NightAuditCompletionSnapshot = {
     };
   };
   inHouseSummary: Record<string, number>;
+  financial?: {
+    financialSummary: {
+      currency: string | null;
+      roomRevenue: number;
+      otherChargeRevenue: number;
+      grossCharges: number;
+      taxAmount: number;
+      paymentsCollected: number;
+      refunds: number;
+      netCollections: number;
+      outstandingBalance: number;
+    };
+    paymentBreakdown: Array<{ method: string; amount: number }>;
+    operationalSummary: {
+      totalRooms: number;
+      inHouseRooms: number;
+      stayovers: number;
+      arrivals: number;
+      departures: number;
+      noShows: number;
+    };
+    groupSummary: {
+      inHouseGroups: number;
+      stayoverGroups: number;
+      masterFolioPaymentsCollected: number;
+      masterFolioRefunds: number;
+      accommodationRevenueIncluded: false;
+    };
+  };
 };
 
 export type NightAuditHistoryRowDto = {
