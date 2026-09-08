@@ -948,6 +948,22 @@ describe('BillingService', () => {
       expect(result).toBe(seededPersistedNightly);
     });
 
+    it('locks the folio row WITHOUT relations (avoids FOR UPDATE over an outer join)', async () => {
+      seedNightlyPoster();
+
+      await service.postNightlyAccommodationCharge(propertyId, reservationId, serviceDate);
+
+      const calls = (managerFoliosRepository.findOne as jest.Mock).mock.calls.map(
+        (c) => (c[0] || {}) as any,
+      );
+      // No folio read may combine a pessimistic lock with joined relations.
+      expect(calls.filter((o) => o.lock && o.relations)).toHaveLength(0);
+      // A bare-row lock is still taken.
+      const locked = calls.filter((o) => o.lock);
+      expect(locked.length).toBeGreaterThan(0);
+      expect(locked.every((o) => !o.relations)).toBe(true);
+    });
+
     it('calculates and freezes GST for the one service night using serviceDate', async () => {
       seedNightlyPoster();
       gstService.computeTax = jest.fn(async () => ({

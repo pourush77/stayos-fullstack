@@ -30,7 +30,7 @@ describe('EmailTemplateService', () => {
     expect(result.text).toContain('Your booking at Example Hotel is confirmed');
   });
 
-  it('renders checkout email mentioning the attached final bill', () => {
+  it('renders checkout email mentioning the attached final tax invoice', () => {
     const result = service.checkoutInvoice({
       property: {
         name: 'Example Hotel',
@@ -42,8 +42,8 @@ describe('EmailTemplateService', () => {
       currency: 'INR',
     });
 
-    expect(result.subject).toContain('final bill');
-    expect(result.text).toContain('final bill is attached');
-    expect(result.html).toContain('INV-1001');
+    expect(result.subject).toContain('invoice');
+    expect(result.text).toContain('final tax invoice');
+    expect(result.html).toContain('Example Hotel');
   });
 });

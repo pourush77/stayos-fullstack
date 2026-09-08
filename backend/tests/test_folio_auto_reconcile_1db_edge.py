@@ -31,7 +31,7 @@ SUITE = "0f0b435d-80f7-4dda-a3b6-863e21fe7cab"
 
 
 @pytest.fixture(scope="module")
-def plans(token):
+def plans(token):  # noqa: F811 - pytest fixture reuse of imported `token`
     """Idempotent get-or-create of the ACTIVE Deluxe plan used by this module."""
     code = f"{TAG}A"
     existing = psql(f"select id from rate_plans where code='{code}' and property_id='{PID}'")
@@ -65,7 +65,7 @@ class TestUnpricedAmendment:
     REJECTED (400) upstream, so the folio can never silently drift onto an
     UNPRICED snapshot version via this path."""
 
-    def test_room_type_change_without_applicable_plan_is_rejected(self, token, plans):
+    def test_room_type_change_without_applicable_plan_is_rejected(self, token, plans):  # noqa: F811
         rid = make_reservation(token, d(80), d(82), _plan_a(plans))
         f = folio(token, rid)
         before = live_room_charges(f)[0]
@@ -85,7 +85,7 @@ class TestUnpricedAmendment:
 class TestNonOpenFolio:
     """reconcileRoomChargesOnManager returns early when the folio is not OPEN."""
 
-    def test_settled_folio_not_reconciled(self, token, plans):
+    def test_settled_folio_not_reconciled(self, token, plans):  # noqa: F811
         rid = make_reservation(token, d(86), d(88), _plan_a(plans))
         f = folio(token, rid)
         fid = f["id"]
@@ -110,7 +110,7 @@ class TestAuditAttribution:
     """Auto-reconcile is invoked without an actor id; record what lands in
     created_by_user_id for the REVERSAL and repost rows."""
 
-    def test_reversal_and_repost_actor_attribution(self, token, plans):
+    def test_reversal_and_repost_actor_attribution(self, token, plans):  # noqa: F811
         rid = make_reservation(token, d(92), d(94), _plan_a(plans))
         fid = folio(token, rid)["id"]
         print(

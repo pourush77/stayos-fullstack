@@ -6,6 +6,7 @@ import { RatesController } from './rates.controller';
 import { RatesService } from './rates.service';
 import { RestrictionService } from './restriction.service';
 import { TaxService } from './tax.service';
+import { GstService } from './gst.service';
 
 const propertyId = '4075c8fa-f36e-4f40-a3ef-2e9dbb1f0670';
 
@@ -63,6 +64,12 @@ describe('RatesController', () => {
     upsertRestrictions: jest.fn(),
     deleteRestriction: jest.fn(),
   };
+  const gstService = {
+    listTaxRules: jest.fn(),
+    createTaxRule: jest.fn(),
+    updateTaxRule: jest.fn(),
+    deleteTaxRule: jest.fn(),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -81,6 +88,10 @@ describe('RatesController', () => {
         {
           provide: RestrictionService,
           useValue: restrictionService,
+        },
+        {
+          provide: GstService,
+          useValue: gstService,
         },
       ],
     }).compile();

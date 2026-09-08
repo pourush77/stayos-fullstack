@@ -612,15 +612,15 @@ export class BillingService {
       throw new BadRequestException('Snapshot nightly amount is inconsistent with nightly components');
     }
 
-    let folio = await folioRepo.findOne({
-      where: { reservationId, propertyId },
-      relations: { property: true, guest: true },
-      lock: { mode: 'pessimistic_write' },
-    });
+    let folio = await folioRepo.findOne({ where: { reservationId, propertyId } });
     if (folio && folio.status !== FolioStatus.OPEN) {
       throw new BadRequestException('Cannot post nightly accommodation to a folio that is not OPEN');
     }
-    if (!folio) {
+    if (folio) {
+      // Lock ONLY the bare folio row FOR UPDATE. Locking a relations join triggers
+      // PostgreSQL "FOR UPDATE cannot be applied to the nullable side of an outer join".
+      await this.lockFolio(manager, propertyId, folio.id);
+    } else {
       const folioNumber = await this.nextFolioNumber(propertyId);
       folio = await folioRepo.save(
         folioRepo.create({
@@ -632,11 +632,12 @@ export class BillingService {
           currency: 'INR',
         }),
       );
-      folio = await folioRepo.findOne({
-        where: { id: folio.id },
-        relations: { property: true, guest: true },
-      });
     }
+    // Load relations separately (no lock) for downstream property/guest usage.
+    folio = await folioRepo.findOne({
+      where: { id: folio.id },
+      relations: { property: true, guest: true },
+    });
     if (!folio) throw new NotFoundException('Unable to obtain folio for reservation');
 
     const idempotencyKey = this.buildNightlyAccommodationIdempotencyKey(
